@@ -1,0 +1,21 @@
+# Build and output directories
+**/bin/
+**/obj/
+**/out/
+
+# Rider
+.idea/
+
+# Visual Studio
+*.user
+*.suo
+
+# F# specific
+# For compiled artifacts
+*.exe
+*.dll
+*.pdb
+
+# .dotnet and build system files
+.dotnet/
+dotnet/
