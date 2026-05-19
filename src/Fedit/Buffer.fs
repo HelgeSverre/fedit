@@ -11,20 +11,36 @@ type BufferRevision =
       Dirty: bool }
 
 type BufferState =
-    { Id: int
-      FilePath: string option
-      Name: string
-      Document: PieceTable
-      Lines: string[]
-      Cursor: Position
-      PreferredColumn: int option
-      Selection: int option
-      ViewportTop: int
-      ViewportLeft: int
-      Dirty: bool
-      Newline: string
-      Undo: BufferRevision list
-      Redo: BufferRevision list }
+    {
+        /// Unique identifier for the buffer
+        Id: int
+        /// Optional path to the file this buffer represents
+        FilePath: string option
+        /// Display name for the buffer (filename or "scratch")
+        Name: string
+        /// The underlying PieceTable data structure storing text content
+        Document: PieceTable
+        /// Cached array of lines (split by newlines) for efficient access
+        Lines: string[]
+        /// Current cursor position (line and column)
+        Cursor: Position
+        /// Preferred column for vertical movement (maintains horizontal position when moving up/down)
+        PreferredColumn: int option
+        /// Optional anchor position for text selection
+        Selection: int option
+        /// Top line of the visible viewport
+        ViewportTop: int
+        /// Left column of the visible viewport
+        ViewportLeft: int
+        /// Flag indicating if the buffer has unsaved changes
+        Dirty: bool
+        /// The newline character(s) to use ("\n", "\r\n", etc.)
+        Newline: string
+        /// List of previous buffer states for undo functionality
+        Undo: BufferRevision list
+        /// List of redo states for redo functionality
+        Redo: BufferRevision list
+    }
 
 [<RequireQualifiedAccess>]
 module Buffer =
