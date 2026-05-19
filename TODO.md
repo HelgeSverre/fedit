@@ -8,7 +8,7 @@ Active work and future ideas. Shipped phases (0–6) live in
 | Phase                                             | State   | Hook                                                                                                   |
 | ------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
 | **Phase 7 — Tier 2 frame snapshots**              | Pending | Verify.Xunit + `Snapshot.fs` projector + ~8–10 baseline scenarios.                                     |
-| **Phase 8 — Tier 3 binary smoke**                 | Pending | `Process.Start` exit-code checks, 3–5 scenarios, no external tooling.                                  |
+| **Phase 8 — Tier 3 binary smoke**                 | Shipped | `dotnet run` from xunit covers `--help` / `-h` / `--version` short-circuits. Interactive scenarios deferred. |
 | **Phase 9 — Quick wins**                          | Shipped | Buffer double-computeLines fixed; `jsonEscape` removed earlier (config DOM); motion helper landed.     |
 | **Phase 10 — Module splits**                      | Pending | Typed command payloads, `Editor.fs` split, `Runtime.fs` split.                                         |
 | **Phase 11 — Renderer diff**                      | Pending | Cell-level diff against previous frame; drop `pad`/`crop` allocations.                                 |

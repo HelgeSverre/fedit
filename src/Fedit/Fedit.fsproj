@@ -20,6 +20,12 @@
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Explicit reference so FSharp.Core ships in bin/ even for non-SDK
+         invocations (e.g. binary smoke tests via `dotnet run`). Version
+         pinned in Directory.Packages.props. -->
+    <PackageReference Include="FSharp.Core" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Include="Primitives.fs" />
     <Compile Include="PieceTable.fs" />
     <Compile Include="Buffer.fs" />
