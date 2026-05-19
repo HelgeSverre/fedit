@@ -1,9 +1,10 @@
 # fedit testing strategy
 
-Living plan for a complete automated test suite. **Scheduled to land after
-the TODO.md phases are complete** — specifically after Phase 2 (module
-reorganization), so tests can be written against the split files instead
-of needing to be rewritten when `Program.fs` is broken up.
+Living plan for a complete automated test suite. **Scheduled to land
+after Phase 2 (module reorganization)**, so tests can be written
+against the split files instead of needing to be rewritten when
+`Program.fs` is broken up. Other phases (3, 5) can land before or
+after the test suite.
 
 This document captures the decision and rationale up front so a future
 session can implement it without re-deriving the design.
@@ -146,7 +147,7 @@ let render (screen: Screen) : string =
 - Opened file, editor focus, cursor at line 3 col 5.
 - Sidebar focused, file tree expanded one level.
 - Command bar active with `:o` typed, completions visible.
-- Command bar active with `:theme yel` typed (covers tier 0 themes).
+- Command bar active with `:theme yel` typed (covers Phase 0 themes).
 - Dirty buffer in status line.
 - Buffer scrolled horizontally and vertically.
 - Notification banner showing each `Severity`.

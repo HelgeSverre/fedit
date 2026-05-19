@@ -22,6 +22,19 @@ clean:
     {{dotnet}} clean {{project}}
     rm -rf bin obj
 
+# Format F# sources with fantomas (local tool).
+format:
+    {{dotnet}} tool restore
+    {{dotnet}} fantomas .
+
+# Verify formatting without writing — fails if any file would change.
+format-check:
+    {{dotnet}} tool restore
+    {{dotnet}} fantomas --check .
+
+# Run format-check + build as a single pre-commit gate.
+check: format-check build
+
 # Install fedit to a local bin directory as a self-contained single-file binary.
 install dest="~/.local/bin":
     {{dotnet}} publish {{project}} -c Release -p:PublishSingleFile=true --self-contained true -o bin/dist

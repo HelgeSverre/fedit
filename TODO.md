@@ -3,24 +3,65 @@
 Living plan for cleanup, structural work, and feature growth. Items are
 ordered by phase — earlier phases unblock later ones.
 
+## Status (2026-05-19)
+
+| Area | State |
+|------|-------|
+| **Phase 0 — Theming** | ✅ Complete (9/9). `:theme <name>` works end-to-end with live preview, persists to `~/.config/fedit/config.json`, restored on startup. |
+| **F1** (gutter width) | ✅ Done — folded into Phase 0 Layout rewire. |
+| **F2, F3** | Deferred to Phase 2 (rehoused during the file split). |
+| **F4, F5, F6, F7** | Not started. Independent of Phase 0; safe to parallelize. |
+| **Phase 2 — Module reorg** | Not started; Phase 0 no longer blocks it. |
+| **Phase 3 — UX features** | Not started. |
+| **Phase 4 — DX: Install recipe** | ✅ Done (`just install` / `just uninstall`). |
+| **Phase 4 — DX: Format / format-check / check** | ✅ Done (fantomas recipes in `justfile`). |
+| **Phase 4 — DX: Tests / CI / etc.** | Not started; tests scheduled for after Phase 2. |
+| **Phase 5 — Performance** | Not started. |
+
+Recently landed (this session):
+
+- Theme record + 8 bundled palettes (`cyan` default, plus `teal`,
+  `green`, `yellow`, `orange`, `red`, `magenta`, `purple`).
+- `Buffer.gutterWidth` extracted; viewport math now consistent between
+  `Editor.updateActiveBuffer` and `Layout.renderEditor` (F1 fixed).
+- `Layout` split into fixed grayscale constants + theme-derived
+  chromatic styles via `accentOf`/`statusOf`/`selectedOf`/
+  `currentLineOf`, with `effectiveTheme` resolving preview-or-committed.
+- `Model.Theme` field, threaded from `Editor.init rootPath size theme`.
+- `Command.Theme of string` with validating constructor; `Commands`
+  completions and parser updated.
+- `CommandBar.PreviewTheme : Theme option` + `Editor.updatePreview`;
+  Tab/ShiftTab cycling repaints the whole UI live.
+- Persistence: `SaveConfig of themeName` effect + `ConfigSaved`
+  Msg, write to `~/.config/fedit/config.json` via `Runtime.saveConfig`
+  on every commit; failures surface as a `Notification.warning`.
+- Startup load: `Runtime.loadConfig` reads the file via
+  `System.Text.Json.JsonDocument` before `Editor.init`, with silent
+  fallback to `cyan` on any failure.
+- TODO.md and TESTING.md self-consistency pass (findings table now
+  includes F7, line refs converted to symbol refs, Phase 2 file table
+  includes `Themes.fs`, dead bullets removed).
+
 ## Architecture review findings
 
-All six items are FRICTION severity — no structural breaks, but each one
-either hides a latent bug or makes future change more expensive than it
-needs to be.
+All seven items are FRICTION severity — no structural breaks, but each
+one either hides a latent bug or makes future change more expensive
+than it needs to be. References are by symbol so they survive edits;
+grep the symbol if a line is wanted.
 
 | # | Where | Finding |
 |---|-------|---------|
-| F1 | `Program.fs:809`, `Program.fs:1364` | Viewport gutter width hardcoded `8` in `Editor.updateActiveBuffer`; `Layout.renderEditor` computes it as `digits + 2`. They will diverge for buffers with few or many lines and produce wrong horizontal scroll. |
-| F2 | `Program.fs:1134-1159` | `Editor.statusLine` and `Editor.dockPanel` build view strings inside the update module. They belong in the view layer. |
-| F3 | `Program.fs:627-640` | `Workspace.metadata` returns user-facing strings like `"Ctrl+B tree"`. UI strings leaking into the workspace data module. |
-| F4 | `Program.fs:907` | Newline conversion (`text.Replace("\n", buffer.Newline)`) lives in `Editor.saveActiveBuffer`. `Buffer` knows the original line ending but doesn't expose a `serialize`. Caller has to remember the convention. |
-| F5 | `Program.fs:1186`, `Program.fs:1252` | `Renderer` is a single-field wrapper over `TextWriter`. Adds indirection without reducing complexity for the caller. |
-| F6 | `Program.fs:602-610` | `Workspace.collapseSelected` also reparents selection when the entry isn't expandable. Behavior invisible from the name. |
+| F1 | `Editor.updateActiveBuffer`, `Layout.renderEditor` | Viewport gutter width hardcoded `8` in `updateActiveBuffer`; `renderEditor` computes it as `digits + 2`. They will diverge for buffers with few or many lines and produce wrong horizontal scroll. |
+| F2 | `Editor.statusLine`, `Editor.dockPanel` | Build view strings inside the update module. They belong in the view layer. |
+| F3 | `Workspace.metadata` | Returns user-facing strings like `"Ctrl+B tree"`. UI strings leaking into the workspace data module. |
+| F4 | `Editor.saveActiveBuffer` | Newline conversion (`text.Replace("\n", buffer.Newline)`) lives here. `Buffer` knows the original line ending but doesn't expose a `serialize`. Caller has to remember the convention. |
+| F5 | `type Renderer`, `module Renderer` | `Renderer` is a single-field wrapper over `TextWriter`. Adds indirection without reducing complexity for the caller. |
+| F6 | `Workspace.collapseSelected` | Also reparents selection when the entry isn't expandable. Behavior invisible from the name. |
+| F7 | `Runtime.scanNode` | Wraps each child iteration in `try ... with _ -> ()`, so permission-denied folders or unreadable entries silently disappear from the tree. No surfacing to the user. |
 
 ---
 
-## Phase 0 — Theming (next)
+## Phase 0 — Theming (complete, 9/9) ✅
 
 Goal: let the user swap fedit's blue/cyan accent for another color
 family — green, yellow, purple, etc. — through a `:theme` command with
@@ -29,8 +70,10 @@ grayscale chrome the editor uses today.
 
 ### What "accent" means today
 
-`Layout` hardcodes its colors at `Program.fs:1320-1330`. The chromatic
-slots — the only ones that should change with a theme — are:
+`Layout` hardcodes its colors at the top of `module Layout` (the
+`surface`, `chrome`, `accent`, `status`, `commandBar`, `selected`,
+`lineNumber`, `currentLineNumber` `let private`s). The chromatic slots
+— the only ones that should change with a theme — are:
 
 | Slot | ANSI 256 | Role |
 |------|---------:|------|
@@ -81,38 +124,47 @@ speculative; the accent swap matches the immediate ask.
 - [x] Add a `Theme` record (Tier A fields) and a `Themes` module
       holding the bundled list plus `tryFind : string -> Theme option`
       and `all : Theme list`. The `cyan` theme is the default.
-- [ ] Replace the `Layout` module-level color constants with values
+- [x] Replace the `Layout` module-level color constants with values
       derived from a `Theme` parameter (or read from `model.Theme`).
-      Grayscale slots stay as module-level constants.
-- [ ] Add `Theme of string` to the `Command` discriminated union and a
+      Grayscale slots stay as module-level constants. **F1 folded in:**
+      `Buffer.gutterWidth` extracted and called from both
+      `Editor.updateActiveBuffer` and `Layout.renderEditor`.
+- [x] Add `Theme of string` to the `Command` discriminated union and a
       `Spec` entry in `Commands.specs` with usage `theme <name>` and a
       validator that rejects unknown names with
       `Invalid "unknown theme '<name>'"`.
-- [ ] Extend `Commands.completions` so `theme ` completes against the
+- [x] Extend `Commands.completions` so `theme ` completes against the
       bundled theme names. Reuse the existing `CompletionItem` flow
       (same as `open`).
-- [ ] Add `Theme : Theme` to `Model` (or wherever theming lives after
-      the Phase 2 reshuffle).
-- [ ] **Live preview.** Add `PreviewTheme : Theme option` to
-      `CommandBarState`. `Layout.render` resolves the active theme as
-      `model.CommandBar.PreviewTheme |> Option.defaultValue model.Theme`.
-      Update preview whenever the command bar text or selected
-      completion changes:
-      - If `Parsed = Ready (Theme name)` and `Themes.tryFind name` is
-        `Some`, use that.
-      - Else if the selected completion's `ApplyText` parses to a
-        known theme, use that.
-      - Else `None`.
-      Wipe `PreviewTheme` on close, Escape, or successful commit.
-- [ ] On `Enter` with `Ready (Theme name)`, set `model.Theme` and
+- [x] Add `Theme : Theme` to `Model` (or wherever theming lives after
+      the Phase 2 reshuffle). Defaults to `Themes.defaultTheme` in
+      `Editor.init`.
+- [x] **Live preview.** Added `PreviewTheme : Theme option` to
+      `CommandBarState`. `Layout.effectiveTheme` resolves the visible
+      theme as `model.CommandBar.PreviewTheme |> Option.defaultValue
+      model.Theme`. Preview is recomputed in `Editor.updatePreview` on
+      text changes (via `refreshCommandBar`) and on Tab/ShiftTab
+      cycling. Selected completion wins; falls back to `Parsed =
+      Ready (Theme name)`; `None` otherwise. Cleared in
+      `closeCommandBar` (Escape, successful commit, dismissal).
+- [x] On `Enter` with `Ready (Theme name)`, set `model.Theme` and
       persist `{"theme": "<name>"}` to `~/.config/fedit/config.json`.
-- [ ] On startup, load `~/.config/fedit/config.json` if it exists; map
+      Implemented as a `SaveConfig of themeName: string` effect emitted
+      from `executeCommand`; `Runtime.runEffect` writes the file and
+      replies with a `ConfigSaved of Result<unit, string>` Msg. On
+      failure, a `Notification.warning` is surfaced; success is silent
+      (the "Theme: <name>" notification is already showing).
+- [x] On startup, load `~/.config/fedit/config.json` if it exists; map
       `theme` to a `Themes.tryFind` and fall back silently to `cyan`
-      when missing or unknown.
-- [ ] `:theme` with no argument should resolve to `Pending "Theme name
+      when missing or unknown. `Runtime.loadConfig` reads the file via
+      `System.Text.Json.JsonDocument` and feeds the result into
+      `Editor.init rootPath size theme`. All failure modes (missing
+      file, malformed JSON, unknown theme name, non-string value)
+      fall through to `Themes.defaultTheme`.
+- [x] `:theme` with no argument resolves to `Pending "Theme name
       required."` so the dock shows the help line and the completion
-      list shows every theme — turning the command bar itself into the
-      picker, no new UI required.
+      list shows every theme — the command bar itself is the picker.
+      (Fell out of the constructor; no extra code needed.)
 
 ### UX notes
 
@@ -120,10 +172,9 @@ speculative; the accent swap matches the immediate ask.
   themselves as the user Tabs through choices. That's a feature, not
   a bug — it lets the user see the picker in the theme they're about
   to commit.
-- Themes are *not* listed in the `help` dock today; once Phase 0
-  lands, add a short note to `Commands.helpLines` like
-  `"theme <name>  Switch accent color (cyan|teal|green|…)"` so the
-  list of themes is discoverable from `:help`.
+- `:help` already includes the `theme <name>` line — `Commands.helpLines`
+  auto-derives from `Commands.specs`, so the spec entry I added makes
+  this free. No further work needed.
 
 ### Open questions
 
@@ -144,10 +195,12 @@ The point of this phase is to land the smallest, cheapest fixes first so
 the diff stays reviewable and the bigger reshuffle in Phase 2 doesn't
 have to also encode bug fixes.
 
-- [ ] **F1** Extract `gutterWidth : BufferState -> int` (e.g., as
-      `Buffer.gutterWidth` or `Layout.gutterWidth`) and call it from
-      both `Editor.updateActiveBuffer` and `Layout.renderEditor`. Drop
-      the magic `8`.
+**F1 is intentionally absent from this list** — it's folded into the
+Phase 0 Layout rewire (same function, same edit). **F2 and F3 are also
+absent** — both are addressed during Phase 2's file split because the
+module move rehouses them naturally; doing them now would force the
+same code to be touched twice.
+
 - [ ] **F4** Add `Buffer.serialize : BufferState -> string` that applies
       `Newline` conversion. Replace the inline `.Replace("\n", ...)` in
       `Editor.saveActiveBuffer`.
@@ -158,14 +211,14 @@ have to also encode bug fixes.
 - [ ] **F6** Rename `Workspace.collapseSelected` to something honest
       (`collapseOrAscend`) or split into `tryCollapseSelected` plus
       `selectParent`, called in sequence from `runSidebar`.
-- [ ] **F7** Surface workspace-scan errors. `Runtime.scanNode`
-      (`Program.fs:1456-1481`) wraps each child iteration in
-      `try ... with _ -> ()`, so permission-denied folders or unreadable
-      entries silently disappear from the tree. At minimum, count
-      skipped entries and attach the count to the `WorkspaceLoaded`
-      notification (e.g., `"Indexed foo (3 entries skipped)"`). Better:
-      return a `FileNode` plus a `string list` of skip reasons so the
-      caller can surface them.
+- [ ] **F7** Surface workspace-scan errors. `Runtime.scanNode` wraps
+      each child iteration in `try ... with _ -> ()`, so
+      permission-denied folders or unreadable entries silently
+      disappear from the tree. At minimum, count skipped entries and
+      attach the count to the `WorkspaceLoaded` notification (e.g.,
+      `"Indexed foo (3 entries skipped)"`). Better: return a
+      `FileNode` plus a `string list` of skip reasons so the caller
+      can surface them.
 
 ## Phase 2 — Module reorganization
 
@@ -179,15 +232,16 @@ stay small enough to navigate without folding.
 | 2 | `PieceTable.fs` | `PieceSource`, `Piece`, `PieceTable` type + module |
 | 3 | `Buffer.fs` | `BufferRevision`, `BufferState`, `Buffer` module (incl. new `serialize` and `gutterWidth`) |
 | 4 | `Workspace.fs` | `FileNode`, `WorkspaceEntry`, `WorkspaceState`, `SidebarAction`, `Workspace` module — `metadata` returns structured data, not display strings |
-| 5 | `Commands.fs` | `Command`, `ParsedCommand`, `CommandContext`, `Commands` module |
-| 6 | `Model.fs` | `EditorsState`, `CommandBarState`, `PanelsState`, `Model`, `Msg`, `Effect` |
-| 7 | `Editor.fs` | `Editor` module — pure `update`, `init`, helpers. **No** `statusLine`/`dockPanel`. |
-| 8 | `Screen.fs` | `Color`, `Style`, `Cell`, `Cursor`, `Screen`, `Style` + `Screen` modules |
-| 9 | `View.fs` | `Layout.render`, `statusLine`, `dockPanel`, workspace-row formatting (formerly in Editor + Workspace.metadata) |
-| 10 | `Renderer.fs` | `Renderer` module (or just `Ansi` functions if F5 deletes the wrapper) |
-| 11 | `Input.fs` | `Input.tryMap` |
-| 12 | `Runtime.fs` | Effect interpreter, main loop |
-| 13 | `Program.fs` | `[<EntryPoint>]` only — argv parsing + `Runtime.run` |
+| 5 | `Themes.fs` | `Theme` type, `Themes` module with bundled palette list |
+| 6 | `Commands.fs` | `Command`, `ParsedCommand`, `CommandContext`, `Commands` module (incl. `Command.Theme of string` after Phase 0) |
+| 7 | `Model.fs` | `EditorsState`, `CommandBarState`, `PanelsState`, `Model` (with `Theme : Theme`), `Msg`, `Effect` |
+| 8 | `Editor.fs` | `Editor` module — pure `update`, `init`, helpers. **No** `statusLine`/`dockPanel`. |
+| 9 | `Screen.fs` | `Color`, `Style`, `Cell`, `Cursor`, `Screen`, `Style` + `Screen` modules |
+| 10 | `View.fs` | `Layout.render`, `statusLine`, `dockPanel`, workspace-row formatting (formerly in Editor + Workspace.metadata) |
+| 11 | `Renderer.fs` | `Renderer` module (or just `Ansi` functions if F5 deletes the wrapper) |
+| 12 | `Input.fs` | `Input.tryMap` |
+| 13 | `Runtime.fs` | Effect interpreter, main loop |
+| 14 | `Program.fs` | `[<EntryPoint>]` only — argv parsing + `Runtime.run` |
 
 Update `fedit.fsproj` `<Compile Include="..." />` entries to match.
 
@@ -230,7 +284,7 @@ slice of work.
 
 ## Phase 4 — DX
 
-- [ ] **Install recipe.** ✅ Landed in `justfile` (`just install`,
+- [x] **Install recipe.** Landed in `justfile` (`just install`,
       `just uninstall`). Defaults to `~/.local/bin` and produces a
       self-contained single-file binary so the result works on machines
       without .NET installed.
@@ -264,25 +318,25 @@ matching, `Result<_,_>` are already idiomatic here), but the items
 below are the ones with real bite. Ordered by impact, not difficulty.
 
 - [ ] **P1 — Cache derived line data on `BufferState`.**
-      `Buffer.rawLines` (`Program.fs:276`) calls `PieceTable.toString`
-      and `Split('\n')` every time, and is called transitively by
-      `clamp`, `positionToIndex`, `indexToPosition`, `line`,
-      `lineCount`, and the renderer's per-frame `Buffer.lines` at
-      `Program.fs:1362`. Net effect: every keystroke rebuilds the
+      `Buffer.rawLines` calls `PieceTable.toString` and `Split('\n')`
+      every time, and is called transitively by `clamp`,
+      `positionToIndex`, `indexToPosition`, `line`, `lineCount`, and
+      the renderer's per-frame `Buffer.lines` inside
+      `Layout.renderEditor`. Net effect: every keystroke rebuilds the
       entire document string several times, which defeats the whole
-      point of using a piece table. Options: (a) memoize `rawLines` on
-      `BufferState` and invalidate inside `changeDocument`; (b) store
-      a `LineOffsets : int[]` array on `BufferState` that holds the
-      byte index of each `\n`, recomputed only on edit. (b) is faster
-      but more work. Either way, the public `Buffer.lines`/`line`/
-      `lineCount` API stays the same.
+      point of using a piece table. Options: (a) memoize `rawLines`
+      on `BufferState` and invalidate inside `changeDocument`; (b)
+      store a `LineOffsets : int[]` array on `BufferState` that holds
+      the byte index of each `\n`, recomputed only on edit. (b) is
+      faster but more work. Either way, the public `Buffer.lines`/
+      `line`/`lineCount` API stays the same.
 
 - [ ] **P2 — Async + cancellation for file I/O.**
-      `Runtime.runEffect` (`Program.fs:1483`) runs synchronously on
-      the UI thread: `File.ReadAllText`, `File.WriteAllText`, and
-      `scanNode`'s recursive directory walk all block input. Large
-      files or large workspaces freeze the editor. Structural change:
-      `Effect` becomes async-returning (e.g., `Task<Msg>` or
+      `Runtime.runEffect` runs synchronously on the UI thread:
+      `File.ReadAllText`, `File.WriteAllText`, and `scanNode`'s
+      recursive directory walk all block input. Large files or large
+      workspaces freeze the editor. Structural change: `Effect`
+      becomes async-returning (e.g., `Task<Msg>` or
       `CancellationToken -> Task<Msg>`), `dispatch` learns to await
       and re-enter, and the main loop tracks in-flight effects with a
       `CancellationTokenSource` so a second `ScanWorkspace` cancels
@@ -293,41 +347,39 @@ below are the ones with real bite. Ordered by impact, not difficulty.
       These types are small, value-equality already, and copied
       heavily on hot paths. Adding `[<Struct>]` avoids one heap
       allocation per instance and improves cache behavior:
-      - `Size` (`Program.fs:6`) — 2 ints, compared with `<>` every
-        loop iteration at `Program.fs:1521`.
-      - `Position` (`Program.fs:10`) — 2 ints, copied on every cursor
-        motion.
-      - `Piece` (`Program.fs:80`) — 3 small fields, allocated by every
-        piece-table insert/delete.
-      - `Cell` (`Program.fs:1171`) — held in `Cell[,]` for the whole
-        screen; struct version avoids one heap object per character.
-      - `Style` (`Program.fs:1165`) — compared per-cell in
-        `Renderer.render` at `Program.fs:1267`.
-      - `Cursor` (`Program.fs:1175`).
+      - `Size` — 2 ints, compared with `<>` every loop iteration in
+        `Runtime.run`.
+      - `Position` — 2 ints, copied on every cursor motion.
+      - `Piece` — 3 small fields, allocated by every piece-table
+        insert/delete.
+      - `Cell` — held in `Cell[,]` for the whole screen; struct
+        version avoids one heap object per character.
+      - `Style` — compared per-cell in `Renderer.render`.
+      - `Cursor`.
       Verify: build still passes, and `record { x with Field = y }`
       copy-update syntax keeps working (it does on struct records).
       No API changes for callers.
 
 - [ ] **P4 — Cap the undo stack.**
-      `Buffer.pushUndo` (`Program.fs:241`) prepends to
-      `buffer.Undo : BufferRevision list` without bound. A long
-      editing session grows this list forever. The history list at
-      `Program.fs:922` already uses `List.truncate 20` — apply the
-      same pattern with a higher cap (suggest 200). Note that the
-      piece table inside each revision shares `Original`/`Added`
-      strings by reference, so memory cost is mostly the `Pieces`
-      list, not the document text — but it still grows.
+      `Buffer.pushUndo` prepends to `buffer.Undo : BufferRevision
+      list` without bound. A long editing session grows this list
+      forever. `Editor.pushHistory` already uses `List.truncate 20`
+      for command history — apply the same pattern with a higher cap
+      (suggest 200). Note that the piece table inside each revision
+      shares `Original`/`Added` strings by reference, so memory cost
+      is mostly the `Pieces` list, not the document text — but it
+      still grows.
 
 - [ ] **P5 — Minor idiom cleanups.**
       One-liners, no behavior change:
-      - `Program.fs:925` `model.Editors.Buffers |> Map.keys |> Seq.toList |> List.sort`
-        — `Map.keys` already returns sorted keys (F# `Map` is ordered).
-        Drop the `|> List.sort`.
-      - `Program.fs:907` `Buffer.text buffer |> fun text -> text.Replace("\n", buffer.Newline)`
-        — once F4 lands as `Buffer.serialize`, this disappears
-        entirely. Sequencing note: do F4 first.
-      - `Program.fs:412` `Seq.takeWhile ((=) ' ')` — readable as-is;
+      - `Editor.switchBuffer`: `model.Editors.Buffers |> Map.keys |>
+        Seq.toList |> List.sort` — `Map.keys` already returns sorted
+        keys (F# `Map` is ordered). Drop the `|> List.sort`.
+      - `Buffer.unindent`: `Seq.takeWhile ((=) ' ')` — readable as-is;
         leave alone unless someone objects.
+      (The newline-replace one-liner that lived in
+      `Editor.saveActiveBuffer` is covered by F4 and is not listed
+      here.)
 
 ## Open questions
 

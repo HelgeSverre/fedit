@@ -96,6 +96,24 @@ Clean compiled output:
 just clean
 ```
 
+Format F# sources with [fantomas](https://fsprojects.github.io/fantomas/) (restored from `.config/dotnet-tools.json`):
+
+```sh
+just format
+```
+
+Verify formatting without writing — fails if anything would change:
+
+```sh
+just format-check
+```
+
+Run format-check and build together as a single gate (handy before a commit):
+
+```sh
+just check
+```
+
 Publish a self-contained single-file binary and install it to `~/.local/bin` (override with `just install path/to/bin`):
 
 ```sh
@@ -131,14 +149,25 @@ Editor keys:
 File tree keys:
 
 - `Up` and `Down` move selection.
+- `PageUp` and `PageDown` jump ten entries at a time.
+- `Home` and `End` jump to the first or last visible entry.
 - `Left` collapses the selected directory or moves to its parent.
 - `Right` expands the selected directory.
 - `Enter` opens a file or toggles a directory.
 - `Escape` returns focus to the editor.
 
+Command bar keys:
+
+- Type to filter; the dock panel shows matching commands or workspace paths.
+- `Tab` and `Shift+Tab` cycle through completions.
+- `Up` and `Down` walk through recent command history (up to 20 entries).
+- `Enter` runs the parsed command, or applies the highlighted completion when the command is incomplete.
+- `Left`, `Right`, `Home`, `End`, `Backspace`, and `Delete` edit the input.
+- `Escape` closes the command bar without running anything.
+
 Command bar commands:
 
-- `open <path>`: Open a file from the current workspace.
+- `open <path>`: Open a file from the current workspace. Activates the existing buffer if the file is already open.
 - `write`: Save the active buffer.
 - `writeas <path>`: Save the active buffer to another path.
 - `quit`: Exit the editor.
@@ -148,6 +177,7 @@ Command bar commands:
 - `reload`: Reload the workspace tree.
 - `next`: Activate the next open buffer.
 - `prev`: Activate the previous open buffer.
+- `theme <name>`: Switch the accent color. Tab through `cyan`, `teal`, `green`, `yellow`, `orange`, `red`, `magenta`, or `purple`; the UI live-previews each highlight as you cycle.
 - `help`: Show command help in the dock panel.
 
 ## How It Works
@@ -156,7 +186,13 @@ The project is a single executable defined by `fedit.fsproj`, with `Program.fs` 
 
 At runtime, `fedit` scans the workspace into a tree model and skips `.DS_Store`, `.git`, `.dotnet`, `bin`, and `obj`. The UI keeps a model containing the workspace tree, open buffers, focus target, terminal size, notifications, and panel state.
 
-Text buffers are stored with a piece table. The original file contents stay in one string, inserted text is appended to another string, and the visible document is represented as a list of pieces. This keeps inserts and deletes local to the piece list while preserving enough state for undo and redo snapshots.
+Text buffers are stored with a piece table. The original file contents stay in one string, inserted text is appended to another string, and the visible document is represented as a list of pieces. This keeps inserts and deletes local to the piece list while preserving enough state for undo and redo snapshots. Each open buffer keeps its own undo and redo stacks, cursor position, and viewport.
+
+Files are read as UTF-8. The line ending of the loaded file (`LF` or `CRLF`) is detected and reused on save; the buffer always works in `\n` form internally. Saving writes UTF-8 without a byte-order mark.
+
+The UI is split into a sidebar (file tree), an editor pane with a line-number gutter, a status line, a dock panel that shows contextual help or completions, and a single-line command bar at the bottom. The status line reports the current focus, active file path, dirty marker, cursor position, and the most recent notification.
+
+Themes are pure accent palettes — the dock title, status bar, selection highlight, and current-line gutter all swap together while the grayscale chrome stays constant across themes. The active theme lives in the model and is not persisted between runs (default: `cyan`).
 
 The editor loop follows a simple update-and-render flow:
 
