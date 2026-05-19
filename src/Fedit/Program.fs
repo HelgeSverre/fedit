@@ -9,6 +9,7 @@ module Program =
         let mutable logPath = None
         let mutable i = 0
 
+        // TODO: Should be refactored and typed, create some kind of command/flag7arg system that makes it easy to define these more elegantly
         while i < argv.Length do
             if argv[i] = "--log" && i + 1 < argv.Length then
                 logPath <- Some argv[i + 1]
