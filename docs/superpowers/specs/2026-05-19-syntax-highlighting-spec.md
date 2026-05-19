@@ -167,13 +167,13 @@ Called on buffer open. Buffers without a path (`scratch`) get no language and no
 
 ### Lifecycle
 
-| Event | Action |
-|---|---|
-| Startup | Register F# language + load `highlights.scm` from embedded resource. |
+| Event                        | Action                                                                                                             |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Startup                      | Register F# language + load `highlights.scm` from embedded resource.                                               |
 | Buffer opened (`FileOpened`) | Detect language. If supported, create `Parser`, parse contents, run query, store spans in `BufferState.Highlight`. |
-| Buffer edit (text change) | Reparse from scratch; rebuild spans. |
-| Buffer closed | Dispose `Parser` and `Tree`. |
-| App shutdown | Dispose `Parser`/`Tree` for each buffer. Languages/queries leak (cheap; OS reclaims). |
+| Buffer edit (text change)    | Reparse from scratch; rebuild spans.                                                                               |
+| Buffer closed                | Dispose `Parser` and `Tree`.                                                                                       |
+| App shutdown                 | Dispose `Parser`/`Tree` for each buffer. Languages/queries leak (cheap; OS reclaims).                              |
 
 ### Failure modes
 

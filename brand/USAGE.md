@@ -6,18 +6,18 @@ The brand is `caret + Departure Mono + phosphor green`. If you reach for a secon
 
 ## Files in this Directory
 
-| File | What | When to use |
-|---|---|---|
-| `symbol.svg` | Caret, phosphor green stroke | Web, presentations, OG images |
-| `symbol-mono.svg` | Caret, `currentColor` stroke | Anywhere the surrounding context dictates color |
-| `favicon.svg` | Caret tuned for 16×16 | Browser tab, app icon at small sizes |
-| `palette.json` | Canonical color source | Build tooling, regenerating CSS/F# |
-| `palette.css` | CSS custom properties (light + dark) | Marketing site, docs |
-| `palette.fs` | F# module | TUI rendering inside the editor |
-| `typography.md` | Departure Mono (brand) + JetBrains Mono (code/CLI) | Reference when writing CSS or help output |
-| `voice.md` | Five voice rules | Reference when writing copy |
-| `themes/` | Editor color themes (green default, blue, orange) | User-selectable inside fedit |
-| `USAGE.md` | This file | Onboarding contributors |
+| File              | What                                               | When to use                                     |
+| ----------------- | -------------------------------------------------- | ----------------------------------------------- |
+| `symbol.svg`      | Caret, phosphor green stroke                       | Web, presentations, OG images                   |
+| `symbol-mono.svg` | Caret, `currentColor` stroke                       | Anywhere the surrounding context dictates color |
+| `favicon.svg`     | Caret tuned for 16×16                              | Browser tab, app icon at small sizes            |
+| `palette.json`    | Canonical color source                             | Build tooling, regenerating CSS/F#              |
+| `palette.css`     | CSS custom properties (light + dark)               | Marketing site, docs                            |
+| `palette.fs`      | F# module                                          | TUI rendering inside the editor                 |
+| `typography.md`   | Departure Mono (brand) + JetBrains Mono (code/CLI) | Reference when writing CSS or help output       |
+| `voice.md`        | Five voice rules                                   | Reference when writing copy                     |
+| `themes/`         | Editor color themes (green default, blue, orange)  | User-selectable inside fedit                    |
+| `USAGE.md`        | This file                                          | Onboarding contributors                         |
 
 ## Symbol Usage
 

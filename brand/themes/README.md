@@ -4,15 +4,15 @@ Canonical brand spec for fedit's editor themes. The implementation lives in `src
 
 ## Available themes
 
-| Theme | Accent (ANSI) | Hex (truecolor) | Purpose |
-|---|---|---|---|
-| `green` | 35 | `#00B86B` | Default — the brand |
-| `blue` | 33 | `#1F6FEB` | High-contrast, GitHub-adjacent |
-| `orange` | 166 | `#D2691E` | Warm, retro-terminal |
-| `cyan` | 81 | `#5FD7FF` | Cool, calm |
-| `teal` | 80 | `#5FD7D7` | Cyan-green hybrid |
-| `yellow` | 220 | `#FFD700` | Warm, dark text |
-| `red` | 203 | `#FF5F5F` | Crimson |
+| Theme    | Accent (ANSI) | Hex (truecolor) | Purpose                        |
+| -------- | ------------- | --------------- | ------------------------------ |
+| `green`  | 35            | `#00B86B`       | Default — the brand            |
+| `blue`   | 33            | `#1F6FEB`       | High-contrast, GitHub-adjacent |
+| `orange` | 166           | `#D2691E`       | Warm, retro-terminal           |
+| `cyan`   | 81            | `#5FD7FF`       | Cool, calm                     |
+| `teal`   | 80            | `#5FD7D7`       | Cyan-green hybrid              |
+| `yellow` | 220           | `#FFD700`       | Warm, dark text                |
+| `red`    | 203           | `#FF5F5F`       | Crimson                        |
 
 Banned (per `brand/USAGE.md`): purple, magenta. The "AI purple aesthetic" — see `~/.claude/skills/brand-from-scratch/references/bans.md`.
 
@@ -35,13 +35,13 @@ These JSON files mirror that shape exactly. The `hex` and `note` fields are docu
 
 ### Field meanings
 
-| Field | What it controls |
-|---|---|
-| `accent` | Dock title, file tree highlight, status mode indicator, cursor |
-| `statusFg` | Foreground of the status bar text |
-| `statusBg` | Background of the status bar |
-| `selectedBg` | Background of selected text and active file tree row |
-| `currentLine` | Background of the line the cursor is on |
+| Field         | What it controls                                               |
+| ------------- | -------------------------------------------------------------- |
+| `accent`      | Dock title, file tree highlight, status mode indicator, cursor |
+| `statusFg`    | Foreground of the status bar text                              |
+| `statusBg`    | Background of the status bar                                   |
+| `selectedBg`  | Background of selected text and active file tree row           |
+| `currentLine` | Background of the line the cursor is on                        |
 
 The grayscale chrome (borders, line numbers, body text, dim hints) is constant across all themes — only these five accent slots swap.
 

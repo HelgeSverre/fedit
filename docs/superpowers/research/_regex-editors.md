@@ -42,15 +42,15 @@ color cyan "\<(let|in|if|then|else|match|with)\>"
 filetype: mylang
 detect: { filename: "\\.ml$" }
 rules:
-  - comment: "#.*$"
-  - statement: "\\b(let|if|then|else)\\b"
-  - constant.number: "\\b[0-9]+\\b"
-  - constant.string:
-      start: "\""
-      end: "\""
-      skip: "\\\\."
-      rules:
-        - constant.specialChar: "\\\\."
+    - comment: "#.*$"
+    - statement: "\\b(let|if|then|else)\\b"
+    - constant.number: "\\b[0-9]+\\b"
+    - constant.string:
+          start: '"'
+          end: '"'
+          skip: "\\\\."
+          rules:
+              - constant.specialChar: "\\\\."
 ```
 
 🟢 Scopes are dotted (`constant.string.specialChar`) and the colorscheme resolves with longest-prefix fallback — `color-link comment "cyan"` covers all `comment.*`. Inner `rules:` inside a region give you the "in-string highlight escapes" nesting nano can't do. Regex is Go's `regexp` package — **RE2** — so no backrefs, no lookaround, linear time.
@@ -78,13 +78,13 @@ add-highlighter shared/mylang/code/ regex \b\d+\b 0:value
 
 ## Comparison: file formats and regex flavors
 
-| Editor | Format | Regex engine | Multi-line | Theme indirection |
-|---|---|---|---|---|
-| Vim | `.vim` Ex script | Vim's own (backtracking, lookarounds, `\<\>`) | `region` + `syn sync` | named hl groups 🟢 |
-| Neovim legacy | same as Vim | same | same | same |
-| nano | `.nanorc` text | POSIX ERE | `start=/end=` only | none — colors inline 🔴 |
-| micro | YAML | Go RE2 | regions with nested `rules` | dotted scopes + `color-link` 🟢 |
-| Kakoune | `.kak` script | Boost.Regex (PCRE-ish) | `regions` + `default-region` | named faces 🟢 |
+| Editor        | Format           | Regex engine                                  | Multi-line                   | Theme indirection               |
+| ------------- | ---------------- | --------------------------------------------- | ---------------------------- | ------------------------------- |
+| Vim           | `.vim` Ex script | Vim's own (backtracking, lookarounds, `\<\>`) | `region` + `syn sync`        | named hl groups 🟢              |
+| Neovim legacy | same as Vim      | same                                          | same                         | same                            |
+| nano          | `.nanorc` text   | POSIX ERE                                     | `start=/end=` only           | none — colors inline 🔴         |
+| micro         | YAML             | Go RE2                                        | regions with nested `rules`  | dotted scopes + `color-link` 🟢 |
+| Kakoune       | `.kak` script    | Boost.Regex (PCRE-ish)                        | `regions` + `default-region` | named faces 🟢                  |
 
 🟢 For porting to .NET, **micro's YAML** is the obvious winner: declarative, line-oriented, schema-stable, RE2-shaped (so it's already a subset of what .NET supports), and the scope→theme indirection drops in cleanly. nano's format is trivially parseable but has no theming layer. Vim's format is executable script — you'd be writing an Ex interpreter. Kakoune's is also script-shaped but smaller surface; portable if you implement just `regex` and `regions`.
 
@@ -105,6 +105,7 @@ add-highlighter shared/mylang/code/ regex \b\d+\b 0:value
 🟢 **Minimum viable rule set** for the MVP: line comments, block comments (region), single/double-quoted strings (region with escape skip), keywords (alternation with `\b`), numbers (`\b\d+(\.\d+)?\b`). That's five rules and covers a credible first impression for any C-family or ML-family file.
 
 🟢 **Performance plan**, paraphrased from the Vim/Kakoune/micro consensus:
+
 1. Highlight only the **visible viewport** plus a small lookback (start with 200 lines, à la `synmaxcol`/`minlines`).
 2. Cache per-line "region-state-at-EOL" tokens in the piece-table's line index. On edit, invalidate from the changed line forward; rescan stops as soon as the state token matches the cached one (Vim/TextMate/Sublime do exactly this).
 3. Cap per-line work: a `synmaxcol`-equivalent that bails on lines >2-4k chars.

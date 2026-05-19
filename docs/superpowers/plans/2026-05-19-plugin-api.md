@@ -16,36 +16,37 @@
 
 ### New files
 
-| Path | Purpose |
-|---|---|
-| `src/Fedit.PluginApi/Fedit.PluginApi.fsproj` | Class library project for the public plugin contract. Depends only on `FSharp.Core`. |
-| `src/Fedit.PluginApi/Types.fs` | `Severity`, `CursorPosition`, `BufferView`, `WorkspaceView`, `PluginContext`, `PluginAction`, `PluginCommand`, `KeyChord`. |
-| `src/Fedit.PluginApi/Host.fs` | `IPluginHost` abstract interface. |
-| `src/Fedit/Plugins.fs` | Host-side plugin discovery, manifest parsing, build, load, registration, validation. |
-| `docs/plugins.md` | User-facing documentation: writing plugins, installing, the API contract, security model. |
-| `tests/Fedit.Tests/PluginsTests.fs` | Unit tests for manifest parsing, freshness check, source detection, conflict policy, validate flow. |
-| `examples/wordcount/plugin.json` | Example plugin manifest. |
-| `examples/wordcount/Plugin.fs` | Example plugin source — a `wc` word-count command. |
+| Path                                         | Purpose                                                                                                                    |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `src/Fedit.PluginApi/Fedit.PluginApi.fsproj` | Class library project for the public plugin contract. Depends only on `FSharp.Core`.                                       |
+| `src/Fedit.PluginApi/Types.fs`               | `Severity`, `CursorPosition`, `BufferView`, `WorkspaceView`, `PluginContext`, `PluginAction`, `PluginCommand`, `KeyChord`. |
+| `src/Fedit.PluginApi/Host.fs`                | `IPluginHost` abstract interface.                                                                                          |
+| `src/Fedit/Plugins.fs`                       | Host-side plugin discovery, manifest parsing, build, load, registration, validation.                                       |
+| `docs/plugins.md`                            | User-facing documentation: writing plugins, installing, the API contract, security model.                                  |
+| `tests/Fedit.Tests/PluginsTests.fs`          | Unit tests for manifest parsing, freshness check, source detection, conflict policy, validate flow.                        |
+| `examples/wordcount/plugin.json`             | Example plugin manifest.                                                                                                   |
+| `examples/wordcount/Plugin.fs`               | Example plugin source — a `wc` word-count command.                                                                         |
 
 ### Modified files
 
-| Path | Change |
-|---|---|
-| `Fedit.slnx` | Add `Fedit.PluginApi` project. |
-| `src/Fedit/Fedit.fsproj` | Add `ProjectReference` to `Fedit.PluginApi`; add `Plugins.fs` to compile order before `Model.fs`. |
-| `src/Fedit/Primitives.fs` | (Possibly) extend `Severity` re-use — see Task 6. |
-| `src/Fedit/Commands.fs` | Add `Plugin of verb:string * argument:string` and `PluginInvoke of source:string * name:string` to `Command` DU. Add `plugin` spec with verb sub-parsing. Add `allSpecs : PluginRegistry -> Spec list`. Update `completions` to suggest plugin verbs and plugin names. |
-| `src/Fedit/Model.fs` | Add `PluginRegistry` to `Model`. Add new `Msg`s (`PluginsScanned`, `PluginInstalled`, `PluginRemoved`, `PluginEnableChanged`, `PluginBuildFinished`). Add new `Effect`s (`ScanPlugins`, `InstallPluginFromSource`, `RemovePluginDir`, `BuildPlugin`). |
-| `src/Fedit/Editor.fs` | Wire `PluginRegistry` into command resolution; dispatch `PluginInvoke` via the plugin handler; translate returned `PluginAction list` into core effects/model changes; add plugin keybinding check at top of editor-focus key dispatch; add `plugin <verb>` handlers. |
-| `src/Fedit/Runtime.fs` | Load plugin enable state from config; trigger `ScanPlugins` startup effect; implement `ScanPlugins`/`InstallPluginFromSource`/`RemovePluginDir`/`BuildPlugin` effects on the thread pool; ship `Fedit.PluginApi.dll` alongside the published binary so plugins can reference it. |
-| `tests/Fedit.Tests/Fedit.Tests.fsproj` | Add `PluginsTests.fs` to compile list. |
-| `README.md` | Link to `docs/plugins.md`. |
+| Path                                   | Change                                                                                                                                                                                                                                                                           |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Fedit.slnx`                           | Add `Fedit.PluginApi` project.                                                                                                                                                                                                                                                   |
+| `src/Fedit/Fedit.fsproj`               | Add `ProjectReference` to `Fedit.PluginApi`; add `Plugins.fs` to compile order before `Model.fs`.                                                                                                                                                                                |
+| `src/Fedit/Primitives.fs`              | (Possibly) extend `Severity` re-use — see Task 6.                                                                                                                                                                                                                                |
+| `src/Fedit/Commands.fs`                | Add `Plugin of verb:string * argument:string` and `PluginInvoke of source:string * name:string` to `Command` DU. Add `plugin` spec with verb sub-parsing. Add `allSpecs : PluginRegistry -> Spec list`. Update `completions` to suggest plugin verbs and plugin names.           |
+| `src/Fedit/Model.fs`                   | Add `PluginRegistry` to `Model`. Add new `Msg`s (`PluginsScanned`, `PluginInstalled`, `PluginRemoved`, `PluginEnableChanged`, `PluginBuildFinished`). Add new `Effect`s (`ScanPlugins`, `InstallPluginFromSource`, `RemovePluginDir`, `BuildPlugin`).                            |
+| `src/Fedit/Editor.fs`                  | Wire `PluginRegistry` into command resolution; dispatch `PluginInvoke` via the plugin handler; translate returned `PluginAction list` into core effects/model changes; add plugin keybinding check at top of editor-focus key dispatch; add `plugin <verb>` handlers.            |
+| `src/Fedit/Runtime.fs`                 | Load plugin enable state from config; trigger `ScanPlugins` startup effect; implement `ScanPlugins`/`InstallPluginFromSource`/`RemovePluginDir`/`BuildPlugin` effects on the thread pool; ship `Fedit.PluginApi.dll` alongside the published binary so plugins can reference it. |
+| `tests/Fedit.Tests/Fedit.Tests.fsproj` | Add `PluginsTests.fs` to compile list.                                                                                                                                                                                                                                           |
+| `README.md`                            | Link to `docs/plugins.md`.                                                                                                                                                                                                                                                       |
 
 ---
 
 ## Task 1: Scaffold `Fedit.PluginApi` project
 
 **Files:**
+
 - Create: `src/Fedit.PluginApi/Fedit.PluginApi.fsproj`
 - Create: `src/Fedit.PluginApi/Types.fs`
 - Create: `src/Fedit.PluginApi/Host.fs`
@@ -54,6 +55,7 @@
 - [ ] **Step 1: Create the project file**
 
 `src/Fedit.PluginApi/Fedit.PluginApi.fsproj`:
+
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -74,6 +76,7 @@
 - [ ] **Step 2: Add `Types.fs` with the contract types**
 
 `src/Fedit.PluginApi/Types.fs`:
+
 ```fsharp
 namespace Fedit.PluginApi
 
@@ -126,6 +129,7 @@ type KeyChord =
 - [ ] **Step 3: Add `Host.fs` with `IPluginHost`**
 
 `src/Fedit.PluginApi/Host.fs`:
+
 ```fsharp
 namespace Fedit.PluginApi
 
@@ -156,11 +160,13 @@ git commit -m "feat(plugin-api): scaffold Fedit.PluginApi library with contract 
 ## Task 2: Reference `Fedit.PluginApi` from the host project
 
 **Files:**
+
 - Modify: `src/Fedit/Fedit.fsproj`
 
 - [ ] **Step 1: Add project reference**
 
 Edit `src/Fedit/Fedit.fsproj` and add inside a new `<ItemGroup>`:
+
 ```xml
 <ItemGroup>
   <ProjectReference Include="..\Fedit.PluginApi\Fedit.PluginApi.fsproj" />
@@ -186,6 +192,7 @@ git commit -m "feat(plugin-api): reference Fedit.PluginApi from host project"
 ## Task 3: Define internal plugin types in `Plugins.fs`
 
 **Files:**
+
 - Create: `src/Fedit/Plugins.fs`
 - Modify: `src/Fedit/Fedit.fsproj`
 
@@ -194,6 +201,7 @@ We add `Plugins.fs` between `Commands.fs` and `Model.fs`. It currently exposes o
 - [ ] **Step 1: Create the module skeleton**
 
 `src/Fedit/Plugins.fs`:
+
 ```fsharp
 namespace Fedit
 
@@ -270,6 +278,7 @@ git commit -m "feat(plugins): add Plugins.fs with registry types"
 ## Task 4: Manifest parsing
 
 **Files:**
+
 - Modify: `src/Fedit/Plugins.fs`
 - Create: `tests/Fedit.Tests/PluginsTests.fs`
 - Modify: `tests/Fedit.Tests/Fedit.Tests.fsproj`
@@ -277,6 +286,7 @@ git commit -m "feat(plugins): add Plugins.fs with registry types"
 - [ ] **Step 1: Write failing tests for manifest parsing**
 
 Append `tests/Fedit.Tests/PluginsTests.fs`:
+
 ```fsharp
 module Fedit.Tests.PluginsTests
 
@@ -331,9 +341,11 @@ let ``rejects manifest with incompatible apiVersion`` () =
 ```
 
 Add to `tests/Fedit.Tests/Fedit.Tests.fsproj`:
+
 ```xml
 <Compile Include="PluginsTests.fs" />
 ```
+
 (insert before `Program.fs`)
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -344,6 +356,7 @@ Expected: FAIL with `Plugins.tryParseManifest` undefined.
 - [ ] **Step 3: Implement `tryParseManifest`**
 
 Append to `src/Fedit/Plugins.fs`:
+
 ```fsharp
 module private ManifestJson =
     open System.Text.Json
@@ -416,12 +429,14 @@ git commit -m "feat(plugins): manifest parsing with apiVersion validation"
 ## Task 5: Discovery + freshness check
 
 **Files:**
+
 - Modify: `src/Fedit/Plugins.fs`
 - Modify: `tests/Fedit.Tests/PluginsTests.fs`
 
 - [ ] **Step 1: Write failing tests**
 
 Add to `PluginsTests.fs`:
+
 ```fsharp
 let private mkPluginDir name files =
     let root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())
@@ -467,6 +482,7 @@ Expected: FAIL — `discover` and `isBuildStale` undefined.
 - [ ] **Step 3: Implement discovery + freshness**
 
 Add to the `Plugins` module in `src/Fedit/Plugins.fs`:
+
 ```fsharp
 let private dllPath (pluginDir: string) (entryAssembly: string) =
     Path.Combine(pluginDir, "bin", "Release", "net9.0", entryAssembly)
@@ -534,11 +550,13 @@ git commit -m "feat(plugins): discover plugin folders and detect stale builds"
 ## Task 6: Wire plugin registry into `Model.fs`
 
 **Files:**
+
 - Modify: `src/Fedit/Model.fs`
 
 - [ ] **Step 1: Add the registry field and new Msgs/Effects**
 
 In `src/Fedit/Model.fs`, add to `Model`:
+
 ```fsharp
 type Model =
     { // ...existing fields
@@ -546,6 +564,7 @@ type Model =
 ```
 
 Extend `Msg`:
+
 ```fsharp
 type Msg =
     // ...existing variants
@@ -557,6 +576,7 @@ type Msg =
 ```
 
 Extend `Effect`:
+
 ```fsharp
 type Effect =
     // ...existing variants
@@ -586,11 +606,13 @@ git commit -m "feat(plugins): add PluginRegistry to Model with new Msgs and Effe
 ## Task 7: Build invocation via `dotnet build`
 
 **Files:**
+
 - Modify: `src/Fedit/Plugins.fs`
 
 - [ ] **Step 1: Implement `ensureFsproj`**
 
 If a plugin folder ships without a `.fsproj`, generate a minimal one alongside the source. Append to `Plugins`:
+
 ```fsharp
 let private generatedFsprojName = "plugin.generated.fsproj"
 
@@ -674,9 +696,11 @@ let build (pluginApiDllPath: string) (loaded: LoadedPlugin) : Result<string, str
 - [ ] **Step 4: Smoke-test manually**
 
 Build (no automated test for `dotnet build` — too slow / sandbox-dependent):
+
 ```
 dotnet build src/Fedit/Fedit.fsproj
 ```
+
 Expected: Build succeeds.
 
 - [ ] **Step 5: Commit**
@@ -691,11 +715,13 @@ git commit -m "feat(plugins): generate fsproj fallback and invoke dotnet build"
 ## Task 8: Load plugin assemblies and call `register`
 
 **Files:**
+
 - Modify: `src/Fedit/Plugins.fs`
 
 - [ ] **Step 1: Implement an `IPluginHost` collector**
 
 Append to `Plugins`:
+
 ```fsharp
 type private HostCollector(pluginName: string, log: string -> unit) =
     let commands = ResizeArray<PluginCommand>()
@@ -790,6 +816,7 @@ git commit -m "feat(plugins): load plugin assemblies and resolve register entry 
 ## Task 9: Compose discovery → build → load into `scanAndLoad`
 
 **Files:**
+
 - Modify: `src/Fedit/Plugins.fs`
 
 - [ ] **Step 1: Implement `scanAndLoad`**
@@ -861,12 +888,14 @@ git commit -m "feat(plugins): compose scan/build/load into scanAndLoad pipeline"
 ## Task 10: Add `plugin` built-in command to `Commands.fs`
 
 **Files:**
+
 - Modify: `src/Fedit/Commands.fs`
 - Modify: `tests/Fedit.Tests/CommandsTests.fs`
 
 - [ ] **Step 1: Failing tests**
 
 Add to `tests/Fedit.Tests/CommandsTests.fs`:
+
 ```fsharp
 [<Fact>]
 let ``parses 'plugin list' as Ready (Plugin("list", ""))`` () =
@@ -895,6 +924,7 @@ Expected: FAIL — `Plugin` not a `Command` case.
 - [ ] **Step 3: Extend the `Command` DU and add the spec**
 
 In `src/Fedit/Commands.fs`:
+
 ```fsharp
 type Command =
     // ...existing
@@ -903,6 +933,7 @@ type Command =
 ```
 
 Add to `specs`:
+
 ```fsharp
 { Name = "plugin"
   Usage = "plugin <list|enable|disable|install|remove|reload|validate> [arg]"
@@ -933,6 +964,7 @@ Add to `specs`:
 - [ ] **Step 4: Extend completions for `plugin`**
 
 In `completions`, add a branch:
+
 ```fsharp
 | "plugin" ->
     let verbs = [ "list"; "enable"; "disable"; "install"; "remove"; "reload"; "validate" ]
@@ -964,6 +996,7 @@ git commit -m "feat(plugins): parse 'plugin <verb> [arg]' command"
 ## Task 11: Merge plugin commands into the command surface
 
 **Files:**
+
 - Modify: `src/Fedit/Commands.fs`
 - Modify: `src/Fedit/Model.fs` (CommandContext)
 
@@ -982,6 +1015,7 @@ type CommandContext =
 - [ ] **Step 2: Generate plugin specs dynamically**
 
 Add to `Commands` module in `src/Fedit/Commands.fs`:
+
 ```fsharp
 let pluginSpecs (pluginCommands: (string * string * string) list) : Spec list =
     pluginCommands
@@ -1003,6 +1037,7 @@ let allSpecs (pluginCommands: (string * string * string) list) : Spec list =
 ```
 
 `parse` and `completions` must now accept the plugin command list. Refactor:
+
 ```fsharp
 let parseWith (allSpecs: Spec list) (input: string) : ParsedCommand = // body identical to existing parse but using allSpecs
 let completionsWith (allSpecs: Spec list) (context: CommandContext) (input: string) = // body identical to existing completions but using allSpecs
@@ -1016,6 +1051,7 @@ let completions (context: CommandContext) (input: string) = completionsWith spec
 - [ ] **Step 3: Update call sites in Editor**
 
 In `src/Fedit/Editor.fs`'s `refreshCommandBar` and any place that calls `Commands.parse` / `Commands.completions`, switch to:
+
 ```fsharp
 let pluginCmds =
     model.Plugins.Commands
@@ -1043,11 +1079,13 @@ git commit -m "feat(plugins): merge plugin commands into command surface"
 ## Task 12: Execute plugin commands
 
 **Files:**
+
 - Modify: `src/Fedit/Editor.fs`
 
 - [ ] **Step 1: Build the `PluginContext` snapshot from `Model`**
 
 Add to `Editor`:
+
 ```fsharp
 let private toPluginContext (model: Model) : Fedit.PluginApi.PluginContext =
     let toView (id, b: BufferState) : Fedit.PluginApi.BufferView =
@@ -1122,6 +1160,7 @@ let private applyPluginActions
 - [ ] **Step 3: Wire `PluginInvoke` into `executeCommand`**
 
 In `executeCommand`:
+
 ```fsharp
 | PluginInvoke (source, name, _argument) ->
     match model.Plugins.Commands.TryFind name with
@@ -1155,11 +1194,13 @@ git commit -m "feat(plugins): execute plugin commands and apply PluginActions"
 ## Task 13: Handle the `plugin` verb command
 
 **Files:**
+
 - Modify: `src/Fedit/Editor.fs`
 
 - [ ] **Step 1: Dispatch each verb**
 
 Add to `executeCommand`:
+
 ```fsharp
 | Plugin ("list", _) ->
     let lines =
@@ -1249,11 +1290,13 @@ git commit -m "feat(plugins): dispatch plugin verbs (list/install/remove/enable/
 ## Task 14: Implement plugin effects in `Runtime.fs`
 
 **Files:**
+
 - Modify: `src/Fedit/Runtime.fs`
 
 - [ ] **Step 1: Define the plugin directory and API DLL path**
 
 In `Runtime.fs`, add:
+
 ```fsharp
 let private pluginsDirectory () =
     Path.Combine(configDirectory (), "plugins")
@@ -1266,6 +1309,7 @@ let private pluginApiDllPath () =
 - [ ] **Step 2: Load plugin enable map from config**
 
 Extend `loadConfig` (or add a sibling helper) to read a `plugins` object:
+
 ```fsharp
 let private getPluginEnableMap (root: System.Text.Json.JsonElement) : Map<string, bool> =
     match root.TryGetProperty "plugins" with
@@ -1285,6 +1329,7 @@ Wire it through `loadConfig`'s tuple and `Editor.init` signature (`init` gains a
 - [ ] **Step 3: Implement effects on the thread pool**
 
 In the `startEffect` match:
+
 ```fsharp
 | ScanPlugins ->
     Task.Run(fun () ->
@@ -1359,6 +1404,7 @@ In the `startEffect` match:
 - [ ] **Step 4: Emit `ScanPlugins` at startup**
 
 In `run`, after computing `startupEffects` from `Editor.init`:
+
 ```fsharp
 startEffect ScanPlugins
 ```
@@ -1380,6 +1426,7 @@ git commit -m "feat(plugins): wire ScanPlugins/Install/Remove/Build effects in r
 ## Task 15: Implement `Plugins.install` and `Plugins.uninstall`
 
 **Files:**
+
 - Modify: `src/Fedit/Plugins.fs`
 
 - [ ] **Step 1: Implement `install`**
@@ -1438,6 +1485,7 @@ let uninstall (pluginsRoot: string) (name: string) : unit =
 - [ ] **Step 3: Extend `saveConfig` to persist the plugins map**
 
 In `Runtime.fs`'s `saveConfig`, accept and emit the plugins map:
+
 ```fsharp
 let private saveConfig (themeName: string) (recent: string list) (pluginEnable: Map<string, bool>) =
     // ...same as before, but append:
@@ -1472,6 +1520,7 @@ git commit -m "feat(plugins): install from folder/git/zip and uninstall by name"
 ## Task 16: Apply scanned registry into the model
 
 **Files:**
+
 - Modify: `src/Fedit/Editor.fs`
 
 - [ ] **Step 1: Handle `PluginsScanned` in `update`**
@@ -1520,12 +1569,14 @@ git commit -m "feat(plugins): apply scanned registry and surface install/build r
 ## Task 17: Dispatch plugin keybindings in editor focus
 
 **Files:**
+
 - Modify: `src/Fedit/Editor.fs`
 - Modify: `tests/Fedit.Tests/UpdateTests.fs`
 
 - [ ] **Step 1: Map `KeyInput` to `KeyChord`**
 
 In `Editor.fs`:
+
 ```fsharp
 let private toKeyChord (key: KeyInput) : Fedit.PluginApi.KeyChord option =
     match key with
@@ -1541,6 +1592,7 @@ let private toKeyChord (key: KeyInput) : Fedit.PluginApi.KeyChord option =
 - [ ] **Step 2: Check plugin keybindings before default editor key handling**
 
 In `runEditor` (the editor-focus key dispatcher):
+
 ```fsharp
 let runEditor key model =
     match toKeyChord key with
@@ -1565,6 +1617,7 @@ let runEditor key model =
 - [ ] **Step 3: Add a regression test for keybinding dispatch**
 
 In `UpdateTests.fs`:
+
 ```fsharp
 [<Fact>]
 let ``editor-focus key fires plugin-registered command`` () =
@@ -1594,6 +1647,7 @@ git commit -m "feat(plugins): dispatch plugin keybindings in editor focus"
 ## Task 18: Write `docs/plugins.md`
 
 **Files:**
+
 - Create: `docs/plugins.md`
 - Modify: `README.md`
 
@@ -1624,6 +1678,7 @@ git commit -m "feat(plugins): dispatch plugin keybindings in editor focus"
 - [ ] **Step 2: Add link from README**
 
 In `README.md`, add under a new "Plugins" section near the bottom:
+
 ```markdown
 ## Plugins
 
@@ -1642,6 +1697,7 @@ git commit -m "docs(plugins): plugin authoring guide and API reference"
 ## Task 19: Example plugin: `wordcount`
 
 **Files:**
+
 - Create: `examples/wordcount/plugin.json`
 - Create: `examples/wordcount/Plugin.fs`
 
@@ -1649,14 +1705,14 @@ git commit -m "docs(plugins): plugin authoring guide and API reference"
 
 ```json
 {
-  "name": "wordcount",
-  "version": "0.1.0",
-  "apiVersion": "1",
-  "description": "Counts words in the active buffer via :wc.",
-  "author": "fedit maintainers",
-  "homepage": "https://github.com/helgesverre/fedit",
-  "entryAssembly": "wordcount.dll",
-  "entryType": "Wordcount.Plugin"
+    "name": "wordcount",
+    "version": "0.1.0",
+    "apiVersion": "1",
+    "description": "Counts words in the active buffer via :wc.",
+    "author": "fedit maintainers",
+    "homepage": "https://github.com/helgesverre/fedit",
+    "entryAssembly": "wordcount.dll",
+    "entryType": "Wordcount.Plugin"
 }
 ```
 
@@ -1697,6 +1753,7 @@ cp -R examples/wordcount ~/.config/fedit/plugins/wordcount
 # In fedit: :plugin reload
 # Then: :wc
 ```
+
 Expected: notification reads "<n> words".
 
 - [ ] **Step 4: Commit**
@@ -1711,6 +1768,7 @@ git commit -m "docs(plugins): wordcount example plugin"
 ## Task 20: Final integration sweep
 
 **Files:**
+
 - Modify: `tests/Fedit.Tests/PluginsTests.fs`
 - Modify: any consumer that needs an updated `Model` shape
 
@@ -1732,6 +1790,7 @@ Expected: PASS.
 :plugin reload
 :wc
 ```
+
 Expected: notifications match the documented behavior.
 
 - [ ] **Step 4: Commit and merge**
@@ -1747,28 +1806,30 @@ git commit -m "test(plugins): end-to-end scan/load coverage; manual smoke notes"
 
 **Spec coverage** — every section in `docs/superpowers/specs/2026-05-19-plugin-api-spec.md` maps to a task:
 
-| Spec section | Tasks |
-|---|---|
-| Distribution model | 15 (install), 19 (example) |
-| Plugin manifest | 4 (parse), 18 (docs) |
-| Plugin entry contract | 1 (types), 8 (resolve register), 18 (docs) |
-| Public API surface | 1, 2 |
-| State model | 6, 11 |
-| New Msgs/Effects | 6, 14, 16 |
-| Command resolution | 10, 11, 12 |
-| Conflict policy | 8 (collector), 9 (scanAndLoad), 16 (surface conflicts) |
-| Keybinding dispatch | 17 |
-| Discovery + loading | 5, 8, 9 |
-| Build invocation | 7 |
-| Persistence | 14, 15 |
-| Plugin manager commands | 10, 13 |
-| Failure semantics | 4, 8, 12, 16 |
+| Spec section            | Tasks                                                  |
+| ----------------------- | ------------------------------------------------------ |
+| Distribution model      | 15 (install), 19 (example)                             |
+| Plugin manifest         | 4 (parse), 18 (docs)                                   |
+| Plugin entry contract   | 1 (types), 8 (resolve register), 18 (docs)             |
+| Public API surface      | 1, 2                                                   |
+| State model             | 6, 11                                                  |
+| New Msgs/Effects        | 6, 14, 16                                              |
+| Command resolution      | 10, 11, 12                                             |
+| Conflict policy         | 8 (collector), 9 (scanAndLoad), 16 (surface conflicts) |
+| Keybinding dispatch     | 17                                                     |
+| Discovery + loading     | 5, 8, 9                                                |
+| Build invocation        | 7                                                      |
+| Persistence             | 14, 15                                                 |
+| Plugin manager commands | 10, 13                                                 |
+| Failure semantics       | 4, 8, 12, 16                                           |
 
 **Placeholder scan** — TBDs:
+
 - Task 12 references `Buffer.insertText` / `Buffer.replaceSelection` / `Buffer.moveTo` whose exact names depend on the actual `Buffer.fs` API. Implementer maps to the real helpers when implementing; if a needed helper doesn't exist, add it in the same task with a one-line wrapper. This is a known gap.
 - Task 13 Step 2 says "pick whichever matches View.fs's existing dock rendering". A concrete decision is deferred to implementation time. Acceptable for a planning artifact since both options (notification multi-line vs. a dedicated dock panel variant) work and the choice is small.
 
 **Type consistency** — Names used across tasks:
+
 - `PluginRegistry`, `LoadedPlugin`, `PluginManifest`, `PluginCommandBinding`, `PluginSource`, `PluginLoadStatus` consistent across Tasks 3, 9, 14, 15, 16.
 - `IPluginHost`, `PluginCommand`, `PluginContext`, `PluginAction`, `KeyChord` from `Fedit.PluginApi` consistent across Tasks 1, 8, 12, 17, 19.
 - `Plugins.tryParseManifest`, `Plugins.discover`, `Plugins.isBuildStale`, `Plugins.build`, `Plugins.load`, `Plugins.scanAndLoad`, `Plugins.install`, `Plugins.uninstall` consistent across Tasks 4, 5, 7, 8, 9, 13, 14, 15.

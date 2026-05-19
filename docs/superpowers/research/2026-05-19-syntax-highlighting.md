@@ -18,14 +18,14 @@ This document distills the cross-family findings and the implications for fedit'
 
 ## Comparison matrix
 
-| Approach | Used by | Parser model | Grammar source | Incremental edit story | Multi-lang scaling | .NET ready? | MVU fit | Native deps |
-|---|---|---|---|---|---|---|---|---|
-| **Tree-sitter** | Helix, Zed, Neovim TS | Incremental GLR, queries (`.scm`) | Bundled NuGet (28+ grammars) or per-machine compile | True incremental via `ts_tree_edit` + `parse(old_tree, ...)` | Excellent | `TreeSitter.DotNet` v1.3 (Jan 2026, MIT) | Good — tree lives in model | libtree-sitter + per-grammar `.so`/`.dylib` |
-| **TextMate grammars** | VS Code, Sublime, Atom, GitHub | Per-line regex rule stack | `.tmLanguage` JSON, ~thousands available | Per-line state token cached, dirty-line forward | Excellent (largest ecosystem) | `TextMateSharp` (MIT, NuGet) | Good — `tokenizeLine` is pure | Native Oniguruma |
-| **Regex rules (micro-style YAML)** | micro, Kakoune (variant), nano, Vim `:syntax` | Single-line regex + region nesting | YAML rules per language, ~150 community grammars | Per-line state cache, forward invalidation | Good for ~10 langs; tails off | Pure .NET regex works (RE2 subset) | Excellent — pure F# data | None |
-| **Hand-written tokenizers** | kilo, dte (partial), JetBrains "fallback lexers" | Bespoke state machine in host language | None — write per language | Per-line lex-state fixpoint | Painful past 3–4 langs | n/a — it's your code | Best — pure F# function | None |
-| **Emacs font-lock** | Emacs (non-treesit modes) | Regex + syntax-table state machine + Elisp callbacks | Per-mode Elisp files | `jit-lock` lazy + `font-lock-multiline` text properties | Excellent in Emacs, not portable | n/a — GPL Elisp | Poor — assumes mutable text props | n/a |
-| **LSP semantic tokens** | Zed, VS Code (overlay) | Server-driven, off-the-shelf per language | LSP server provides | Server emits on change, edit deltas | Excellent | Possible via `LanguageServerProtocol` libs | Async fits MVU effects | LSP server binaries |
+| Approach                           | Used by                                          | Parser model                                         | Grammar source                                      | Incremental edit story                                       | Multi-lang scaling               | .NET ready?                                | MVU fit                           | Native deps                                 |
+| ---------------------------------- | ------------------------------------------------ | ---------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------ | -------------------------------- | ------------------------------------------ | --------------------------------- | ------------------------------------------- |
+| **Tree-sitter**                    | Helix, Zed, Neovim TS                            | Incremental GLR, queries (`.scm`)                    | Bundled NuGet (28+ grammars) or per-machine compile | True incremental via `ts_tree_edit` + `parse(old_tree, ...)` | Excellent                        | `TreeSitter.DotNet` v1.3 (Jan 2026, MIT)   | Good — tree lives in model        | libtree-sitter + per-grammar `.so`/`.dylib` |
+| **TextMate grammars**              | VS Code, Sublime, Atom, GitHub                   | Per-line regex rule stack                            | `.tmLanguage` JSON, ~thousands available            | Per-line state token cached, dirty-line forward              | Excellent (largest ecosystem)    | `TextMateSharp` (MIT, NuGet)               | Good — `tokenizeLine` is pure     | Native Oniguruma                            |
+| **Regex rules (micro-style YAML)** | micro, Kakoune (variant), nano, Vim `:syntax`    | Single-line regex + region nesting                   | YAML rules per language, ~150 community grammars    | Per-line state cache, forward invalidation                   | Good for ~10 langs; tails off    | Pure .NET regex works (RE2 subset)         | Excellent — pure F# data          | None                                        |
+| **Hand-written tokenizers**        | kilo, dte (partial), JetBrains "fallback lexers" | Bespoke state machine in host language               | None — write per language                           | Per-line lex-state fixpoint                                  | Painful past 3–4 langs           | n/a — it's your code                       | Best — pure F# function           | None                                        |
+| **Emacs font-lock**                | Emacs (non-treesit modes)                        | Regex + syntax-table state machine + Elisp callbacks | Per-mode Elisp files                                | `jit-lock` lazy + `font-lock-multiline` text properties      | Excellent in Emacs, not portable | n/a — GPL Elisp                            | Poor — assumes mutable text props | n/a                                         |
+| **LSP semantic tokens**            | Zed, VS Code (overlay)                           | Server-driven, off-the-shelf per language            | LSP server provides                                 | Server emits on change, edit deltas                          | Excellent                        | Possible via `LanguageServerProtocol` libs | Async fits MVU effects            | LSP server binaries                         |
 
 The bottom three rows are reference points; the top three are the actual candidate paths for fedit.
 
@@ -63,11 +63,11 @@ TextMate-via-`TextMateSharp` is the runner-up: 40+ languages out of the box, but
 
 Three patterns, all of which are easy to express in MVU:
 
-| Pattern | Used by | How |
-|---|---|---|
+| Pattern                                        | Used by                                    | How                                                                                                                                          |
+| ---------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Per-line state cache, forward invalidation** | Vim/Neovim legacy, micro, TextMate engines | Cache `LexState` at every line boundary. On edit at line N, re-lex from N forward until the emitted state matches the cached one, then stop. |
-| **Incremental parse-tree edit** | Tree-sitter (Helix, Zed, Neovim TS) | Tree stored in model. Edit → `ts_tree_edit(...)` to shift node positions, then `parse(old_tree, new_input)` reuses unchanged subtrees. |
-| **Lazy on demand** | Emacs `jit-lock`, Kakoune | Highlight is computed lazily as the renderer pulls visible regions. Edits invalidate; the renderer requests fresh data. |
+| **Incremental parse-tree edit**                | Tree-sitter (Helix, Zed, Neovim TS)        | Tree stored in model. Edit → `ts_tree_edit(...)` to shift node positions, then `parse(old_tree, new_input)` reuses unchanged subtrees.       |
+| **Lazy on demand**                             | Emacs `jit-lock`, Kakoune                  | Highlight is computed lazily as the renderer pulls visible regions. Edits invalidate; the renderer requests fresh data.                      |
 
 For fedit's MVU loop, the first two are equally clean: the cache (or tree) lives in `Model`, edits produce a new cache (or tree), and rendering reads it. Lazy-on-demand is also fine but harder to reason about purity-wise — we'd push it into a memoization layer.
 
@@ -135,6 +135,7 @@ Renderer maps `Token -> AnsiStyle` from the active theme. Two new theme fields (
 **Cost:** ~500 LOC + a `Token -> AnsiStyle` mapping in `Themes.fs`. No new NuGet dependencies. No native binaries.
 
 **Tradeoffs:**
+
 - ✅ Best MVU fit — pure function in, pure data out
 - ✅ Zero binary bloat
 - ✅ No grammar-license question
@@ -161,6 +162,7 @@ where `LexState` wraps `TextMateSharp`'s `StateStack`. Highlight cache stores `S
 **Cost:** Two NuGet packages (~5–10 MB native Oniguruma + grammars). Adapter: ~200 LOC. Theme integration: ~100 LOC (parse `.json-tmTheme`, populate fedit's theme record from VS Code-style themes).
 
 **Tradeoffs:**
+
 - ✅ 40+ languages out of the box (F#, C#, TS, Python, Rust, Markdown, JSON, YAML, TOML, ...)
 - ✅ 20+ themes that match what users see in VS Code
 - ✅ Used by AvaloniaEdit in production — proven on .NET
@@ -192,6 +194,7 @@ Model holds `SyntaxState option`. Edits translate to `TSInputEdit` (built from t
 **Cost:** One NuGet (~26 MB pre-trim, ~3–6 MB after RID-specific publish trimming). Adapter + caching: ~400 LOC. Theme integration: ~150 LOC (resolve capture-name prefixes to colors via a small trie). One smoke test up front to confirm `Tree.Edit` is exposed by `TreeSitter.DotNet`.
 
 **Tradeoffs:**
+
 - ✅ True incremental parsing — sub-millisecond per keystroke on edits
 - ✅ Scales to 100k-line files (Helix proves this; only injection-heavy pathologies hurt)
 - ✅ 28+ grammars bundled including F# (ionide's grammar)
@@ -211,11 +214,11 @@ Model holds `SyntaxState option`. Edits translate to `TSInputEdit` (built from t
 
 The decision turns on **scope ambition**, not technical risk — all three options work.
 
-| If fedit's north star is... | Pick |
-|---|---|
-| "A polished F# editor for F# people" | A (hand-written) |
-| "Visually identical to VS Code on the long tail of files" | B (TextMate) |
-| "A real general-purpose editor; F# is just the first language" | C (tree-sitter) |
+| If fedit's north star is...                                    | Pick             |
+| -------------------------------------------------------------- | ---------------- |
+| "A polished F# editor for F# people"                           | A (hand-written) |
+| "Visually identical to VS Code on the long tail of files"      | B (TextMate)     |
+| "A real general-purpose editor; F# is just the first language" | C (tree-sitter)  |
 
 A useful **two-step plan** if undecided: start with (A) for F# only, ship in days, and treat the `tokenize : LexState -> string -> Token list * LexState` signature as a contract. When multi-language pressure arrives, slot a `TextMateSharp` or `TreeSitter.DotNet` adapter in behind that same signature — the MVU loop and renderer don't change. This makes (A) a strict subset of (B) and (C) rather than a sunk cost.
 

@@ -218,14 +218,14 @@ Command bar commands:
 
 `fedit` reads `~/.config/fedit/config.json` at startup. The file is created automatically the first time the editor persists state (`:theme` or opening a file updates `recent`). Hand-edited values are preserved on every save — unknown keys you add to the file are kept intact.
 
-| Key               | Type     | Default  | Range     | What it controls                                                                                  |
-| ----------------- | -------- | -------- | --------- | ------------------------------------------------------------------------------------------------- |
-| `theme`           | string   | `cyan`   | —         | Accent palette name (bundled or user theme from `~/.config/fedit/themes/*.json`).                 |
-| `recent`          | string[] | `[]`     | up to 20  | Recently opened files; managed automatically.                                                     |
-| `completionLimit` | int      | `8`      | 1–64      | Max items considered for `:open`, `:writeas`, `:recent`, `:buffers` completions.                  |
-| `sidebarIndent`   | int      | `2`      | 0–16      | Spaces per depth level in the file tree.                                                          |
-| `sidebarWidth`    | int      | `30`     | 10–200    | Initial sidebar width in columns.                                                                 |
-| `dockHeight`      | int      | `5`      | 1–40      | Dock panel height in rows (used for the completion list and `:help`).                             |
+| Key               | Type     | Default   | Range                        | What it controls                                                                                        |
+| ----------------- | -------- | --------- | ---------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `theme`           | string   | `cyan`    | —                            | Accent palette name (bundled or user theme from `~/.config/fedit/themes/*.json`).                       |
+| `recent`          | string[] | `[]`      | up to 20                     | Recently opened files; managed automatically.                                                           |
+| `completionLimit` | int      | `8`       | 1–64                         | Max items considered for `:open`, `:writeas`, `:recent`, `:buffers` completions.                        |
+| `sidebarIndent`   | int      | `2`       | 0–16                         | Spaces per depth level in the file tree.                                                                |
+| `sidebarWidth`    | int      | `30`      | 10–200                       | Initial sidebar width in columns.                                                                       |
+| `dockHeight`      | int      | `5`       | 1–40                         | Dock panel height in rows (used for the completion list and `:help`).                                   |
 | `wordMotion`      | string   | `wordEnd` | `wordEnd` or `nextWordStart` | Where `Alt+Right` / `Ctrl+Delete` land — end of current word (default) or start of next word (vim `w`). |
 
 Changes take effect on next launch. Out-of-range values clamp to the nearest valid bound rather than failing.

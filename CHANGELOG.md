@@ -5,16 +5,16 @@ live in [`TODO.md`](TODO.md).
 
 ## Shipped
 
-| Phase | What landed                                                                                                                                            |
-| ----: | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-|     0 | `:theme` command, 8 bundled palettes, live preview, persistence to `~/.config/fedit/config.json` (9/9).                                                |
-|     1 | Architecture findings F1–F7 (gutter width, view-string placement, workspace metadata, Buffer.serialize, Renderer wrapper, collapseSelected, scan errors). |
-|     2 | Module reorganization — `Program.fs` is an entry-point shell; 13 numbered files under `namespace Fedit`.                                               |
-|     3 | UX: find-in-buffer, open recent, confirm-quit, buffer picker, line-ending indicator, word motion, selection + clipboard, file watcher, user themes (11/11). |
-|     4 | DX: install recipe, Tier 1 tests (63 passing), CI on `{ubuntu, macos, windows}`, format/lint, crash handler, `--log` flag, `dotnet watch` docs.        |
-|     5 | Performance: P1 line cache, P2 async + cancellation I/O, P3 struct types, P4 undo cap (200), P5 idiom cleanups.                                        |
+| Phase | What landed                                                                                                                                                                           |
+| ----: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|     0 | `:theme` command, 8 bundled palettes, live preview, persistence to `~/.config/fedit/config.json` (9/9).                                                                               |
+|     1 | Architecture findings F1–F7 (gutter width, view-string placement, workspace metadata, Buffer.serialize, Renderer wrapper, collapseSelected, scan errors).                             |
+|     2 | Module reorganization — `Program.fs` is an entry-point shell; 13 numbered files under `namespace Fedit`.                                                                              |
+|     3 | UX: find-in-buffer, open recent, confirm-quit, buffer picker, line-ending indicator, word motion, selection + clipboard, file watcher, user themes (11/11).                           |
+|     4 | DX: install recipe, Tier 1 tests (63 passing), CI on `{ubuntu, macos, windows}`, format/lint, crash handler, `--log` flag, `dotnet watch` docs.                                       |
+|     5 | Performance: P1 line cache, P2 async + cancellation I/O, P3 struct types, P4 undo cap (200), P5 idiom cleanups.                                                                       |
 |     6 | .NET conventions: `global.json`, `Directory.Build.props`, `.editorconfig`, publish settings in fsproj, `src/` + `tests/` restructure, `Fedit.slnx`, OS-matrix CI, repo hygiene (8/8). |
-|   UX  | Command Bar & Dock: Vertical completion navigation, virtual scrolling, dimmed details, slim dock (hidden by default), `:help` toggle.                                  |
+|    UX | Command Bar & Dock: Vertical completion navigation, virtual scrolling, dimmed details, slim dock (hidden by default), `:help` toggle.                                                 |
 
 ## Architecture review findings (all resolved)
 
@@ -104,7 +104,7 @@ dependency vs. YAML).
 - [x] **Live preview** via `PreviewTheme : Theme option` on
       `CommandBarState`. `Layout.effectiveTheme` resolves the visible
       theme as `model.CommandBar.PreviewTheme |> Option.defaultValue
-      model.Theme`. Recomputed in `Editor.updatePreview` on text
+    model.Theme`. Recomputed in `Editor.updatePreview` on text
       changes and Tab/ShiftTab cycling. Cleared in `closeCommandBar`.
 - [x] On `Enter` with `Ready (Theme name)`, set `model.Theme` and
       persist `{"theme": "<name>"}` via `SaveConfig` effect →
@@ -114,7 +114,7 @@ dependency vs. YAML).
       `Editor.init`. All failure modes fall through to
       `Themes.defaultTheme`.
 - [x] `:theme` with no argument resolves to `Pending "Theme name
-      required."` so the command bar itself is the picker.
+    required."` so the command bar itself is the picker.
 
 ### UX notes
 
@@ -321,11 +321,11 @@ make the project legible to the broader .NET ecosystem.
       `TreatWarningsAsErrors=true`, `Nullable=enable`,
       `InvariantGlobalization=true`, `DebugType=embedded`,
       `NeutralLanguage=en-US`. Verified via `dotnet msbuild
-      -getProperty`.
+    -getProperty`.
 - [x] **C3 — Add `.editorconfig`.** Pins Fantomas style explicitly:
       `indent_style = space`, `indent_size = 4`, `end_of_line = lf`,
       `insert_final_newline = true`, `trim_trailing_whitespace =
-      true`. Fantomas reads `.editorconfig` and reports clean.
+    true`. Fantomas reads `.editorconfig` and reports clean.
 - [x] **C4 — Move publish settings into the project file.**
       `Fedit.fsproj` Release `PropertyGroup` now carries
       `PublishSingleFile`, `SelfContained`, `RuntimeIdentifiers`
@@ -358,7 +358,7 @@ make the project legible to the broader .NET ecosystem.
 ## Verified post-Phase-6
 
 - `Directory.Build.props` inheritance confirmed via `dotnet msbuild
-  -getProperty` on both projects.
+-getProperty` on both projects.
 - `global.json` honored: `dotnet --version` → `9.0.312`.
 - `dotnet publish -c Release -r osx-arm64` → 77MB Mach-O arm64
   single-file binary; `-r linux-x64` → 71MB ELF.

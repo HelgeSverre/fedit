@@ -51,16 +51,17 @@ The core `tree-sitter` library is **MIT**. Most grammars are **MIT or Apache-2.0
 Adopting tree-sitter in fedit is now realistic, not speculative.
 
 **Smallest credible "ship F# + a few languages" path:**
+
 1. Add `TreeSitter.DotNet` 1.3.x. You get tree-sitter-fsharp and ~27 others for free.
 2. Treat highlighting as a service that owns: `Parser`, `Tree?`, and a list of `Query` objects per language. On each buffer edit, build a `TSInputEdit` from the piece-table's edit record, call `tree.Edit(...)` then `parser.Parse(tree, newText)`. **This maps cleanly onto MVU** — the parse-tree is part of the model, edits are pure, the parse call is the one effect.
 3. Highlight per visible viewport, not per buffer: run the highlights query over the byte range of currently-rendered lines, cache `(byte_range → captures)`, repaint on tree change. Don't walk the tree per ANSI cell.
 4. Debounce only if you measure a problem; for files <50k lines, tree-sitter's incremental reparse is sub-frame on modern hardware. Adopt Helix's **500 ms parse timeout** as a defensive bound.
 
 **Distribution gotchas:**
+
 - The bundled NuGet is ~26 MB across all RIDs. For self-contained single-file publish, set `RuntimeIdentifier` and let `dotnet publish` strip non-matching runtimes; expect ~3–6 MB of native parser blobs added per RID, dominated by the long tail of grammars. If that's still too much, fork or repackage as `TreeSitter.DotNet.Core` + per-language packages — not pleasant but mechanical.
 - F# grammar quality: ionide/tree-sitter-fsharp is the canonical one but historically lagged the compiler; verify against your test corpus before committing.
 - Incremental API: confirm by smoke test that `TreeSitter.DotNet` exposes `Tree.Edit` and `Parser.Parse(oldTree, …)`. If it only exposes full-parse, file an issue — the upstream C API is there.
 - Avoid the nvim model (compile-on-user-machine). Avoid the Helix model (separate `runtime/` directory) unless you want extension installability; bundled-via-NuGet is the simplest fit for a self-contained F# binary.
 
 **Recommendation:** prototype on one buffer with F# + Markdown highlighting through `TreeSitter.DotNet`. If the edit→parse→query→render loop stays under a frame at 10k lines, commit. If not, the fallback is a simpler tokenizer (FSharp.Compiler.Service tokens, Markdown regex) — not the end of the world for an MVU editor.
-

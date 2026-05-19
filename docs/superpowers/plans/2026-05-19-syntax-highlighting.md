@@ -16,43 +16,44 @@
 
 ### New files
 
-| Path | Purpose |
-|---|---|
-| `vendor/tree-sitter-fsharp/` | Git submodule pointing at `ionide/tree-sitter-fsharp` v0.3.0. |
-| `src/Fedit/runtimes/osx-arm64/native/libtree-sitter-fsharp.dylib` | Pre-built F# grammar for macOS arm64. |
-| `src/Fedit/runtimes/osx-x64/native/libtree-sitter-fsharp.dylib` | Pre-built F# grammar for macOS x64. |
-| `src/Fedit/runtimes/linux-x64/native/libtree-sitter-fsharp.so` | Pre-built F# grammar for Linux x64. |
-| `src/Fedit/runtimes/linux-arm64/native/libtree-sitter-fsharp.so` | Pre-built F# grammar for Linux arm64. |
-| `src/Fedit/runtimes/win-x64/native/tree-sitter-fsharp.dll` | Pre-built F# grammar for Windows x64. |
-| `src/Fedit/Resources/queries/fsharp/highlights.scm` | Highlights query, copied from grammar's `queries/`. Embedded resource. |
-| `src/Fedit/Highlight.fs` | `HighlightCapture`, `HighlightSpan`, `HighlightState`, `HighlightRegistry`, edit and query orchestration. |
-| `tests/Fedit.Tests/HighlightTests.fs` | Capture resolution, language detection, span-overlap math, end-to-end parse+query smoke. |
-| `tests/Fedit.Tests/Fixtures/sample.fs` | Small F# fixture used by integration tests. |
+| Path                                                              | Purpose                                                                                                   |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `vendor/tree-sitter-fsharp/`                                      | Git submodule pointing at `ionide/tree-sitter-fsharp` v0.3.0.                                             |
+| `src/Fedit/runtimes/osx-arm64/native/libtree-sitter-fsharp.dylib` | Pre-built F# grammar for macOS arm64.                                                                     |
+| `src/Fedit/runtimes/osx-x64/native/libtree-sitter-fsharp.dylib`   | Pre-built F# grammar for macOS x64.                                                                       |
+| `src/Fedit/runtimes/linux-x64/native/libtree-sitter-fsharp.so`    | Pre-built F# grammar for Linux x64.                                                                       |
+| `src/Fedit/runtimes/linux-arm64/native/libtree-sitter-fsharp.so`  | Pre-built F# grammar for Linux arm64.                                                                     |
+| `src/Fedit/runtimes/win-x64/native/tree-sitter-fsharp.dll`        | Pre-built F# grammar for Windows x64.                                                                     |
+| `src/Fedit/Resources/queries/fsharp/highlights.scm`               | Highlights query, copied from grammar's `queries/`. Embedded resource.                                    |
+| `src/Fedit/Highlight.fs`                                          | `HighlightCapture`, `HighlightSpan`, `HighlightState`, `HighlightRegistry`, edit and query orchestration. |
+| `tests/Fedit.Tests/HighlightTests.fs`                             | Capture resolution, language detection, span-overlap math, end-to-end parse+query smoke.                  |
+| `tests/Fedit.Tests/Fixtures/sample.fs`                            | Small F# fixture used by integration tests.                                                               |
 
 ### Modified files
 
-| Path | Change |
-|---|---|
-| `.gitmodules` | Add `vendor/tree-sitter-fsharp` submodule. |
-| `Fedit.slnx` | No change (Highlight is part of `Fedit.fsproj`). |
-| `src/Fedit/Fedit.fsproj` | Add `TreeSitter.DotNet` PackageReference, embed `highlights.scm`, copy `runtimes/` natives, add publish-trim MSBuild target, add `Highlight.fs` to compile order before `Model.fs`. |
-| `src/Fedit/Themes.fs` | Add 16 syntax-color fields to `Theme`. Update bundled themes with sensible defaults. Update user-theme JSON loader to read optional `syntax` block. |
-| `src/Fedit/Primitives.fs` | No change (highlight types live in `Highlight.fs`). |
-| `src/Fedit/Buffer.fs` | Add `Highlight: HighlightState` field to `BufferState`. Helpers preserve it through transforms. |
-| `src/Fedit/Model.fs` | Add `SyntaxHighlightingEnabled: bool` to `Model`. |
-| `src/Fedit/Commands.fs` | Add `Syntax of verb: string` to `Command` DU; add `syntax` spec parsing `on`/`off`/`toggle`. |
-| `src/Fedit/Editor.fs` | Detect language and initialize `Highlight` on `FileOpened`. Trigger reparse on every buffer-content-changing path (insert/delete/replace/paste). Dispose old trees. Handle `Syntax` command. Persist toggle via `SaveConfig`. |
-| `src/Fedit/Renderer.fs` (or `View.fs` / `Screen.fs` — whichever owns per-cell ANSI output) | Overlay highlight-derived foreground color per cell. |
-| `src/Fedit/Runtime.fs` | Initialize `HighlightRegistry` at startup. Read `syntaxHighlighting` from config. Dispose registry on shutdown. Extend `saveConfig` to persist the toggle. |
-| `tests/Fedit.Tests/Fedit.Tests.fsproj` | Add `HighlightTests.fs` to compile list. |
-| `justfile` | Add `build-grammar` and per-RID `build-grammar-<rid>` recipes. |
-| `README.md` | Mention syntax highlighting and the `:syntax` command. Note F# is the only language for MVP. |
+| Path                                                                                       | Change                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.gitmodules`                                                                              | Add `vendor/tree-sitter-fsharp` submodule.                                                                                                                                                                                    |
+| `Fedit.slnx`                                                                               | No change (Highlight is part of `Fedit.fsproj`).                                                                                                                                                                              |
+| `src/Fedit/Fedit.fsproj`                                                                   | Add `TreeSitter.DotNet` PackageReference, embed `highlights.scm`, copy `runtimes/` natives, add publish-trim MSBuild target, add `Highlight.fs` to compile order before `Model.fs`.                                           |
+| `src/Fedit/Themes.fs`                                                                      | Add 16 syntax-color fields to `Theme`. Update bundled themes with sensible defaults. Update user-theme JSON loader to read optional `syntax` block.                                                                           |
+| `src/Fedit/Primitives.fs`                                                                  | No change (highlight types live in `Highlight.fs`).                                                                                                                                                                           |
+| `src/Fedit/Buffer.fs`                                                                      | Add `Highlight: HighlightState` field to `BufferState`. Helpers preserve it through transforms.                                                                                                                               |
+| `src/Fedit/Model.fs`                                                                       | Add `SyntaxHighlightingEnabled: bool` to `Model`.                                                                                                                                                                             |
+| `src/Fedit/Commands.fs`                                                                    | Add `Syntax of verb: string` to `Command` DU; add `syntax` spec parsing `on`/`off`/`toggle`.                                                                                                                                  |
+| `src/Fedit/Editor.fs`                                                                      | Detect language and initialize `Highlight` on `FileOpened`. Trigger reparse on every buffer-content-changing path (insert/delete/replace/paste). Dispose old trees. Handle `Syntax` command. Persist toggle via `SaveConfig`. |
+| `src/Fedit/Renderer.fs` (or `View.fs` / `Screen.fs` — whichever owns per-cell ANSI output) | Overlay highlight-derived foreground color per cell.                                                                                                                                                                          |
+| `src/Fedit/Runtime.fs`                                                                     | Initialize `HighlightRegistry` at startup. Read `syntaxHighlighting` from config. Dispose registry on shutdown. Extend `saveConfig` to persist the toggle.                                                                    |
+| `tests/Fedit.Tests/Fedit.Tests.fsproj`                                                     | Add `HighlightTests.fs` to compile list.                                                                                                                                                                                      |
+| `justfile`                                                                                 | Add `build-grammar` and per-RID `build-grammar-<rid>` recipes.                                                                                                                                                                |
+| `README.md`                                                                                | Mention syntax highlighting and the `:syntax` command. Note F# is the only language for MVP.                                                                                                                                  |
 
 ---
 
 ## Task 1: Add `TreeSitter.DotNet` and verify load
 
 **Files:**
+
 - Modify: `src/Fedit/Fedit.fsproj`
 - Create: `tests/Fedit.Tests/HighlightTests.fs`
 - Modify: `tests/Fedit.Tests/Fedit.Tests.fsproj`
@@ -89,6 +90,7 @@ let ``TreeSitter.DotNet types are reachable`` () =
 ```
 
 Add to `tests/Fedit.Tests/Fedit.Tests.fsproj`'s compile list (before `Program.fs`):
+
 ```xml
 <Compile Include="HighlightTests.fs" />
 ```
@@ -110,6 +112,7 @@ git commit -m "feat(highlight): add TreeSitter.DotNet 1.3.0 package and load pro
 ## Task 2: Vendor the F# grammar as a git submodule
 
 **Files:**
+
 - Create: `vendor/tree-sitter-fsharp/` (submodule)
 - Modify: `.gitmodules`
 
@@ -142,6 +145,7 @@ git commit -m "feat(highlight): vendor tree-sitter-fsharp v0.3.0 as submodule"
 ## Task 3: Add a justfile recipe to build the F# grammar for the current host
 
 **Files:**
+
 - Modify: `justfile`
 
 The full per-RID build is in Task 11; this task gets the loop running for the developer's own machine.
@@ -191,6 +195,7 @@ git commit -m "feat(highlight): justfile recipe + host-RID build of tree-sitter-
 ## Task 4: Copy the `highlights.scm` query into the project as an embedded resource
 
 **Files:**
+
 - Create: `src/Fedit/Resources/queries/fsharp/highlights.scm`
 - Modify: `src/Fedit/Fedit.fsproj`
 
@@ -232,6 +237,7 @@ git commit -m "feat(highlight): embed F# highlights.scm as resource"
 ## Task 5: Configure native-binary copy to publish output
 
 **Files:**
+
 - Modify: `src/Fedit/Fedit.fsproj`
 
 - [ ] **Step 1: Add a copy ItemGroup**
@@ -265,6 +271,7 @@ git commit -m "feat(highlight): copy runtimes/ natives to publish output"
 ## Task 6: Implement `HighlightCapture` and capture-name resolution
 
 **Files:**
+
 - Create: `src/Fedit/Highlight.fs`
 - Modify: `src/Fedit/Fedit.fsproj`
 - Modify: `tests/Fedit.Tests/HighlightTests.fs`
@@ -399,6 +406,7 @@ git commit -m "feat(highlight): HighlightCapture DU and capture-name resolution"
 ## Task 7: Implement `HighlightRegistry` and language loading
 
 **Files:**
+
 - Modify: `src/Fedit/Highlight.fs`
 - Modify: `tests/Fedit.Tests/HighlightTests.fs`
 
@@ -506,6 +514,7 @@ git commit -m "feat(highlight): HighlightRegistry with F# language and query loa
 ## Task 8: Add `HighlightSpan` and a parse-and-query function
 
 **Files:**
+
 - Modify: `src/Fedit/Highlight.fs`
 - Create: `tests/Fedit.Tests/Fixtures/sample.fs`
 - Modify: `tests/Fedit.Tests/HighlightTests.fs`
@@ -602,6 +611,7 @@ git commit -m "feat(highlight): computeSpans queries tree-sitter highlights for 
 ## Task 9: Add `HighlightState` to `BufferState`
 
 **Files:**
+
 - Modify: `src/Fedit/Highlight.fs`
 - Modify: `src/Fedit/Buffer.fs`
 
@@ -662,6 +672,7 @@ git commit -m "feat(highlight): HighlightState field on BufferState"
 ## Task 10: Initialize highlight on file open and update on buffer change
 
 **Files:**
+
 - Modify: `src/Fedit/Highlight.fs`
 - Modify: `src/Fedit/Editor.fs`
 - Modify: `tests/Fedit.Tests/HighlightTests.fs`
@@ -778,6 +789,7 @@ git commit -m "feat(highlight): reparse spans on FileOpened and buffer mutations
 ## Task 11: Build the grammar for all 5 RIDs
 
 **Files:**
+
 - Modify: `justfile`
 - Create: native libs in `src/Fedit/runtimes/<rid>/native/` for the four RIDs not already built in Task 3.
 
@@ -850,6 +862,7 @@ git commit -m "feat(highlight): build tree-sitter-fsharp for all 5 RIDs via zig 
 ## Task 12: Publish-time grammar trimming
 
 **Files:**
+
 - Modify: `src/Fedit/Fedit.fsproj`
 
 - [ ] **Step 1: Add the MSBuild target**
@@ -896,6 +909,7 @@ git commit -m "feat(highlight): publish-time trim of unused tree-sitter grammars
 ## Task 13: Add `HighlightRegistry` and `SyntaxHighlightingEnabled` to `Model`
 
 **Files:**
+
 - Modify: `src/Fedit/Model.fs`
 - Modify: `src/Fedit/Editor.fs`
 
@@ -933,6 +947,7 @@ git commit -m "feat(highlight): SyntaxHighlightingEnabled + HighlightRegistry on
 ## Task 14: Extend `Theme` with 16 syntax-color fields
 
 **Files:**
+
 - Modify: `src/Fedit/Themes.fs`
 - Modify: `src/Fedit/Highlight.fs`
 - Modify: `tests/Fedit.Tests/HighlightTests.fs`
@@ -1070,6 +1085,7 @@ git commit -m "feat(highlight): 16 syntax colors on Theme + colorFor lookup"
 ## Task 15: Render highlight spans
 
 **Files:**
+
 - Modify: `src/Fedit/Highlight.fs`
 - Modify: the renderer module that produces per-cell ANSI styles (likely `Renderer.fs`, `View.fs`, or `Screen.fs` — find which by reading the existing render pipeline).
 
@@ -1114,6 +1130,7 @@ Locate the per-cell render pass. For each visible cell, given its `(line, column
 3. If `Some span` and `model.SyntaxHighlightingEnabled`, set the cell's foreground to `Highlight.colorFor model.Theme span.Capture`. Otherwise keep the existing default foreground.
 
 The exact integration point depends on the renderer's API. Common patterns:
+
 - If cells are built as a 2D array of `{ Fg; Bg; Char }`, set `Fg` per cell.
 - If cells are produced via a writer-style emit function, inject `setFgColor` calls before each character whose color differs from the previous.
 
@@ -1136,6 +1153,7 @@ git commit -m "feat(highlight): overlay syntax colors per cell from spans"
 ## Task 16: Initialize and dispose the registry from `Runtime.fs`
 
 **Files:**
+
 - Modify: `src/Fedit/Runtime.fs`
 
 - [ ] **Step 1: Construct at startup**
@@ -1187,6 +1205,7 @@ git commit -m "feat(highlight): construct HighlightRegistry at startup; dispose 
 ## Task 17: `syntax` command + config persistence
 
 **Files:**
+
 - Modify: `src/Fedit/Commands.fs`
 - Modify: `src/Fedit/Editor.fs`
 - Modify: `src/Fedit/Runtime.fs`
@@ -1279,6 +1298,7 @@ git commit -m "feat(highlight): :syntax on/off/toggle command with config persis
 ## Task 18: Per-RID CI smoke test
 
 **Files:**
+
 - Create: `.github/workflows/highlight-smoke.yml` (or extend existing workflow if one exists)
 - Modify: `tests/Fedit.Tests/HighlightTests.fs` (add a `[Trait]` for the smoke test category)
 
@@ -1300,41 +1320,41 @@ Create `.github/workflows/highlight-smoke.yml`:
 name: highlight-smoke
 
 on:
-  push:
-    paths:
-      - 'src/Fedit/Highlight.fs'
-      - 'src/Fedit/runtimes/**'
-      - 'vendor/tree-sitter-fsharp'
-  pull_request:
-    paths:
-      - 'src/Fedit/Highlight.fs'
-      - 'src/Fedit/runtimes/**'
+    push:
+        paths:
+            - "src/Fedit/Highlight.fs"
+            - "src/Fedit/runtimes/**"
+            - "vendor/tree-sitter-fsharp"
+    pull_request:
+        paths:
+            - "src/Fedit/Highlight.fs"
+            - "src/Fedit/runtimes/**"
 
 jobs:
-  smoke:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            rid: osx-arm64
-          - os: macos-13
-            rid: osx-x64
-          - os: ubuntu-latest
-            rid: linux-x64
-          - os: ubuntu-24.04-arm
-            rid: linux-arm64
-          - os: windows-latest
-            rid: win-x64
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '9.0.x'
-      - run: dotnet test tests/Fedit.Tests/Fedit.Tests.fsproj --filter "Category=Smoke" --logger "console;verbosity=detailed"
+    smoke:
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: macos-14
+                      rid: osx-arm64
+                    - os: macos-13
+                      rid: osx-x64
+                    - os: ubuntu-latest
+                      rid: linux-x64
+                    - os: ubuntu-24.04-arm
+                      rid: linux-arm64
+                    - os: windows-latest
+                      rid: win-x64
+        runs-on: ${{ matrix.os }}
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: true
+            - uses: actions/setup-dotnet@v4
+              with:
+                  dotnet-version: "9.0.x"
+            - run: dotnet test tests/Fedit.Tests/Fedit.Tests.fsproj --filter "Category=Smoke" --logger "console;verbosity=detailed"
 ```
 
 - [ ] **Step 3: Push and verify**
@@ -1353,6 +1373,7 @@ git commit -m "ci(highlight): per-RID smoke test for tree-sitter F# grammar"
 ## Task 19: README + user docs
 
 **Files:**
+
 - Modify: `README.md`
 - Create: `docs/syntax-highlighting.md`
 
@@ -1413,6 +1434,7 @@ dotnet publish src/Fedit/Fedit.fsproj -c Release -r osx-arm64 --self-contained t
 ```
 
 Expected:
+
 - Editor opens with `Highlight.fs` visible
 - `module`, `let`, `match`, `type` etc. are colored as keywords
 - String literals are a distinct color
@@ -1455,26 +1477,26 @@ git commit -m "feat(highlight): tuning from manual verification"
 
 **Spec coverage** — every section of `docs/superpowers/specs/2026-05-19-syntax-highlighting-spec.md` maps to a task:
 
-| Spec section | Tasks |
-|---|---|
-| Package | 1 |
-| Grammar (vendor + build) | 2, 3, 11 |
-| Native binary layout | 3, 5, 11 |
-| Publish-time trimming | 12 |
-| `HighlightCapture` + `HighlightSpan` + `HighlightState` | 6, 8, 9 |
-| Capture-name resolution | 6 |
-| `HighlightRegistry` | 7 |
-| Singleton registry construction at startup | 16 |
-| Edit handling (Phase 1 full reparse) | 10 |
-| Rendering integration | 15 |
-| Theme integration (16 fields) | 14 |
-| Language detection | 9 (`detectLanguage`) |
-| Lifecycle (init, edit, close, shutdown) | 10, 15, 16 |
-| Failure modes (missing lib, parse fails) | 7 (`tryCreate` returns option), 10, 16 |
-| Configuration (`:syntax on/off/toggle` + persist) | 17 |
-| Testing strategy (unit, integration, per-RID CI) | 6, 7, 8, 14, 18 |
-| README + docs | 19 |
-| Manual verification | 20 |
+| Spec section                                            | Tasks                                  |
+| ------------------------------------------------------- | -------------------------------------- |
+| Package                                                 | 1                                      |
+| Grammar (vendor + build)                                | 2, 3, 11                               |
+| Native binary layout                                    | 3, 5, 11                               |
+| Publish-time trimming                                   | 12                                     |
+| `HighlightCapture` + `HighlightSpan` + `HighlightState` | 6, 8, 9                                |
+| Capture-name resolution                                 | 6                                      |
+| `HighlightRegistry`                                     | 7                                      |
+| Singleton registry construction at startup              | 16                                     |
+| Edit handling (Phase 1 full reparse)                    | 10                                     |
+| Rendering integration                                   | 15                                     |
+| Theme integration (16 fields)                           | 14                                     |
+| Language detection                                      | 9 (`detectLanguage`)                   |
+| Lifecycle (init, edit, close, shutdown)                 | 10, 15, 16                             |
+| Failure modes (missing lib, parse fails)                | 7 (`tryCreate` returns option), 10, 16 |
+| Configuration (`:syntax on/off/toggle` + persist)       | 17                                     |
+| Testing strategy (unit, integration, per-RID CI)        | 6, 7, 8, 14, 18                        |
+| README + docs                                           | 19                                     |
+| Manual verification                                     | 20                                     |
 
 **Placeholder scan** — flagged remaining:
 

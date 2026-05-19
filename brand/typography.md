@@ -64,6 +64,7 @@ xl:   20px / 1.25rem   subheadings
 Departure Mono ships in a single weight — use it everywhere, no fallback to bold. The pixel character carries the emphasis.
 
 JetBrains Mono allowed weights:
+
 - `400` body
 - `500` emphasis (use sparingly)
 - `700` headings (only when needed; usually `500` is enough)
@@ -82,20 +83,35 @@ Never use `300` (light) — readability tell, low contrast.
 
 ```html
 <div class="brand">
-  <svg class="symbol" viewBox="0 0 24 24" fill="none" stroke="#00B86B" stroke-width="3" stroke-linecap="square">
-    <path d="M4 16 L12 8 L20 16"/>
-  </svg>
-  <span class="word">fedit</span>
+    <svg
+        class="symbol"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="#00B86B"
+        stroke-width="3"
+        stroke-linecap="square"
+    >
+        <path d="M4 16 L12 8 L20 16" />
+    </svg>
+    <span class="word">fedit</span>
 </div>
 
 <style>
-  .brand { display: flex; align-items: baseline; gap: 10px; }
-  .brand .symbol { width: 24px; height: 24px; align-self: center; }
-  .brand .word {
-    font-family: "Departure Mono", monospace;
-    font-size: 32px;
-    letter-spacing: -0.02em;
-    line-height: 1;
-  }
+    .brand {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+    }
+    .brand .symbol {
+        width: 24px;
+        height: 24px;
+        align-self: center;
+    }
+    .brand .word {
+        font-family: "Departure Mono", monospace;
+        font-size: 32px;
+        letter-spacing: -0.02em;
+        line-height: 1;
+    }
 </style>
 ```

@@ -98,17 +98,17 @@ is preserved next to the executable.
 
 ## Package metadata
 
-| Field | Value |
-|---|---|
-| Latest version | 1.3.0 (2026-01-22) |
-| Total downloads | ~67.7K across 6 versions |
-| License | MIT |
-| Target framework | netstandard2.0 (single TFM) |
-| Dependencies | none |
-| Package size | 50.93 MB |
+| Field                        | Value                                                               |
+| ---------------------------- | ------------------------------------------------------------------- |
+| Latest version               | 1.3.0 (2026-01-22)                                                  |
+| Total downloads              | ~67.7K across 6 versions                                            |
+| License                      | MIT                                                                 |
+| Target framework             | netstandard2.0 (single TFM)                                         |
+| Dependencies                 | none                                                                |
+| Package size                 | 50.93 MB                                                            |
 | RuntimeIdentifiers in csproj | `win-x86;win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64` |
-| Additional runtimes built | `linux-x86`, `linux-arm` (added Dec 2025) |
-| tree-sitter C lib version | v0.26.3 (Jan 2026); upstream is v0.26.8 |
+| Additional runtimes built    | `linux-x86`, `linux-arm` (added Dec 2025)                           |
+| tree-sitter C lib version    | v0.26.3 (Jan 2026); upstream is v0.26.8                             |
 
 Releases: 1.0.0 (May 2025) → 1.0.1 → 1.1.0 (Oct 2025, macOS added)
 → 1.1.1 → 1.2.0 (Dec 2025, OCaml + Razor added) → 1.3.0 (Jan 2026).
@@ -132,8 +132,8 @@ All sourced from the official `tree-sitter/...` GitHub org except
 the upstream razor grammar is dead).
 
 **F# is not in this list.** The README's "Work with all .NET languages
-such as C#, F#, and VB.NET" refers to the *consumer* language, not the
-*parsed* language. For fedit's F# parsing we'd have to:
+such as C#, F#, and VB.NET" refers to the _consumer_ language, not the
+_parsed_ language. For fedit's F# parsing we'd have to:
 
 1. Build `libtree-sitter-fsharp.{dylib,so,dll}` from
    `ionide/tree-sitter-fsharp` (MIT, 91 stars, last release v0.3.0 on
@@ -166,9 +166,9 @@ release pipeline.
 A user repro-ed `STATUS_HEAP_CORRUPTION` after ~45–60k
 `TSTree` alloc/free cycles parsing the Spring framework (~5000 Java
 files) on Windows 11 / .NET 10. The maintainer suggested looking at
-disposal patterns and said *"`ts_free()` is just CRT `free()`, there
+disposal patterns and said _"`ts_free()` is just CRT `free()`, there
 is no ref-counting. If you dispose something that is still in use I
-suppose you can trigger an access violation."* Not root-caused. For
+suppose you can trigger an access violation."_ Not root-caused. For
 an editor parsing one file at a time this is unlikely to fire — but
 if we batch-parse a workspace this could bite.
 
@@ -184,7 +184,7 @@ JSON/markdown/toml later). The `TreeSitter.DotNet.targets` file only
 copies runtimes for `.NETFramework` targets; for .NET 9 the copy
 happens via `..\build\runtimes\$(RuntimeIdentifier)\native\*` items in
 the csproj's `None Include`. This means by default, building for a
-single RID gives you just that RID's natives — but *all 30 grammars*
+single RID gives you just that RID's natives — but _all 30 grammars_
 within that RID. We'd want to filter the natives at publish time or
 fork the package to strip grammars we don't ship.
 
@@ -197,10 +197,10 @@ handled at the char-index level. For our piece table this is the
 correct invariant — char indices, not Rune/grapheme indices.
 
 **5. Disposal contract is sharper than docs suggest.** The
-maintainer's comment in issue #11: *"I should probably drop the `using`
+maintainer's comment in issue #11: _"I should probably drop the `using`
 keywords from the example. It suggests that you need to call
 `Dispose()` manually, but there is really no need since the garbage
-collector will do that for you."* — concerning. Using `using`
+collector will do that for you."_ — concerning. Using `using`
 deterministically is the F#-idiomatic thing to do, and `Tree`,
 `Parser`, `Query`, and `QueryCursor` all implement `IDisposable` with
 finalizers. We should keep `use` bindings and own our lifetimes.

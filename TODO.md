@@ -5,18 +5,23 @@ Active work and future ideas. Shipped phases (0–6) live in
 
 ## Status
 
-| Phase                                                  | State   | Hook                                                                            |
-| ------------------------------------------------------ | ------- | ------------------------------------------------------------------------------- |
-| **Phase 7 — Tier 2 frame snapshots**                   | Pending | Verify.Xunit + `Snapshot.fs` projector + ~8–10 baseline scenarios.              |
-| **Phase 8 — Tier 3 binary smoke**                      | Pending | `Process.Start` exit-code checks, 3–5 scenarios, no external tooling.           |
-| **Phase 9 — Quick wins**                               | Pending | Buffer double-computeLines, `jsonEscape` round-trip, motion helper.             |
-| **Phase 10 — Module splits**                           | Pending | Typed command payloads, `Editor.fs` split, `Runtime.fs` split.                  |
-| **Phase 11 — Renderer diff**                           | Pending | Cell-level diff against previous frame; drop `pad`/`crop` allocations.          |
-| **Phase 12 — Async follow-ups**                        | Pending | Dirty-state race after save, config-save ordering, search-as-effect.            |
-| **Phase 13 — Workspace caching & startup errors**      | Pending | Flat `Map<string, FileNode>` cache; surface load errors instead of swallowing.  |
-| **Phase 14 — Polish**                                  | Pending | Theme-preview placement, Recent debounce, named metadata record, tab width.    |
-| **Phase 15 — Borders and file-tree icons**             | Pending | Unicode box-drawing separator; opt-in icon set for the file tree.              |
-| **Phase 16 — Buffer internals refactor**               | Pending | Simplify `ensureViewport`; replace `Lines` cache with `Offsets : int[]`; delta-based undo. |
+| Phase                                             | State   | Hook                                                                                                   |
+| ------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| **Phase 7 — Tier 2 frame snapshots**              | Pending | Verify.Xunit + `Snapshot.fs` projector + ~8–10 baseline scenarios.                                     |
+| **Phase 8 — Tier 3 binary smoke**                 | Pending | `Process.Start` exit-code checks, 3–5 scenarios, no external tooling.                                  |
+| **Phase 9 — Quick wins**                          | Pending | Buffer double-computeLines, `jsonEscape` round-trip, motion helper.                                    |
+| **Phase 10 — Module splits**                      | Pending | Typed command payloads, `Editor.fs` split, `Runtime.fs` split.                                         |
+| **Phase 11 — Renderer diff**                      | Pending | Cell-level diff against previous frame; drop `pad`/`crop` allocations.                                 |
+| **Phase 12 — Async follow-ups**                   | Pending | Dirty-state race after save, config-save ordering, search-as-effect.                                   |
+| **Phase 13 — Workspace caching & startup errors** | Pending | Flat `Map<string, FileNode>` cache; surface load errors instead of swallowing.                         |
+| **Phase 14 — Polish**                             | Pending | Theme-preview placement, Recent debounce, named metadata record, tab width.                            |
+| **Phase 15 — Borders and file-tree icons**        | Pending | Unicode box-drawing separator; opt-in icon set for the file tree.                                      |
+| **Phase 16 — Buffer internals refactor**          | Pending | Simplify `ensureViewport`; replace `Lines` cache with `Offsets : int[]`; delta-based undo.             |
+| **Phase 17 — .NET 10 LTS upgrade**                | Pending | Bump SDK to `10.0.x`, TFM to `net10.0`, refresh test packages and `FsCheck.Xunit` out of RC.           |
+| **Phase 18 — Central Package Management**         | Pending | Hoist `<PackageReference>` versions into `Directory.Packages.props` so test deps live in one file.     |
+| **Phase 19 — Release automation**                 | Pending | Tag-triggered `release.yml`: matrix `dotnet publish` per RID, SHA256 checksums, GitHub Release attach. |
+| **Phase 20 — CI hardening**                       | Pending | Dependabot (actions + nuget), NuGet cache, concurrency cancel, deterministic builds, CodeQL.           |
+| **Phase 21 — Repo hygiene**                       | Pending | CI/license badges in README, `SECURITY.md`, slim issue/PR templates, `FUNDING.yml` if relevant.        |
 
 Recently landed (this session):
 
@@ -26,6 +31,15 @@ Recently landed (this session):
 - **Slim dock bar:** The dock panel is now hidden by default (`NoDock`) and
   collapses to 0 height. It only appears for completions, active commands, or
   when explicitly toggled via the new `:help` command.
+- **Config tunables:** `~/.config/fedit/config.json` now carries
+  `completionLimit`, `sidebarIndent`, `sidebarWidth`, `dockHeight`, and
+  `wordMotion` alongside `theme` / `recent`. `saveConfig` round-trips
+  through a `JsonObject` DOM so user-added unknown keys survive. Each int
+  is clamped to a sane range. See README → Configuration.
+- **`:LINE` / `:LINE:COL` jump:** Numeric command-bar input now jumps the
+  cursor to an absolute 1-based position (`:42`, `:100:6`). Malformed forms
+  (`:0`, `:42:`, `:1:2:3`) produce `Invalid` messages instead of falling
+  through to "unknown command".
 
 ---
 
@@ -129,7 +143,7 @@ Each is `init → fold msgs → render → snapshot`:
 - [ ] Build `Snapshot.fs` with `styleMarker` + `render` helpers.
 - [ ] Write 8–10 baseline scenario tests in `SnapshotTests.fs`.
 - [ ] Run, inspect `*.received.txt` files, accept via `dotnet verify
-      accept` or rename to `*.verified.txt`.
+    accept` or rename to `*.verified.txt`.
 - [ ] Confirm `dotnet test` runs them as part of the normal suite —
       no new wiring required.
 
@@ -195,8 +209,9 @@ let ``binary launches and exits cleanly`` () =
 
 - [ ] Add `BinarySmokeTests.fs` to `tests/Fedit.Tests/`.
 - [ ] Helper that locates the freshly built `fedit` binary in
-      `src/Fedit/bin/Debug/net9.0/` and spawns it with stdin/stdout
-      redirected.
+      `src/Fedit/bin/Debug/<TFM>/` (read TFM from the project to stay
+      stable across Phase 17's `net9.0 → net10.0` bump) and spawns it
+      with stdin/stdout redirected.
 - [ ] 3–5 scenarios from the list above.
 - [ ] Mark tests `[<Trait("Category", "slow")>]` if they take >500ms
       so the inner-loop `just test` stays snappy (run them only in CI).
@@ -227,7 +242,7 @@ the rest of the workflow.
 
 **Why.** P1 (CHANGELOG Phase 5) memoizes `Lines : string[]` on
 `BufferState` so the renderer no longer re-`Split`s on every frame.
-But the per-edit code path still runs `computeLines` *twice* per
+But the per-edit code path still runs `computeLines` _twice_ per
 keystroke:
 
 ```fsharp
@@ -240,7 +255,7 @@ let private replaceRange startIndex count replacement buffer =
 ```
 
 `withDocument` runs `computeLines` so `indexToPosition` has a `Lines`
-array to walk. `changeDocument` then runs `computeLines` *again* on
+array to walk. `changeDocument` then runs `computeLines` _again_ on
 the same document. For a 1 MB file that's ~2 MB of string allocation
 per keypress, immediately GC'd.
 
@@ -366,13 +381,13 @@ orchestrator — pre-emptively splitting `runEditor` / `runSidebar` into
 a `FocusKeys.fs` would shuffle files without making anything easier
 to find.
 
-| Where                   | Functions                                                                                                                                                                              | Budget |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -----: |
-| `Model.fs` (extend)     | + `Model.activeBuffer`, `Model.notify`, `Model.updateActiveBuffer` — the three shared helpers currently private in Editor. They're operations on the model.                            |    +30 |
-| `Workspace.fs` (extend) | + `Workspace.resolvePath`, `Workspace.files` — path utilities about the workspace, not the editor.                                                                                     |    +15 |
+| Where                   | Functions                                                                                                                                                                                                                                   | Budget |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -----: |
+| `Model.fs` (extend)     | + `Model.activeBuffer`, `Model.notify`, `Model.updateActiveBuffer` — the three shared helpers currently private in Editor. They're operations on the model.                                                                                 |    +30 |
+| `Workspace.fs` (extend) | + `Workspace.resolvePath`, `Workspace.files` — path utilities about the workspace, not the editor.                                                                                                                                          |    +15 |
 | `CommandBar.fs` (new)   | `emptyCommandBar`, `themeFromApplyText`, `updatePreview`, `refreshCommandBar`, `openBar`, `closeBar`, `insertText`, `replaceText`, `deleteBackward/Forward`, `pushHistory`, `executeCommand`, `saveActive`, `switchBuffer`, `runCommandBar` |    280 |
-| `Search.fs` (new)       | `openSearch`, `closeSearch`, `updateQuery`, `moveMatch`, `runSearch`                                                                                                                   |     80 |
-| `Editor.fs` (shrunk)    | `init`, `normalizeNewlines`, `runGlobal`, `runEditor`, `runSidebar`, top-level `update`, external `Msg` handlers                                                                       |    330 |
+| `Search.fs` (new)       | `openSearch`, `closeSearch`, `updateQuery`, `moveMatch`, `runSearch`                                                                                                                                                                        |     80 |
+| `Editor.fs` (shrunk)    | `init`, `normalizeNewlines`, `runGlobal`, `runEditor`, `runSidebar`, top-level `update`, external `Msg` handlers                                                                                                                            |    330 |
 
 Compile order in `Fedit.fsproj`:
 
@@ -469,7 +484,7 @@ Bonus: the shortcut table becomes listable for the help dock.
   `FocusKeys.fs`.** Move them only if one grows past ~150 lines or
   sprouts its own subsystem (e.g., column selection, macro recording).
 
-**Pre-refactor test guardrails** — add these *before* moving code if
+**Pre-refactor test guardrails** — add these _before_ moving code if
 they don't already exist:
 
 - Command bar opens on `Ctrl+P`, closes on `Escape`.
@@ -504,7 +519,7 @@ Drops `Runtime.fs` to ~80 lines of orchestration.
 **Where:** `src/Fedit/Renderer.fs` (`render`), `src/Fedit/Runtime.fs`
 (the `needsRender` toggle).
 
-**Why.** `needsRender <- true` fires for *any* `Msg` — every
+**Why.** `needsRender <- true` fires for _any_ `Msg` — every
 keystroke, every dequeued effect result, every resize check.
 `Renderer.render` then walks every `(row, col)` cell, emits a fresh
 `[{row+1};1H` cursor-position per row, and resets style with
@@ -517,7 +532,7 @@ profile it dominates everything else.
 **Action.** Diff against the previous screen. Keep
 `mutable previousFrame : Screen option = None` in `Runtime.run`, pass
 it into `Renderer.render`, and skip cells whose `Style` and `Glyph`
-match the previous frame. Track `currentStyle` *across* rows so
+match the previous frame. Track `currentStyle` _across_ rows so
 unchanged styles don't re-emit when crossing a row boundary, and emit
 a fresh `CSI row;col H` only when we'd otherwise jump:
 
@@ -597,7 +612,7 @@ handling `BufferSaved`, `src/Fedit/Model.fs` `Effect.SaveBuffer`.
 writes it on a background task. While that task runs, the user can
 keep editing the same buffer. When the later `BufferSaved` message
 arrives, `Editor.update` calls `Buffer.markSaved` for the current
-buffer *without* proving the current document still matches the
+buffer _without_ proving the current document still matches the
 snapshot that was written. That clears `Dirty` for edits that never
 reached disk — the UI claims the buffer is clean while the file is
 stale.
@@ -664,7 +679,7 @@ effect:
 | FindCompleted _ -> model, []   // stale or buffer changed, drop
 ```
 
-`Buffer.findAll` itself stays where it is; only the *invocation* moves
+`Buffer.findAll` itself stays where it is; only the _invocation_ moves
 into the interpreter so the pure loop stays cheap. Cancellation by
 `EffectId` drops stale results automatically when the user is still
 typing.
@@ -804,8 +819,7 @@ that instead of `{| Path; IsDirectory; ChildCount |}`.
 **Why.** `tabText = "    "` is hardcoded. A user wanting 2-space
 indent has nowhere to set it.
 
-**Action.** Add a `tabWidth: int` field to the config schema, default
-4. `Runtime.loadConfig` reads it; `Editor.init` passes it into the
+**Action.** Add a `tabWidth: int` field to the config schema, default 4. `Runtime.loadConfig` reads it; `Editor.init` passes it into the
 model; `Buffer.indent` / `Buffer.unindent` use `String.replicate
 model.TabWidth " "` instead of the constant. Out of scope:
 real-`\t` mode (would need a save-time roundtrip story).
@@ -915,18 +929,18 @@ mode for users who want it.
 The canonical mapping table is `nvim-web-devicons` — yazi ships it
 as its default. Relevant entries for fedit:
 
-| Ext              | Glyph    | Code Point | Nerd Font name         |
-| ---------------- | -------- | ---------- | ---------------------- |
-| `fs`/`fsi`/`fsx` | ``     | U+E7A7     | nf-dev-fsharp          |
-| `md`             | ``     | U+F48A     | nf-oct-markdown        |
-| `json`           | ``     | U+E60B     | nf-seti-json           |
-| `toml`           | ``     | U+E6B2     | nf-seti-config         |
-| `yaml`/`yml`     | ``     | U+E6A8     | nf-seti-yaml           |
-| `sh`             | ``     | U+F489     | nf-oct-terminal        |
-| `txt`            | ``     | U+F15C     | nf-fa-file_text        |
-| folder (closed)  | ``     | U+E5FF     | nf-custom-folder       |
-| folder (open)    | ``     | U+E5FE     | nf-custom-folder_open  |
-| default file     | ``     | U+F15B     | nf-fa-file             |
+| Ext              | Glyph | Code Point | Nerd Font name        |
+| ---------------- | ----- | ---------- | --------------------- |
+| `fs`/`fsi`/`fsx` | ``    | U+E7A7     | nf-dev-fsharp         |
+| `md`             | ``    | U+F48A     | nf-oct-markdown       |
+| `json`           | ``    | U+E60B     | nf-seti-json          |
+| `toml`           | ``    | U+E6B2     | nf-seti-config        |
+| `yaml`/`yml`     | ``    | U+E6A8     | nf-seti-yaml          |
+| `sh`             | ``    | U+F489     | nf-oct-terminal       |
+| `txt`            | ``    | U+F15C     | nf-fa-file_text       |
+| folder (closed)  | ``    | U+E5FF     | nf-custom-folder      |
+| folder (open)    | ``    | U+E5FE     | nf-custom-folder_open |
+| default file     | ``    | U+F15B     | nf-fa-file            |
 
 **Action — three pieces.**
 
@@ -1132,7 +1146,7 @@ produces the expected substring; `lineCount` matches the count of
 `\n` in `toString`; `positionToIndex >> indexToPosition` is
 identity.
 
-Sequencing: land *after* Phase 9.1 so the perf delta from this work
+Sequencing: land _after_ Phase 9.1 so the perf delta from this work
 is attributable to the shape change, not the call-site fix.
 
 ### 16.3 — Delta/patch undo
@@ -1155,7 +1169,7 @@ don't.
       | Delete of pos: int * removed: string  // keep removed text so undo can re-insert
   ```
 - `BufferRevision` becomes `{ Delta: Delta; Cursor: Position;
-  PreferredColumn: int option; Dirty: bool }`.
+PreferredColumn: int option; Dirty: bool }`.
 - `pushUndo` accepts a `Delta` arg from the edit primitive that
   produced it. `replaceRange` knows the deleted range + inserted
   text — emit `Delete` of removed content followed by `Insert`, or
@@ -1168,7 +1182,7 @@ don't.
   consecutive `Delete`s at the same position. Time-bounded: break
   the group if more than 500ms passes between edits, so undo
   doesn't collapse a minute of typing into one step.
-- Cap stays at 200 *revisions*; each revision is now a small record
+- Cap stays at 200 _revisions_; each revision is now a small record
   not a full snapshot.
 
 **Verify.** Tier 1 tests for undo/redo become the regression net.
@@ -1180,6 +1194,363 @@ Optional follow-up: serialize the undo stack with the buffer when
 session persistence (Open questions) lands. Deltas serialize as
 JSON; snapshots don't without re-implementing `PieceTable`
 serialization.
+
+---
+
+## Phase 17 — .NET 10 LTS upgrade
+
+**Goal.** Move off the .NET 9 STS train (Microsoft support ends 2026-05,
+i.e. now) onto the .NET 10 LTS train. Refresh test packages at the same
+time so the bump lands as one coherent commit, not a slow drift.
+
+### Where
+
+- `global.json` — SDK version.
+- `Directory.Build.props` — `LangVersion` already `latest`, fine.
+- `src/Fedit/Fedit.fsproj` — `<TargetFramework>` and any `bin/Debug/net9.0/`
+  references elsewhere (TODO.md Phase 8 helper path).
+- `tests/Fedit.Tests/Fedit.Tests.fsproj` — TFM and `<PackageReference>`s.
+- `.config/dotnet-tools.json` — Fantomas.
+- `.github/workflows/ci.yml` — pin via `global-json-file`, no version change
+  needed here.
+
+### Why
+
+- **.NET 9 is STS.** 18-month support window from 2024-11 → 2026-05. Staying
+  on `net9.0` past that means no security patches.
+- **.NET 10 is LTS.** Three-year support, same single-file-publish story,
+  same `PublishTrimmed=false` knob fedit already uses.
+- **`FsCheck.Xunit` 3.0.0-rc3** has been on RC since the project started.
+  3.x is stable now — drop the `-rc3`.
+- `xunit` 2.9.x and `Microsoft.NET.Test.Sdk` have had multiple stable
+  patch releases since the pins.
+
+### Action
+
+1. `global.json` → `"version": "10.0.100"` (or the current 10.0.x patch),
+   keep `rollForward: latestFeature`.
+2. Both `.fsproj` files → `<TargetFramework>net10.0</TargetFramework>`.
+3. `tests/Fedit.Tests/Fedit.Tests.fsproj` — bump every PackageReference to
+   the current stable. Notably drop `-rc3` from `FsCheck.Xunit`.
+4. `dotnet tool update fantomas` (regenerates `.config/dotnet-tools.json`).
+5. Update Phase 8's `src/Fedit/bin/Debug/net9.0/` reference in this file
+   to `net10.0/` (or make the test helper read the TFM from the project).
+6. `just check` locally on all three OSes the matrix covers (or rely on
+   CI). Land in one commit so a bisect doesn't straddle the version bump.
+
+### Why not net9.0 forever
+
+The single-file publish story is unchanged across LTS bumps. The cost
+of staying on STS is one rolling upgrade per year _plus_ a security gap
+between EOL and the next bump. .NET 10 buys ~3 years of breathing room.
+
+### Why not xUnit v3 in this phase
+
+xUnit v3 is a real migration (new runner, new test discovery, FsUnit
+compatibility surface), worth its own focused commit. Keep this phase
+mechanical — TFM + patch bumps only.
+
+---
+
+## Phase 18 — Central Package Management
+
+**Where:** new `Directory.Packages.props` at the repo root;
+`tests/Fedit.Tests/Fedit.Tests.fsproj`.
+
+**Why.** All package versions currently live inline in
+`Fedit.Tests.fsproj`. There's only one consumer today, so this isn't
+urgent — but the **moment a second project (snapshot tests, smoke
+tests, a future `Fedit.Cli` for piping) appears**, versions drift in
+two places and stop matching. CPM is the modern .NET default since 2022
+and removes the drift class entirely. It also makes the test-dep set
+discoverable at a glance without opening the `.fsproj`.
+
+**Action.**
+
+```xml
+<!-- Directory.Packages.props -->
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.NET.Test.Sdk"        Version="…" />
+    <PackageVersion Include="xunit"                         Version="…" />
+    <PackageVersion Include="xunit.runner.visualstudio"     Version="…" />
+    <PackageVersion Include="FsUnit.xUnit"                  Version="…" />
+    <PackageVersion Include="FsCheck.Xunit"                 Version="…" />
+  </ItemGroup>
+</Project>
+```
+
+`Fedit.Tests.fsproj` keeps `<PackageReference Include="…" />` with no
+`Version=` attribute. Done.
+
+**Anti-patterns to avoid.**
+
+- Don't `<GlobalPackageReference>` anything yet. It applies to _every_
+  project including `Fedit.fsproj` (which has no packages), and the
+  failure mode (silent transitive surprises) is worse than the saving.
+- Don't add a `nuget.config` with custom feeds. Default `nuget.org` is
+  fine; an explicit `nuget.config` is only worth adding when an internal
+  feed or a feed-pinning policy actually appears.
+
+---
+
+## Phase 19 — Release automation
+
+**Goal.** Pushing a `vX.Y.Z` tag produces a GitHub Release with a
+`fedit` binary per platform. Today `just install` is local-only and
+the Open questions list has named this gap.
+
+**Where:** new `.github/workflows/release.yml`;
+`src/Fedit/Fedit.fsproj` already declares the RID list.
+
+### Workflow shape
+
+```yaml
+name: release
+on:
+    push:
+        tags: ["v*.*.*"]
+
+permissions:
+    contents: write # required to attach assets to the Release
+
+jobs:
+    publish:
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - { os: macos-latest, rid: osx-arm64, ext: "" }
+                    - { os: macos-13, rid: osx-x64, ext: "" }
+                    - { os: ubuntu-latest, rid: linux-x64, ext: "" }
+                    - { os: ubuntu-24.04-arm, rid: linux-arm64, ext: "" }
+                    - { os: windows-latest, rid: win-x64, ext: ".exe" }
+        runs-on: ${{ matrix.os }}
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-dotnet@v4
+              with: { global-json-file: global.json }
+            - run: dotnet publish src/Fedit/Fedit.fsproj
+                  -c Release -r ${{ matrix.rid }}
+                  -o dist/${{ matrix.rid }} --nologo
+            - name: Package
+              shell: bash
+              run: |
+                  VER="${GITHUB_REF_NAME#v}"
+                  BIN="dist/${{ matrix.rid }}/fedit${{ matrix.ext }}"
+                  NAME="fedit-${VER}-${{ matrix.rid }}"
+                  mkdir -p out
+                  if [[ "${{ matrix.os }}" == windows-* ]]; then
+                    7z a "out/${NAME}.zip" "$BIN" README.md LICENSE
+                  else
+                    tar -czf "out/${NAME}.tar.gz" -C "dist/${{ matrix.rid }}" fedit -C "$GITHUB_WORKSPACE" README.md LICENSE
+                  fi
+                  (cd out && shasum -a 256 * > "${NAME}.sha256")
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: fedit-${{ matrix.rid }}
+                  path: out/*
+
+    release:
+        needs: publish
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/download-artifact@v4
+              with: { merge-multiple: true, path: out }
+            - uses: softprops/action-gh-release@v2
+              with:
+                  files: out/*
+                  generate_release_notes: true
+                  fail_on_unmatched_files: true
+```
+
+### Why this shape
+
+- **Tag-triggered, not branch-triggered.** Releases should be explicit.
+  `v1.2.3` is the source of truth; the workflow only reacts.
+- **`fail-fast: false`** — one RID failing shouldn't kill the others.
+  Partial releases are still useful to debug.
+- **Per-RID job, not cross-publish from one OS.** `osx-arm64` published
+  from Linux is technically possible but loses code-signing options and
+  any future Mac-specific notarization story.
+- **SHA256 sidecars** per archive. Standard expectation for anyone
+  installing without a package manager.
+- **`softprops/action-gh-release@v2`** is the de-facto community standard;
+  switching later is one line. Avoid `actions/create-release` (archived).
+- **`generate_release_notes: true`** uses GitHub's autogenerated diff
+  body — superseded easily when a real `CHANGELOG.md` excerpt is wanted.
+
+### Implementation checklist
+
+- [ ] Add `.github/workflows/release.yml` from the template above.
+- [ ] First release: tag `v0.1.0` (or whatever the project decides),
+      verify the matrix completes, inspect attached assets.
+- [ ] Update `README.md` install section: prefer the GitHub Release
+      tarball over `just install` for non-contributors.
+- [ ] Cross out the "Release automation" line under `Open questions`
+      once this lands.
+
+### Rejected alternatives
+
+- **GoReleaser / cargo-dist clones.** Both exist; .NET doesn't have a
+  comparably mature equivalent for single-file binaries, and the YAML
+  above is short enough that a tool isn't earning its keep.
+- **Homebrew tap.** Fine eventually, but tagged GitHub Releases are the
+  precondition. Defer.
+- **Code-signing macOS / Authenticode Windows.** Real work
+  (certificates, secret storage). Out of scope for v1 of the release
+  pipeline. Document the unsigned binary in README.
+
+---
+
+## Phase 20 — CI hardening
+
+Five small wins for `.github/workflows/ci.yml` plus one new tiny file.
+Each is independent; land opportunistically.
+
+### 20.1 — Dependabot for GitHub Actions and NuGet
+
+**Where:** new `.github/dependabot.yml`.
+
+**Why.** Action versions silently rot (`actions/checkout@v3` is a year
+out of date now), and the test packages were last touched at project
+start. Dependabot opens one PR per outdated dep, weekly, and the format
+check + matrix build in CI gates them.
+
+```yaml
+version: 2
+updates:
+    - package-ecosystem: github-actions
+      directory: /
+      schedule: { interval: weekly }
+      groups:
+          actions:
+              patterns: ["*"]
+    - package-ecosystem: nuget
+      directory: /
+      schedule: { interval: weekly }
+      open-pull-requests-limit: 5
+      groups:
+          test-deps:
+              patterns:
+                  - "xunit*"
+                  - "FsUnit*"
+                  - "FsCheck*"
+                  - "Microsoft.NET.Test.Sdk"
+```
+
+Group test deps so the inbox doesn't fill with five separate PRs every
+time one of them ships a patch.
+
+### 20.2 — Cache NuGet between runs
+
+Add to both jobs (or factor a `setup` step):
+
+```yaml
+- uses: actions/cache@v4
+  with:
+      path: ~/.nuget/packages
+      key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj','**/Directory.Packages.props','global.json') }}
+      restore-keys: ${{ runner.os }}-nuget-
+```
+
+Shaves 20–40s off each matrix leg.
+
+### 20.3 — Cancel superseded runs
+
+Top of `ci.yml`:
+
+```yaml
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+```
+
+Force-pushing during review doesn't burn Actions minutes for the stale
+SHA.
+
+### 20.4 — Deterministic / CI-flagged builds
+
+In `Directory.Build.props`, add a CI-only conditional:
+
+```xml
+<PropertyGroup Condition="'$(ContinuousIntegrationBuild)' == 'true'">
+  <Deterministic>true</Deterministic>
+  <EmbedUntrackedSources>true</EmbedUntrackedSources>
+</PropertyGroup>
+```
+
+And export the env var in CI:
+
+```yaml
+env:
+    DOTNET_NOLOGO: true
+    DOTNET_CLI_TELEMETRY_OPTOUT: true
+    ContinuousIntegrationBuild: true
+```
+
+Free reproducibility win; pairs naturally with Phase 19 (release
+artifacts should be deterministic).
+
+### 20.5 — CodeQL (or default code scanning)
+
+**Decision.** F# isn't a first-class CodeQL language (no F#-specific
+queries), so the value-per-minute is lower than for C#. **Skip the
+explicit `codeql.yml` workflow** and instead enable GitHub's _default_
+code scanning setup from the repository Security tab — it picks up
+JavaScript/YAML/Actions workflow scanning, which is what would
+realistically find a misconfigured release pipeline.
+
+Mark this item _resolved by repo settings_ rather than adding a YAML
+file that scans nothing useful.
+
+### Implementation checklist
+
+- [ ] 20.1 — Add `.github/dependabot.yml`.
+- [ ] 20.2 — Add NuGet cache step to `ci.yml`.
+- [ ] 20.3 — Add `concurrency` block to `ci.yml`.
+- [ ] 20.4 — Add `ContinuousIntegrationBuild` conditional to
+      `Directory.Build.props` + env vars in both workflows.
+- [ ] 20.5 — Enable GitHub default code scanning in repo Settings →
+      Security; no workflow YAML needed.
+
+---
+
+## Phase 21 — Repo hygiene
+
+Small surface-area items expected on a published .NET tool. None of
+them block work; pick up alongside the next docs pass.
+
+- **CI status badge in `README.md`.**
+  `![ci](https://github.com/HelgeSverre/fedit/actions/workflows/ci.yml/badge.svg)`
+  plus a license badge. Sit them under the title — the README opens
+  with `# fedit` followed by prose, so the badges replace nothing.
+- **`SECURITY.md`.** A 10-line file: supported versions table (whatever
+  the latest tagged release is), private disclosure email
+  (`helge.sverre@gmail.com` already public on this repo). GitHub picks
+  it up automatically and links it from the Security tab.
+- **`.github/ISSUE_TEMPLATE/bug_report.md`** — short form: version,
+  OS + terminal, reproduction. No 12-field template; the project is
+  small and a heavy template suppresses real reports.
+- **`.github/PULL_REQUEST_TEMPLATE.md`** — three checkboxes: `just
+check` passes, screenshot for UI changes, `CHANGELOG.md` entry.
+- **`FUNDING.yml`** — skip unless Helge wants Sponsors visible; an
+  empty Sponsor button is worse than no button.
+- **`CODEOWNERS`** — skip while the repo is single-maintainer. Add when
+  a second committer appears, not before.
+
+### Anti-patterns to avoid
+
+- Don't add a 200-line `CONTRIBUTING.md` for a project this size. The
+  README already documents `just check`; a separate file fragments docs.
+- Don't add `.github/workflows/stale.yml` (auto-close stale issues).
+  Aggressive on a small project; corrosive on community trust.
+- Don't add a Discord/community link until there's a community to link
+  to.
 
 ---
 
@@ -1240,6 +1611,5 @@ motion, "find all" mode that highlights without moving the cursor).
   `BufferState.Cursor : Position` into `Cursors : Position list` and
   ripples through every motion + edit primitive.
 - Plugin / scripting surface — stays out of scope unless someone asks.
-- Release automation: a `release.yml` triggered on tag pushes that
-  runs `dotnet publish` per RID and uploads to a GitHub Release.
-  Currently `just install` is local-only.
+- Release automation: see **Phase 19** (promoted out of Open questions
+  into a concrete workflow shape).

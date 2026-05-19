@@ -1,7 +1,7 @@
 # Non‑tree‑sitter / non‑regex‑rules Highlighters: Three Approaches
 
 Research for fedit (F# / .NET 9, MVU, piece‑table, custom ANSI renderer).
-Question: how do we ship credible F# syntax highlighting *without* embedding
+Question: how do we ship credible F# syntax highlighting _without_ embedding
 tree‑sitter or hand‑rolling a generic regex‑rules engine?
 
 ---
@@ -13,13 +13,13 @@ the workhorse for most non‑treesit modes. It is a three‑stage pipeline run
 per visible region by `jit-lock` (lazy, demand‑driven):
 
 1. **Parser‑based** (`treesit-font-lock-rules`, Emacs 29+) — optional, runs first.
-2. **Syntactic fontification** — uses the buffer's *syntax table* (a per‑char
+2. **Syntactic fontification** — uses the buffer's _syntax table_ (a per‑char
    class table: `"` opens strings, `(` is open paren, etc.) to find strings
    and comments. This is not regex; it is a small character‑class state
    machine in C, parameterised by the table. 🟢
 3. **Search‑based fontification** — `font-lock-keywords`, a list of
-   `(MATCHER . HIGHLIGHT)` rules where MATCHER is a regex *or an arbitrary
-   Elisp function*. Anchored sub‑matchers let one outer match drive several
+   `(MATCHER . HIGHLIGHT)` rules where MATCHER is a regex _or an arbitrary
+   Elisp function_. Anchored sub‑matchers let one outer match drive several
    inner matches (e.g. find a `defun`, then highlight each arg).
 
 `font-lock-defaults` is the per‑mode tuple wiring keywords, "keywords only"
@@ -42,6 +42,7 @@ is local and self‑healing). Doesn't map cleanly to a pure MVU function
 because the design assumes mutable buffers + text properties.
 
 Sources:
+
 - [Font Lock Mode](https://www.gnu.org/software/emacs/manual/html_node/elisp/Font-Lock-Mode.html)
 - [Search‑based Fontification](https://www.gnu.org/software/emacs/manual/html_node/elisp/Search_002dbased-Fontification.html)
 - [Multiline Font Lock](https://www.gnu.org/software/emacs/manual/html_node/elisp/Multiline-Font-Lock.html)
@@ -71,10 +72,11 @@ The regex dialect is **Oniguruma** (or its fork **Onigmo**) — not PCRE, not
 C comments without nested‑match pain), and `\G` anchors. vscode‑textmate's
 core algorithm: line‑by‑line, carry an immutable **rule stack** between
 lines, at each position try every active pattern (current rule + `include`s
-+ active `end` pattern), pick the earliest match (ties broken by
-declaration order), push/pop the stack on begin/end matches, emit tokens.
-Crucially every pattern is matched against *a single line only* — that
-constraint is what makes incremental re‑tokenisation cheap. 🟢
+
+- active `end` pattern), pick the earliest match (ties broken by
+  declaration order), push/pop the stack on begin/end matches, emit tokens.
+  Crucially every pattern is matched against _a single line only_ — that
+  constraint is what makes incremental re‑tokenisation cheap. 🟢
 
 **Catastrophic backtracking** is a real problem; VS Code mitigates by
 (a) running tokenisation off the UI thread and yielding,
@@ -95,6 +97,7 @@ a fraction of real‑world grammars fail. Either bind to native Oniguruma
 (P/Invoke) or accept ~80 % grammar compatibility. 🟡
 
 Sources:
+
 - [vscode-textmate](https://github.com/microsoft/vscode-textmate)
 - [VS Code: Optimizations in Syntax Highlighting](https://code.visualstudio.com/blogs/2017/02/08/syntax-highlighting-optimizations)
 - [TextMate Language Grammars manual](https://manual.macromates.com/en/language_grammars)
@@ -137,12 +140,12 @@ type LexState = Normal | InString | InBlockComment of depth:int
 val tokenize : LexState -> string -> Token list * LexState
 ```
 
-One `tokenize` per language, called per *line*, threading `LexState` through
+One `tokenize` per language, called per _line_, threading `LexState` through
 the buffer the same way vscode‑textmate threads its rule stack — but the
 state type is closed and trivially serialisable.
 
 **F# tokeniser size estimate:** keywords list (~100 idents), operators,
-identifier rule (incl. ``` `` ``` quoted idents), numeric literals with the
+identifier rule (incl. ` `` ` quoted idents), numeric literals with the
 F# suffix zoo (`L`, `UL`, `lf`, `m`, `0x…`), char/string/triple‑string with
 `@"…"` verbatim and `"""…"""` raw, `(* … *)` nestable block comments,
 `//` line comments, attribute brackets. Realistic: **400–700 lines of
@@ -150,6 +153,7 @@ F#**, one weekend. Robust on partial code by construction (no
 backtracking). Reusability of community grammars: zero. 🟢
 
 Sources:
+
 - [antirez/kilo](https://github.com/antirez/kilo) · [Build Your Own Text Editor tutorial](https://viewsourcecode.org/snaptoken/kilo/)
 - [craigbarnes/dte](https://github.com/craigbarnes/dte)
 - [F# Compiler tokenizer API](https://fsharp.github.io/fsharp-compiler-docs/fcs/tokenizer.html) — line‑oriented, `int64` state, exactly the shape we want.
@@ -158,16 +162,16 @@ Sources:
 
 ## Approach comparison
 
-| Axis | font-lock | TextMate | Hand‑written |
-|---|---|---|---|
-| Effort / new lang | Low–∞ (cc‑mode) | Near zero (grab `.tmLanguage`) | 1 weekend / language |
-| Expertise | Elisp + syntax tables | Onig regex craft | Plain F# |
-| Perf | Lazy, good | Good w/ guards; backtracking risk | Best; linear, no backtrack |
-| Partial code robustness | Excellent | Good (line‑scoped) | Excellent |
-| Reuse community assets | GPL Elisp only | Huge ecosystem (MIT‑ish) | None |
-| MVU fit | Poor (mutable text props) | Good (`tokenizeLine : line × state → tokens × state`) | Excellent (same shape, closed state) |
-| Theming | Faces, ad hoc | Scope strings + theme JSON | Roll your own Token→Style map |
-| .NET availability | n/a | `TextMateSharp` (MIT) | Trivial — it's your own code |
+| Axis                    | font-lock                 | TextMate                                              | Hand‑written                         |
+| ----------------------- | ------------------------- | ----------------------------------------------------- | ------------------------------------ |
+| Effort / new lang       | Low–∞ (cc‑mode)           | Near zero (grab `.tmLanguage`)                        | 1 weekend / language                 |
+| Expertise               | Elisp + syntax tables     | Onig regex craft                                      | Plain F#                             |
+| Perf                    | Lazy, good                | Good w/ guards; backtracking risk                     | Best; linear, no backtrack           |
+| Partial code robustness | Excellent                 | Good (line‑scoped)                                    | Excellent                            |
+| Reuse community assets  | GPL Elisp only            | Huge ecosystem (MIT‑ish)                              | None                                 |
+| MVU fit                 | Poor (mutable text props) | Good (`tokenizeLine : line × state → tokens × state`) | Excellent (same shape, closed state) |
+| Theming                 | Faces, ad hoc             | Scope strings + theme JSON                            | Roll your own Token→Style map        |
+| .NET availability       | n/a                       | `TextMateSharp` (MIT)                                 | Trivial — it's your own code         |
 
 ---
 
@@ -176,14 +180,14 @@ Sources:
 🟢 **Smallest credible "ship today" path, no tree‑sitter:** hand‑write an
 F# tokeniser for F# only. ~500 LOC, a closed `LexState` DU, pure
 `tokenize : LexState -> string -> Token list * LexState`. This is the
-*identical shape* to vscode‑textmate's `tokenizeLine` and trivially
+_identical shape_ to vscode‑textmate's `tokenizeLine` and trivially
 composes with a piece‑table: cache `LexState` at each line start, on edit
 re‑tokenise from the dirtied line until the emitted state matches the
 cached state (classic "lex‑state fixpoint" incremental scheme). For the
 ANSI renderer, map `Token -> AnsiStyle` via a small record — no scope‑trie
 machinery needed.
 
-🟢 **If you want N languages cheaply:** depend on **TextMateSharp** + 
+🟢 **If you want N languages cheaply:** depend on **TextMateSharp** +
 **TextMateSharp.Grammars** (MIT, NuGet, used by AvaloniaEdit). You get F#,
 C#, Rust, TS, Python, ~40 more for free, plus 20 themes. Cost: native
 Oniguruma binary, JSON grammars only, no cross‑grammar injections. Wrap
@@ -191,7 +195,7 @@ its `IGrammar.TokenizeLine(line, prevState)` and you have the same MVU
 shape, themed via scope strings.
 
 🟡 **If you want to build a minimal .NET TextMate engine yourself:**
-budget ~1.5–2k LOC for the rule‑stack interpreter + theme trie, *plus* a
+budget ~1.5–2k LOC for the rule‑stack interpreter + theme trie, _plus_ a
 regex‑engine decision. Reusing .NET's built‑in regex fails on real
 grammars; binding native Oniguruma re‑introduces the dependency you were
 trying to avoid. Not recommended unless portability of grammars is a

@@ -51,14 +51,14 @@ The brand uses the caret symbol when it needs a visual moment. Emoji break the t
 
 ## Things to Avoid
 
-| Avoid | Why |
-|---|---|
-| "Build the future of editing." | Vacant. |
-| "Your all-in-one terminal solution." | Vacant. |
-| "Powered by F#" (in a marketing way) | Cargo cult — only mention F# where the implementation language is genuinely relevant. |
-| "Blazing fast", "lightning fast" | Adjective without a number. |
-| "Simply", "just", "easily" | Lies or condescends, often both. |
-| "It's not just an editor — it's a workflow." | The LLM prose tell. |
+| Avoid                                        | Why                                                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------------- |
+| "Build the future of editing."               | Vacant.                                                                               |
+| "Your all-in-one terminal solution."         | Vacant.                                                                               |
+| "Powered by F#" (in a marketing way)         | Cargo cult — only mention F# where the implementation language is genuinely relevant. |
+| "Blazing fast", "lightning fast"             | Adjective without a number.                                                           |
+| "Simply", "just", "easily"                   | Lies or condescends, often both.                                                      |
+| "It's not just an editor — it's a workflow." | The LLM prose tell.                                                                   |
 
 ## Applied: README opening
 
