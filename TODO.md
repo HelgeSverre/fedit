@@ -9,7 +9,7 @@ Active work and future ideas. Shipped phases (0–6) live in
 | ------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
 | **Phase 7 — Tier 2 frame snapshots**              | Pending | Verify.Xunit + `Snapshot.fs` projector + ~8–10 baseline scenarios.                                     |
 | **Phase 8 — Tier 3 binary smoke**                 | Pending | `Process.Start` exit-code checks, 3–5 scenarios, no external tooling.                                  |
-| **Phase 9 — Quick wins**                          | Pending | Buffer double-computeLines, `jsonEscape` round-trip, motion helper.                                    |
+| **Phase 9 — Quick wins**                          | Shipped | Buffer double-computeLines fixed; `jsonEscape` removed earlier (config DOM); motion helper landed.     |
 | **Phase 10 — Module splits**                      | Pending | Typed command payloads, `Editor.fs` split, `Runtime.fs` split.                                         |
 | **Phase 11 — Renderer diff**                      | Pending | Cell-level diff against previous frame; drop `pad`/`crop` allocations.                                 |
 | **Phase 12 — Async follow-ups**                   | Pending | Dirty-state race after save, config-save ordering, search-as-effect.                                   |
@@ -40,6 +40,16 @@ Recently landed (this session):
   cursor to an absolute 1-based position (`:42`, `:100:6`). Malformed forms
   (`:0`, `:42:`, `:1:2:3`) produce `Invalid` messages instead of falling
   through to "unknown command".
+- **Phase 9 quick wins:** `Buffer.replaceRange` and the six other edit
+  paths (`backspace`, `deleteForward`, `backspaceWord`, `deleteForwardWord`,
+  `unindent`, `deleteSelection`) used to compute `Lines` twice per
+  keystroke — once via `withDocument` for cursor math, once via
+  `changeDocument` for the final state. Replaced both with a single
+  `finalizeEdit` helper that reuses the already-computed `Lines`. Dropped
+  the now-orphaned `changeDocument` and `pushUndo`. `runEditor`'s cursor-
+  motion branches collapsed onto two helpers (`move` / `extend`) plus a
+  `pageJump` for page motion. (`jsonEscape` was already removed during
+  the config-tunables work.)
 
 ---
 

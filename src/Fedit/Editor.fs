@@ -570,6 +570,20 @@ module Editor =
             else
                 editFn
 
+        // Cursor motion that drops any existing selection.
+        let move transform =
+            updateActiveBuffer (Buffer.clearSelection >> transform) model, []
+
+        // Shifted motion that extends the selection through the new cursor.
+        let extend transform =
+            updateActiveBuffer (Buffer.extendSelectionToCursor >> transform) model, []
+
+        // Page Up/Down both use the same viewport-aware jump distance.
+        let pageJump direction =
+            let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
+            let jump = max 1 (viewportHeight - model.Config.PageOverlap)
+            move (direction jump)
+
         match key with
         | Character value ->
             updateActiveBuffer (editTransform (Buffer.insertText (string value)) >> Buffer.clearSelection) model, []
@@ -578,33 +592,24 @@ module Editor =
         | Backspace -> updateActiveBuffer Buffer.backspace model, []
         | Delete when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
         | Delete -> updateActiveBuffer Buffer.deleteForward model, []
-        | Left -> updateActiveBuffer (Buffer.clearSelection >> Buffer.moveLeft) model, []
-        | Right -> updateActiveBuffer (Buffer.clearSelection >> Buffer.moveRight) model, []
-        | Up -> updateActiveBuffer (Buffer.clearSelection >> Buffer.moveUp) model, []
-        | Down -> updateActiveBuffer (Buffer.clearSelection >> Buffer.moveDown) model, []
-        | Home -> updateActiveBuffer (Buffer.clearSelection >> Buffer.moveHome) model, []
-        | End -> updateActiveBuffer (Buffer.clearSelection >> Buffer.moveEnd) model, []
-        | ShiftLeft -> updateActiveBuffer (Buffer.extendSelectionToCursor >> Buffer.moveLeft) model, []
-        | ShiftRight -> updateActiveBuffer (Buffer.extendSelectionToCursor >> Buffer.moveRight) model, []
-        | ShiftUp -> updateActiveBuffer (Buffer.extendSelectionToCursor >> Buffer.moveUp) model, []
-        | ShiftDown -> updateActiveBuffer (Buffer.extendSelectionToCursor >> Buffer.moveDown) model, []
-        | ShiftHome -> updateActiveBuffer (Buffer.extendSelectionToCursor >> Buffer.moveHome) model, []
-        | ShiftEnd -> updateActiveBuffer (Buffer.extendSelectionToCursor >> Buffer.moveEnd) model, []
-        | PageUp ->
-            let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
-            let jump = max 1 (viewportHeight - model.Config.PageOverlap)
-
-            updateActiveBuffer (Buffer.clearSelection >> Buffer.movePageUp jump) model, []
-        | PageDown ->
-            let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
-            let jump = max 1 (viewportHeight - model.Config.PageOverlap)
-
-            updateActiveBuffer (Buffer.clearSelection >> Buffer.movePageDown jump) model, []
-        | Tab -> updateActiveBuffer (Buffer.clearSelection >> Buffer.indent) model, []
-        | ShiftTab -> updateActiveBuffer (Buffer.clearSelection >> Buffer.unindent) model, []
-        | AltLeft -> updateActiveBuffer (Buffer.clearSelection >> Buffer.moveLeftWord) model, []
-        | AltRight ->
-            updateActiveBuffer (Buffer.clearSelection >> Buffer.moveRightWord model.Config.WordMotion) model, []
+        | Left -> move Buffer.moveLeft
+        | Right -> move Buffer.moveRight
+        | Up -> move Buffer.moveUp
+        | Down -> move Buffer.moveDown
+        | Home -> move Buffer.moveHome
+        | End -> move Buffer.moveEnd
+        | ShiftLeft -> extend Buffer.moveLeft
+        | ShiftRight -> extend Buffer.moveRight
+        | ShiftUp -> extend Buffer.moveUp
+        | ShiftDown -> extend Buffer.moveDown
+        | ShiftHome -> extend Buffer.moveHome
+        | ShiftEnd -> extend Buffer.moveEnd
+        | PageUp -> pageJump Buffer.movePageUp
+        | PageDown -> pageJump Buffer.movePageDown
+        | Tab -> move Buffer.indent
+        | ShiftTab -> move Buffer.unindent
+        | AltLeft -> move Buffer.moveLeftWord
+        | AltRight -> move (Buffer.moveRightWord model.Config.WordMotion)
         | CtrlBackspace when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
         | CtrlBackspace -> updateActiveBuffer Buffer.backspaceWord model, []
         | CtrlDelete when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []

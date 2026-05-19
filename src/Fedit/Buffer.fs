@@ -70,11 +70,6 @@ module Buffer =
 
     let private maxUndoDepth = 200
 
-    let private pushUndo buffer =
-        { buffer with
-            Undo = snapshot buffer :: buffer.Undo |> List.truncate maxUndoDepth
-            Redo = [] }
-
     let createEmpty id =
         { Id = id
           FilePath = None
@@ -167,22 +162,24 @@ module Buffer =
             Document = document
             Lines = computeLines document }
 
-    let private changeDocument newDocument newCursor (buffer: BufferState) =
-        { (pushUndo buffer) with
-            Document = newDocument
-            Lines = computeLines newDocument
+    /// Finalize an edit. Caller passes the pre-edit `original` (for undo),
+    /// the already-updated `withDoc` buffer (Lines computed once via
+    /// `withDocument`), and the new cursor position. Sets cursor, marks
+    /// dirty, pushes undo, clears redo. No second `computeLines`.
+    let private finalizeEdit (original: BufferState) (newCursor: Position) (withDoc: BufferState) =
+        { withDoc with
             Cursor = newCursor
             PreferredColumn = None
-            Dirty = true }
+            Dirty = true
+            Undo = snapshot original :: original.Undo |> List.truncate maxUndoDepth
+            Redo = [] }
 
     let private replaceRange startIndex count replacement buffer =
         let deleted = PieceTable.deleteRange startIndex count buffer.Document
         let inserted = PieceTable.insert startIndex replacement deleted
-
-        let nextCursor =
-            indexToPosition (startIndex + replacement.Length) (buffer |> withDocument inserted)
-
-        changeDocument inserted nextCursor buffer
+        let withDoc = buffer |> withDocument inserted
+        let nextCursor = indexToPosition (startIndex + replacement.Length) withDoc
+        finalizeEdit buffer nextCursor withDoc
 
     let insertText value buffer =
         replaceRange (positionToIndex buffer.Cursor buffer) 0 value buffer
@@ -196,8 +193,9 @@ module Buffer =
             buffer
         else
             let nextDocument = PieceTable.deleteRange (index - 1) 1 buffer.Document
-            let nextCursor = indexToPosition (index - 1) (buffer |> withDocument nextDocument)
-            changeDocument nextDocument nextCursor buffer
+            let withDoc = buffer |> withDocument nextDocument
+            let nextCursor = indexToPosition (index - 1) withDoc
+            finalizeEdit buffer nextCursor withDoc
 
     let deleteForward buffer =
         let index = positionToIndex buffer.Cursor buffer
@@ -206,8 +204,9 @@ module Buffer =
             buffer
         else
             let nextDocument = PieceTable.deleteRange index 1 buffer.Document
-            let nextCursor = indexToPosition index (buffer |> withDocument nextDocument)
-            changeDocument nextDocument nextCursor buffer
+            let withDoc = buffer |> withDocument nextDocument
+            let nextCursor = indexToPosition index withDoc
+            finalizeEdit buffer nextCursor withDoc
 
     // Word-motion classifier — three classes that motion stops between.
     // Pinned to ASCII for predictability (matches IntelliJ / token-editor /
@@ -321,8 +320,9 @@ module Buffer =
             let target = wordIndexLeft (text buffer) startIdx
             let count = startIdx - target
             let nextDocument = PieceTable.deleteRange target count buffer.Document
-            let nextCursor = indexToPosition target (buffer |> withDocument nextDocument)
-            changeDocument nextDocument nextCursor buffer
+            let withDoc = buffer |> withDocument nextDocument
+            let nextCursor = indexToPosition target withDoc
+            finalizeEdit buffer nextCursor withDoc
 
     let setSelection anchor (buffer: BufferState) = { buffer with Selection = Some anchor }
 
@@ -361,9 +361,10 @@ module Buffer =
         | Some(s, e) when e > s ->
             let count = e - s
             let nextDocument = PieceTable.deleteRange s count buffer.Document
-            let nextCursor = indexToPosition s (buffer |> withDocument nextDocument)
+            let withDoc = buffer |> withDocument nextDocument
+            let nextCursor = indexToPosition s withDoc
 
-            { (changeDocument nextDocument nextCursor buffer) with
+            { finalizeEdit buffer nextCursor withDoc with
                 Selection = None }
         | _ -> buffer
 
@@ -392,8 +393,9 @@ module Buffer =
             let target = wordIndexRight landing txt startIdx
             let count = target - startIdx
             let nextDocument = PieceTable.deleteRange startIdx count buffer.Document
-            let nextCursor = indexToPosition startIdx (buffer |> withDocument nextDocument)
-            changeDocument nextDocument nextCursor buffer
+            let withDoc = buffer |> withDocument nextDocument
+            let nextCursor = indexToPosition startIdx withDoc
+            finalizeEdit buffer nextCursor withDoc
 
     let private withCursor position (buffer: BufferState) =
         { buffer with
@@ -485,7 +487,8 @@ module Buffer =
                     else
                         buffer.Cursor.Column - removable }
 
-            changeDocument nextDocument nextCursor buffer
+            let withDoc = buffer |> withDocument nextDocument
+            finalizeEdit buffer nextCursor withDoc
 
     let ensureViewport viewportHeight viewportWidth buffer =
         let safeHeight = max 1 viewportHeight
