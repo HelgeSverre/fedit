@@ -12,7 +12,7 @@ Active work and future ideas. Shipped phases (0–6) live in
 | **Phase 9 — Quick wins**                          | Shipped | Buffer double-computeLines fixed; `jsonEscape` removed earlier (config DOM); motion helper landed.     |
 | **Phase 10 — Module splits**                      | Pending | Typed command payloads, `Editor.fs` split, `Runtime.fs` split.                                         |
 | **Phase 11 — Renderer diff**                      | Pending | Cell-level diff against previous frame; drop `pad`/`crop` allocations.                                 |
-| **Phase 12 — Async follow-ups**                   | Pending | Dirty-state race after save, config-save ordering, search-as-effect.                                   |
+| **Phase 12 — Async follow-ups**                   | Shipped | EditTick-guarded `markSaved`; serialized config writes via task chain; `RunSearch` effect with cancellation. |
 | **Phase 13 — Workspace caching & startup errors** | Pending | Flat `Map<string, FileNode>` cache; surface load errors instead of swallowing.                         |
 | **Phase 14 — Polish**                             | Shipped | Theme preview is now derived in View; Recent persists at quit; tab width configurable; metadata removed (unused). |
 | **Phase 15 — Borders and file-tree icons**        | Pending | Unicode box-drawing separator; opt-in icon set for the file tree.                                      |

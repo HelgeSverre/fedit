@@ -90,16 +90,18 @@ type Msg =
     | Resize of Size
     | WorkspaceLoaded of Result<FileNode * int, string>
     | FileOpened of path: string * Result<string, string>
-    | BufferSaved of bufferId: int * path: string * Result<unit, string>
+    | BufferSaved of bufferId: int * path: string * revision: int * Result<unit, string>
     | ConfigSaved of Result<unit, string>
     | ClipboardCopied of Result<unit, string>
     | ClipboardPasted of Result<string, string>
+    | SearchCompleted of bufferId: int * query: string * matches: int list
     | WorkspaceChangedExternally
 
 type Effect =
     | ScanWorkspace of string
     | LoadFile of string
-    | SaveBuffer of bufferId: int * path: string * contents: string
+    | SaveBuffer of bufferId: int * path: string * revision: int * contents: string
     | SaveConfig of Config
     | ClipboardCopy of string
     | ClipboardPaste
+    | RunSearch of bufferId: int * query: string * haystack: string

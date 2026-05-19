@@ -148,27 +148,7 @@ module Editor =
               CompletionLimit = model.Config.CompletionLimit }
             query
 
-    let private updateSearchPreview model =
-        let prompt = model.Prompt
-        let query = Prompt.argumentOf prompt.Text
-
-        if query.Length = 0 then
-            { model with
-                Prompt = { prompt with SearchPreview = None } }
-        else
-            let buffer = activeBufferState model
-            let matches = Buffer.findAll query buffer
-            let preview = { Matches = matches; Current = 0 }
-
-            let withPreview =
-                { model with
-                    Prompt = { prompt with SearchPreview = Some preview } }
-
-            match matches with
-            | [] -> withPreview
-            | first :: _ -> updateActiveBuffer (Buffer.moveToOffset first) withPreview
-
-    let private refreshPrompt model =
+    let private refreshPrompt model : Model * Effect list =
         let prompt = model.Prompt
         let mode = Prompt.modeOf prompt.Text
         let argument = Prompt.argumentOf prompt.Text
@@ -191,7 +171,14 @@ module Editor =
             else
                 min prompt.SelectedCompletion (completions.Length - 1)
 
-        let withCompletions =
+        // Keep stale search highlights visible while a new query is in
+        // flight; the SearchCompleted handler overwrites once results land.
+        let nextSearchPreview =
+            match mode with
+            | Search -> prompt.SearchPreview
+            | _ -> None
+
+        let nextModel =
             { model with
                 Prompt =
                     { prompt with
@@ -199,12 +186,22 @@ module Editor =
                         Parsed = parsed
                         Completions = completions
                         SelectedCompletion = selectedIndex
-                        SearchPreview = if mode = Search then prompt.SearchPreview else None } }
+                        SearchPreview = nextSearchPreview } }
 
-        if mode = Search then
-            updateSearchPreview withCompletions
-        else
-            withCompletions
+        let effects =
+            match mode with
+            | Search ->
+                let query = Prompt.argumentOf nextModel.Prompt.Text
+
+                if query.Length = 0 then
+                    []
+                else
+                    let buffer = activeBufferState nextModel
+                    let haystack = Buffer.text buffer
+                    [ RunSearch(buffer.Id, query, haystack) ]
+            | _ -> []
+
+        nextModel, effects
 
     let private openPrompt (initialText: string) model =
         { model with
@@ -269,7 +266,8 @@ module Editor =
         | Search -> "/"
         | Buffers -> "@"
 
-    /// Apply a completion's ApplyText to the prompt, preserving the active mode's prefix.
+    /// Apply a completion's ApplyText to the prompt, preserving the active
+    /// mode's prefix.
     let private applyCompletion (item: CompletionItem) model =
         replacePromptText (prefixOf model.Prompt.Mode + item.ApplyText) model
 
@@ -278,7 +276,7 @@ module Editor =
 
         if prompt.Cursor = 0 then
             // Backspace on empty (or at start of empty Text) closes the prompt.
-            closePrompt model
+            closePrompt model, []
         else
             { model with
                 Prompt =
@@ -292,7 +290,7 @@ module Editor =
         let prompt = model.Prompt
 
         if prompt.Cursor >= prompt.Text.Length then
-            model
+            model, []
         else
             { model with
                 Prompt =
@@ -311,11 +309,10 @@ module Editor =
             | None, None -> None
 
         match targetPath with
-        | Some path -> model, [ SaveBuffer(buffer.Id, path, Buffer.serialize buffer) ]
+        | Some path -> model, [ SaveBuffer(buffer.Id, path, buffer.EditTick, Buffer.serialize buffer) ]
         | None ->
-            openPrompt ":writeas " model
-            |> notify (Some(Notification.warning "Scratch buffers need a path.")),
-            []
+            let opened, effects = openPrompt ":writeas " model
+            opened |> notify (Some(Notification.warning "Scratch buffers need a path.")), effects
 
     let private pushHistory (text: string) model =
         let trimmed = text.Trim()
@@ -600,7 +597,7 @@ module Editor =
         let prompt = model.Prompt
 
         if prompt.History.IsEmpty then
-            model
+            model, []
         else
             let index =
                 match prompt.HistoryIndex, delta with
@@ -634,9 +631,9 @@ module Editor =
             { model with
                 Prompt = { prompt with Cursor = prompt.Text.Length } },
             []
-        | Backspace -> deletePromptBackward model, []
-        | Delete -> deletePromptForward model, []
-        | Character value -> insertPromptText (string value) model, []
+        | Backspace -> deletePromptBackward model
+        | Delete -> deletePromptForward model
+        | Character value -> insertPromptText (string value) model
         | Tab -> cycleCompletion 1 model, []
         | ShiftTab -> cycleCompletion -1 model, []
         | Up ->
@@ -647,8 +644,8 @@ module Editor =
             match prompt.Mode with
             | Search -> moveSearchMatch 1 model, []
             | _ -> cycleCompletion 1 model, []
-        | AltUp -> applyHistory -1 model, []
-        | AltDown -> applyHistory 1 model, []
+        | AltUp -> applyHistory -1 model
+        | AltDown -> applyHistory 1 model
         | Enter ->
             match prompt.Mode with
             | Search -> moveSearchMatch 1 model, []
@@ -682,7 +679,7 @@ module Editor =
                     executeCommand command closed
                 | Pending _ when not prompt.Completions.IsEmpty ->
                     match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
-                    | Some item -> applyCompletion item model, []
+                    | Some item -> applyCompletion item model
                     | None -> model, []
                 | Pending message -> notify (Some(Notification.warning message)) model, []
                 | Invalid message -> notify (Some(Notification.error message)) model, []
@@ -751,17 +748,26 @@ module Editor =
                     Notification = Some(Notification.info $"Opened {buffer.Name}") },
                 []
             | Result.Error message -> notify (Some(Notification.error $"Failed to open {path}: {message}")) model, []
-        | BufferSaved(bufferId, path, result) ->
+        | BufferSaved(bufferId, path, revision, result) ->
             match result with
             | Result.Ok() ->
-                { model with
-                    Editors =
-                        { model.Editors with
-                            Buffers =
-                                model.Editors.Buffers
-                                |> Map.add bufferId (Buffer.markSaved path model.Editors.Buffers[bufferId]) }
-                    Notification = Some(Notification.info $"Saved {Path.GetFileName path}") },
-                []
+                match Map.tryFind bufferId model.Editors.Buffers with
+                | None -> model, []
+                | Some buffer ->
+                    let updated = Buffer.markSaved revision path buffer
+
+                    let note =
+                        if updated.Dirty then
+                            $"Saved {Path.GetFileName path} (continued editing)"
+                        else
+                            $"Saved {Path.GetFileName path}"
+
+                    { model with
+                        Editors =
+                            { model.Editors with
+                                Buffers = model.Editors.Buffers |> Map.add bufferId updated }
+                        Notification = Some(Notification.info note) },
+                    []
             | Result.Error message -> notify (Some(Notification.error $"Failed to save {path}: {message}")) model, []
         | ConfigSaved result ->
             match result with
@@ -773,6 +779,28 @@ module Editor =
             | Result.Ok() -> model, []
             | Result.Error message -> notify (Some(Notification.warning $"Clipboard copy failed: {message}")) model, []
         | WorkspaceChangedExternally -> model, [ ScanWorkspace model.Workspace.RootPath ]
+        | SearchCompleted(bufferId, query, matches) ->
+            // Drop stale results: prompt may have closed, mode changed, query
+            // moved on, or the active buffer switched while the effect ran.
+            let prompt = model.Prompt
+            let isStale =
+                not prompt.Active
+                || prompt.Mode <> Search
+                || Prompt.argumentOf prompt.Text <> query
+                || model.Editors.ActiveBufferId <> bufferId
+
+            if isStale then
+                model, []
+            else
+                let preview = { Matches = matches; Current = 0 }
+
+                let withPreview =
+                    { model with
+                        Prompt = { prompt with SearchPreview = Some preview } }
+
+                match matches with
+                | [] -> withPreview, []
+                | first :: _ -> updateActiveBuffer (Buffer.moveToOffset first) withPreview, []
         | ClipboardPasted result ->
             match result with
             | Result.Ok pastedText when pastedText.Length > 0 ->
@@ -824,22 +852,19 @@ module Editor =
                     ":"
                     { model with
                         Workspace = Workspace.clearSearch model.Workspace
-                        Notification = None },
-                []
+                        Notification = None }
             | Ctrl 'o' ->
                 openPrompt
                     ""
                     { model with
                         Workspace = Workspace.clearSearch model.Workspace
-                        Notification = None },
-                []
+                        Notification = None }
             | Ctrl 'f' ->
                 openPrompt
                     "/"
                     { model with
                         Workspace = Workspace.clearSearch model.Workspace
-                        Notification = None },
-                []
+                        Notification = None }
             | Ctrl 'b' ->
                 // Zed-style three-state toggle: hidden → show+focus;
                 // visible-elsewhere → focus; visible-focused → hide+editor.

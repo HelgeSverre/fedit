@@ -344,6 +344,13 @@ module Runtime =
         let queue = ConcurrentQueue<Msg>()
         let mutable scanCts: CancellationTokenSource option = None
         let mutable loadCts: CancellationTokenSource option = None
+        // Phase 12.2: serialize config writes so two quick saves can't land
+        // out of order on disk. Each new SaveConfig chains onto the previous
+        // task, preserving dispatch order by construction.
+        let configSaveLock = obj ()
+        let mutable configSaveChain: Task = Task.CompletedTask
+        // Phase 12.3: cancel previous incremental search before starting the next.
+        let mutable searchCts: CancellationTokenSource option = None
 
         let cancelAndReplace (existing: CancellationTokenSource option) =
             existing
@@ -391,29 +398,35 @@ module Runtime =
 
                     enqueueUnlessCancelled token msg)
                 |> ignore
-            | SaveBuffer(bufferId, path, contents) ->
+            | SaveBuffer(bufferId, path, revision, contents) ->
                 Task.Run(fun () ->
                     let msg =
                         try
                             ensureDirectoryFor path
                             File.WriteAllText(path, contents, utf8WithoutBom)
-                            BufferSaved(bufferId, path, Result.Ok())
+                            BufferSaved(bufferId, path, revision, Result.Ok())
                         with ex ->
-                            BufferSaved(bufferId, path, Result.Error ex.Message)
+                            BufferSaved(bufferId, path, revision, Result.Error ex.Message)
 
                     queue.Enqueue msg)
                 |> ignore
             | SaveConfig config ->
-                Task.Run(fun () ->
-                    let msg =
-                        try
-                            saveConfig config
-                            ConfigSaved(Result.Ok())
-                        with ex ->
-                            ConfigSaved(Result.Error ex.Message)
+                // Chain onto the previous config-save task so writes land in
+                // dispatch order regardless of pool scheduling.
+                lock configSaveLock (fun () ->
+                    configSaveChain <-
+                        configSaveChain.ContinueWith(
+                            (fun (_: Task) ->
+                                let msg =
+                                    try
+                                        saveConfig config
+                                        ConfigSaved(Result.Ok())
+                                    with ex ->
+                                        ConfigSaved(Result.Error ex.Message)
 
-                    queue.Enqueue msg)
-                |> ignore
+                                queue.Enqueue msg),
+                            TaskContinuationOptions.None
+                        ))
             | ClipboardCopy text ->
                 Task.Run(fun () ->
                     let msg =
@@ -424,6 +437,29 @@ module Runtime =
                             ClipboardCopied(Result.Error ex.Message)
 
                     queue.Enqueue msg)
+                |> ignore
+            | RunSearch(bufferId, query, haystack) ->
+                // Cancel any in-flight search; the latest query wins.
+                let cts = cancelAndReplace searchCts
+                searchCts <- Some cts
+                let token = cts.Token
+
+                Task.Run(fun () ->
+                    // Plain IndexOf loop — same logic as the old in-update
+                    // `Buffer.findAll`, just off the UI thread.
+                    let mutable matches: int list = []
+
+                    let mutable index =
+                        if String.IsNullOrEmpty query then
+                            -1
+                        else
+                            haystack.IndexOf(query, StringComparison.OrdinalIgnoreCase)
+
+                    while index >= 0 do
+                        matches <- index :: matches
+                        index <- haystack.IndexOf(query, index + 1, StringComparison.OrdinalIgnoreCase)
+
+                    enqueueUnlessCancelled token (SearchCompleted(bufferId, query, List.rev matches)))
                 |> ignore
             | ClipboardPaste ->
                 Task.Run(fun () ->

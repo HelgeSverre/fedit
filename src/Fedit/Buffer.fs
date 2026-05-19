@@ -48,6 +48,10 @@ type BufferState =
         Undo: BufferRevision list
         /// List of redo states for redo functionality
         Redo: BufferRevision list
+        /// Monotonically-increasing revision marker. Bumped on every mutating
+        /// edit. Used by `SaveBuffer` to detect concurrent edits and avoid
+        /// marking the buffer clean for changes the writer didn't capture.
+        EditTick: int
     }
 
 [<RequireQualifiedAccess>]
@@ -84,7 +88,8 @@ module Buffer =
           Dirty = false
           Newline = "\n"
           Undo = []
-          Redo = [] }
+          Redo = []
+          EditTick = 0 }
 
     let fromText id filePath name text newline =
         let document = PieceTable.ofString text
@@ -102,7 +107,8 @@ module Buffer =
           Dirty = false
           Newline = newline
           Undo = []
-          Redo = [] }
+          Redo = []
+          EditTick = 0 }
 
     let text buffer = PieceTable.toString buffer.Document
 
@@ -165,12 +171,14 @@ module Buffer =
     /// Finalize an edit. Caller passes the pre-edit `original` (for undo),
     /// the already-updated `withDoc` buffer (Lines computed once via
     /// `withDocument`), and the new cursor position. Sets cursor, marks
-    /// dirty, pushes undo, clears redo. No second `computeLines`.
+    /// dirty, pushes undo, clears redo, bumps EditTick. No second
+    /// `computeLines`.
     let private finalizeEdit (original: BufferState) (newCursor: Position) (withDoc: BufferState) =
         { withDoc with
             Cursor = newCursor
             PreferredColumn = None
             Dirty = true
+            EditTick = original.EditTick + 1
             Undo = snapshot original :: original.Undo |> List.truncate maxUndoDepth
             Redo = [] }
 
@@ -520,15 +528,26 @@ module Buffer =
             ViewportTop = nextTop
             ViewportLeft = nextLeft }
 
-    let markSaved (filePath: string) (buffer: BufferState) =
+    /// Mark a buffer as saved. If `expectedTick` matches the buffer's
+    /// current `EditTick`, the write captured the latest content so
+    /// `Dirty` is cleared and undo/redo discarded. If the user typed while
+    /// the async write was in flight (`expectedTick < buffer.EditTick`),
+    /// only the FilePath / Name are updated; the buffer stays dirty and
+    /// undo history is preserved.
+    let markSaved (expectedTick: int) (filePath: string) (buffer: BufferState) =
         let name = Path.GetFileName filePath |> Option.ofObj |> Option.defaultValue filePath
 
-        { buffer with
-            FilePath = Some filePath
-            Name = name
-            Dirty = false
-            Undo = []
-            Redo = [] }
+        if expectedTick = buffer.EditTick then
+            { buffer with
+                FilePath = Some filePath
+                Name = name
+                Dirty = false
+                Undo = []
+                Redo = [] }
+        else
+            { buffer with
+                FilePath = Some filePath
+                Name = name }
 
     let undo buffer =
         match buffer.Undo with
