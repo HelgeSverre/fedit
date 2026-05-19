@@ -30,8 +30,18 @@ preview: deps-if-needed
 
 # Type-check the site
 [group('test')]
-check: deps-if-needed
+check: deps-if-needed lint
     bun run check
+
+# Format website source with prettier (astro/ts/css/md/json/mjs)
+[group('format')]
+format: deps-if-needed
+    bun x prettier --write "**/*.{astro,ts,tsx,css,md,mjs,json}"
+
+# Check formatting (fails if anything would change)
+[group('format')]
+lint: deps-if-needed
+    bun x prettier --check "**/*.{astro,ts,tsx,css,md,mjs,json}"
 
 # Remove build artifacts
 [group('build')]

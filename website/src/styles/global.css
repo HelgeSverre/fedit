@@ -16,67 +16,104 @@
 
 :root {
   /* ----- neutrals (cool gray, hue 250) ----- */
-  --neutral-50:  #FAFAFA;
-  --neutral-100: #F4F4F5;
-  --neutral-200: #E7E7EA;
-  --neutral-300: #D3D3D8;
-  --neutral-400: #A6A6AD;
+  --neutral-50: #fafafa;
+  --neutral-100: #f4f4f5;
+  --neutral-200: #e7e7ea;
+  --neutral-300: #d3d3d8;
+  --neutral-400: #a6a6ad;
   --neutral-500: #787880;
-  --neutral-600: #58585F;
-  --neutral-700: #3F3F46;
-  --neutral-800: #27272A;
-  --neutral-900: #18181B;
-  --neutral-950: #0B0B0D;
+  --neutral-600: #58585f;
+  --neutral-700: #3f3f46;
+  --neutral-800: #27272a;
+  --neutral-900: #18181b;
+  --neutral-950: #0b0b0d;
 
   /* ----- accent (phosphor green) ----- */
-  --accent-100: #D1FAE5;
-  --accent-300: #6EE7B7;
-  --accent-500: #00B86B;
+  --accent-100: #d1fae5;
+  --accent-300: #6ee7b7;
+  --accent-500: #00b86b;
   --accent-700: #047857;
-  --accent-900: #064E3B;
+  --accent-900: #064e3b;
   --accent: var(--accent-500);
 
   /* ----- light mode semantic ----- */
-  --bg:             var(--neutral-50);
-  --surface-1:      var(--neutral-50);
-  --surface-2:      var(--neutral-100);
-  --surface-deep:   #FFFFFF;
-  --fg:             var(--neutral-900);
-  --fg-muted:       var(--neutral-600);
-  --fg-subtle:      var(--neutral-500);
-  --border:         var(--neutral-200);
-  --border-strong:  var(--neutral-300);
-  --accent-fg:      var(--neutral-900);
-  --accent-soft:    color-mix(in oklch, var(--accent) 25%, transparent);
-  --accent-tint:    color-mix(in oklch, var(--accent) 10%, var(--surface-2));
+  --bg: var(--neutral-50);
+  --surface-1: var(--neutral-50);
+  --surface-2: var(--neutral-100);
+  --surface-deep: #ffffff;
+  --fg: var(--neutral-900);
+  --fg-muted: var(--neutral-600);
+  --fg-subtle: var(--neutral-500);
+  --border: var(--neutral-200);
+  --border-strong: var(--neutral-300);
+  --accent-fg: var(--neutral-900);
+  --accent-soft: color-mix(in oklch, var(--accent) 25%, transparent);
+  --accent-tint: color-mix(in oklch, var(--accent) 10%, var(--surface-2));
 
   /* ----- timing ----- */
-  --t-fast:   120ms;
-  --t-base:   200ms;
-  --t-slow:   320ms;
-  --ease:     cubic-bezier(0.2, 0.8, 0.2, 1);
+  --t-fast: 120ms;
+  --t-base: 200ms;
+  --t-slow: 320ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* ----- spacing scale -----
+   * Used for vertical rhythm. Heading rules below assume these tokens. */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 48px;
+  --space-6: 72px;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:             var(--neutral-950);
-    --surface-1:      var(--neutral-950);
-    --surface-2:      var(--neutral-900);
-    --surface-deep:   #050505;
-    --fg:             var(--neutral-50);
-    --fg-muted:       var(--neutral-400);
-    --fg-subtle:      var(--neutral-500);
-    --border:         var(--neutral-800);
-    --border-strong:  var(--neutral-700);
-    --accent-tint:    color-mix(in oklch, var(--accent) 12%, var(--surface-2));
+    --bg: var(--neutral-950);
+    --surface-1: var(--neutral-950);
+    --surface-2: var(--neutral-900);
+    --surface-deep: #050505;
+    --fg: var(--neutral-50);
+    --fg-muted: var(--neutral-400);
+    --fg-subtle: var(--neutral-500);
+    --border: var(--neutral-800);
+    --border-strong: var(--neutral-700);
+    --accent-tint: color-mix(in oklch, var(--accent) 12%, var(--surface-2));
   }
 }
 
 /* ----- reset (minimal) ----- */
-*, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
-img, svg { display: block; max-width: 100%; }
-button { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
 
 ::selection {
   background: var(--accent);
@@ -86,7 +123,9 @@ button { font: inherit; color: inherit; background: none; border: none; padding:
 /* ----- base typography ----- */
 body {
   font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
-  font-feature-settings: "calt" 0, "liga" 0;
+  font-feature-settings:
+    "calt" 0,
+    "liga" 0;
   background: var(--bg);
   color: var(--fg);
   line-height: 1.6;
@@ -101,10 +140,14 @@ a {
   text-decoration-color: var(--border-strong);
   text-decoration-thickness: 1px;
   text-underline-offset: 4px;
-  transition: text-decoration-color var(--t-base) var(--ease),
-              color var(--t-base) var(--ease);
+  transition:
+    text-decoration-color var(--t-base) var(--ease),
+    color var(--t-base) var(--ease);
 }
-a:hover { text-decoration-color: var(--accent); color: var(--accent); }
+a:hover {
+  text-decoration-color: var(--accent);
+  color: var(--accent);
+}
 
 a:focus-visible,
 button:focus-visible,
@@ -116,7 +159,9 @@ button:focus-visible,
 
 code {
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-feature-settings: "calt" 0, "liga" 0;
+  font-feature-settings:
+    "calt" 0,
+    "liga" 0;
   font-size: 0.92em;
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -137,7 +182,9 @@ kbd {
 
 pre {
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-feature-settings: "calt" 0, "liga" 0;
+  font-feature-settings:
+    "calt" 0,
+    "liga" 0;
   font-size: 12px;
   line-height: 1.55;
   background: var(--surface-2);
@@ -149,11 +196,22 @@ pre {
   color: var(--fg);
   tab-size: 2;
 }
-pre .dim     { color: var(--fg-subtle); }
-pre .muted   { color: var(--fg-muted); }
-pre .accent  { color: var(--accent); }
-pre .comment { color: var(--fg-subtle); font-style: normal; }
-pre .key     { color: var(--accent); }
+pre .dim {
+  color: var(--fg-subtle);
+}
+pre .muted {
+  color: var(--fg-muted);
+}
+pre .accent {
+  color: var(--accent);
+}
+pre .comment {
+  color: var(--fg-subtle);
+  font-style: normal;
+}
+pre .key {
+  color: var(--accent);
+}
 
 /* TUI rendering — bulletproof monospace alignment.
  * Box-drawing chars + ASCII must share a single grid. Override any inherited
@@ -161,27 +219,51 @@ pre .key     { color: var(--accent); }
 .tui,
 .mini-tui {
   font-family: "JetBrains Mono", "Menlo", ui-monospace, monospace !important;
-  font-feature-settings: "calt" 0, "liga" 0, "dlig" 0 !important;
+  font-feature-settings:
+    "calt" 0,
+    "liga" 0,
+    "dlig" 0 !important;
   font-variant-ligatures: none !important;
   white-space: pre;
   tab-size: 2;
 }
 
 /* ----- headings: Departure Mono ----- */
-h1, h2, h3, h4 {
+h1,
+h2,
+h3,
+h4 {
   font-family: "Departure Mono", "JetBrains Mono", monospace;
   font-feature-settings: normal;
   letter-spacing: -0.02em;
   line-height: 1.1;
   margin: 0;
 }
-h1 { font-size: clamp(40px, 8vw, 64px); }
-h2 { font-size: clamp(26px, 4vw, 32px); }
+h1 {
+  font-size: clamp(40px, 8vw, 64px);
+}
+h2 {
+  font-size: clamp(26px, 4vw, 32px);
+}
 h3 {
   font-size: 16px;
   letter-spacing: -0.01em;
   color: var(--fg-muted);
   text-transform: lowercase;
+  margin-top: var(--space-5);
+}
+
+/* Vertical rhythm: any element following a heading gets breathing room.
+ * Use :where() so this contributes 0 specificity — components can override
+ * freely (e.g. .feature-grid h3, .section__head h2). */
+:where(h2, h3) + * {
+  margin-top: var(--space-3);
+}
+
+/* The section head already provides its own margin-bottom — kill the
+ * stacked top margin on its first child. */
+.section__head + * {
+  margin-top: 0;
 }
 
 /* ----- layout primitives ----- */
@@ -191,16 +273,22 @@ h3 {
   padding: 0 32px;
 }
 @media (max-width: 600px) {
-  .container { padding: 0 20px; }
+  .container {
+    padding: 0 20px;
+  }
 }
 
 .section {
-  padding: 72px 0;
+  padding: var(--space-6) 0;
   border-top: 1px solid var(--border);
   background: var(--surface-1);
 }
-.section--alt { background: var(--surface-2); }
-.section:first-of-type { border-top: none; }
+.section--alt {
+  background: var(--surface-2);
+}
+.section:first-of-type {
+  border-top: none;
+}
 .section__head {
   display: flex;
   align-items: baseline;
@@ -233,10 +321,15 @@ h3 {
   grid-template-columns: max-content 1fr;
   gap: 8px 24px;
   align-items: baseline;
-  margin: 0;
+  margin: var(--space-3) 0 0;
 }
-.dl-grid dt { white-space: nowrap; }
-.dl-grid dd { margin: 0; color: var(--fg-muted); }
+.dl-grid dt {
+  white-space: nowrap;
+}
+.dl-grid dd {
+  margin: 0;
+  color: var(--fg-muted);
+}
 
 .dl-feature dt {
   font-family: "Departure Mono", "JetBrains Mono", monospace;
@@ -244,7 +337,9 @@ h3 {
   color: var(--fg);
   margin-top: 16px;
 }
-.dl-feature dt:first-child { margin-top: 0; }
+.dl-feature dt:first-child {
+  margin-top: 0;
+}
 .dl-feature dd {
   margin: 4px 0 0;
   color: var(--fg-muted);

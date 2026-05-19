@@ -2,11 +2,11 @@
 import Symbol from "./Symbol.astro";
 
 const links = [
-  { href: "/#install",      label: "install" },
-  { href: "/#commands",     label: "commands" },
-  { href: "/#themes",       label: "themes" },
+  { href: "/#install", label: "install" },
+  { href: "/#commands", label: "commands" },
+  { href: "/#themes", label: "themes" },
   { href: "/#architecture", label: "how" },
-  { href: "/brand",         label: "brand" },
+  { href: "/brand", label: "brand" },
 ];
 ---
 
@@ -17,10 +17,10 @@ const links = [
       <span class="brand-word">fedit</span>
     </a>
     <nav aria-label="primary">
-      {links.map(({ href, label }) => (
-        <a href={href}>{label}</a>
-      ))}
-      <a href="https://github.com/HelgeSverre/fedit" class="ext" target="_blank" rel="noopener">github</a>
+      {links.map(({ href, label }) => <a href={href}>{label}</a>)}
+      <a href="https://github.com/HelgeSverre/fedit" class="ext" target="_blank" rel="noopener"
+        >github</a
+      >
     </nav>
   </div>
 </header>
@@ -47,7 +47,10 @@ const links = [
     text-decoration: none;
     color: var(--fg);
   }
-  .brand :global(svg) { align-self: center; color: var(--accent); }
+  .brand :global(svg) {
+    align-self: center;
+    color: var(--accent);
+  }
   .brand-word {
     font-family: "Departure Mono", "JetBrains Mono", monospace;
     font-size: 20px;
@@ -64,7 +67,9 @@ const links = [
     padding: 6px 10px;
     border-radius: 2px;
     position: relative;
-    transition: color var(--t-base) var(--ease), background var(--t-base) var(--ease);
+    transition:
+      color var(--t-base) var(--ease),
+      background var(--t-base) var(--ease);
   }
   nav a::after {
     content: "";
@@ -78,13 +83,22 @@ const links = [
     transform-origin: left center;
     transition: transform var(--t-base) var(--ease);
   }
-  nav a:hover { color: var(--fg); }
-  nav a:hover::after { transform: scaleX(1); }
+  nav a:hover {
+    color: var(--fg);
+  }
+  nav a:hover::after {
+    transform: scaleX(1);
+  }
   /* Focus signal is the outline ring (see global.css). Underline grow is
      hover-only so quick tabbing doesn't trigger a 200ms scaleX animation
      on every focus change. */
   @media (max-width: 600px) {
-    nav { gap: 0; font-size: 12px; }
-    nav .ext { display: none; }
+    nav {
+      gap: 0;
+      font-size: 12px;
+    }
+    nav .ext {
+      display: none;
+    }
   }
 </style>

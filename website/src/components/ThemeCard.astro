@@ -1,6 +1,8 @@
 ---
 import type { Theme } from "../data/themes";
-interface Props { theme: Theme; }
+interface Props {
+  theme: Theme;
+}
 const { theme } = Astro.props;
 ---
 
@@ -10,7 +12,8 @@ const { theme } = Astro.props;
     <span class="name">{theme.name}</span>
     {theme.isDefault && <span class="label">default</span>}
   </header>
-  <pre class="mini-tui"><span class="dim">┌─ src ─────────┬─ Main.fs ──┐</span>
+  <pre
+    class="mini-tui"><span class="dim">┌─ src ─────────┬─ Main.fs ──┐</span>
 <span class="dim">│</span> ▾ src         <span class="dim">│</span>   1 module     <span class="dim">│</span>
 <span class="dim">│</span>   Buffer.fs   <span class="dim">│</span>   2 open …     <span class="dim">│</span>
 <span class="dim">│</span>   Main.fs     <span class="dim">│</span>   3            <span class="dim">│</span>
@@ -29,8 +32,9 @@ const { theme } = Astro.props;
     border: 1px solid var(--border);
     border-radius: 2px;
     overflow: hidden;
-    transition: border-color var(--t-base) var(--ease),
-                transform var(--t-base) var(--ease);
+    transition:
+      border-color var(--t-base) var(--ease),
+      transform var(--t-base) var(--ease);
   }
   .theme-card:hover {
     border-color: var(--accent);
@@ -57,7 +61,9 @@ const { theme } = Astro.props;
     background: var(--accent);
     border-radius: 50%;
   }
-  header .name { color: var(--fg); }
+  header .name {
+    color: var(--fg);
+  }
   header .label {
     margin-left: auto;
     font-size: 10px;
@@ -77,7 +83,9 @@ const { theme } = Astro.props;
     padding: 12px;
     line-height: 1.45;
   }
-  pre.mini-tui .accent { color: var(--accent); }
+  pre.mini-tui .accent {
+    color: var(--accent);
+  }
   footer {
     display: flex;
     align-items: center;

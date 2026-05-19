@@ -7,7 +7,6 @@ import { themes } from "../data/themes";
 ---
 
 <Site>
-
   <!-- ============================================================ -->
   <!-- HERO                                                         -->
   <!-- ============================================================ -->
@@ -17,12 +16,18 @@ import { themes } from "../data/themes";
         <Symbol size={56} color="var(--accent)" strokeWidth={3} class="hero-mark" />
         <h1>fedit</h1>
       </div>
-      <p class="hero-lede">Edit files in the terminal. Small. Written in <span class="hero-key">F#</span>.</p>
-      <pre class="hero-install"><span class="dim">$</span> git clone https://github.com/HelgeSverre/fedit
+      <p class="hero-lede">
+        Edit files in the terminal. Small. Written in <span class="hero-key">F#</span>.
+      </p>
+      <pre
+        class="hero-install"><span class="dim">$</span> git clone https://github.com/HelgeSverre/fedit
 <span class="dim">$</span> cd fedit
 <span class="dim">$</span> just install
 <span class="dim">$</span> fedit .</pre>
-      <p class="caveat">Requires .NET SDK 9 and <a href="https://github.com/casey/just">just</a>. The repo ships a local <code>.dotnet</code> SDK, so cloning is enough.</p>
+      <p class="caveat">
+        Requires .NET SDK 9 and <a href="https://github.com/casey/just">just</a>. The repo ships a
+        local <code>.dotnet</code> SDK, so cloning is enough.
+      </p>
     </div>
   </section>
 
@@ -41,7 +46,11 @@ import { themes } from "../data/themes";
             <dd>open a directory, navigate with arrow keys, expand and collapse with left/right</dd>
 
             <dt>multi-buffer</dt>
-            <dd>open any number of files; switch with <code>next</code> / <code>prev</code> / <code>buffers</code></dd>
+            <dd>
+              open any number of files; switch with <code>next</code> / <code>prev</code> / <code
+                >buffers</code
+              >
+            </dd>
 
             <dt>piece-table buffers</dt>
             <dd>inserts and deletes stay local; each buffer has its own undo/redo stack</dd>
@@ -66,7 +75,8 @@ import { themes } from "../data/themes";
           </dl>
         </div>
         <TuiFrame label="fedit . — workspace + editor">
-          <Fragment set:html={`<span class="dim">┌─ workspace ──────────────────┬─ src/Main.fs · 312 lines ─────────────┐</span>
+          <Fragment
+            set:html={`<span class="dim">┌─ workspace ──────────────────┬─ src/Main.fs · 312 lines ─────────────┐</span>
 <span class="dim">│</span> ▾ src                        <span class="dim">│</span>   1  <span class="muted">module</span> Main                       <span class="dim">│</span>
 <span class="dim">│</span>   ▸ Buffer                   <span class="dim">│</span>   2                                   <span class="dim">│</span>
 <span class="dim">│</span>   ▾ Editor                   <span class="dim">│</span>   3  <span class="muted">open</span> System                       <span class="dim">│</span>
@@ -79,7 +89,8 @@ import { themes } from "../data/themes";
 <span class="dim">│</span>                              <span class="dim">│</span>  10      | _          -> printfn …   <span class="dim">│</span>
 <span class="dim">├──────────────────────────────┴───────────────────────────────────────┤</span>
 <span class="dim">│</span> <span class="accent">^</span> <span class="muted">src/Main.fs · Ln 7/312 · LF · 2 buffers</span>                       <span class="dim">│</span>
-<span class="dim">└──────────────────────────────────────────────────────────────────────┘</span>`} />
+<span class="dim">└──────────────────────────────────────────────────────────────────────┘</span>`}
+          />
         </TuiFrame>
       </div>
     </div>
@@ -93,19 +104,28 @@ import { themes } from "../data/themes";
       <div class="section__head"><h2>install</h2></div>
 
       <h3>from source</h3>
-      <pre class="block"><span class="dim">$</span> git clone https://github.com/HelgeSverre/fedit
+      <pre
+        class="block"><span class="dim">$</span> git clone https://github.com/HelgeSverre/fedit
 <span class="dim">$</span> cd fedit
 <span class="dim">$</span> just install
 <span class="dim">$</span> fedit .</pre>
-      <p class="muted-p">The <code>just install</code> recipe publishes a self-contained single-file binary to <code>~/.local/bin</code>. Override the destination with <code>just install path/to/bin</code>. Remove with <code>just uninstall</code>.</p>
+      <p class="muted-p">
+        The <code>just install</code> recipe publishes a self-contained single-file binary to <code
+          >~/.local/bin</code
+        >. Override the destination with <code>just install path/to/bin</code>. Remove with <code
+          >just uninstall</code
+        >.
+      </p>
 
       <h3>run without installing</h3>
-      <pre class="block"><span class="dim">$</span> ./fedit .                              <span class="comment"># shell shim, pins local .dotnet</span>
+      <pre
+        class="block"><span class="dim">$</span> ./fedit .                              <span class="comment"># shell shim, pins local .dotnet</span>
 <span class="dim">$</span> dotnet run --project src/Fedit/Fedit.fsproj -- .
 <span class="dim">$</span> just run .                             <span class="comment"># or via the recipe</span></pre>
 
       <h3>dev loop</h3>
-      <pre class="block"><span class="dim">$</span> just dev .         <span class="comment"># dotnet watch, re-launches on source changes</span>
+      <pre
+        class="block"><span class="dim">$</span> just dev .         <span class="comment"># dotnet watch, re-launches on source changes</span>
 <span class="dim">$</span> just check         <span class="comment"># lint + build + test, the pre-commit gate</span>
 <span class="dim">$</span> just test          <span class="comment"># xUnit + FsCheck</span>
 <span class="dim">$</span> just format        <span class="comment"># fantomas</span></pre>
@@ -113,7 +133,10 @@ import { themes } from "../data/themes";
       <h3>flags</h3>
       <dl class="dl-grid">
         <dt><code>--log &lt;path&gt;</code></dt>
-        <dd>append a UTC-timestamped trace of every <code>Msg</code> and <code>Effect</code> to the file — for debugging without polluting the TUI</dd>
+        <dd>
+          append a UTC-timestamped trace of every <code>Msg</code> and <code>Effect</code> to the file
+          — for debugging without polluting the TUI
+        </dd>
       </dl>
     </div>
   </section>
@@ -127,65 +150,104 @@ import { themes } from "../data/themes";
 
       <h3>global</h3>
       <dl class="dl-grid">
-        <dt><kbd>Ctrl+P</kbd></dt> <dd>open the command bar</dd>
-        <dt><kbd>Ctrl+F</kbd></dt> <dd>find in the active buffer</dd>
-        <dt><kbd>Ctrl+B</kbd></dt> <dd>focus the file tree</dd>
-        <dt><kbd>Ctrl+E</kbd></dt> <dd>focus the editor</dd>
-        <dt><kbd>Ctrl+S</kbd></dt> <dd>save the active buffer</dd>
-        <dt><kbd>Ctrl+R</kbd></dt> <dd>reload the workspace tree</dd>
-        <dt><kbd>Ctrl+Q</kbd></dt> <dd>quit (prompts once if buffers are dirty; press again to discard)</dd>
-        <dt><kbd>Ctrl+Z</kbd></dt> <dd>undo</dd>
-        <dt><kbd>Ctrl+Y</kbd></dt> <dd>redo</dd>
+        <dt><kbd>Ctrl+P</kbd></dt>
+        <dd>open the command bar</dd>
+        <dt><kbd>Ctrl+F</kbd></dt>
+        <dd>find in the active buffer</dd>
+        <dt><kbd>Ctrl+B</kbd></dt>
+        <dd>focus the file tree</dd>
+        <dt><kbd>Ctrl+E</kbd></dt>
+        <dd>focus the editor</dd>
+        <dt><kbd>Ctrl+S</kbd></dt>
+        <dd>save the active buffer</dd>
+        <dt><kbd>Ctrl+R</kbd></dt>
+        <dd>reload the workspace tree</dd>
+        <dt><kbd>Ctrl+Q</kbd></dt>
+        <dd>quit (prompts once if buffers are dirty; press again to discard)</dd>
+        <dt><kbd>Ctrl+Z</kbd></dt>
+        <dd>undo</dd>
+        <dt><kbd>Ctrl+Y</kbd></dt>
+        <dd>redo</dd>
       </dl>
 
       <h3>editor</h3>
       <dl class="dl-grid">
-        <dt><kbd>← → ↑ ↓</kbd></dt> <dd>move the cursor</dd>
-        <dt><kbd>Home</kbd> · <kbd>End</kbd></dt> <dd>jump to line start / end</dd>
-        <dt><kbd>PageUp</kbd> · <kbd>PageDown</kbd></dt> <dd>scroll a screen at a time</dd>
-        <dt><kbd>Alt+←</kbd> · <kbd>Alt+→</kbd></dt> <dd>move by word</dd>
-        <dt><kbd>Ctrl+Backspace</kbd> · <kbd>Ctrl+Delete</kbd></dt> <dd>delete the previous / next word</dd>
-        <dt><kbd>Shift+←/→/↑/↓</kbd> · <kbd>Shift+Home</kbd> · <kbd>Shift+End</kbd></dt> <dd>extend the selection</dd>
-        <dt><kbd>Ctrl+A</kbd></dt> <dd>select the whole buffer</dd>
-        <dt><kbd>Ctrl+C</kbd> · <kbd>Ctrl+X</kbd></dt> <dd>copy / cut to system clipboard</dd>
-        <dt><kbd>Ctrl+V</kbd></dt> <dd>paste from system clipboard</dd>
-        <dt><kbd>Tab</kbd> · <kbd>Shift+Tab</kbd></dt> <dd>indent / unindent the current line</dd>
-        <dt><kbd>Enter</kbd> · <kbd>Backspace</kbd> · <kbd>Delete</kbd></dt> <dd>edit text; with a selection, replace it</dd>
+        <dt><kbd>← → ↑ ↓</kbd></dt>
+        <dd>move the cursor</dd>
+        <dt><kbd>Home</kbd> · <kbd>End</kbd></dt>
+        <dd>jump to line start / end</dd>
+        <dt><kbd>PageUp</kbd> · <kbd>PageDown</kbd></dt>
+        <dd>scroll a screen at a time</dd>
+        <dt><kbd>Alt+←</kbd> · <kbd>Alt+→</kbd></dt>
+        <dd>move by word</dd>
+        <dt><kbd>Ctrl+Backspace</kbd> · <kbd>Ctrl+Delete</kbd></dt>
+        <dd>delete the previous / next word</dd>
+        <dt><kbd>Shift+←/→/↑/↓</kbd> · <kbd>Shift+Home</kbd> · <kbd>Shift+End</kbd></dt>
+        <dd>extend the selection</dd>
+        <dt><kbd>Ctrl+A</kbd></dt>
+        <dd>select the whole buffer</dd>
+        <dt><kbd>Ctrl+C</kbd> · <kbd>Ctrl+X</kbd></dt>
+        <dd>copy / cut to system clipboard</dd>
+        <dt><kbd>Ctrl+V</kbd></dt>
+        <dd>paste from system clipboard</dd>
+        <dt><kbd>Tab</kbd> · <kbd>Shift+Tab</kbd></dt>
+        <dd>indent / unindent the current line</dd>
+        <dt><kbd>Enter</kbd> · <kbd>Backspace</kbd> · <kbd>Delete</kbd></dt>
+        <dd>edit text; with a selection, replace it</dd>
       </dl>
 
       <h3>find <span class="muted">(after Ctrl+F)</span></h3>
       <dl class="dl-grid">
-        <dt>type</dt> <dd>extend the query; matches highlight live and the cursor jumps to the first hit</dd>
-        <dt><kbd>Enter</kbd> · <kbd>↓</kbd></dt> <dd>advance to next match</dd>
-        <dt><kbd>↑</kbd></dt> <dd>previous match</dd>
-        <dt><kbd>Backspace</kbd></dt> <dd>shorten query; on empty query, close the prompt</dd>
-        <dt><kbd>Escape</kbd></dt> <dd>close the prompt and clear the highlights</dd>
+        <dt>type</dt>
+        <dd>extend the query; matches highlight live and the cursor jumps to the first hit</dd>
+        <dt><kbd>Enter</kbd> · <kbd>↓</kbd></dt>
+        <dd>advance to next match</dd>
+        <dt><kbd>↑</kbd></dt>
+        <dd>previous match</dd>
+        <dt><kbd>Backspace</kbd></dt>
+        <dd>shorten query; on empty query, close the prompt</dd>
+        <dt><kbd>Escape</kbd></dt>
+        <dd>close the prompt and clear the highlights</dd>
       </dl>
 
       <h3>file tree</h3>
       <dl class="dl-grid">
-        <dt><kbd>↑</kbd> · <kbd>↓</kbd></dt> <dd>move selection</dd>
-        <dt><kbd>PageUp</kbd> · <kbd>PageDown</kbd></dt> <dd>jump ten entries at a time</dd>
-        <dt><kbd>Home</kbd> · <kbd>End</kbd></dt> <dd>first / last visible entry</dd>
-        <dt><kbd>←</kbd></dt> <dd>collapse the selected directory or move to its parent</dd>
-        <dt><kbd>→</kbd></dt> <dd>expand the selected directory</dd>
-        <dt><kbd>Enter</kbd></dt> <dd>open a file or toggle a directory</dd>
-        <dt><kbd>Escape</kbd></dt> <dd>return focus to the editor</dd>
+        <dt><kbd>↑</kbd> · <kbd>↓</kbd></dt>
+        <dd>move selection</dd>
+        <dt><kbd>PageUp</kbd> · <kbd>PageDown</kbd></dt>
+        <dd>jump ten entries at a time</dd>
+        <dt><kbd>Home</kbd> · <kbd>End</kbd></dt>
+        <dd>first / last visible entry</dd>
+        <dt><kbd>←</kbd></dt>
+        <dd>collapse the selected directory or move to its parent</dd>
+        <dt><kbd>→</kbd></dt>
+        <dd>expand the selected directory</dd>
+        <dt><kbd>Enter</kbd></dt>
+        <dd>open a file or toggle a directory</dd>
+        <dt><kbd>Escape</kbd></dt>
+        <dd>return focus to the editor</dd>
       </dl>
 
       <h3>command bar</h3>
       <dl class="dl-grid">
-        <dt>type</dt> <dd>filter; the dock panel shows matching commands or workspace paths</dd>
-        <dt><kbd>Tab</kbd> · <kbd>Shift+Tab</kbd></dt> <dd>cycle completions</dd>
-        <dt><kbd>↑</kbd> · <kbd>↓</kbd></dt> <dd>walk through recent command history (last 20)</dd>
-        <dt><kbd>Enter</kbd></dt> <dd>run the parsed command or apply the highlighted completion</dd>
-        <dt><kbd>Escape</kbd></dt> <dd>close the command bar without running anything</dd>
+        <dt>type</dt>
+        <dd>filter; the dock panel shows matching commands or workspace paths</dd>
+        <dt><kbd>Tab</kbd> · <kbd>Shift+Tab</kbd></dt>
+        <dd>cycle completions</dd>
+        <dt><kbd>↑</kbd> · <kbd>↓</kbd></dt>
+        <dd>walk through recent command history (last 20)</dd>
+        <dt><kbd>Enter</kbd></dt>
+        <dd>run the parsed command or apply the highlighted completion</dd>
+        <dt><kbd>Escape</kbd></dt>
+        <dd>close the command bar without running anything</dd>
       </dl>
 
       <h3>command bar commands</h3>
       <dl class="dl-grid cmd">
         <dt><code>open &lt;path&gt;</code></dt>
-        <dd>open a file from the current workspace; activates the existing buffer if already open</dd>
+        <dd>
+          open a file from the current workspace; activates the existing buffer if already open
+        </dd>
 
         <dt><code>write</code></dt>
         <dd>save the active buffer</dd>
@@ -212,7 +274,12 @@ import { themes } from "../data/themes";
         <dd>switch to an open buffer by numeric id or name</dd>
 
         <dt><code>theme &lt;name&gt;</code></dt>
-        <dd>switch the accent color — tab through <code>green</code>, <code>blue</code>, <code>orange</code>, <code>cyan</code>, <code>teal</code>, <code>yellow</code>, <code>red</code>; live-previews each as you cycle</dd>
+        <dd>
+          switch the accent color — tab through <code>green</code>, <code>blue</code>, <code
+            >orange</code
+          >, <code>cyan</code>, <code>teal</code>, <code>yellow</code>, <code>red</code>;
+          live-previews each as you cycle
+        </dd>
 
         <dt><code>recent &lt;path&gt;</code></dt>
         <dd>pick a recently opened file; tab cycles through the last 20</dd>
@@ -229,7 +296,12 @@ import { themes } from "../data/themes";
   <section id="themes" class="section">
     <div class="container">
       <div class="section__head"><h2>themes</h2></div>
-      <p class="section__lede">Seven accent palettes. The dock title, status bar, selection highlight, and current-line gutter swap together; the grayscale chrome stays constant. Switch with <code>theme &lt;name&gt;</code> in the command bar.</p>
+      <p class="section__lede">
+        Seven accent palettes. The dock title, status bar, selection highlight, and current-line
+        gutter swap together; the grayscale chrome stays constant. Switch with <code
+          >theme &lt;name&gt;</code
+        > in the command bar.
+      </p>
       <div class="theme-grid">
         {themes.map((theme) => <ThemeCard theme={theme} />)}
       </div>
@@ -243,10 +315,18 @@ import { themes } from "../data/themes";
     <div class="container">
       <div class="section__head"><h2>how it works</h2></div>
 
-      <p class="arch-p">fedit is built as an Elm-style update loop. The <code>Model</code> is pure data. <code>Editor.update</code> is a pure function that takes a <code>Msg</code> and returns a new model plus a list of effects. <code>runEffect</code> is the only impure code path — it does file I/O and folds its result back into the loop as another <code>Msg</code>. <code>Layout.render</code> projects the model to a <code>Screen</code>, and <code>Renderer.render</code> writes that grid as ANSI escapes.</p>
+      <p class="arch-p">
+        fedit is built as an Elm-style update loop. The <code>Model</code> is pure data. <code
+          >Editor.update</code
+        > is a pure function that takes a <code>Msg</code> and returns a new model plus a list of effects.
+        <code>runEffect</code> is the only impure code path — it does file I/O and folds its result back
+        into the loop as another <code>Msg</code>. <code>Layout.render</code> projects the model to a
+        <code>Screen</code>, and <code>Renderer.render</code> writes that grid as ANSI escapes.
+      </p>
 
       <TuiFrame label="data flow">
-        <Fragment set:html={`                        +----------------------+
+        <Fragment
+          set:html={`                        +----------------------+
                         |        Model         |
                         |  workspace . tree    |
                         |  buffers + cursors   |
@@ -278,20 +358,38 @@ import { themes } from "../data/themes";
         Msg  ----------> dispatch &lt;---------- KeyPressed / Resize
                             ^                       (main loop)
                             |
-                       feeds back`} />
+                       feeds back`}
+        />
       </TuiFrame>
 
       <h3>buffer storage</h3>
-      <p class="arch-p">Text buffers use a piece table. The original file contents stay in one string, inserted text is appended to another string, and the visible document is represented as a list of pieces. Inserts and deletes stay local to the piece list while preserving enough state for undo and redo snapshots.</p>
+      <p class="arch-p">
+        Text buffers use a piece table. The original file contents stay in one string, inserted text
+        is appended to another string, and the visible document is represented as a list of pieces.
+        Inserts and deletes stay local to the piece list while preserving enough state for undo and
+        redo snapshots.
+      </p>
 
       <h3>files and encoding</h3>
-      <p class="arch-p">Files are read as UTF-8. The line ending of the loaded file (<code>LF</code> or <code>CRLF</code>) is detected and reused on save; the buffer always works in <code>\n</code> form internally. Saving writes UTF-8 without a byte-order mark.</p>
+      <p class="arch-p">
+        Files are read as UTF-8. The line ending of the loaded file (<code>LF</code> or <code
+          >CRLF</code
+        >) is detected and reused on save; the buffer always works in <code>\n</code> form internally.
+        Saving writes UTF-8 without a byte-order mark.
+      </p>
 
       <h3>concurrency</h3>
-      <p class="arch-p">The workspace scan, file open, file save, clipboard, and config writes all run on the thread pool via <code>Task.Run</code>. The main loop drains a <code>ConcurrentQueue&lt;Msg&gt;</code> of completed effects each tick, so input never blocks behind I/O. <code>ScanWorkspace</code> and <code>LoadFile</code> each carry a single <code>CancellationTokenSource</code> so a second invocation drops the previous result.</p>
+      <p class="arch-p">
+        The workspace scan, file open, file save, clipboard, and config writes all run on the thread
+        pool via <code>Task.Run</code>. The main loop drains a <code
+          >ConcurrentQueue&lt;Msg&gt;</code
+        > of completed effects each tick, so input never blocks behind I/O. <code
+          >ScanWorkspace</code
+        > and <code>LoadFile</code> each carry a single <code>CancellationTokenSource</code> so a second
+        invocation drops the previous result.
+      </p>
     </div>
   </section>
-
 </Site>
 
 <style>
@@ -318,7 +416,9 @@ import { themes } from "../data/themes";
     margin: 0 0 36px;
     max-width: 36ch;
   }
-  .hero-key { color: var(--accent); }
+  .hero-key {
+    color: var(--accent);
+  }
   .hero-install {
     max-width: 640px;
     margin: 0 0 16px;
@@ -337,14 +437,30 @@ import { themes } from "../data/themes";
     align-items: start;
   }
   @media (max-width: 800px) {
-    .two-col { grid-template-columns: 1fr; }
+    .two-col {
+      grid-template-columns: 1fr;
+    }
   }
 
-  .muted-p { color: var(--fg-muted); max-width: 65ch; margin: 8px 0 0; }
-  .arch-p { color: var(--fg); max-width: 75ch; }
-  .arch-p code { color: var(--fg); }
-  .muted { color: var(--fg-muted); font-weight: 400; }
-  .block { max-width: 720px; }
+  .muted-p {
+    color: var(--fg-muted);
+    max-width: 65ch;
+    margin: 8px 0 0;
+  }
+  .arch-p {
+    color: var(--fg);
+    max-width: 75ch;
+  }
+  .arch-p code {
+    color: var(--fg);
+  }
+  .muted {
+    color: var(--fg-muted);
+    font-weight: 400;
+  }
+  .block {
+    max-width: 720px;
+  }
 
   .theme-grid {
     display: grid;

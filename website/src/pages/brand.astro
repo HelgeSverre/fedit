@@ -5,7 +5,7 @@ import ThemeCard from "../components/ThemeCard.astro";
 import { themes } from "../data/themes";
 
 const neutrals = [
-  { name: "neutral-50",  hex: "#FAFAFA", ansi: 231 },
+  { name: "neutral-50", hex: "#FAFAFA", ansi: 231 },
   { name: "neutral-100", hex: "#F4F4F5", ansi: 255 },
   { name: "neutral-200", hex: "#E7E7EA", ansi: 253 },
   { name: "neutral-300", hex: "#D3D3D8", ansi: 251 },
@@ -27,28 +27,50 @@ const accentScale = [
 ];
 
 const voiceRules = [
-  { rule: "Lead with the verb.",                       ex: "Edits files in the terminal.",                                bad: "A small terminal text editor that lets you edit files." },
-  { rule: "No marketing adjectives. Numbers or nothing.", ex: "Opens a 200MB log file in under 80ms.",                    bad: "Blazing fast, even for huge files." },
-  { rule: "You, never \"users\" or \"developers\".",    ex: "Open a workspace with fedit .",                              bad: "Users can open a workspace by running fedit ." },
-  { rule: "Show, don't say.",                          ex: "Run fedit . and the workspace appears as a file tree.",      bad: "fedit provides an intuitive workspace view." },
-  { rule: "No emoji. One em-dash per paragraph, max.", ex: "Edits files in the terminal. Written in F#.",                bad: "✨ The next-generation editor — for the terminal — built — for you." },
+  {
+    rule: "Lead with the verb.",
+    ex: "Edits files in the terminal.",
+    bad: "A small terminal text editor that lets you edit files.",
+  },
+  {
+    rule: "No marketing adjectives. Numbers or nothing.",
+    ex: "Opens a 200MB log file in under 80ms.",
+    bad: "Blazing fast, even for huge files.",
+  },
+  {
+    rule: 'You, never "users" or "developers".',
+    ex: "Open a workspace with fedit .",
+    bad: "Users can open a workspace by running fedit .",
+  },
+  {
+    rule: "Show, don't say.",
+    ex: "Run fedit . and the workspace appears as a file tree.",
+    bad: "fedit provides an intuitive workspace view.",
+  },
+  {
+    rule: "No emoji. One em-dash per paragraph, max.",
+    ex: "Edits files in the terminal. Written in F#.",
+    bad: "✨ The next-generation editor — for the terminal — built — for you.",
+  },
 ];
 
 const dontList = [
   "Purple or blue gradient backgrounds",
   "Glassmorphism cards (backdrop-blur)",
   "Centered hero with 3 feature cards under it",
-  "\"Trusted by\" logo strip",
+  '"Trusted by" logo strip',
   "Sparkles, meteors, animated background lines",
-  "\"Powered by AI\" badge",
+  '"Powered by AI" badge',
   "Emoji in copy or commit messages",
   "Inter font for anything",
-  "\"Build the future of X\", \"Your all-in-one platform\"",
+  '"Build the future of X", "Your all-in-one platform"',
 ];
 ---
 
-<Site title="fedit — brand" description="The fedit brand: caret mark, Departure Mono + JetBrains Mono, phosphor green accent, seven editor themes, voice rules.">
-
+<Site
+  title="fedit — brand"
+  description="The fedit brand: caret mark, Departure Mono + JetBrains Mono, phosphor green accent, seven editor themes, voice rules."
+>
   <!-- ============================================================ -->
   <!-- HERO                                                         -->
   <!-- ============================================================ -->
@@ -56,7 +78,12 @@ const dontList = [
     <div class="container">
       <p class="eyebrow">brand · v1</p>
       <h1>The Mark, the Color, the Voice.</h1>
-      <p class="brand-lede">A formula-driven identity. <span class="accent-word">One symbol</span>, <span class="accent-word">one workhorse mono</span>, <span class="accent-word">one accent</span>, a consistent lockup. Five inputs, seven artifact files. No subscriptions, no AI buzzwords, no purple gradients.</p>
+      <p class="brand-lede">
+        A formula-driven identity. <span class="accent-word">One symbol</span>, <span
+          class="accent-word">one workhorse mono</span
+        >, <span class="accent-word">one accent</span>, a consistent lockup. Five inputs, seven
+        artifact files. No subscriptions, no AI buzzwords, no purple gradients.
+      </p>
     </div>
   </section>
 
@@ -66,7 +93,11 @@ const dontList = [
   <section class="section section--alt">
     <div class="container">
       <div class="section__head"><h2>the mark</h2></div>
-      <p class="section__lede">The caret. Echoes the editor's cursor, the upward chevron in the status bar, the visual rhythm of the wordmark. Renders cleanly at 16px, collapses to a single ANSI glyph for terminal banners.</p>
+      <p class="section__lede">
+        The caret. Echoes the editor's cursor, the upward chevron in the status bar, the visual
+        rhythm of the wordmark. Renders cleanly at 16px, collapses to a single ANSI glyph for
+        terminal banners.
+      </p>
 
       <div class="mark-row">
         <div class="mark-cell">
@@ -111,41 +142,65 @@ const dontList = [
   <section class="section">
     <div class="container">
       <div class="section__head"><h2>color</h2></div>
-      <p class="section__lede">11-step cool-gray neutral scale + 5-step phosphor-green accent scale. Contrast warning: green fails 4.5:1 against white, so text on accent surfaces uses neutral-900, not neutral-50.</p>
+      <p class="section__lede">
+        11-step cool-gray neutral scale + 5-step phosphor-green accent scale. Contrast warning:
+        green fails 4.5:1 against white, so text on accent surfaces uses neutral-900, not
+        neutral-50.
+      </p>
 
       <h3>neutrals · cool gray, hue 250</h3>
       <div class="swatch-row">
-        {neutrals.map((c) => (
-          <div class="swatch" style={`--c:${c.hex};`}>
-            <span class="chip" style={`background:${c.hex};`}></span>
-            <span class="swatch-name">{c.name}</span>
-            <span class="swatch-meta">{c.hex} · ansi {c.ansi}</span>
-          </div>
-        ))}
+        {
+          neutrals.map((c) => (
+            <div class="swatch" style={`--c:${c.hex};`}>
+              <span class="chip" style={`background:${c.hex};`} />
+              <span class="swatch-name">{c.name}</span>
+              <span class="swatch-meta">
+                {c.hex} · ansi {c.ansi}
+              </span>
+            </div>
+          ))
+        }
       </div>
 
       <h3>accent · phosphor green</h3>
       <div class="swatch-row">
-        {accentScale.map((c) => (
-          <div class={`swatch ${c.source ? "is-source" : ""}`} style={`--c:${c.hex};`}>
-            <span class="chip" style={`background:${c.hex};`}></span>
-            <span class="swatch-name">{c.name}{c.source && <em> · source</em>}</span>
-            <span class="swatch-meta">{c.hex} · ansi {c.ansi}</span>
-          </div>
-        ))}
+        {
+          accentScale.map((c) => (
+            <div class={`swatch ${c.source ? "is-source" : ""}`} style={`--c:${c.hex};`}>
+              <span class="chip" style={`background:${c.hex};`} />
+              <span class="swatch-name">
+                {c.name}
+                {c.source && <em> · source</em>}
+              </span>
+              <span class="swatch-meta">
+                {c.hex} · ansi {c.ansi}
+              </span>
+            </div>
+          ))
+        }
       </div>
 
       <h3>semantic tokens</h3>
       <dl class="dl-grid token-grid">
-        <dt><code>--bg</code></dt>                  <dd>page background</dd>
-        <dt><code>--surface-1</code> / <code>--surface-2</code></dt> <dd>alternating section backgrounds</dd>
-        <dt><code>--fg</code></dt>                  <dd>primary text</dd>
-        <dt><code>--fg-muted</code></dt>            <dd>secondary text, descriptions</dd>
-        <dt><code>--fg-subtle</code></dt>           <dd>hints, captions, line numbers</dd>
-        <dt><code>--border</code></dt>              <dd>pane dividers, swatch chips</dd>
-        <dt><code>--accent</code></dt>              <dd>the one accent moment</dd>
-        <dt><code>--accent-fg</code></dt>           <dd>text on accent surfaces (neutral-900, not white)</dd>
-        <dt><code>--accent-soft</code></dt>         <dd>focus rings, hover hints — 25% accent</dd>
+        <dt><code>--bg</code></dt>
+        <dd>page background</dd>
+        <dt><code>--surface-1</code> / <code>--surface-2</code></dt>
+        <dd>alternating section backgrounds</dd>
+        <dt><code>--fg</code></dt>
+        <dd>primary text</dd>
+        <dt><code>--fg-muted</code></dt>
+        <dd>secondary text, descriptions</dd>
+        <dt><code>--fg-subtle</code></dt>
+        <dd>hints, captions, line numbers</dd>
+        <dt><code>--border</code></dt>
+        <dd>pane dividers, swatch chips</dd>
+        <dt><code>--accent</code></dt>
+        <dd>the one accent moment</dd>
+        <dt><code>--accent-fg</code></dt>
+        <dd>text on accent surfaces (neutral-900, not white)</dd>
+        <dt><code>--accent-soft</code></dt>
+        <dd>focus rings, hover hints — 25% accent</dd>
       </dl>
     </div>
   </section>
@@ -156,7 +211,10 @@ const dontList = [
   <section class="section section--alt">
     <div class="container">
       <div class="section__head"><h2>typography</h2></div>
-      <p class="section__lede">Two fonts, one job each. Departure Mono carries the brand at heading sizes. JetBrains Mono carries body, code, and CLI fallback.</p>
+      <p class="section__lede">
+        Two fonts, one job each. Departure Mono carries the brand at heading sizes. JetBrains Mono
+        carries body, code, and CLI fallback.
+      </p>
 
       <div class="type-card">
         <header>
@@ -181,8 +239,12 @@ const dontList = [
         </header>
         <div class="type-sample jb">
           <p class="jb-lg">Opens a workspace, shows a file tree, edits files, saves to disk.</p>
-          <p class="jb-base">Multi-buffer, undo/redo, find, command palette, system clipboard. Seven color themes. Persists the last 20 opened files and your theme across sessions.</p>
-          <pre class="block jb-code"><span class="dim">$</span> fedit src/Main.fs
+          <p class="jb-base">
+            Multi-buffer, undo/redo, find, command palette, system clipboard. Seven color themes.
+            Persists the last 20 opened files and your theme across sessions.
+          </p>
+          <pre
+            class="block jb-code"><span class="dim">$</span> fedit src/Main.fs
 <span class="muted">opened</span> <span class="accent">src/Main.fs</span> <span class="muted">· 312 lines</span></pre>
         </div>
         <footer>
@@ -199,19 +261,30 @@ const dontList = [
   <section class="section">
     <div class="container">
       <div class="section__head"><h2>voice</h2></div>
-      <p class="section__lede">Five rules. They apply to README, landing page, CLI help, error messages, release notes, and commit messages.</p>
+      <p class="section__lede">
+        Five rules. They apply to README, landing page, CLI help, error messages, release notes, and
+        commit messages.
+      </p>
 
       <ol class="voice-list">
-        {voiceRules.map((v, i) => (
-          <li>
-            <div class="voice-num">0{i + 1}</div>
-            <div class="voice-body">
-              <p class="voice-rule">{v.rule}</p>
-              <p class="voice-good"><span class="tag tag-good">good</span>{v.ex}</p>
-              <p class="voice-bad"><span class="tag tag-bad">avoid</span>{v.bad}</p>
-            </div>
-          </li>
-        ))}
+        {
+          voiceRules.map((v, i) => (
+            <li>
+              <div class="voice-num">0{i + 1}</div>
+              <div class="voice-body">
+                <p class="voice-rule">{v.rule}</p>
+                <p class="voice-good">
+                  <span class="tag tag-good">good</span>
+                  {v.ex}
+                </p>
+                <p class="voice-bad">
+                  <span class="tag tag-bad">avoid</span>
+                  {v.bad}
+                </p>
+              </div>
+            </li>
+          ))
+        }
       </ol>
     </div>
   </section>
@@ -222,12 +295,22 @@ const dontList = [
   <section class="section section--alt">
     <div class="container">
       <div class="section__head"><h2>don't</h2></div>
-      <p class="section__lede">Refusing the AI median is the brand's identity. The 2026 baseline of vibe-coded UI is what this list rejects on sight.</p>
+      <p class="section__lede">
+        Refusing the AI median is the brand's identity. The 2026 baseline of vibe-coded UI is what
+        this list rejects on sight.
+      </p>
 
       <ul class="dont-list">
-        {dontList.map((d) => (
-          <li><span class="x" aria-hidden="true">✕</span>{d}</li>
-        ))}
+        {
+          dontList.map((d) => (
+            <li>
+              <span class="x" aria-hidden="true">
+                ✕
+              </span>
+              {d}
+            </li>
+          ))
+        }
       </ul>
     </div>
   </section>
@@ -238,13 +321,17 @@ const dontList = [
   <section class="section">
     <div class="container">
       <div class="section__head"><h2>themes</h2></div>
-      <p class="section__lede">Seven user-selectable accent palettes. Each shares the same neutral chrome; only five slots swap (dock title, status bar, selection highlight, current-line gutter, cursor). Spec in <code>brand/themes/*.json</code>, implementation in <code>src/Fedit/Themes.fs</code>.</p>
+      <p class="section__lede">
+        Seven user-selectable accent palettes. Each shares the same neutral chrome; only five slots
+        swap (dock title, status bar, selection highlight, current-line gutter, cursor). Spec in <code
+          >brand/themes/*.json</code
+        >, implementation in <code>src/Fedit/Themes.fs</code>.
+      </p>
       <div class="theme-grid">
         {themes.map((theme) => <ThemeCard theme={theme} />)}
       </div>
     </div>
   </section>
-
 </Site>
 
 <style>
@@ -271,7 +358,9 @@ const dontList = [
     max-width: 48ch;
     margin: 0;
   }
-  .accent-word { color: var(--accent); }
+  .accent-word {
+    color: var(--accent);
+  }
 
   /* THE MARK */
   .mark-row {
@@ -295,14 +384,18 @@ const dontList = [
     min-width: 80px;
     transition: border-color var(--t-base) var(--ease);
   }
-  .mark-cell:hover { border-color: var(--accent-soft); }
+  .mark-cell:hover {
+    border-color: var(--accent-soft);
+  }
   .mark-cell span {
     font-size: 10px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--fg-subtle);
   }
-  .mark-cell.mono { margin-left: auto; }
+  .mark-cell.mono {
+    margin-left: auto;
+  }
   .downloads {
     margin: 16px 0 32px;
     display: flex;
@@ -346,8 +439,12 @@ const dontList = [
     border-radius: 2px;
     transition: border-color var(--t-base) var(--ease);
   }
-  .swatch.is-source { border-color: var(--accent); }
-  .swatch:hover { border-color: var(--accent-soft); }
+  .swatch.is-source {
+    border-color: var(--accent);
+  }
+  .swatch:hover {
+    border-color: var(--accent-soft);
+  }
   .chip {
     display: block;
     height: 40px;
@@ -360,13 +457,20 @@ const dontList = [
     font-size: 12px;
     color: var(--fg);
   }
-  .swatch-name em { color: var(--accent); font-style: normal; }
+  .swatch-name em {
+    color: var(--accent);
+    font-style: normal;
+  }
   .swatch-meta {
     font-size: 11px;
     color: var(--fg-subtle);
   }
-  .token-grid dt { font-family: "JetBrains Mono", monospace; }
-  .token-grid dt code { font-size: 12px; }
+  .token-grid dt {
+    font-family: "JetBrains Mono", monospace;
+  }
+  .token-grid dt code {
+    font-size: 12px;
+  }
 
   /* TYPOGRAPHY */
   .type-card {
@@ -377,7 +481,9 @@ const dontList = [
     margin-bottom: 16px;
     transition: border-color var(--t-base) var(--ease);
   }
-  .type-card:hover { border-color: var(--accent-soft); }
+  .type-card:hover {
+    border-color: var(--accent-soft);
+  }
   .type-card header {
     display: flex;
     align-items: baseline;
@@ -399,21 +505,48 @@ const dontList = [
     text-transform: uppercase;
     color: var(--fg-subtle);
   }
-  .type-sample p { margin: 0; }
+  .type-sample p {
+    margin: 0;
+  }
   .type-sample.dep p {
     font-family: "Departure Mono", monospace;
     color: var(--fg);
   }
-  .dep-4xl { font-size: clamp(48px, 8vw, 64px); letter-spacing: -0.03em; line-height: 1; }
-  .dep-2xl { font-size: 24px; letter-spacing: -0.02em; line-height: 1.2; margin-top: 16px !important; }
-  .dep-lg  { font-size: 18px; color: var(--fg-muted) !important; margin-top: 8px !important; }
+  .dep-4xl {
+    font-size: clamp(48px, 8vw, 64px);
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+  .dep-2xl {
+    font-size: 24px;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    margin-top: 16px !important;
+  }
+  .dep-lg {
+    font-size: 18px;
+    color: var(--fg-muted) !important;
+    margin-top: 8px !important;
+  }
 
   .type-sample.jb p {
     font-family: "JetBrains Mono", monospace;
   }
-  .jb-lg   { font-size: 18px; color: var(--fg); line-height: 1.5; }
-  .jb-base { font-size: 14px; color: var(--fg-muted); line-height: 1.6; margin-top: 12px !important; max-width: 65ch; }
-  .jb-code { margin-top: 16px; }
+  .jb-lg {
+    font-size: 18px;
+    color: var(--fg);
+    line-height: 1.5;
+  }
+  .jb-base {
+    font-size: 14px;
+    color: var(--fg-muted);
+    line-height: 1.6;
+    margin-top: 12px !important;
+    max-width: 65ch;
+  }
+  .jb-code {
+    margin-top: 16px;
+  }
 
   .type-card footer {
     display: flex;
@@ -451,7 +584,9 @@ const dontList = [
     border-radius: 2px;
     transition: border-color var(--t-base) var(--ease);
   }
-  .voice-list li:hover { border-color: var(--accent-soft); }
+  .voice-list li:hover {
+    border-color: var(--accent-soft);
+  }
   .voice-num {
     font-family: "Departure Mono", monospace;
     font-size: 28px;
@@ -464,13 +599,16 @@ const dontList = [
     color: var(--fg);
     margin: 0 0 12px;
   }
-  .voice-good, .voice-bad {
+  .voice-good,
+  .voice-bad {
     font-size: 13px;
     margin: 6px 0;
     color: var(--fg);
     line-height: 1.5;
   }
-  .voice-bad { color: var(--fg-muted); }
+  .voice-bad {
+    color: var(--fg-muted);
+  }
   .tag {
     display: inline-block;
     font-size: 10px;
@@ -480,8 +618,15 @@ const dontList = [
     border-radius: 2px;
     margin-right: 10px;
   }
-  .tag-good { background: color-mix(in oklch, var(--accent) 18%, transparent); color: var(--accent); }
-  .tag-bad  { background: var(--surface-2); color: var(--fg-subtle); border: 1px solid var(--border); }
+  .tag-good {
+    background: color-mix(in oklch, var(--accent) 18%, transparent);
+    color: var(--accent);
+  }
+  .tag-bad {
+    background: var(--surface-2);
+    color: var(--fg-subtle);
+    border: 1px solid var(--border);
+  }
 
   /* DON'T */
   .dont-list {
@@ -516,5 +661,7 @@ const dontList = [
     gap: 16px;
   }
 
-  pre.block { max-width: 100%; }
+  pre.block {
+    max-width: 100%;
+  }
 </style>

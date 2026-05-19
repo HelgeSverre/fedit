@@ -15,24 +15,24 @@ const {
 
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>{title}</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content={description} />
-  <meta name="theme-color" content="#00B86B" />
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <meta property="og:title" content={title} />
-  <meta property="og:description" content={description} />
-  <meta property="og:type" content="website" />
-  <meta name="twitter:card" content="summary" />
-  <meta name="twitter:creator" content="@HelgeSverre" />
-</head>
-<body>
-  <Header />
-  <main id="top">
-    <slot />
-  </main>
-  <Footer />
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <title>{title}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#00B86B" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:creator" content="@HelgeSverre" />
+  </head>
+  <body>
+    <Header />
+    <main id="top">
+      <slot />
+    </main>
+    <Footer />
+  </body>
 </html>
