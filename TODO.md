@@ -19,7 +19,7 @@ Active work and future ideas. Shipped phases (0–6) live in
 | **Phase 16 — Buffer internals refactor**          | Pending | Simplify `ensureViewport`; replace `Lines` cache with `Offsets : int[]`; delta-based undo.             |
 | **Phase 17 — .NET 10 LTS upgrade**                | Pending | Bump SDK to `10.0.x`, TFM to `net10.0`, refresh test packages and `FsCheck.Xunit` out of RC.           |
 | **Phase 18 — Central Package Management**         | Shipped | `Directory.Packages.props` at repo root; `Fedit.Tests.fsproj` no longer carries versions.              |
-| **Phase 19 — Release automation**                 | Pending | Tag-triggered `release.yml`: matrix `dotnet publish` per RID, SHA256 checksums, GitHub Release attach. |
+| **Phase 19 — Release automation**                 | Shipped | `release.yml` ships matrix publish (5 RIDs), tar.xz/zip + SHA256 sidecars, GitHub Release, homebrew tap update. |
 | **Phase 20 — CI hardening**                       | Shipped | Dependabot config; NuGet cache step; concurrency cancel; ContinuousIntegrationBuild env + det. props. CodeQL → repo Settings (default scan). |
 | **Phase 21 — Repo hygiene**                       | Shipped | Badges already present; added `SECURITY.md`, bug-report issue template, PR template. FUNDING/CODEOWNERS deferred. |
 
