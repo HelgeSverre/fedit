@@ -1,0 +1,11 @@
+{
+  "name": "orange",
+  "description": "Burnt orange — warm, retro",
+  "accent": 166,
+  "statusFg": 15,
+  "statusBg": 94,
+  "selectedBg": 130,
+  "currentLine": 173,
+  "hex": "#D2691E",
+  "note": "ANSI 166 maps to #D75F00 in 256-color terminals; truecolor terminals upgrade to #D2691E."
+}

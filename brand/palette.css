@@ -1,0 +1,73 @@
+/* fedit — brand palette
+ * Source: brand/palette.json. Do not edit by hand.
+ * Accent: Phosphor Green #00B86B
+ */
+
+:root {
+  /* neutrals (cool gray bias) */
+  --neutral-50:  #FAFAFA;
+  --neutral-100: #F4F4F5;
+  --neutral-200: #E7E7EA;
+  --neutral-300: #D3D3D8;
+  --neutral-400: #A6A6AD;
+  --neutral-500: #787880;
+  --neutral-600: #58585F;
+  --neutral-700: #3F3F46;
+  --neutral-800: #27272A;
+  --neutral-900: #18181B;
+  --neutral-950: #0B0B0D;
+
+  /* accent scale (phosphor green) */
+  --accent-100: #D1FAE5;
+  --accent-300: #6EE7B7;
+  --accent-500: #00B86B;
+  --accent-700: #047857;
+  --accent-900: #064E3B;
+
+  /* semantic — light mode default */
+  --bg:             var(--neutral-50);
+  --bg-elevated:    var(--neutral-100);
+  --fg:             var(--neutral-900);
+  --fg-muted:       var(--neutral-600);
+  --fg-subtle:      var(--neutral-500);
+  --border:         var(--neutral-200);
+  --border-strong:  var(--neutral-300);
+  --accent:         var(--accent-500);
+  --accent-fg:      var(--neutral-900);  /* dark text on green — green fails 4.5:1 vs white */
+  --accent-bg:      var(--accent-100);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:             var(--neutral-950);
+    --bg-elevated:    var(--neutral-900);
+    --fg:             var(--neutral-50);
+    --fg-muted:       var(--neutral-400);
+    --fg-subtle:      var(--neutral-500);
+    --border:         var(--neutral-800);
+    --border-strong:  var(--neutral-700);
+    --accent-bg:      var(--accent-900);
+  }
+}
+
+[data-theme="dark"] {
+  --bg:             var(--neutral-950);
+  --bg-elevated:    var(--neutral-900);
+  --fg:             var(--neutral-50);
+  --fg-muted:       var(--neutral-400);
+  --fg-subtle:      var(--neutral-500);
+  --border:         var(--neutral-800);
+  --border-strong:  var(--neutral-700);
+  --accent-bg:      var(--accent-900);
+}
+
+[data-theme="light"] {
+  --bg:             var(--neutral-50);
+  --bg-elevated:    var(--neutral-100);
+  --fg:             var(--neutral-900);
+  --fg-muted:       var(--neutral-600);
+  --fg-subtle:      var(--neutral-500);
+  --border:         var(--neutral-200);
+  --border-strong:  var(--neutral-300);
+  --accent-bg:      var(--accent-100);
+}

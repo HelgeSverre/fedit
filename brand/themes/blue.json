@@ -1,0 +1,11 @@
+{
+  "name": "blue",
+  "description": "Electric blue — high contrast",
+  "accent": 33,
+  "statusFg": 15,
+  "statusBg": 17,
+  "selectedBg": 25,
+  "currentLine": 33,
+  "hex": "#1F6FEB",
+  "note": "ANSI 33 maps to #0087FF in 256-color terminals; truecolor terminals upgrade to #1F6FEB."
+}

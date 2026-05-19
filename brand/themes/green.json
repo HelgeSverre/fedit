@@ -1,0 +1,12 @@
+{
+  "name": "green",
+  "description": "Phosphor green — brand default",
+  "isDefault": true,
+  "accent": 35,
+  "statusFg": 15,
+  "statusBg": 22,
+  "selectedBg": 28,
+  "currentLine": 35,
+  "hex": "#00B86B",
+  "note": "ANSI 35 maps to #00AF5F in 256-color terminals; truecolor terminals upgrade to the brand hex #00B86B."
+}

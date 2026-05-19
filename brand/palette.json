@@ -1,0 +1,70 @@
+{
+  "$schema": "https://brand.helge.dev/palette.schema.json",
+  "project": "fedit",
+  "generated": "2026-05-19",
+  "accent": {
+    "name": "Phosphor Green",
+    "hex": "#00B86B"
+  },
+  "neutralBias": "cool",
+
+  "neutrals": {
+    "50":  { "hex": "#FAFAFA", "rgb": [250, 250, 250], "ansi256": 231, "oklch": "oklch(0.985 0.001 250)" },
+    "100": { "hex": "#F4F4F5", "rgb": [244, 244, 245], "ansi256": 255, "oklch": "oklch(0.965 0.002 250)" },
+    "200": { "hex": "#E7E7EA", "rgb": [231, 231, 234], "ansi256": 253, "oklch": "oklch(0.925 0.003 250)" },
+    "300": { "hex": "#D3D3D8", "rgb": [211, 211, 216], "ansi256": 251, "oklch": "oklch(0.870 0.004 250)" },
+    "400": { "hex": "#A6A6AD", "rgb": [166, 166, 173], "ansi256": 247, "oklch": "oklch(0.755 0.006 250)" },
+    "500": { "hex": "#787880", "rgb": [120, 120, 128], "ansi256": 243, "oklch": "oklch(0.620 0.008 250)" },
+    "600": { "hex": "#58585F", "rgb": [ 88,  88,  95], "ansi256": 240, "oklch": "oklch(0.490 0.010 250)" },
+    "700": { "hex": "#3F3F46", "rgb": [ 63,  63,  70], "ansi256": 238, "oklch": "oklch(0.395 0.012 250)" },
+    "800": { "hex": "#27272A", "rgb": [ 39,  39,  42], "ansi256": 235, "oklch": "oklch(0.280 0.014 250)" },
+    "900": { "hex": "#18181B", "rgb": [ 24,  24,  27], "ansi256": 233, "oklch": "oklch(0.180 0.014 250)" },
+    "950": { "hex": "#0B0B0D", "rgb": [ 11,  11,  13], "ansi256": 232, "oklch": "oklch(0.115 0.012 250)" }
+  },
+
+  "accentScale": {
+    "100": { "hex": "#D1FAE5", "rgb": [209, 250, 229], "ansi256": 195, "oklch": "oklch(0.940 0.060 154)" },
+    "300": { "hex": "#6EE7B7", "rgb": [110, 231, 183], "ansi256": 121, "oklch": "oklch(0.850 0.140 154)" },
+    "500": { "hex": "#00B86B", "rgb": [  0, 184, 107], "ansi256":  35, "oklch": "oklch(0.685 0.165 151)" },
+    "700": { "hex": "#047857", "rgb": [  4, 120,  87], "ansi256":  29, "oklch": "oklch(0.490 0.110 158)" },
+    "900": { "hex": "#064E3B", "rgb": [  6,  78,  59], "ansi256":  22, "oklch": "oklch(0.345 0.075 161)" }
+  },
+
+  "semantic": {
+    "light": {
+      "bg":            "neutrals.50",
+      "bgElevated":    "neutrals.100",
+      "fg":            "neutrals.900",
+      "fgMuted":       "neutrals.600",
+      "fgSubtle":      "neutrals.500",
+      "border":        "neutrals.200",
+      "borderStrong":  "neutrals.300",
+      "accent":        "accentScale.500",
+      "accentFg":      "neutrals.900",
+      "accentBg":      "accentScale.100"
+    },
+    "dark": {
+      "bg":            "neutrals.950",
+      "bgElevated":    "neutrals.900",
+      "fg":            "neutrals.50",
+      "fgMuted":       "neutrals.400",
+      "fgSubtle":      "neutrals.500",
+      "border":        "neutrals.800",
+      "borderStrong":  "neutrals.700",
+      "accent":        "accentScale.500",
+      "accentFg":      "neutrals.900",
+      "accentBg":      "accentScale.900"
+    }
+  },
+
+  "contrast": {
+    "note": "accent #00B86B fails 4.5:1 against white but passes 7.2:1 against neutral-900. accentFg is therefore neutral-900, not neutral-50.",
+    "fgOnBg_light":          "21:1 (AAA)",
+    "fgOnBg_dark":           "20:1 (AAA)",
+    "fgMutedOnBg_light":     "7.5:1 (AAA)",
+    "fgMutedOnBg_dark":      "6.8:1 (AA)",
+    "accentFgOnAccent":      "7.2:1 (AAA)",
+    "fgOnAccentBg_light":    "17:1 (AAA)",
+    "fgOnAccentBg_dark":     "14:1 (AAA)"
+  }
+}
