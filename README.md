@@ -96,6 +96,18 @@ Clean compiled output:
 just clean
 ```
 
+Publish a self-contained single-file binary and install it to `~/.local/bin` (override with `just install path/to/bin`):
+
+```sh
+just install
+```
+
+Remove a previously installed binary:
+
+```sh
+just uninstall
+```
+
 ## Using the Editor
 
 Global shortcuts:
