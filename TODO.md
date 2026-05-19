@@ -21,7 +21,7 @@ Active work and future ideas. Shipped phases (0–6) live in
 | **Phase 18 — Central Package Management**         | Shipped | `Directory.Packages.props` at repo root; `Fedit.Tests.fsproj` no longer carries versions.              |
 | **Phase 19 — Release automation**                 | Pending | Tag-triggered `release.yml`: matrix `dotnet publish` per RID, SHA256 checksums, GitHub Release attach. |
 | **Phase 20 — CI hardening**                       | Pending | Dependabot (actions + nuget), NuGet cache, concurrency cancel, deterministic builds, CodeQL.           |
-| **Phase 21 — Repo hygiene**                       | Pending | CI/license badges in README, `SECURITY.md`, slim issue/PR templates, `FUNDING.yml` if relevant.        |
+| **Phase 21 — Repo hygiene**                       | Shipped | Badges already present; added `SECURITY.md`, bug-report issue template, PR template. FUNDING/CODEOWNERS deferred. |
 
 Recently landed (this session):
 
