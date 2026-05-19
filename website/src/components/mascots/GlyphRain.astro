@@ -1,0 +1,91 @@
+---
+/**
+ * Ambient mascot: sparse Matrix-style glyph drops trickling down ~10 columns
+ * at varied speeds. Each glyph fades from full accent to transparent as it
+ * falls. The `fedit` wordmark sits centered, untouched.
+ *
+ * Pure CSS keyframes. No JS. 360x140 viewBox.
+ */
+
+const columns = [
+  { x: 12, ch: "λ", dur: 5.2, delay: 0 },
+  { x: 44, ch: "&", dur: 7.1, delay: 1.4 },
+  { x: 76, ch: "{", dur: 4.3, delay: 3.0 },
+  { x: 108, ch: "0", dur: 6.6, delay: 0.8 },
+  { x: 140, ch: "/", dur: 5.8, delay: 2.1 },
+  { x: 188, ch: "$", dur: 7.5, delay: 4.0 },
+  { x: 220, ch: "|", dur: 5.0, delay: 1.7 },
+  { x: 252, ch: "=", dur: 6.2, delay: 2.6 },
+  { x: 284, ch: ";", dur: 4.7, delay: 0.4 },
+  { x: 316, ch: "*", dur: 7.9, delay: 3.5 },
+];
+---
+
+<div class="mascot mascot--glyph">
+  <svg viewBox="0 0 360 140" role="img" aria-label="fedit glyph rain">
+    <defs>
+      <clipPath id="glyph-clip">
+        <rect x="0" y="0" width="360" height="140"></rect>
+      </clipPath>
+    </defs>
+    <g clip-path="url(#glyph-clip)">
+      <g font-family="Departure Mono, JetBrains Mono, monospace" font-size="14">
+        {
+          columns.map((c) => (
+            <text
+              x={c.x}
+              y="-10"
+              fill="var(--accent)"
+              class="drop"
+              style={`animation-duration: ${c.dur}s; animation-delay: ${c.delay}s;`}
+            >
+              {c.ch}
+            </text>
+          ))
+        }
+      </g>
+      <text
+        x="180"
+        y="84"
+        text-anchor="middle"
+        font-family="Departure Mono, JetBrains Mono, monospace"
+        font-size="42"
+        fill="currentColor"
+        class="wordmark">fedit</text
+      >
+    </g>
+  </svg>
+</div>
+
+<style>
+  .mascot--glyph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg);
+  }
+  svg {
+    width: 100%;
+    max-width: 360px;
+    height: auto;
+    display: block;
+  }
+  .wordmark { opacity: 0.92; }
+
+  .drop {
+    opacity: 0;
+    animation-name: drop-fall;
+    animation-iteration-count: infinite;
+    animation-timing-function: linear;
+  }
+  @keyframes drop-fall {
+    0% { transform: translateY(0); opacity: 0; }
+    10% { opacity: 0.95; }
+    90% { opacity: 0; }
+    100% { transform: translateY(170px); opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drop { animation: none; opacity: 0; }
+  }
+</style>

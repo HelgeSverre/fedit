@@ -1,0 +1,79 @@
+---
+/**
+ * Ambient mascot: the `fedit` wordmark "breathes" — opacity 1.0 → 0.55 → 1.0
+ * over 6s, evoking phosphor decay on an old CRT. A faint scanline crosses
+ * the wordmark every 6s, brightening a 4px band as it passes. Block cursor
+ * blinks at the end.
+ *
+ * Pure CSS keyframes. No JS. 360x140 viewBox.
+ */
+---
+
+<div class="mascot mascot--breath">
+  <svg viewBox="0 0 360 140" role="img" aria-label="fedit phosphor breathing">
+    <defs>
+      <clipPath id="breath-clip">
+        <rect x="0" y="0" width="360" height="140"></rect>
+      </clipPath>
+    </defs>
+    <g clip-path="url(#breath-clip)">
+      <text
+        x="10"
+        y="100"
+        font-family="Departure Mono, JetBrains Mono, monospace"
+        font-size="80"
+        fill="currentColor"
+        class="wordmark">fedit</text
+      >
+      <rect class="cursor" x="260" y="36" width="12" height="68" fill="var(--accent)"></rect>
+      <!-- Scanline: thin bright bar that sweeps top to bottom. -->
+      <rect class="scan" x="0" y="-10" width="360" height="4" fill="var(--accent)"></rect>
+    </g>
+  </svg>
+</div>
+
+<style>
+  .mascot--breath {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg);
+  }
+  svg {
+    width: 100%;
+    max-width: 360px;
+    height: auto;
+    display: block;
+  }
+  .wordmark {
+    animation: breathe 6s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+
+  .cursor {
+    animation: cursor-blink 1.1s steps(2, start) infinite;
+  }
+  @keyframes cursor-blink {
+    50% { opacity: 0; }
+  }
+
+  .scan {
+    opacity: 0.18;
+    animation: scan-down 6s linear infinite;
+  }
+  @keyframes scan-down {
+    0% { transform: translateY(0); opacity: 0; }
+    10% { opacity: 0.35; }
+    90% { opacity: 0.35; }
+    100% { transform: translateY(160px); opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wordmark { animation: none; opacity: 1; }
+    .cursor { animation: cursor-blink 1.6s steps(2, start) infinite; }
+    .scan { display: none; }
+  }
+</style>
