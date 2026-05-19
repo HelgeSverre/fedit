@@ -16,10 +16,10 @@ module Editor =
           HistoryIndex = None
           PreviewTheme = None }
 
-    let private initialPanels =
+    let private initialPanels (config: Config) =
         { SidebarVisible = true
-          SidebarWidth = 30
-          DockHeight = 5 }
+          SidebarWidth = config.SidebarWidth
+          DockHeight = config.DockHeight }
 
     let private initialEditors =
         let scratch = Buffer.createEmpty 1
@@ -103,9 +103,10 @@ module Editor =
             Commands.completions
                 { RootPath = model.Workspace.RootPath
                   Files = workspaceFiles model.Workspace
-                  Recent = model.Recent
+                  Recent = model.Config.Recent
                   Buffers = buffersForCompletion
-                  Themes = Themes.merge model.UserThemes }
+                  Themes = Themes.merge model.UserThemes
+                  CompletionLimit = model.Config.CompletionLimit }
                 model.CommandBar.Text
 
         let selectedIndex =
@@ -292,9 +293,11 @@ module Editor =
         | Theme name ->
             match Themes.tryFindIn model.UserThemes name with
             | Some theme ->
-                { model with Theme = theme }
+                let nextConfig = { model.Config with Theme = theme }
+
+                { model with Config = nextConfig }
                 |> notify (Some(Notification.info $"Theme: {theme.Name}")),
-                [ SaveConfig(theme.Name, model.Recent) ]
+                [ SaveConfig nextConfig ]
             | None -> model |> notify (Some(Notification.error $"Unknown theme '{name}'.")), []
         | Recent path ->
             let absolute = resolvePath model.Workspace.RootPath path
@@ -336,6 +339,21 @@ module Editor =
                 |> notify (Some(Notification.info $"Buffer {id}")),
                 []
             | None -> model |> notify (Some(Notification.error $"Unknown buffer '{ident}'.")), []
+        | Goto(line, column) ->
+            let targetLine = max 0 (line - 1)
+            let targetCol = max 0 ((Option.defaultValue 1 column) - 1)
+
+            let target =
+                { Line = targetLine
+                  Column = targetCol }
+
+            let moved =
+                model
+                |> updateActiveBuffer (fun buffer ->
+                    let idx = Buffer.positionToIndex target buffer
+                    Buffer.moveToOffset idx buffer)
+
+            { moved with Focus = Editor }, []
 
     let private openSearch model =
         { model with
@@ -491,11 +509,12 @@ module Editor =
         | Tab -> updateActiveBuffer (Buffer.clearSelection >> Buffer.indent) model, []
         | ShiftTab -> updateActiveBuffer (Buffer.clearSelection >> Buffer.unindent) model, []
         | AltLeft -> updateActiveBuffer (Buffer.clearSelection >> Buffer.moveLeftWord) model, []
-        | AltRight -> updateActiveBuffer (Buffer.clearSelection >> Buffer.moveRightWord) model, []
+        | AltRight ->
+            updateActiveBuffer (Buffer.clearSelection >> Buffer.moveRightWord model.Config.WordMotion) model, []
         | CtrlBackspace when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
         | CtrlBackspace -> updateActiveBuffer Buffer.backspaceWord model, []
         | CtrlDelete when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
-        | CtrlDelete -> updateActiveBuffer Buffer.deleteForwardWord model, []
+        | CtrlDelete -> updateActiveBuffer (Buffer.deleteForwardWord model.Config.WordMotion) model, []
         | _ -> model, []
 
     let private runCommandBar key model =
@@ -602,17 +621,16 @@ module Editor =
             | Empty -> closeCommandBar model, []
         | _ -> model, []
 
-    let init rootPath size theme userThemes recent =
+    let init rootPath size config userThemes =
         { Workspace = Workspace.create rootPath
           Editors = initialEditors
           CommandBar = emptyCommandBar
-          Panels = initialPanels
+          Panels = initialPanels config
           Focus = Editor
           Terminal = size
           Notification = Some(Notification.info "Ctrl+P commands  Ctrl+B tree  Ctrl+S save  Ctrl+Q quit")
-          Theme = theme
+          Config = config
           UserThemes = userThemes
-          Recent = recent
           Search = None
           ShowHelp = false
           QuitArmed = false
@@ -647,7 +665,10 @@ module Editor =
                 let buffer =
                     Buffer.fromText model.Editors.NextBufferId (Some path) displayName normalized newline
 
-                let recent = path :: (model.Recent |> List.filter ((<>) path)) |> List.truncate 20
+                let recent =
+                    path :: (model.Config.Recent |> List.filter ((<>) path)) |> List.truncate 20
+
+                let nextConfig = { model.Config with Recent = recent }
 
                 { model with
                     Editors =
@@ -657,9 +678,9 @@ module Editor =
                             NextBufferId = buffer.Id + 1 }
                     Workspace = Workspace.selectPath path model.Workspace
                     Focus = Editor
-                    Recent = recent
+                    Config = nextConfig
                     Notification = Some(Notification.info $"Opened {buffer.Name}") },
-                [ SaveConfig(model.Theme.Name, recent) ]
+                [ SaveConfig nextConfig ]
             | Result.Error message -> notify (Some(Notification.error $"Failed to open {path}: {message}")) model, []
         | BufferSaved(bufferId, path, result) ->
             match result with

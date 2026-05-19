@@ -28,6 +28,26 @@ type PanelsState =
       SidebarWidth: int
       DockHeight: int }
 
+type Config =
+    { Theme: Theme
+      Recent: string list
+      CompletionLimit: int
+      SidebarIndent: int
+      SidebarWidth: int
+      DockHeight: int
+      WordMotion: WordMotionLanding }
+
+[<RequireQualifiedAccess>]
+module Config =
+    let defaults theme =
+        { Theme = theme
+          Recent = []
+          CompletionLimit = 8
+          SidebarIndent = 2
+          SidebarWidth = 30
+          DockHeight = 5
+          WordMotion = WordEnd }
+
 type Model =
     { Workspace: WorkspaceState
       Editors: EditorsState
@@ -36,9 +56,8 @@ type Model =
       Focus: FocusTarget
       Terminal: Size
       Notification: Notification option
-      Theme: Theme
+      Config: Config
       UserThemes: Theme list
-      Recent: string list
       Search: SearchState option
       ShowHelp: bool
       QuitArmed: bool
@@ -59,6 +78,6 @@ type Effect =
     | ScanWorkspace of string
     | LoadFile of string
     | SaveBuffer of bufferId: int * path: string * contents: string
-    | SaveConfig of themeName: string * recent: string list
+    | SaveConfig of Config
     | ClipboardCopy of string
     | ClipboardPaste

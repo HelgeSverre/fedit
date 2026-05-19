@@ -35,17 +35,26 @@ module Runtime =
         | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.Number -> Some(elem.GetInt32())
         | _ -> None
 
-    let private loadConfig () =
+    let private clampInt low high value = max low (min high value)
+
+    let private loadConfig (userThemes: Theme list) =
+        let defaults = Config.defaults Themes.defaultTheme
+
         try
             let path = configPath ()
 
             if File.Exists path then
                 let json = File.ReadAllText path
                 use doc = System.Text.Json.JsonDocument.Parse json
-                let theme = getStringProp doc.RootElement "theme" |> Option.bind Themes.tryFind
+                let root = doc.RootElement
+
+                let theme =
+                    getStringProp root "theme"
+                    |> Option.bind (fun name -> Themes.tryFindIn userThemes name)
+                    |> Option.defaultValue defaults.Theme
 
                 let recent =
-                    match doc.RootElement.TryGetProperty "recent" with
+                    match root.TryGetProperty "recent" with
                     | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.Array ->
                         elem.EnumerateArray()
                         |> Seq.choose (fun item ->
@@ -54,16 +63,45 @@ module Runtime =
                             else
                                 None)
                         |> Seq.toList
-                    | _ -> []
+                    | _ -> defaults.Recent
 
-                Some(theme, recent)
+                let completionLimit =
+                    getIntProp root "completionLimit"
+                    |> Option.defaultValue defaults.CompletionLimit
+                    |> clampInt 1 64
+
+                let sidebarIndent =
+                    getIntProp root "sidebarIndent"
+                    |> Option.defaultValue defaults.SidebarIndent
+                    |> clampInt 0 16
+
+                let sidebarWidth =
+                    getIntProp root "sidebarWidth"
+                    |> Option.defaultValue defaults.SidebarWidth
+                    |> clampInt 10 200
+
+                let dockHeight =
+                    getIntProp root "dockHeight"
+                    |> Option.defaultValue defaults.DockHeight
+                    |> clampInt 1 40
+
+                let wordMotion =
+                    match getStringProp root "wordMotion" with
+                    | Some "nextWordStart" -> NextWordStart
+                    | Some "wordEnd" -> WordEnd
+                    | _ -> defaults.WordMotion
+
+                { Theme = theme
+                  Recent = recent
+                  CompletionLimit = completionLimit
+                  SidebarIndent = sidebarIndent
+                  SidebarWidth = sidebarWidth
+                  DockHeight = dockHeight
+                  WordMotion = wordMotion }
             else
-                None
+                defaults
         with _ ->
-            None
-
-    let private jsonEscape (s: string) =
-        s.Replace("\\", "\\\\").Replace("\"", "\\\"")
+            defaults
 
     let private isMac =
         System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX)
@@ -165,15 +203,45 @@ module Runtime =
         with _ ->
             []
 
-    let private saveConfig (themeName: string) (recent: string list) =
+    let private saveConfig (config: Config) =
         let directory = configDirectory ()
         Directory.CreateDirectory directory |> ignore
+        let path = configPath ()
 
-        let recentJson =
-            recent |> List.map (fun path -> $"\"{jsonEscape path}\"") |> String.concat ", "
+        let root =
+            if File.Exists path then
+                try
+                    let existing = File.ReadAllText path
 
-        let json = $"{{\n  \"theme\": \"{themeName}\",\n  \"recent\": [{recentJson}]\n}}\n"
-        File.WriteAllText(configPath (), json, utf8WithoutBom)
+                    match System.Text.Json.Nodes.JsonNode.Parse existing with
+                    | :? System.Text.Json.Nodes.JsonObject as obj -> obj
+                    | _ -> System.Text.Json.Nodes.JsonObject()
+                with _ ->
+                    System.Text.Json.Nodes.JsonObject()
+            else
+                System.Text.Json.Nodes.JsonObject()
+
+        let recentArray = System.Text.Json.Nodes.JsonArray()
+
+        for item in config.Recent do
+            recentArray.Add(System.Text.Json.Nodes.JsonValue.Create item)
+
+        let wordMotionStr =
+            match config.WordMotion with
+            | WordEnd -> "wordEnd"
+            | NextWordStart -> "nextWordStart"
+
+        root["theme"] <- System.Text.Json.Nodes.JsonValue.Create config.Theme.Name
+        root["recent"] <- recentArray
+        root["completionLimit"] <- System.Text.Json.Nodes.JsonValue.Create config.CompletionLimit
+        root["sidebarIndent"] <- System.Text.Json.Nodes.JsonValue.Create config.SidebarIndent
+        root["sidebarWidth"] <- System.Text.Json.Nodes.JsonValue.Create config.SidebarWidth
+        root["dockHeight"] <- System.Text.Json.Nodes.JsonValue.Create config.DockHeight
+        root["wordMotion"] <- System.Text.Json.Nodes.JsonValue.Create wordMotionStr
+
+        let options = System.Text.Json.JsonSerializerOptions(WriteIndented = true)
+        let json = root.ToJsonString options
+        File.WriteAllText(path, json + "\n", utf8WithoutBom)
 
     let private makeNode (path: string) isDirectory children : FileNode =
         let rawName = Path.GetFileName path |> optStr |> Option.defaultValue path
@@ -314,11 +382,11 @@ module Runtime =
 
                     queue.Enqueue msg)
                 |> ignore
-            | SaveConfig(themeName, recent) ->
+            | SaveConfig config ->
                 Task.Run(fun () ->
                     let msg =
                         try
-                            saveConfig themeName recent
+                            saveConfig config
                             ConfigSaved(Result.Ok())
                         with ex ->
                             ConfigSaved(Result.Error ex.Message)
@@ -355,31 +423,10 @@ module Runtime =
             nextModel
 
         let userThemes = loadUserThemes ()
-
-        let theme, recent =
-            match loadConfig () with
-            | Some(themeOpt, recentList) -> themeOpt |> Option.defaultValue Themes.defaultTheme, recentList
-            | None -> Themes.defaultTheme, []
-
-        // Re-resolve theme name against user themes (loadConfig only sees bundled).
-        let theme =
-            try
-                let path = configPath ()
-
-                if File.Exists path then
-                    let json = File.ReadAllText path
-                    use doc = System.Text.Json.JsonDocument.Parse json
-
-                    match getStringProp doc.RootElement "theme" with
-                    | Some name -> Themes.tryFindIn userThemes name |> Option.defaultValue theme
-                    | None -> theme
-                else
-                    theme
-            with _ ->
-                theme
+        let config = loadConfig userThemes
 
         let initialModel, startupEffects =
-            Editor.init rootPath (consoleSize ()) theme userThemes recent
+            Editor.init rootPath (consoleSize ()) config userThemes
 
         startupEffects |> List.iter startEffect
 

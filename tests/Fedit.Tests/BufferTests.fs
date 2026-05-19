@@ -108,9 +108,89 @@ let ``moveLeftWord skips over a word`` () =
 [<Fact>]
 let ``moveRightWord stops at the end of the current word`` () =
     let buffer =
-        Buffer.fromText 1 None "test" "hello world" "\n" |> Buffer.moveRightWord
+        Buffer.fromText 1 None "test" "hello world" "\n" |> Buffer.moveRightWord WordEnd
 
     buffer.Cursor.Column |> should equal 5
+
+// 3-class word-motion (CharClass: Whitespace / WordChar / Punctuation / Other).
+// Each test sets up a buffer, optionally moves the cursor, then asserts the
+// column after a single word-motion call. Together these prove the
+// class-transition boundaries.
+
+let private wordBuf text = Buffer.fromText 1 None "test" text "\n"
+
+let private advanceBy n buffer =
+    let mutable b = buffer
+
+    for _ in 1..n do
+        b <- Buffer.moveRight b
+
+    b
+
+[<Fact>]
+let ``moveRightWord stops at punctuation boundary`` () =
+    let buffer = wordBuf "hello.world" |> Buffer.moveRightWord WordEnd
+    buffer.Cursor.Column |> should equal 5
+
+[<Fact>]
+let ``moveRightWord treats a single-char punctuation run as its own stop`` () =
+    let buffer = wordBuf "hello.world" |> advanceBy 5 |> Buffer.moveRightWord WordEnd
+    buffer.Cursor.Column |> should equal 6
+
+[<Fact>]
+let ``moveRightWord skips to the end of the following word`` () =
+    let buffer = wordBuf "hello.world" |> advanceBy 6 |> Buffer.moveRightWord WordEnd
+    buffer.Cursor.Column |> should equal 11
+
+[<Fact>]
+let ``moveRightWord WordEnd does NOT consume trailing whitespace`` () =
+    let buffer = wordBuf "foo  bar" |> Buffer.moveRightWord WordEnd
+    buffer.Cursor.Column |> should equal 3
+
+[<Fact>]
+let ``moveRightWord NextWordStart consumes trailing whitespace`` () =
+    let buffer = wordBuf "foo  bar" |> Buffer.moveRightWord NextWordStart
+    buffer.Cursor.Column |> should equal 5
+
+[<Fact>]
+let ``moveRightWord treats a multi-char punctuation run as one stop`` () =
+    let buffer = wordBuf "foo->bar" |> Buffer.moveRightWord WordEnd
+    buffer.Cursor.Column |> should equal 3
+
+[<Fact>]
+let ``moveRightWord advances over the punctuation run as one move`` () =
+    let buffer = wordBuf "foo->bar" |> advanceBy 3 |> Buffer.moveRightWord WordEnd
+    buffer.Cursor.Column |> should equal 5
+
+[<Fact>]
+let ``moveLeftWord from end of (foo) lands at start of closing-paren run`` () =
+    let buffer = wordBuf "(foo)" |> Buffer.moveEnd |> Buffer.moveLeftWord
+    buffer.Cursor.Column |> should equal 4
+
+[<Fact>]
+let ``moveLeftWord from closing paren lands at start of word run`` () =
+    let buffer = wordBuf "(foo)" |> advanceBy 4 |> Buffer.moveLeftWord
+    buffer.Cursor.Column |> should equal 1
+
+[<Fact>]
+let ``moveLeftWord from end of foo bar lands at start of bar`` () =
+    let buffer = wordBuf "foo bar" |> Buffer.moveEnd |> Buffer.moveLeftWord
+    buffer.Cursor.Column |> should equal 4
+
+[<Fact>]
+let ``moveRightWord eats leading whitespace then the next word`` () =
+    let buffer = wordBuf "   hello" |> Buffer.moveRightWord WordEnd
+    buffer.Cursor.Column |> should equal 8
+
+[<Fact>]
+let ``moveRightWord treats underscore as part of the word`` () =
+    let buffer = wordBuf "hello_world" |> Buffer.moveRightWord WordEnd
+    buffer.Cursor.Column |> should equal 11
+
+[<Fact>]
+let ``moveRightWord treats Unicode letters as part of the word`` () =
+    let buffer = wordBuf "Café.txt" |> Buffer.moveRightWord WordEnd
+    buffer.Cursor.Column |> should equal 4
 
 [<Fact>]
 let ``selectAll covers the whole buffer`` () =

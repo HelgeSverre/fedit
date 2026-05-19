@@ -4,6 +4,14 @@ open System
 open System.IO
 
 
+/// Where forward word-motion (Alt+→ / `moveRightWord`) lands.
+type WordMotionLanding =
+    /// Stop at the end of the current run (matches Zed, VSCode, JetBrains).
+    | WordEnd
+    /// Skip trailing whitespace too, landing at the start of the next non-whitespace
+    /// run (matches vim's `w` motion).
+    | NextWordStart
+
 type BufferRevision =
     { Document: PieceTable
       Cursor: Position
@@ -201,29 +209,96 @@ module Buffer =
             let nextCursor = indexToPosition index (buffer |> withDocument nextDocument)
             changeDocument nextDocument nextCursor buffer
 
-    let private isWordChar (c: char) =
-        System.Char.IsLetterOrDigit c || c = '_'
+    // Word-motion classifier — three classes that motion stops between.
+    // Pinned to ASCII for predictability (matches IntelliJ / token-editor /
+    // Zed's `CharClassifier`). `Other` is a defensive fourth class for
+    // non-ASCII characters that aren't IsLetterOrDigit (e.g. § ¶ emoji);
+    // they form runs of their own and don't merge with WordChar.
 
+    type private CharClass =
+        | Whitespace
+        | WordChar
+        | Punctuation
+        | Other
+
+    let private punctuationChars =
+        Set.ofArray
+            [| '.'
+               ','
+               ':'
+               ';'
+               '!'
+               '?'
+               '('
+               ')'
+               '{'
+               '}'
+               '['
+               ']'
+               '<'
+               '>'
+               '='
+               '+'
+               '-'
+               '*'
+               '/'
+               '%'
+               '&'
+               '|'
+               '^'
+               '~'
+               '@'
+               '#'
+               '$'
+               '\\'
+               '"'
+               '\''
+               '`' |]
+
+    let private classify (c: char) : CharClass =
+        if Char.IsWhiteSpace c then Whitespace
+        elif Char.IsLetterOrDigit c || c = '_' then WordChar
+        elif Set.contains c punctuationChars then Punctuation
+        else Other
+
+    // Backward motion: scan past whitespace, then collapse one homogeneous
+    // class run. Symmetric for all landing modes.
     let private wordIndexLeft (txt: string) startIdx =
         let mutable i = startIdx
 
-        while i > 0 && not (isWordChar txt[i - 1]) do
+        while i > 0 && classify txt[i - 1] = Whitespace do
             i <- i - 1
 
-        while i > 0 && isWordChar txt[i - 1] do
-            i <- i - 1
+        if i > 0 then
+            let target = classify txt[i - 1]
+
+            while i > 0 && classify txt[i - 1] = target do
+                i <- i - 1
 
         i
 
-    let private wordIndexRight (txt: string) startIdx =
-        let mutable i = startIdx
+    // Forward motion:
+    //   Phase 1 — skip leading whitespace (puts us at the start of a run).
+    //   Phase 2 — consume the run we're sitting on.
+    //   Phase 3 — if NextWordStart, eat trailing whitespace too (vim 'w').
+    let private wordIndexRight (landing: WordMotionLanding) (txt: string) startIdx =
         let len = txt.Length
+        let mutable i = startIdx
 
-        while i < len && not (isWordChar txt[i]) do
+        while i < len && classify txt[i] = Whitespace do
             i <- i + 1
 
-        while i < len && isWordChar txt[i] do
-            i <- i + 1
+        if i < len then
+            let current = classify txt[i]
+
+            while i < len && classify txt[i] = current do
+                i <- i + 1
+
+        match landing with
+        | NextWordStart ->
+            while i < len && classify txt[i] = Whitespace do
+                i <- i + 1
+        | WordEnd -> ()
 
         i
 
@@ -232,9 +307,9 @@ module Buffer =
         let target = wordIndexLeft txt (positionToIndex buffer.Cursor buffer)
         moveToIndex target buffer
 
-    let moveRightWord buffer =
+    let moveRightWord (landing: WordMotionLanding) buffer =
         let txt = text buffer
-        let target = wordIndexRight txt (positionToIndex buffer.Cursor buffer)
+        let target = wordIndexRight landing txt (positionToIndex buffer.Cursor buffer)
         moveToIndex target buffer
 
     let backspaceWord buffer =
@@ -306,7 +381,7 @@ module Buffer =
 
             List.rev matches
 
-    let deleteForwardWord buffer =
+    let deleteForwardWord (landing: WordMotionLanding) buffer =
         let txt = text buffer
         let len = txt.Length
         let startIdx = positionToIndex buffer.Cursor buffer
@@ -314,7 +389,7 @@ module Buffer =
         if startIdx >= len then
             buffer
         else
-            let target = wordIndexRight txt startIdx
+            let target = wordIndexRight landing txt startIdx
             let count = target - startIdx
             let nextDocument = PieceTable.deleteRange startIdx count buffer.Document
             let nextCursor = indexToPosition startIdx (buffer |> withDocument nextDocument)
