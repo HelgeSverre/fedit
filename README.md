@@ -194,11 +194,106 @@ The UI is split into a sidebar (file tree), an editor pane with a line-number gu
 
 Themes are pure accent palettes — the dock title, status bar, selection highlight, and current-line gutter all swap together while the grayscale chrome stays constant across themes. The active theme lives in the model and is not persisted between runs (default: `cyan`).
 
-The editor loop follows a simple update-and-render flow:
+### Architecture
 
-1. Console input is mapped into editor key events.
-2. The editor model is updated.
-3. File system effects such as scanning, loading, and saving are executed.
-4. The terminal screen is rendered with ANSI escape sequences.
+`fedit` uses an Elm-style update loop. The `Model` is pure data. `Editor.update` is a pure function that takes a `Msg` and returns a new model plus a list of effects. `runEffect` is the only impure code path — it does file I/O and folds its result back into the loop as another `Msg`. `Layout.render` projects the model to a `Screen` (a `Cell[,]` grid), and `Renderer.render` writes that grid out as ANSI escapes.
 
-The renderer uses the alternate screen buffer while the app is running and restores the terminal when the editor exits.
+```
+                        +----------------------+
+                        |        Model         |
+                        |  workspace . tree    |
+                        |  buffers + cursors   |
+                        |  focus, theme,       |
+                        |  panels, terminal    |
+                        +-----+----------+-----+
+                              |          |
+              read by         |          |     read by
+        +---------------------+          +-----------------------+
+        |                                                        |
+        v                                                        v
++-----------------+                                    +-------------------+
+|  Editor.update  |                                    |   Layout.render   |
+|     (pure)      |                                    |      (pure)       |
++--------+--------+                                    +---------+---------+
+         |                                                       |
+   (model', effects)                                          Screen
+         |                                                       |
+         v                                                       v
++-----------------+                                    +-------------------+
+|    runEffect    |                                    |  Renderer.render  |
+|    (impure)     |                                    |   ANSI escapes    |
+|  ScanWorkspace  |                                    +---------+---------+
+|  LoadFile       |                                              |
+|  SaveBuffer     |                                              v
++--------+--------+                                       terminal output
+         |
+         v
+        Msg  ----------> dispatch <---------- KeyPressed / Resize
+                            ^                       (main loop)
+                            |
+                       feeds back
+```
+
+`dispatch` is the recursive knot: every effect produces a `Msg`, which goes back through `Editor.update`, which may yield more effects, until the list is empty. All of it runs on the main thread.
+
+### Lifecycle
+
+Startup is sequential: parse arg, set up the console, build the initial model, drain its startup effects (the workspace scan), then switch to the alternate screen and enter the loop. The loop polls — there is no event source or second thread.
+
+```
+  $ fedit .
+       |
+       v
+  +-----------+     +-----------------+     +-----------------------+
+  |   main    |---->|   Runtime.run   |---->|  Console setup        |
+  | argv[0]   |     |    rootPath     |     |  UTF-8 + Ctrl-C input |
+  +-----------+     +--------+--------+     +-----------+-----------+
+                             |                          |
+                             |  +-----------------------+
+                             |  |
+                             v  v
+                    +---------------------+
+                    |    Editor.init      |
+                    | model0 + [Scan...]  |
+                    +----------+----------+
+                               |
+                               v
+                    +---------------------+
+                    |  drain startup fx   |
+                    | (workspace -> tree) |
+                    +----------+----------+
+                               |
+                               v
+                    +---------------------+
+                    |   Renderer.enter    |
+                    | alt screen + clear  |
+                    +----------+----------+
+                               |
+                               v
+  +=========================================================+
+  |              main loop  (while not ShouldQuit)          |
+  |                                                         |
+  |     +-- poll WindowSize --> if changed: Resize msg --+  |
+  |     |                                                |  |
+  |     |   +-- if needsRender --> Layout -> Renderer    |  |
+  |     |   |                                            |  |
+  |     |   |   +-- KeyAvailable? --> ReadKey -> Input   |  |
+  |     |   |   |        |               -> KeyPressed   |  |
+  |     |   |   |        |                  -> dispatch  |  |
+  |     |   |   |        |                                  |
+  |     |   |   |        +-- no key --> Thread.Sleep 16ms   |
+  |     |   |   |                                           |
+  |     +---+---+--- loop back ------------------------+    |
+  +=========================================================+
+                               |
+                               | ShouldQuit = true
+                               v
+                    +---------------------+
+                    |   Renderer.leave    |
+                    |  (finally block:    |
+                    |   restores terminal |
+                    |   even on crash)    |
+                    +---------------------+
+```
+
+Two things to notice. First, the workspace scan happens *before* the alternate screen is entered, so a slow scan blocks startup with no UI feedback. Second, because `runEffect` is synchronous, file I/O during the session freezes input until it completes — large saves or reloads show as a brief input stall.
