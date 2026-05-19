@@ -14,7 +14,16 @@ Active work and future ideas. Shipped phases (0–6) live in
 | **Phase 11 — Renderer diff**                           | Pending | Cell-level diff against previous frame; drop `pad`/`crop` allocations.          |
 | **Phase 12 — Async follow-ups**                        | Pending | Dirty-state race after save, config-save ordering, search-as-effect.            |
 | **Phase 13 — Workspace caching & startup errors**      | Pending | Flat `Map<string, FileNode>` cache; surface load errors instead of swallowing.  |
-| **Phase 14 — Polish**                                  | Pending | Theme-preview placement, Recent debounce, named metadata record, tab width.    |
+| Phase 14 — Polish                                  | Pending | Theme-preview placement, Recent debounce, named metadata record, tab width.    |
+
+Recently landed (this session):
+
+- **Command bar completions UX:** Vertical navigation via Up/Down arrows,
+  virtual scrolling (viewport) for long completion lists, and a dimmed visual
+  style for details (e.g., file paths) to reduce noise.
+- **Slim dock bar:** The dock panel is now hidden by default (`NoDock`) and
+  collapses to 0 height. It only appears for completions, active commands, or
+  when explicitly toggled via the new `:help` command.
 
 ---
 
