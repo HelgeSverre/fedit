@@ -50,6 +50,7 @@ test:
 check: lint build test
 
 # Publish and install fedit.
+[unix]
 [group('install')]
 install dest="~/.local/bin":
     {{dotnet}} publish {{project}} -c Release -o bin/dist
@@ -58,8 +59,26 @@ install dest="~/.local/bin":
     @echo "Installed fedit to {{dest}}/fedit"
     @echo "Ensure {{dest}} is on your PATH."
 
+# Publish and install fedit.
+[windows]
+[group('install')]
+install dest="%LOCALAPPDATA%\\Programs\\fedit":
+    dotnet publish {{project}} -c Release -r win-x64 -o bin\dist
+    if not exist "{{dest}}" mkdir "{{dest}}"
+    copy /Y bin\dist\fedit.exe "{{dest}}\fedit.exe"
+    @echo Installed fedit to {{dest}}\fedit.exe
+    @echo Ensure {{dest}} is on your PATH.
+
 # Uninstall fedit.
+[unix]
 [group('install')]
 uninstall dest="~/.local/bin":
     rm -f {{dest}}/fedit
     @echo "Removed {{dest}}/fedit"
+
+# Uninstall fedit.
+[windows]
+[group('install')]
+uninstall dest="%LOCALAPPDATA%\\Programs\\fedit":
+    if exist "{{dest}}\fedit.exe" del /Q "{{dest}}\fedit.exe"
+    @echo Removed {{dest}}\fedit.exe
