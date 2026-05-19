@@ -32,7 +32,6 @@ type PromptState =
       SelectedCompletion: int
       History: string list
       HistoryIndex: int option
-      PreviewTheme: Theme option
       SearchPreview: SearchPreview option }
 
 type PanelsState =
@@ -55,6 +54,8 @@ type Config =
         PageOverlap: int
         /// Entries jumped on PageUp/PageDown in the file-tree sidebar.
         TreePageJump: int
+        /// Spaces inserted by `Tab` and removed by `Shift+Tab`. Default 4.
+        TabWidth: int
     }
 
 [<RequireQualifiedAccess>]
@@ -68,7 +69,8 @@ module Config =
           DockHeight = 8
           WordMotion = WordEnd
           PageOverlap = 2
-          TreePageJump = 10 }
+          TreePageJump = 10
+          TabWidth = 4 }
 
 type Model =
     { Workspace: WorkspaceState

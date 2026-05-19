@@ -26,8 +26,32 @@ module Layout =
     let private currentLineOf (theme: Theme) =
         Style.withColors (Indexed theme.CurrentLine) Default
 
+    let private themeFromApplyText (userThemes: Theme list) (applyText: string) =
+        if applyText.StartsWith("theme ", System.StringComparison.OrdinalIgnoreCase) then
+            Themes.tryFindIn userThemes (applyText.Substring 6)
+        else
+            None
+
+    /// Derive the theme being previewed (if any) from the current prompt
+    /// state. Stays Pure — no mutation of `Prompt` required.
+    let private previewTheme model =
+        let prompt = model.Prompt
+
+        if not prompt.Active || prompt.Mode <> Command then
+            None
+        else
+            let fromCompletion =
+                prompt.Completions
+                |> List.tryItem prompt.SelectedCompletion
+                |> Option.bind (fun item -> themeFromApplyText model.UserThemes item.ApplyText)
+
+            match fromCompletion, prompt.Parsed with
+            | Some _, _ -> fromCompletion
+            | None, Ready(Theme name) -> Themes.tryFindIn model.UserThemes name
+            | _ -> None
+
     let private effectiveTheme model =
-        model.Prompt.PreviewTheme |> Option.defaultValue model.Config.Theme
+        previewTheme model |> Option.defaultValue model.Config.Theme
 
     let private promptModeLabel mode =
         match mode with

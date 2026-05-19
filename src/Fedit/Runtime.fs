@@ -101,6 +101,11 @@ module Runtime =
                     |> Option.defaultValue defaults.TreePageJump
                     |> clampInt 1 500
 
+                let tabWidth =
+                    getIntProp root "tabWidth"
+                    |> Option.defaultValue defaults.TabWidth
+                    |> clampInt 1 16
+
                 { Theme = theme
                   Recent = recent
                   CompletionLimit = completionLimit
@@ -109,7 +114,8 @@ module Runtime =
                   DockHeight = dockHeight
                   WordMotion = wordMotion
                   PageOverlap = pageOverlap
-                  TreePageJump = treePageJump }
+                  TreePageJump = treePageJump
+                  TabWidth = tabWidth }
             else
                 defaults
         with _ ->
@@ -252,6 +258,7 @@ module Runtime =
         root["wordMotion"] <- System.Text.Json.Nodes.JsonValue.Create wordMotionStr
         root["pageOverlap"] <- System.Text.Json.Nodes.JsonValue.Create config.PageOverlap
         root["treePageJump"] <- System.Text.Json.Nodes.JsonValue.Create config.TreePageJump
+        root["tabWidth"] <- System.Text.Json.Nodes.JsonValue.Create config.TabWidth
 
         let options = System.Text.Json.JsonSerializerOptions(WriteIndented = true)
         let json = root.ToJsonString options

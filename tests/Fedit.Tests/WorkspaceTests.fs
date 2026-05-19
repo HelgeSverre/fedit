@@ -59,17 +59,6 @@ let ``tryCollapseSelected only succeeds on expanded directories`` () =
     collapsed.IsSome |> should equal true
 
 [<Fact>]
-let ``metadata returns the selected entry's structure`` () =
-    let ws = Workspace.create "/root" |> Workspace.setTree (sampleTree ())
-    let meta = Workspace.metadata ws
-    meta.IsSome |> should equal true
-
-[<Fact>]
-let ``metadata is None when nothing selected`` () =
-    let ws = Workspace.create "/root"
-    Workspace.metadata ws |> should equal None
-
-[<Fact>]
 let ``appendSearch jumps to first prefix match`` () =
     let ws =
         Workspace.create "/root"

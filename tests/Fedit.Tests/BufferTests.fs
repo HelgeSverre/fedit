@@ -70,13 +70,18 @@ let ``redo reapplies the change`` () =
     Buffer.line 0 buffer |> should equal "Xhello"
 
 [<Fact>]
-let ``indent inserts four spaces at cursor`` () =
-    let buffer = newBuffer () |> Buffer.indent
+let ``indent inserts configured spaces at cursor`` () =
+    let buffer = newBuffer () |> Buffer.indent 4
     Buffer.line 0 buffer |> should equal "    hello"
 
 [<Fact>]
+let ``indent honours custom tab width`` () =
+    let buffer = newBuffer () |> Buffer.indent 2
+    Buffer.line 0 buffer |> should equal "  hello"
+
+[<Fact>]
 let ``unindent removes leading spaces`` () =
-    let buffer = newBuffer () |> Buffer.indent |> Buffer.unindent
+    let buffer = newBuffer () |> Buffer.indent 4 |> Buffer.unindent 4
     Buffer.line 0 buffer |> should equal "hello"
 
 [<Fact>]

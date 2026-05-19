@@ -52,7 +52,7 @@ type BufferState =
 
 [<RequireQualifiedAccess>]
 module Buffer =
-    let private tabText = "    "
+    let private spaces (n: int) = String.replicate (max 0 n) " "
 
     let private computeLines (document: PieceTable) =
         let contents = PieceTable.toString document
@@ -460,13 +460,13 @@ module Buffer =
               Column = targetColumn }
         |> withPreferredColumn (Some targetColumn)
 
-    let indent buffer = insertText tabText buffer
+    let indent (tabWidth: int) buffer = insertText (spaces tabWidth) buffer
 
-    let unindent buffer =
+    let unindent (tabWidth: int) buffer =
         let currentLine = line buffer.Cursor.Line buffer
 
         let removable =
-            currentLine |> Seq.takeWhile ((=) ' ') |> Seq.length |> min tabText.Length
+            currentLine |> Seq.takeWhile ((=) ' ') |> Seq.length |> min (max 0 tabWidth)
 
         if removable = 0 then
             buffer

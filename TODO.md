@@ -14,7 +14,7 @@ Active work and future ideas. Shipped phases (0–6) live in
 | **Phase 11 — Renderer diff**                      | Pending | Cell-level diff against previous frame; drop `pad`/`crop` allocations.                                 |
 | **Phase 12 — Async follow-ups**                   | Pending | Dirty-state race after save, config-save ordering, search-as-effect.                                   |
 | **Phase 13 — Workspace caching & startup errors** | Pending | Flat `Map<string, FileNode>` cache; surface load errors instead of swallowing.                         |
-| **Phase 14 — Polish**                             | Pending | Theme-preview placement, Recent debounce, named metadata record, tab width.                            |
+| **Phase 14 — Polish**                             | Shipped | Theme preview is now derived in View; Recent persists at quit; tab width configurable; metadata removed (unused). |
 | **Phase 15 — Borders and file-tree icons**        | Pending | Unicode box-drawing separator; opt-in icon set for the file tree.                                      |
 | **Phase 16 — Buffer internals refactor**          | Pending | Simplify `ensureViewport`; replace `Lines` cache with `Offsets : int[]`; delta-based undo.             |
 | **Phase 17 — .NET 10 LTS upgrade**                | Pending | Bump SDK to `10.0.x`, TFM to `net10.0`, refresh test packages and `FsCheck.Xunit` out of RC.           |

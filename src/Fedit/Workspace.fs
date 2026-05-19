@@ -253,13 +253,3 @@ module Workspace =
                         SelectedPath = Some first.Path }
                 | [] -> { workspace with SearchBuffer = shorter }
 
-    let metadata workspace =
-        workspace.SelectedPath
-        |> Option.bind (fun path -> findNodeByPath path workspace)
-        |> Option.map (fun node ->
-            let relativePath = Path.GetRelativePath(workspace.RootPath, node.Path)
-            let label = if relativePath = "." then node.Path else relativePath
-
-            {| Path = label
-               IsDirectory = node.IsDirectory
-               ChildCount = if node.IsDirectory then Some node.Children.Length else None |})

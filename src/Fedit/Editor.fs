@@ -15,7 +15,6 @@ module Editor =
           SelectedCompletion = 0
           History = []
           HistoryIndex = None
-          PreviewTheme = None
           SearchPreview = None }
 
     let private initialPanels (config: Config) =
@@ -65,33 +64,6 @@ module Editor =
                 [ Path.GetRelativePath(workspace.RootPath, node.Path) ]
 
         workspace.Tree |> Option.map collect |> Option.defaultValue []
-
-    let private themeFromApplyText (userThemes: Theme list) (applyText: string) =
-        if applyText.StartsWith("theme ", StringComparison.OrdinalIgnoreCase) then
-            Themes.tryFindIn userThemes (applyText.Substring 6)
-        else
-            None
-
-    let private updatePreview model =
-        let prompt = model.Prompt
-
-        if not prompt.Active || prompt.Mode <> Command then
-            { model with
-                Prompt = { prompt with PreviewTheme = None } }
-        else
-            let fromCompletion =
-                prompt.Completions
-                |> List.tryItem prompt.SelectedCompletion
-                |> Option.bind (fun item -> themeFromApplyText model.UserThemes item.ApplyText)
-
-            let preview =
-                match fromCompletion, prompt.Parsed with
-                | Some _, _ -> fromCompletion
-                | None, Ready(Theme name) -> Themes.tryFindIn model.UserThemes name
-                | _ -> None
-
-            { model with
-                Prompt = { prompt with PreviewTheme = preview } }
 
     let private filePickerCompletions model query =
         let limit = model.Config.CompletionLimit
@@ -229,13 +201,10 @@ module Editor =
                         SelectedCompletion = selectedIndex
                         SearchPreview = if mode = Search then prompt.SearchPreview else None } }
 
-        let withSearch =
-            if mode = Search then
-                updateSearchPreview withCompletions
-            else
-                withCompletions
-
-        updatePreview withSearch
+        if mode = Search then
+            updateSearchPreview withCompletions
+        else
+            withCompletions
 
     let private openPrompt (initialText: string) model =
         { model with
@@ -263,7 +232,6 @@ module Editor =
                     Completions = []
                     SelectedCompletion = 0
                     HistoryIndex = None
-                    PreviewTheme = None
                     SearchPreview = None } }
 
     let private resolvePath (rootPath: string) (path: string) =
@@ -407,7 +375,7 @@ module Editor =
             | None -> { model with Focus = Editor }, [ LoadFile absolutePath ]
         | Write -> saveActiveBuffer None model
         | WriteAs path -> saveActiveBuffer (Some path) model
-        | Quit -> { model with ShouldQuit = true }, []
+        | Quit -> { model with ShouldQuit = true }, [ SaveConfig model.Config ]
         | ToggleSidebar ->
             { model with
                 Panels =
@@ -606,8 +574,8 @@ module Editor =
         | ShiftEnd -> extend Buffer.moveEnd
         | PageUp -> pageJump Buffer.movePageUp
         | PageDown -> pageJump Buffer.movePageDown
-        | Tab -> move Buffer.indent
-        | ShiftTab -> move Buffer.unindent
+        | Tab -> move (Buffer.indent model.Config.TabWidth)
+        | ShiftTab -> move (Buffer.unindent model.Config.TabWidth)
         | AltLeft -> move Buffer.moveLeftWord
         | AltRight -> move (Buffer.moveRightWord model.Config.WordMotion)
         | CtrlBackspace when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
@@ -627,7 +595,6 @@ module Editor =
 
             { model with
                 Prompt = { prompt with SelectedCompletion = nextIndex } }
-            |> updatePreview
 
     let private applyHistory delta model =
         let prompt = model.Prompt
@@ -769,6 +736,9 @@ module Editor =
 
                 let nextConfig = { model.Config with Recent = recent }
 
+                // Recent is persisted at quit, not per file-open: avoids save
+                // churn under the FS watcher and rapid open sequences. Phase
+                // 14.2.
                 { model with
                     Editors =
                         { model.Editors with
@@ -779,7 +749,7 @@ module Editor =
                     Focus = Editor
                     Config = nextConfig
                     Notification = Some(Notification.info $"Opened {buffer.Name}") },
-                [ SaveConfig nextConfig ]
+                []
             | Result.Error message -> notify (Some(Notification.error $"Failed to open {path}: {message}")) model, []
         | BufferSaved(bufferId, path, result) ->
             match result with
@@ -833,7 +803,7 @@ module Editor =
                         ShouldQuit = true
                         QuitArmed = false
                         Notification = None },
-                    []
+                    [ SaveConfig model.Config ]
                 else
                     let dirtyCount =
                         model.Editors.Buffers
