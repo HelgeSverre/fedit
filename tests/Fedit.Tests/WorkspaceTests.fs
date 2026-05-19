@@ -68,3 +68,52 @@ let ``metadata returns the selected entry's structure`` () =
 let ``metadata is None when nothing selected`` () =
     let ws = Workspace.create "/root"
     Workspace.metadata ws |> should equal None
+
+[<Fact>]
+let ``appendSearch jumps to first prefix match`` () =
+    let ws =
+        Workspace.create "/root"
+        |> Workspace.setTree (sampleTree ())
+        |> Workspace.appendSearch 'a'
+
+    ws.SearchBuffer |> should equal "a"
+    ws.SelectedPath |> should equal (Some "/root/a.fs")
+
+[<Fact>]
+let ``appendSearch with no match clears buffer and keeps selection`` () =
+    let baseline = Workspace.create "/root" |> Workspace.setTree (sampleTree ())
+    let beforePath = baseline.SelectedPath
+    let after = Workspace.appendSearch 'z' baseline
+    after.SearchBuffer |> should equal ""
+    after.SelectedPath |> should equal beforePath
+
+[<Fact>]
+let ``appendSearch falls back to single char on extended mismatch`` () =
+    let ws =
+        Workspace.create "/root"
+        |> Workspace.setTree (sampleTree ())
+        |> Workspace.appendSearch 'a' // buffer = "a", selects /root/a.fs
+        |> Workspace.appendSearch 's' // "as" no match, fallback "s" matches "sub"
+
+    ws.SearchBuffer |> should equal "s"
+    ws.SelectedPath |> should equal (Some "/root/sub")
+
+[<Fact>]
+let ``backspaceSearch shortens the buffer`` () =
+    let ws =
+        Workspace.create "/root"
+        |> Workspace.setTree (sampleTree ())
+        |> Workspace.appendSearch 'a'
+        |> Workspace.backspaceSearch
+
+    ws.SearchBuffer |> should equal ""
+
+[<Fact>]
+let ``clearSearch resets the buffer`` () =
+    let ws =
+        Workspace.create "/root"
+        |> Workspace.setTree (sampleTree ())
+        |> Workspace.appendSearch 'a'
+        |> Workspace.clearSearch
+
+    ws.SearchBuffer |> should equal ""

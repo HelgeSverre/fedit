@@ -27,37 +27,34 @@ module Layout =
         Style.withColors (Indexed theme.CurrentLine) Default
 
     let private effectiveTheme model =
-        model.CommandBar.PreviewTheme |> Option.defaultValue model.Config.Theme
+        model.Prompt.PreviewTheme |> Option.defaultValue model.Config.Theme
 
-    let private workspaceMetadataLines workspace =
-        match Workspace.metadata workspace with
-        | Some meta ->
-            let typeLine = if meta.IsDirectory then "Type: Directory" else "Type: File"
-
-            let countLine =
-                match meta.ChildCount with
-                | Some n -> $"Children: {n}"
-                | None -> "Enter to open"
-
-            [ $"Path: {meta.Path}"; typeLine; countLine; "Ctrl+B tree"; "Ctrl+E editor" ]
-        | None -> [ "No file selected." ]
+    let private promptModeLabel mode =
+        match mode with
+        | FilePicker -> "FILE"
+        | Command -> "CMD"
+        | Search -> "FIND"
+        | Buffers -> "BUF"
 
     let statusLine model =
         let buffer = Editor.activeBufferState model
 
         let focusText =
             match model.Focus with
-            | Sidebar -> "TREE"
+            | Sidebar ->
+                if model.Workspace.SearchBuffer.Length > 0 then
+                    $"TREE  find:{model.Workspace.SearchBuffer}"
+                else
+                    "TREE"
             | Editor -> "EDIT"
-            | CommandBar -> "CMD"
-            | Search -> "FIND"
+            | Prompt -> promptModeLabel model.Prompt.Mode
 
         let dirty = if buffer.Dirty then " [+]" else ""
 
         let note =
             model.Notification
             |> Option.map _.Message
-            |> Option.defaultValue "Ctrl+P commands"
+            |> Option.defaultValue "Ctrl+P prompt"
 
         let pathText = buffer.FilePath |> Option.defaultValue "[scratch]"
         let newlineStyle = if buffer.Newline = "\r\n" then "CRLF" else "LF"
@@ -67,31 +64,37 @@ module Layout =
         $"{focusText}  {pathText}{dirty}  Ln {buffer.Cursor.Line + 1}/{totalLines}, Col {buffer.Cursor.Column + 1}  {newlineStyle}  buf {bufferCount}  {note}"
 
     let dockPanel model =
-        if model.CommandBar.Active && not model.CommandBar.Completions.IsEmpty then
-            DockCompletions("Completions", model.CommandBar.Completions, model.CommandBar.SelectedCompletion)
-        elif model.CommandBar.Active then
-            let lines =
-                match model.CommandBar.Parsed with
-                | Empty -> Commands.helpLines () |> List.truncate 4
-                | Pending message -> [ message ]
-                | Invalid message -> [ message ]
-                | Ready _ -> [ "Press Enter to run the command." ]
+        let prompt = model.Prompt
 
-            DockInfo("Command", lines)
-        elif model.ShowHelp then
-            if model.Focus = Sidebar then
-                DockInfo("File Tree", workspaceMetadataLines model.Workspace)
-            else
-                let buffer = Editor.activeBufferState model
+        if prompt.Active then
+            match prompt.Mode with
+            | FilePicker when not prompt.Completions.IsEmpty ->
+                DockCompletions("Files", prompt.Completions, prompt.SelectedCompletion)
+            | FilePicker -> DockInfo("Files", [ "Type to filter recent + workspace files." ])
+            | Command when not prompt.Completions.IsEmpty ->
+                DockCompletions("Commands", prompt.Completions, prompt.SelectedCompletion)
+            | Command ->
+                let lines =
+                    match prompt.Parsed with
+                    | Ready(Command.Goto(line, None)) -> [ $"Press Enter to jump to line {line}." ]
+                    | Ready(Command.Goto(line, Some col)) -> [ $"Press Enter to jump to line {line}, column {col}." ]
+                    | Ready _ -> [ "Press Enter to run the command." ]
+                    | Pending message -> [ message ]
+                    | Invalid message -> [ message ]
+                    | Empty -> Commands.helpLines () |> List.truncate (max 0 (model.Panels.DockHeight - 1))
 
-                DockInfo(
-                    "Editor",
-                    [ $"Buffer: {buffer.Name}"
-                      $"Open buffers: {model.Editors.Buffers.Count}"
-                      "Ctrl+B tree, Ctrl+E editor"
-                      "Ctrl+P commands, Ctrl+S save"
-                      "Tab indent, Shift+Tab unindent" ]
-                )
+                DockInfo("Commands", lines)
+            | Buffers when not prompt.Completions.IsEmpty ->
+                DockCompletions("Buffers", prompt.Completions, prompt.SelectedCompletion)
+            | Buffers -> DockInfo("Buffers", [ "Type buffer id or name." ])
+            | Search ->
+                let line =
+                    match prompt.SearchPreview with
+                    | Some preview when preview.Matches.IsEmpty -> "no matches"
+                    | Some preview -> $"match {preview.Current + 1}/{preview.Matches.Length}"
+                    | None -> "Type to search the active buffer."
+
+                DockInfo("Find", [ line ])
         else
             NoDock
 
@@ -153,8 +156,10 @@ module Layout =
             accum <- accum + rows[i].Length + 1
 
         let searchInfo =
-            match model.Search with
-            | Some s when s.Query.Length > 0 -> Some(s.Query.Length, s.Matches)
+            match model.Prompt.SearchPreview with
+            | Some preview when preview.Matches.Length > 0 ->
+                let query = Prompt.argumentOf model.Prompt.Text
+                Some(query.Length, preview.Matches)
             | _ -> None
 
         let highlightStyle =
@@ -295,7 +300,8 @@ module Layout =
 
         current <- renderEditor editorX editorWidth mainHeight current model
         Screen.fillRect 0 statusY width 1 status ' ' current
-        Screen.writeText 0 statusY status width (pad width (statusLine model)) current
+        let statusInner = max 0 (width - 2)
+        Screen.writeText 1 statusY status statusInner (pad statusInner (statusLine model)) current
 
         if dockHeight > 0 then
             Screen.fillRect 0 dockY width dockHeight chrome ' ' current
@@ -355,42 +361,26 @@ module Layout =
 
         Screen.fillRect 0 commandY width 1 commandBar ' ' current
 
+        let prompt = model.Prompt
+
         let lineText =
-            match model.Search with
-            | Some search ->
-                let count = search.Matches.Length
+            if prompt.Active then
+                let suffix =
+                    match prompt.Mode, prompt.SearchPreview with
+                    | Search, Some preview when not preview.Matches.IsEmpty ->
+                        $"  ({preview.Current + 1}/{preview.Matches.Length})"
+                    | _ -> ""
 
-                let position =
-                    if count = 0 then
-                        ""
-                    else
-                        $"  ({search.Current + 1}/{count})"
-
-                $"/{search.Query}{position}"
-            | None ->
-                if model.CommandBar.Active then
-                    ":" + model.CommandBar.Text
-                else
-                    " Ctrl+P commands  Ctrl+B tree  Ctrl+F find  Ctrl+S save  Ctrl+Q quit "
+                prompt.Text + suffix
+            else
+                ""
 
         Screen.writeText 0 commandY commandBar width (pad width lineText) current
 
-        if model.CommandBar.Active then
+        if prompt.Active then
             current <-
                 Screen.withCursor
-                    { Left = min (width - 1) (1 + model.CommandBar.Cursor)
-                      Top = commandY
-                      Visible = true }
-                    current
-        elif model.Search.IsSome then
-            let queryLength =
-                match model.Search with
-                | Some s -> s.Query.Length
-                | None -> 0
-
-            current <-
-                Screen.withCursor
-                    { Left = min (width - 1) (1 + queryLength)
+                    { Left = min (width - 1) prompt.Cursor
                       Top = commandY
                       Visible = true }
                     current

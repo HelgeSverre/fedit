@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>fedit — modality &amp; shell design explorer</title>
+<style>
+  :root {
+    --bg:           #0b0b0d;
+    --bg-elevated:  #18181b;
+    --bg-panel:     #1f1f23;
+    --bg-frame:     #111114;
+    --fg:           #fafafa;
+    --fg-muted:     #a6a6ad;
+    --fg-subtle:    #787880;
+    --border:       #27272a;
+    --border-strong:#3f3f46;
+    --accent:       #00b86b;
+    --accent-fg:    #0b0b0d;
+    --accent-soft:  #064e3b;
+    --warn-soft:    #2a1f10;
+    --warn-border:  #4a3a1a;
+  }
+
+  *,*::before,*::after { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--border-strong); }
+  a:hover { text-decoration-color: var(--fg-muted); }
+
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 40px 32px 96px; }
+
+  /* ----- header ----- */
+  header.brand {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  header.brand svg { width: 22px; height: 22px; align-self: center; }
+  header.brand .word {
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+  }
+  header.brand .sep { color: var(--fg-subtle); }
+  header.brand .title { color: var(--fg-muted); font-size: 14px; }
+
+  /* ----- intro ----- */
+  .lede {
+    color: var(--fg-muted);
+    max-width: 72ch;
+    margin: 0 0 32px;
+  }
+  .lede strong { color: var(--fg); font-weight: 500; }
+
+  /* ----- toc ----- */
+  nav.toc {
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    padding: 14px 18px;
+    margin-bottom: 40px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    font-size: 13px;
+  }
+  nav.toc a { color: var(--fg-muted); text-decoration: none; }
+  nav.toc a:hover { color: var(--fg); }
+  nav.toc .num { color: var(--fg-subtle); margin-right: 6px; }
+
+  /* ----- sections ----- */
+  section { margin-bottom: 64px; scroll-margin-top: 24px; }
+  section h2 {
+    font-size: 20px;
+    font-weight: 500;
+    margin: 0 0 8px;
+    letter-spacing: -0.01em;
+  }
+  section h2 .num { color: var(--fg-subtle); margin-right: 12px; font-weight: 400; }
+  section .sub {
+    color: var(--fg-muted);
+    margin: 0 0 24px;
+    max-width: 72ch;
+  }
+
+  /* ----- card grids ----- */
+  .grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+  @media (max-width: 1100px) {
+    .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 720px) {
+    .grid-4, .grid-3, .grid-2 { grid-template-columns: minmax(0, 1fr); }
+    .wrap { padding: 24px 16px 64px; }
+  }
+
+  .card {
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    padding: 16px 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .card.tight { padding: 12px 14px; gap: 8px; }
+  .card h3 {
+    font-size: 14px;
+    font-weight: 500;
+    margin: 0;
+    letter-spacing: 0;
+    color: var(--fg);
+  }
+  .card .tag {
+    font-size: 11px;
+    color: var(--fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: -4px 0 -2px;
+  }
+  .card .small { font-size: 12px; color: var(--fg-muted); }
+
+  /* keymap blocks */
+  .keymap {
+    background: var(--bg-frame);
+    border: 1px solid var(--border);
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--fg-muted);
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .keymap .k { color: var(--fg); }
+  .keymap .none { color: var(--fg-subtle); font-style: italic; }
+
+  /* flow rows */
+  .flows { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+  .flow { display: grid; grid-template-columns: 14px 1fr; gap: 8px; color: var(--fg-muted); }
+  .flow .letter { color: var(--fg-subtle); }
+  .flow code {
+    background: var(--bg-frame);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    color: var(--fg);
+    font-size: 11.5px;
+  }
+
+  /* gain/lose lists */
+  .pros-cons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; }
+  .pros-cons ul { margin: 4px 0 0; padding: 0; list-style: none; }
+  .pros-cons li { padding: 2px 0; color: var(--fg-muted); }
+  .pros-cons .head { color: var(--fg-subtle); text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.08em; }
+  .pros-cons li::before { content: "·  "; color: var(--fg-subtle); }
+
+  .cost {
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    font-size: 12px;
+    color: var(--fg-muted);
+  }
+  .cost .val { color: var(--fg); }
+
+  /* ----- Esc scenario table ----- */
+  .esc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    border: 1px solid var(--border);
+  }
+  .esc-table th, .esc-table td {
+    border: 1px solid var(--border);
+    padding: 12px 14px;
+    vertical-align: top;
+    text-align: left;
+  }
+  .esc-table thead th {
+    background: var(--bg-elevated);
+    color: var(--fg);
+    font-weight: 500;
+    font-size: 12px;
+  }
+  .esc-table thead th .sub2 { color: var(--fg-subtle); font-weight: 400; display: block; margin-top: 4px; font-size: 11px; }
+  .esc-table tbody th {
+    background: var(--bg-elevated);
+    color: var(--fg);
+    font-weight: 500;
+    width: 220px;
+  }
+  .esc-table tbody th .sub2 { color: var(--fg-subtle); font-weight: 400; display: block; margin-top: 4px; font-size: 11px; }
+  .esc-table td { background: var(--bg); color: var(--fg-muted); }
+  .esc-table td .state { color: var(--fg); display: block; margin-bottom: 4px; font-size: 12px; }
+  .esc-table td.weird { background: var(--warn-soft); border-color: var(--warn-border); }
+  .esc-table td.weird .state::after { content: "  ⚠ surprising"; color: var(--fg-subtle); font-size: 10.5px; font-style: italic; }
+
+  /* ----- shell ladder ----- */
+  .rung {
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    padding: 18px 20px;
+    margin-bottom: 14px;
+  }
+  .rung-head {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .rung-head .name { font-size: 14px; font-weight: 500; color: var(--fg); }
+  .rung-head .effort { font-size: 12px; color: var(--fg-muted); }
+  .rung-head .effort .v { color: var(--fg); }
+  .rung-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    font-size: 12.5px;
+  }
+  @media (max-width: 900px) { .rung-body { grid-template-columns: 1fr; } }
+  .rung-body h4 { font-size: 12px; color: var(--fg-subtle); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 6px; font-weight: 500; }
+  .rung-body ul { margin: 0; padding: 0 0 0 18px; color: var(--fg-muted); }
+  .rung-body ul li { margin: 2px 0; }
+
+  /* terminal frame mockups */
+  .term {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--bg-frame);
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
+    padding: 10px 12px;
+    white-space: pre;
+    overflow-x: auto;
+    font-size: 11.5px;
+    line-height: 1.45;
+  }
+  .term .dim { color: var(--fg-subtle); }
+  .term .acc { color: var(--accent); }
+  .term .err { color: #f37171; }
+  .term .cursor { background: var(--fg); color: var(--bg); }
+  .term .label { color: var(--fg-muted); }
+
+  .demos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 900px) { .demos { grid-template-columns: 1fr; } }
+  .demo-label { font-size: 11px; color: var(--fg-subtle); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 6px; }
+
+  /* callout */
+  .callout {
+    border-left: 2px solid var(--border-strong);
+    background: var(--bg-elevated);
+    padding: 14px 18px;
+    margin-top: 18px;
+    font-size: 12.5px;
+    color: var(--fg-muted);
+  }
+  .callout strong { color: var(--fg); font-weight: 500; }
+  .callout code {
+    background: var(--bg-frame);
+    border: 1px solid var(--border);
+    padding: 1px 5px;
+    color: var(--fg);
+    font-size: 11.5px;
+  }
+
+  /* ----- recommendation (the one accent moment) ----- */
+  .rec {
+    border: 1px solid var(--accent);
+    background: var(--bg-elevated);
+    padding: 22px 24px;
+    position: relative;
+  }
+  .rec::before {
+    content: "";
+    position: absolute;
+    top: -1px; left: -1px;
+    width: 4px; height: calc(100% + 2px);
+    background: var(--accent);
+  }
+  .rec h3 { color: var(--fg); font-weight: 500; margin: 0 0 10px; font-size: 15px; }
+  .rec .pick { margin: 10px 0; padding: 8px 0; border-top: 1px solid var(--border); }
+  .rec .pick:first-of-type { border-top: 0; padding-top: 0; }
+  .rec .pick .axis { color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; }
+  .rec .pick .choice { color: var(--fg); font-weight: 500; margin: 4px 0; }
+  .rec .pick .why { color: var(--fg-muted); font-size: 12.5px; max-width: 72ch; }
+  .rec .order {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    font-size: 12.5px;
+    color: var(--fg-muted);
+  }
+  .rec .order strong { color: var(--fg); font-weight: 500; }
+
+  footer { color: var(--fg-subtle); font-size: 11.5px; margin-top: 56px; border-top: 1px solid var(--border); padding-top: 18px; }
+  footer .meta { display: flex; gap: 16px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="brand">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square" aria-hidden="true" style="color: var(--fg);">
+    <path d="M4 16 L12 8 L20 16" />
+  </svg>
+  <span class="word">fedit</span>
+  <span class="sep">/</span>
+  <span class="title">modality &amp; shell — design explorer</span>
+</header>
+
+<p class="lede">
+  Four axes are open: <strong>how modal</strong> the editor should be, <strong>what Esc does</strong>,
+  what <strong>shell integration</strong> ships, and <strong>which prompt vocabulary</strong> we adopt.
+  One decision is locked: <strong>Insert is the default mode</strong> — open a buffer, you can type.
+  Everything below is a side-by-side comparison; the recommendation panel at the bottom names one
+  pick per axis with a why. Decide; we plan the implementation in the next session.
+</p>
+
+<nav class="toc">
+  <a href="#sec-modality"><span class="num">01</span>Modality scope</a>
+  <a href="#sec-esc"><span class="num">02</span>Esc behaviour</a>
+  <a href="#sec-shell"><span class="num">03</span>Shell integration scope</a>
+  <a href="#sec-rec"><span class="num">04</span>Recommendation</a>
+</nav>
+
+<!-- ============================================================
+     SECTION 1 — MODALITY SCOPE
+     ============================================================ -->
+<section id="sec-modality">
+  <h2><span class="num">01</span>Modality scope</h2>
+  <p class="sub">
+    Four positions on the modal spectrum. Same task across all four (delete word, jump to line, find &amp; edit) so the ergonomic delta is visible. Insert is the default in every option; Normal is reached via <kbd>Esc</kbd>.
+  </p>
+
+  <div class="grid-4">
+
+    <!-- Option 1: Full Helix -->
+    <div class="card">
+      <div class="tag">Option 1</div>
+      <h3>Full Helix-style</h3>
+      <div class="small">Selection-first verb-after-object, multi-cursor, full motion vocabulary. The reference implementation.</div>
+
+      <div class="keymap"><span class="k">h j k l</span>    move
+<span class="k">w  b  e</span>    word motion
+<span class="k">gg G</span>       buffer start / end
+<span class="k">x</span>          select line
+<span class="k">d  c</span>       delete / change selection
+<span class="k">y  p</span>       yank / paste
+<span class="k">%</span>          matching pair
+<span class="k">/</span>          search forward
+<span class="k">:</span>          command palette
+<span class="k">i  a</span>       insert (before/after)
+<span class="k">v</span>          select mode
+<span class="k">C-c</span>        cursor at next match
+<span class="k">Esc</span>        back to Normal
+<span class="k">.</span>          repeat last edit</div>
+
+      <div class="flows">
+        <div class="flow"><span class="letter">A</span><div>delete word: <code>Esc w d</code></div></div>
+        <div class="flow"><span class="letter">B</span><div>goto 100:6: <code>Esc :100:6 Enter</code></div></div>
+        <div class="flow"><span class="letter">C</span><div>find &amp; edit 3rd TODO: <code>Esc /TODO Enter n n c</code></div></div>
+      </div>
+
+      <div class="pros-cons">
+        <div>
+          <div class="head">Gain</div>
+          <ul>
+            <li>Real editing grammar</li>
+            <li>Helix muscle memory transfers</li>
+            <li>Multi-cursor support</li>
+          </ul>
+        </div>
+        <div>
+          <div class="head">Lose</div>
+          <ul>
+            <li>Months of work</li>
+            <li>Big test surface</li>
+            <li>Steepest curve for newcomers</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="cost">cost · <span class="val">3–6 weeks</span> + ongoing</div>
+    </div>
+
+    <!-- Option 2: Helix-lite -->
+    <div class="card">
+      <div class="tag">Option 2</div>
+      <h3>Helix-lite</h3>
+      <div class="small">Movement + minimal verb set. Insert is the everyday default. No multi-cursor, no full vim grammar.</div>
+
+      <div class="keymap"><span class="k">h j k l</span>  /  ←↓↑→
+<span class="k">w  b</span>       word fwd/back
+<span class="k">gg G</span>       buffer start / end
+<span class="k">d</span>          delete selection or word
+<span class="k">y  p</span>       yank / paste
+<span class="k">u  C-r</span>     undo / redo
+<span class="k">/</span>          search forward
+<span class="k">:</span>          command palette
+<span class="k">i</span>          enter insert
+<span class="k">v</span>          enter select mode
+<span class="k">Esc</span>        back to Normal</div>
+
+      <div class="flows">
+        <div class="flow"><span class="letter">A</span><div>delete word: <code>Esc d w</code></div></div>
+        <div class="flow"><span class="letter">B</span><div>goto 100:6: <code>Esc :100:6 Enter</code></div></div>
+        <div class="flow"><span class="letter">C</span><div>find &amp; edit 3rd TODO: <code>Esc /TODO Enter n n d w</code></div></div>
+      </div>
+
+      <div class="pros-cons">
+        <div>
+          <div class="head">Gain</div>
+          <ul>
+            <li>Modal feel without the bill</li>
+            <li>Small key surface</li>
+            <li>Insert-default = friendly</li>
+          </ul>
+        </div>
+        <div>
+          <div class="head">Lose</div>
+          <ul>
+            <li>Not vim/Helix-compatible</li>
+            <li>No selection-first elegance</li>
+            <li>Multi-cursor still off-table</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="cost">cost · <span class="val">~1 week</span></div>
+    </div>
+
+    <!-- Option 3: Modal-launcher -->
+    <div class="card">
+      <div class="tag">Option 3</div>
+      <h3>Modal-launcher</h3>
+      <div class="small">Normal mode is a prompt launcher and nothing else. Arrows always move. Insertion auto-resumes.</div>
+
+      <div class="keymap"><span class="k">:</span>         goto / command
+<span class="k">&gt;</span>         command palette
+<span class="k">/</span>         search forward
+<span class="k">!</span>         shell to dock
+<span class="k">!!</span>        shell to buffer
+<span class="k">@</span>         buffer picker
+<span class="k">i</span>         return to insert
+<span class="k">Esc</span>       return to insert
+
+<span class="none">no h j k l, no d/y/p</span>
+<span class="none">arrows always work</span>
+<span class="none">Ctrl-chords unchanged</span></div>
+
+      <div class="flows">
+        <div class="flow"><span class="letter">A</span><div>delete word: <code>C-Backspace</code> (Ctrl chord, no modal)</div></div>
+        <div class="flow"><span class="letter">B</span><div>goto 100:6: <code>Esc :100:6 Enter</code></div></div>
+        <div class="flow"><span class="letter">C</span><div>find &amp; edit 3rd TODO: <code>Esc /TODO Enter</code> then <code>↓ ↓</code> through matches</div></div>
+      </div>
+
+      <div class="pros-cons">
+        <div>
+          <div class="head">Gain</div>
+          <ul>
+            <li>Tiny mental model</li>
+            <li>Discoverable prompt</li>
+            <li>Cheap to ship</li>
+          </ul>
+        </div>
+        <div>
+          <div class="head">Lose</div>
+          <ul>
+            <li>No editing grammar</li>
+            <li>Modal payoff is thin</li>
+            <li>Esc just toggles a launcher</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="cost">cost · <span class="val">~3 days</span></div>
+    </div>
+
+    <!-- Option 4: Stay modeless -->
+    <div class="card">
+      <div class="tag">Option 4</div>
+      <h3>Modeless + unified prompt</h3>
+      <div class="small">Skip modality entirely. Keep Ctrl-chord bindings. Just unify the command bar + search with prefix dispatch.</div>
+
+      <div class="keymap"><span class="k">C-p</span>       open prompt
+<span class="k">C-f</span>       open prompt with /
+
+<span class="none">prompt prefix dispatch:</span>
+<span class="k">(empty)</span>   file picker
+<span class="k">&gt;cmd</span>      command palette
+<span class="k">/text</span>     search
+<span class="k">:42:6</span>     goto line
+<span class="k">!cmd</span>      shell to dock
+<span class="k">!!cmd</span>     shell to buffer
+<span class="k">@buf</span>      buffer picker
+
+<span class="none">no Normal mode</span>
+<span class="none">no Esc-to-launch</span></div>
+
+      <div class="flows">
+        <div class="flow"><span class="letter">A</span><div>delete word: <code>C-Backspace</code></div></div>
+        <div class="flow"><span class="letter">B</span><div>goto 100:6: <code>C-p :100:6 Enter</code></div></div>
+        <div class="flow"><span class="letter">C</span><div>find &amp; edit 3rd TODO: <code>C-p /TODO Enter</code> then <code>↓ ↓</code></div></div>
+      </div>
+
+      <div class="pros-cons">
+        <div>
+          <div class="head">Gain</div>
+          <ul>
+            <li>Zero learning curve</li>
+            <li>Feels like VS Code</li>
+            <li>Cheapest ship</li>
+          </ul>
+        </div>
+        <div>
+          <div class="head">Lose</div>
+          <ul>
+            <li>No structural editing</li>
+            <li>No "modal feels right" payoff</li>
+            <li>Just a palette upgrade</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="cost">cost · <span class="val">~2 days</span></div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============================================================
+     SECTION 2 — ESC SCENARIOS
+     ============================================================ -->
+<section id="sec-esc">
+  <h2><span class="num">02</span>Esc behaviour</h2>
+  <p class="sub">
+    Three candidates. Four practical scenarios. Cells marked
+    <em>surprising</em> are ones a typical user would not predict — the goal is to pick the model with the fewest of those.
+  </p>
+
+  <table class="esc-table">
+    <thead>
+      <tr>
+        <th>Scenario</th>
+        <th>A · "smart"<span class="sub2">Insert→Normal, Normal→opens prompt, prompt→prior focus</span></th>
+        <th>B · pure Helix/vim<span class="sub2">Insert→Normal, Normal→nothing, prompt→close</span></th>
+        <th>C · universal back<span class="sub2">closes most-recent thing; Insert→Normal; never opens anything</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th>S1 — Typing in buffer<span class="sub2">cursor mid-line, no prompt</span></th>
+        <td><span class="state">→ Normal mode</span>Cursor stops blinking; Insert indicator drops.</td>
+        <td><span class="state">→ Normal mode</span>Identical to A.</td>
+        <td><span class="state">→ Normal mode</span>Identical. Insert→Normal is the only "back" available here.</td>
+      </tr>
+      <tr>
+        <th>S2 — Just landed in Normal<span class="sub2">no prompt, no sidebar focus</span></th>
+        <td class="weird"><span class="state">→ Prompt opens, empty</span>Esc as a launch key is unusual; most users press Esc to dismiss, not summon.</td>
+        <td><span class="state">→ no-op</span>Predictable but unhelpful. Press <kbd>:</kbd> or <kbd>/</kbd> to do anything.</td>
+        <td><span class="state">→ no-op</span>Identical to B. C never opens anything.</td>
+      </tr>
+      <tr>
+        <th>S3 — Prompt open<span class="sub2">text is <code style="background:var(--bg-frame);border:1px solid var(--border);padding:0 4px">theme green</code></span></th>
+        <td><span class="state">→ closes prompt, restores prior focus</span>If you came from Editor/Insert, you land back in Insert. From Sidebar, back in Sidebar.</td>
+        <td><span class="state">→ closes prompt, lands in Normal</span>Always Normal, regardless of where you came from. Consistent but loses context.</td>
+        <td><span class="state">→ closes prompt, restores prior focus</span>Same as A.</td>
+      </tr>
+      <tr>
+        <th>S4 — Sidebar focused<span class="sub2">no prompt</span></th>
+        <td class="weird"><span class="state">→ Prompt opens, empty</span>Same surprise as S2: Esc summoned something instead of escaping.</td>
+        <td><span class="state">→ no-op</span>You must use <kbd>Ctrl+E</kbd> to leave the sidebar.</td>
+        <td><span class="state">→ focus returns to Editor (Insert)</span>"Back to where I was typing." Predictable.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout" style="margin-top:18px">
+    <strong>How to read this.</strong> A has two surprising cells (S2, S4) — Esc opening something rather than closing it is the friction. B is consistent but offers no way to summon the prompt without learning the prefix keys (<kbd>:</kbd> <kbd>/</kbd>). C is the closest to "Esc means escape, every time" while still giving you a useful sidebar→editor return path.
+  </div>
+</section>
+
+<!-- ============================================================
+     SECTION 3 — SHELL INTEGRATION SCOPE
+     ============================================================ -->
+<section id="sec-shell">
+  <h2><span class="num">03</span>Shell integration scope</h2>
+  <p class="sub">
+    Goal: <code>!ls -la</code> runs and shows output; <code>!!cargo test</code> opens a buffer for the result; eventually <code>!!htop</code> works as a real interactive terminal. Each rung delivers most of the previous one's value with progressively more infrastructure.
+  </p>
+
+  <!-- MVP-1 -->
+  <div class="rung">
+    <div class="rung-head">
+      <span class="name">MVP-1 · async <code>!cmd</code> to dock</span>
+      <span class="effort">effort · <span class="v">~2 days</span></span>
+    </div>
+    <div class="rung-body">
+      <div>
+        <h4>Ships</h4>
+        <ul>
+          <li>Prompt prefix <code>!</code> spawns a subprocess via <code>Process.Start</code> (reuse the clipboardCopy pattern in <code>Runtime.fs:76-109</code>).</li>
+          <li>Runs async via <code>Task.Run</code>; output posted back as <code>Msg</code>s through the existing <code>ConcurrentQueue</code>.</li>
+          <li>New <code>DockOutput</code> variant rendered by <code>View.fs</code> alongside <code>DockCompletions</code> / <code>DockInfo</code>.</li>
+          <li><kbd>Ctrl+C</kbd> while focused on the prompt kills the running command.</li>
+        </ul>
+        <h4 style="margin-top:14px">Doesn't ship</h4>
+        <ul>
+          <li>No <code>!!</code> (buffer output).</li>
+          <li>No ANSI color rendering — escape codes shown verbatim or stripped.</li>
+          <li>No interactivity. Output-only.</li>
+        </ul>
+      </div>
+      <div>
+        <p class="demo-label">demo · same commands at this rung's capability</p>
+        <div class="demos">
+          <div>
+            <p class="demo-label">!ls -la</p>
+<div class="term"><span class="dim">─── ! output ──────────</span>
+total 16
+drwxr-xr-x  5 helge  160 B
+drwxr-xr-x  7 helge  224 B
+-rw-r--r--  1 helge   42 B README
+-rw-r--r--  1 helge  120 B TODO.md
+<span class="dim">─── exit 0 · 12 ms ────</span></div>
+          </div>
+          <div>
+            <p class="demo-label">!!cargo test</p>
+<div class="term"><span class="dim">─── prompt error ──────</span>
+<span class="err">!! not available in MVP-1</span>
+<span class="dim">use !cargo test for dock</span>
+<span class="dim">output instead.</span></div>
+          </div>
+          <div>
+            <p class="demo-label">!!htop</p>
+<div class="term"><span class="dim">─── prompt error ──────</span>
+<span class="err">!! not available in MVP-1</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MVP-2 -->
+  <div class="rung">
+    <div class="rung-head">
+      <span class="name">MVP-2 · + read-only output buffer for <code>!!cmd</code></span>
+      <span class="effort">effort · <span class="v">+1–2 days</span> (total ~4 days)</span>
+    </div>
+    <div class="rung-body">
+      <div>
+        <h4>Ships</h4>
+        <ul>
+          <li>Prompt prefix <code>!!</code> opens a new buffer marked <code>ReadOnly</code> (new flag on <code>BufferState</code>).</li>
+          <li>Output streams into the buffer as it arrives; cursor follows the bottom unless the user scrolls up.</li>
+          <li>Buffer name is the command (<code>!!cargo test</code>); closes via <code>:quit</code> like any other buffer.</li>
+        </ul>
+        <h4 style="margin-top:14px">Doesn't ship</h4>
+        <ul>
+          <li>Still no interactivity. The process can't be typed at.</li>
+          <li>Still no ANSI color (rung 3).</li>
+          <li>Read-only means <kbd>Ctrl+C</kbd> in the buffer doesn't send SIGINT — kill only from the prompt.</li>
+        </ul>
+      </div>
+      <div>
+        <p class="demo-label">demo</p>
+        <div class="demos">
+          <div>
+            <p class="demo-label">!ls -la</p>
+<div class="term"><span class="dim">(unchanged · dock)</span>
+total 16
+drwxr-xr-x  README
+drwxr-xr-x  TODO.md
+<span class="dim">─── exit 0 ───────────</span></div>
+          </div>
+          <div>
+            <p class="demo-label">!!cargo test</p>
+<div class="term"><span class="label">buffer · !!cargo test</span>
+   1   Compiling fedit v0.1
+   2    Finished test profile
+   3      Running unittests
+   4
+   5  running 12 tests
+   6  test buffer::insert ok
+   7  test commands::goto ok
+   8  ...
+<span class="cursor"> </span></div>
+          </div>
+          <div>
+            <p class="demo-label">!!htop</p>
+<div class="term"><span class="label">buffer · !!htop</span>
+<span class="err">[?1049h[?25l[?1006h</span>
+<span class="err">[H[2J  1  [|||  </span>
+<span class="err">[2;1H  2  [||   </span>
+<span class="dim">(escapes printed</span>
+<span class="dim">as text — no PTY)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MVP-3 -->
+  <div class="rung">
+    <div class="rung-head">
+      <span class="name">MVP-3 · + ANSI SGR colour</span>
+      <span class="effort">effort · <span class="v">+2–3 days</span> (total ~1 week)</span>
+    </div>
+    <div class="rung-body">
+      <div>
+        <h4>Ships</h4>
+        <ul>
+          <li>A small SGR parser converts <code>\x1b[31m</code> etc. into styled cells. We already render styled cells — this is wiring, not new infra.</li>
+          <li>Works in both dock output and <code>!!</code> buffers. <code>cargo</code>, <code>grep --color</code>, <code>git diff</code>, <code>ls -G</code> all look right.</li>
+        </ul>
+        <h4 style="margin-top:14px">Doesn't ship</h4>
+        <ul>
+          <li>Cursor-motion escapes (CUP, ED, CUU/CUD/CUF/CUB) are ignored. Plain output is fine; full-screen TUIs like <code>htop</code>/<code>vim</code> still scramble.</li>
+          <li>No mouse passthrough.</li>
+        </ul>
+      </div>
+      <div>
+        <p class="demo-label">demo</p>
+        <div class="demos">
+          <div>
+            <p class="demo-label">!ls -la</p>
+<div class="term"><span class="dim">─── ! output ──────────</span>
+total 16
+drwxr-xr-x  <span class="acc">design</span>
+drwxr-xr-x  <span class="acc">brand</span>
+-rw-r--r--  README
+<span class="dim">─── exit 0 ───────────</span></div>
+          </div>
+          <div>
+            <p class="demo-label">!!cargo test</p>
+<div class="term"><span class="label">buffer · !!cargo test</span>
+   5  running 12 tests
+   6  test buffer::insert <span class="acc">ok</span>
+   7  test commands::goto <span class="acc">ok</span>
+   8  test config::clamp   <span class="err">FAILED</span>
+   9
+  10  test result: <span class="err">FAILED</span>
+<span class="cursor"> </span></div>
+          </div>
+          <div>
+            <p class="demo-label">!!htop</p>
+<div class="term"><span class="label">buffer · !!htop</span>
+<span class="dim">(still scrambled — needs</span>
+<span class="dim">cursor-motion handling,</span>
+<span class="dim">which is the "Full" rung)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full -->
+  <div class="rung">
+    <div class="rung-head">
+      <span class="name">Full · interactive PTY buffer</span>
+      <span class="effort">effort · <span class="v">2–4 weeks</span>, possibly more</span>
+    </div>
+    <div class="rung-body">
+      <div>
+        <h4>Ships</h4>
+        <ul>
+          <li><code>!!cmd</code> opens a buffer backed by a real PTY (<code>openpty</code> on macOS/Linux via P/Invoke; Pty.Net on Windows).</li>
+          <li>Keystrokes in the buffer are forwarded to the subprocess; ANSI cursor motion is parsed and applied to a cell grid; resize emits SIGWINCH.</li>
+          <li><code>vim</code>, <code>htop</code>, <code>fzf</code>, <code>nvim</code>, an interactive REPL all run inside fedit.</li>
+        </ul>
+        <h4 style="margin-top:14px">What it costs</h4>
+        <ul>
+          <li>A partial terminal emulator inside fedit — biggest test surface in the codebase.</li>
+          <li>New failure modes: dead subprocess, broken pipe, child grandchildren, signal forwarding bugs.</li>
+          <li>Maintenance forever, because every new TUI program is a new regression case.</li>
+        </ul>
+      </div>
+      <div>
+        <p class="demo-label">demo</p>
+        <div class="demos">
+          <div>
+            <p class="demo-label">!ls -la</p>
+<div class="term"><span class="dim">─── ! output ──────────</span>
+total 16
+drwxr-xr-x  <span class="acc">design</span>
+drwxr-xr-x  <span class="acc">brand</span>
+<span class="dim">─── exit 0 ───────────</span></div>
+          </div>
+          <div>
+            <p class="demo-label">!!cargo test</p>
+<div class="term"><span class="label">buffer · !!cargo test (PTY)</span>
+running 12 tests
+test buffer::insert <span class="acc">ok</span>
+test commands::goto <span class="acc">ok</span>
+test config::clamp   <span class="err">FAILED</span>
+<span class="cursor"> </span></div>
+          </div>
+          <div>
+            <p class="demo-label">!!htop</p>
+<div class="term"><span class="label">buffer · !!htop (PTY)</span>
+  1  <span class="acc">[|||||      ]</span> 32%
+  2  <span class="acc">[||         ]</span>  6%
+  3  <span class="acc">[|||||||||  ]</span> 78%
+  4  <span class="acc">[|          ]</span>  2%
+Mem<span class="acc">[||||||     ]</span>4.2G/16G
+Swp<span class="acc">[           ]</span>0K/0K
+<span class="cursor"> </span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Reality check.</strong>
+    Full PTY is the largest single feature fedit would ever add. The codebase has zero PTY infrastructure today — the only existing <code>Process.Start</code> usage is fire-and-forget clipboard copy/paste in <code>Runtime.fs:76-109</code>. Recommend shipping MVP-1 + MVP-2 + MVP-3 in that order and revisiting Full only once we have a concrete use case beyond "wouldn't it be cool if <code>vim</code> ran inside fedit." MVP-3 already covers <code>cargo</code>, <code>git</code>, <code>grep</code>, <code>just</code>, <code>dotnet</code> — the actual day-to-day commands.
+  </div>
+</section>
+
+<!-- ============================================================
+     SECTION 4 — RECOMMENDATION
+     ============================================================ -->
+<section id="sec-rec">
+  <h2><span class="num">04</span>Recommendation</h2>
+  <p class="sub">
+    One pick per axis. Not the only valid combination — but the one that lands the most value for the least risk, and lets us learn from real use before committing to bigger investments.
+  </p>
+
+  <div class="rec">
+    <h3>What I'd build first</h3>
+
+    <div class="pick">
+      <div class="axis">Modality</div>
+      <div class="choice">Helix-lite</div>
+      <div class="why">
+        Full Helix is a multi-month commitment whose payoff (selection-first grammar, multi-cursor) we can't justify before we know how users hold the editor. Modal-launcher is barely modal — Esc just opens a prompt. Modeless+unified is the safest skip-this-round option but gives up the "modal feels right" thing the user explicitly wants. Helix-lite gets the feel for ~1 week of work and leaves a clean upgrade path to Full Helix later if appetite grows.
+      </div>
+    </div>
+
+    <div class="pick">
+      <div class="axis">Esc</div>
+      <div class="choice">Universal back-button (Option C)</div>
+      <div class="why">
+        Option A's "Esc opens the prompt" cells (S2, S4) are the friction; every user instinct says Esc closes things. Option B is consistent but offers no Esc-driven path out of the sidebar. Option C is the closest to "Esc means escape, every time" while still giving the sidebar→editor return that the user wants. The prompt gets opened by typing <kbd>:</kbd> / <kbd>/</kbd> / <kbd>!</kbd> from Normal mode, which is also the Helix muscle memory.
+      </div>
+    </div>
+
+    <div class="pick">
+      <div class="axis">Shell</div>
+      <div class="choice">MVP-1 → MVP-2 → MVP-3, in that order. Defer Full.</div>
+      <div class="why">
+        MVP-1 ships in ~2 days and covers <code>!ls</code>, <code>!grep</code>, <code>!just check</code>. MVP-2 (+1–2 days) adds the captured-output buffer for longer commands like <code>!!cargo test</code>. MVP-3 (+2–3 days) adds SGR colour so output stops looking dead. Total: ~1 week for the 90% case. Full PTY (2–4+ weeks) only makes sense once we know which interactive TUI we actually need inside fedit — and the answer might be "none, just keep using the host terminal."
+      </div>
+    </div>
+
+    <div class="order">
+      <strong>Ship order if all three accepted.</strong>
+      Modeless prompt unification first (already specced — Direction A in <code>TODO.md</code>), since both modality and shell features land on top of it. Then MVP-1 shell. Then Helix-lite modal layer with Esc-as-back. Then MVP-2 + MVP-3 shell in either order. Each step is independently useful — bail at any rung without leaving the editor in an awkward middle state.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="meta">
+    <span>fedit · design exploration</span>
+    <span>self-contained, no external assets</span>
+    <span>open in any browser, no network needed</span>
+  </div>
+</footer>
+
+</div>
+</body>
+</html>

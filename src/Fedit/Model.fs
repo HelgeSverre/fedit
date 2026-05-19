@@ -7,21 +7,33 @@ type EditorsState =
       ActiveBufferId: int
       NextBufferId: int }
 
-type SearchState =
-    { Query: string
-      Matches: int list
+type PromptMode =
+    /// Empty Text, or any first character that isn't a recognised prefix.
+    | FilePicker
+    /// Text starts with ':' — named commands AND `:LINE[:COL]` cursor jump.
+    /// The argument's first character decides: digit → goto, else → command.
+    | Command
+    /// Text starts with '/' — incremental search in the active buffer.
+    | Search
+    /// Text starts with '@' — buffer picker.
+    | Buffers
+
+type SearchPreview =
+    { Matches: int list
       Current: int }
 
-type CommandBarState =
+type PromptState =
     { Active: bool
       Text: string
       Cursor: int
+      Mode: PromptMode
       Parsed: ParsedCommand
       Completions: CompletionItem list
       SelectedCompletion: int
       History: string list
       HistoryIndex: int option
-      PreviewTheme: Theme option }
+      PreviewTheme: Theme option
+      SearchPreview: SearchPreview option }
 
 type PanelsState =
     { SidebarVisible: bool
@@ -53,7 +65,7 @@ module Config =
           CompletionLimit = 8
           SidebarIndent = 2
           SidebarWidth = 30
-          DockHeight = 5
+          DockHeight = 8
           WordMotion = WordEnd
           PageOverlap = 2
           TreePageJump = 10 }
@@ -61,15 +73,13 @@ module Config =
 type Model =
     { Workspace: WorkspaceState
       Editors: EditorsState
-      CommandBar: CommandBarState
+      Prompt: PromptState
       Panels: PanelsState
       Focus: FocusTarget
       Terminal: Size
       Notification: Notification option
       Config: Config
       UserThemes: Theme list
-      Search: SearchState option
-      ShowHelp: bool
       QuitArmed: bool
       ShouldQuit: bool }
 

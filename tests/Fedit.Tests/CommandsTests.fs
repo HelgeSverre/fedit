@@ -75,34 +75,46 @@ let ``prefix of known command parses to Pending`` () =
     | other -> failwithf "expected Pending, got %A" other
 
 [<Fact>]
-let ``bare line number parses to Goto with no column`` () =
-    Commands.parse "42" |> should equal (Ready(Goto(42, None)))
+let ``parseGoto with bare line number returns Goto with no column`` () =
+    Commands.parseGoto "42" |> should equal (Ready(Command.Goto(42, None)))
 
 [<Fact>]
-let ``line and column parses to Goto with column`` () =
-    Commands.parse "100:6" |> should equal (Ready(Goto(100, Some 6)))
+let ``parseGoto with line and column returns Goto with column`` () =
+    Commands.parseGoto "100:6" |> should equal (Ready(Command.Goto(100, Some 6)))
 
 [<Fact>]
-let ``goto with extra colons is Invalid`` () =
-    match Commands.parse "1:2:3" with
+let ``parseGoto rejects extra colons`` () =
+    match Commands.parseGoto "1:2:3" with
     | Invalid _ -> ()
     | other -> failwithf "expected Invalid, got %A" other
 
 [<Fact>]
-let ``goto with zero is Invalid`` () =
-    match Commands.parse "0" with
+let ``parseGoto rejects zero line or column`` () =
+    match Commands.parseGoto "0" with
     | Invalid _ -> ()
     | other -> failwithf "expected Invalid, got %A" other
 
-    match Commands.parse "5:0" with
+    match Commands.parseGoto "5:0" with
     | Invalid _ -> ()
     | other -> failwithf "expected Invalid for zero column, got %A" other
 
 [<Fact>]
-let ``goto with trailing colon is Invalid`` () =
-    match Commands.parse "42:" with
+let ``parseGoto rejects trailing colon`` () =
+    match Commands.parseGoto "42:" with
     | Invalid _ -> ()
     | other -> failwithf "expected Invalid, got %A" other
+
+[<Fact>]
+let ``parseGoto with empty input is Pending`` () =
+    match Commands.parseGoto "" with
+    | Pending _ -> ()
+    | other -> failwithf "expected Pending, got %A" other
+
+[<Fact>]
+let ``bare numeric is no longer a command (goto requires colon prefix at prompt layer)`` () =
+    match Commands.parse "42" with
+    | Invalid _ -> ()
+    | other -> failwithf "expected Invalid for bare '42', got %A" other
 
 [<Fact>]
 let ``completionLimit caps file completions`` () =

@@ -22,7 +22,10 @@ type WorkspaceState =
     { RootPath: string
       Tree: FileNode option
       Expanded: Set<string>
-      SelectedPath: string option }
+      SelectedPath: string option
+      /// Type-ahead search query (Finder / VS Code Explorer style).
+      /// Empty when no search is in progress.
+      SearchBuffer: string }
 
 type SidebarAction =
     | SidebarNoOp
@@ -36,7 +39,8 @@ module Workspace =
         { RootPath = rootPath
           Tree = None
           Expanded = Set.singleton rootPath
-          SelectedPath = None }
+          SelectedPath = None
+          SearchBuffer = "" }
 
     let private sortChildren (nodes: FileNode list) =
         nodes
@@ -173,6 +177,81 @@ module Workspace =
             { workspace with Expanded = expanded }, SidebarNoOp
         | Some node -> workspace, SidebarOpenFile node.Path
         | None -> workspace, SidebarNoOp
+
+    let clearSearch workspace =
+        if workspace.SearchBuffer = "" then
+            workspace
+        else
+            { workspace with SearchBuffer = "" }
+
+    let private matchesIn (entries: WorkspaceEntry list) (needle: string) =
+        if String.IsNullOrEmpty needle then
+            []
+        else
+            entries
+            |> List.filter (fun entry -> entry.Name.StartsWith(needle, StringComparison.OrdinalIgnoreCase))
+
+    /// VS Code / Finder-style type-ahead: extend the buffer if the extended
+    /// query still matches anything; otherwise restart with just the new char;
+    /// otherwise drop the buffer entirely (next press starts fresh).
+    /// If the same query matches multiple entries and the current selection is
+    /// already one of them, advance to the next match.
+    let appendSearch (c: char) workspace =
+        let entries = visibleEntries workspace
+        let extended = workspace.SearchBuffer + string c
+        let single = string c
+
+        let newBuffer, matched =
+            match matchesIn entries extended with
+            | _ :: _ as ms -> extended, ms
+            | [] ->
+                match matchesIn entries single with
+                | _ :: _ as ms -> single, ms
+                | [] -> "", []
+
+        if matched.IsEmpty then
+            { workspace with SearchBuffer = "" }
+        else
+            let currentIsMatch =
+                workspace.SelectedPath
+                |> Option.exists (fun path -> matched |> List.exists (fun m -> m.Path = path))
+
+            let target =
+                if currentIsMatch && workspace.SearchBuffer = newBuffer then
+                    // Same query re-typed — cycle to next matching entry.
+                    let currentIdx =
+                        matched
+                        |> List.findIndex (fun m -> Some m.Path = workspace.SelectedPath)
+
+                    matched[(currentIdx + 1) % matched.Length]
+                else
+                    List.head matched
+
+            { workspace with
+                SearchBuffer = newBuffer
+                SelectedPath = Some target.Path }
+
+    /// Drop the last character from the search buffer and re-select the first
+    /// match of the shortened query. If the buffer was empty or becomes empty,
+    /// just clears it.
+    let backspaceSearch workspace =
+        if workspace.SearchBuffer.Length = 0 then
+            workspace
+        else
+            let shorter = workspace.SearchBuffer.Substring(0, workspace.SearchBuffer.Length - 1)
+
+            if shorter.Length = 0 then
+                { workspace with SearchBuffer = "" }
+            else
+                let entries = visibleEntries workspace
+                let matched = matchesIn entries shorter
+
+                match matched with
+                | first :: _ ->
+                    { workspace with
+                        SearchBuffer = shorter
+                        SelectedPath = Some first.Path }
+                | [] -> { workspace with SearchBuffer = shorter }
 
     let metadata workspace =
         workspace.SelectedPath

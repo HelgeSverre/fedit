@@ -1613,3 +1613,35 @@ motion, "find all" mode that highlights without moving the cursor).
 - Plugin / scripting surface — stays out of scope unless someone asks.
 - Release automation: see **Phase 19** (promoted out of Open questions
   into a concrete workflow shape).
+
+---
+
+## Deferred — Unified prompt / modal redesign
+
+Captured from a design session 2026-05-20. Not in any phase yet; pending
+a decision driven by the comparison page at
+[`design/modality-explorer.html`](design/modality-explorer.html).
+
+- **The lying glyph.** `View.fs:369,372` glues `:` and `/` onto the
+  rendered prompt; neither prefix is in `CommandBar.Text` or
+  `Search.Query`. Users can't backspace through them, can't type the
+  other prefix to switch modes, and the two prompts have asymmetric
+  backspace-on-empty behaviour (search closes; command bar no-ops).
+- **Direction A — Unified Quick Open** (VS Code / Sublime model).
+  One prompt with prefix dispatch: `(empty)` = file picker, `>` =
+  commands, `/` = search, `:` = goto line, `!` / `!!` = shell, `@` =
+  buffers. Phased: honest-prefix → unified `Prompt` state → full
+  vocabulary.
+- **Direction B — Modal redesign.** Helix-lite with Esc-driven
+  prompt entry. Subsumes Direction A's prefix dispatch as a side-
+  effect of unification.
+- **Shell integration ladder.** `!cmd` async to dock (MVP-1, ~2d);
+  `!!cmd` to read-only output buffer (MVP-2, +1–2d); SGR colour
+  rendering (MVP-3, +2–3d); interactive PTY buffer (Full, 2–4 weeks).
+  See the explorer for per-rung demos and the existing-pattern
+  references in `Runtime.fs:76-109` (Process.Start) and
+  `Runtime.fs:275-348` (async effect plumbing).
+- **Recommendation in the explorer:** Helix-lite + Esc-as-universal-
+  back + ship MVP-1 → 2 → 3 (defer Full). Ship the prompt
+  unification first so both modality and shell features land on top
+  of a consistent prompt.

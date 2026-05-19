@@ -5,16 +5,18 @@ open System.IO
 
 [<RequireQualifiedAccess>]
 module Editor =
-    let private emptyCommandBar =
+    let private emptyPrompt =
         { Active = false
           Text = ""
           Cursor = 0
+          Mode = FilePicker
           Parsed = Empty
           Completions = []
           SelectedCompletion = 0
           History = []
           HistoryIndex = None
-          PreviewTheme = None }
+          PreviewTheme = None
+          SearchPreview = None }
 
     let private initialPanels (config: Config) =
         { SidebarVisible = true
@@ -71,83 +73,198 @@ module Editor =
             None
 
     let private updatePreview model =
-        if not model.CommandBar.Active then
+        let prompt = model.Prompt
+
+        if not prompt.Active || prompt.Mode <> Command then
             { model with
-                CommandBar =
-                    { model.CommandBar with
-                        PreviewTheme = None } }
+                Prompt = { prompt with PreviewTheme = None } }
         else
             let fromCompletion =
-                model.CommandBar.Completions
-                |> List.tryItem model.CommandBar.SelectedCompletion
+                prompt.Completions
+                |> List.tryItem prompt.SelectedCompletion
                 |> Option.bind (fun item -> themeFromApplyText model.UserThemes item.ApplyText)
 
             let preview =
-                match fromCompletion, model.CommandBar.Parsed with
+                match fromCompletion, prompt.Parsed with
                 | Some _, _ -> fromCompletion
                 | None, Ready(Theme name) -> Themes.tryFindIn model.UserThemes name
                 | _ -> None
 
             { model with
-                CommandBar =
-                    { model.CommandBar with
-                        PreviewTheme = preview } }
+                Prompt = { prompt with PreviewTheme = preview } }
 
-    let private refreshCommandBar model =
+    let private filePickerCompletions model query =
+        let limit = model.Config.CompletionLimit
+        let recent = model.Config.Recent
+        let files = workspaceFiles model.Workspace
+        let needle = query
+
+        let matches (path: string) =
+            if String.IsNullOrEmpty needle then
+                true
+            else
+                let fileName =
+                    Path.GetFileName path |> Option.ofObj |> Option.defaultValue path
+
+                fileName.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0
+                || path.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0
+
+        let recentRelative =
+            recent
+            |> List.map (fun path ->
+                try
+                    Path.GetRelativePath(model.Workspace.RootPath, path)
+                with _ ->
+                    path)
+
+        let recentFiltered =
+            List.zip recent recentRelative
+            |> List.filter (fun (_, rel) -> matches rel)
+
+        let workspaceFiltered =
+            let recentSet = System.Collections.Generic.HashSet(recentRelative)
+
+            files
+            |> List.filter (fun rel -> not (recentSet.Contains rel) && matches rel)
+
+        let recentItems =
+            recentFiltered
+            |> List.map (fun (absolute, relative) ->
+                { Label = relative
+                  ApplyText = relative
+                  Detail = "recent"
+                  Kind = PathItem })
+
+        let workspaceItems =
+            workspaceFiltered
+            |> List.map (fun rel ->
+                { Label = rel
+                  ApplyText = rel
+                  Detail = "workspace"
+                  Kind = PathItem })
+
+        recentItems @ workspaceItems |> List.truncate limit
+
+    let private buffersCompletions model query =
+        model.Editors.Buffers
+        |> Map.toList
+        |> List.filter (fun (id, buffer) ->
+            String.IsNullOrEmpty query
+            || buffer.Name.StartsWith(query, StringComparison.OrdinalIgnoreCase)
+            || (string id).StartsWith query)
+        |> List.truncate model.Config.CompletionLimit
+        |> List.map (fun (id, buffer) ->
+            let detail = buffer.FilePath |> Option.defaultValue "scratch"
+
+            { Label = $"{id}  {buffer.Name}"
+              ApplyText = $"{id}"
+              Detail = detail
+              Kind = PathItem })
+
+    let private commandCompletions model query =
         let buffersForCompletion =
             model.Editors.Buffers
             |> Map.toList
             |> List.map (fun (id, buffer) -> id, buffer.Name, buffer.FilePath)
 
-        let completions =
-            Commands.completions
-                { RootPath = model.Workspace.RootPath
-                  Files = workspaceFiles model.Workspace
-                  Recent = model.Config.Recent
-                  Buffers = buffersForCompletion
-                  Themes = Themes.merge model.UserThemes
-                  CompletionLimit = model.Config.CompletionLimit }
-                model.CommandBar.Text
+        Commands.completions
+            { RootPath = model.Workspace.RootPath
+              Files = workspaceFiles model.Workspace
+              Recent = model.Config.Recent
+              Buffers = buffersForCompletion
+              Themes = Themes.merge model.UserThemes
+              CompletionLimit = model.Config.CompletionLimit }
+            query
+
+    let private updateSearchPreview model =
+        let prompt = model.Prompt
+        let query = Prompt.argumentOf prompt.Text
+
+        if query.Length = 0 then
+            { model with
+                Prompt = { prompt with SearchPreview = None } }
+        else
+            let buffer = activeBufferState model
+            let matches = Buffer.findAll query buffer
+            let preview = { Matches = matches; Current = 0 }
+
+            let withPreview =
+                { model with
+                    Prompt = { prompt with SearchPreview = Some preview } }
+
+            match matches with
+            | [] -> withPreview
+            | first :: _ -> updateActiveBuffer (Buffer.moveToOffset first) withPreview
+
+    let private refreshPrompt model =
+        let prompt = model.Prompt
+        let mode = Prompt.modeOf prompt.Text
+        let argument = Prompt.argumentOf prompt.Text
+
+        let isNumericGoto =
+            let trimmed = argument.TrimStart()
+            trimmed.Length > 0 && Char.IsDigit trimmed[0]
+
+        let completions, parsed =
+            match mode with
+            | FilePicker -> filePickerCompletions model prompt.Text, Empty
+            | Command when isNumericGoto -> [], Commands.parseGoto argument
+            | Command -> commandCompletions model argument, Commands.parse argument
+            | Buffers -> buffersCompletions model argument, Empty
+            | Search -> [], Empty
 
         let selectedIndex =
             if completions.IsEmpty then
                 0
             else
-                min model.CommandBar.SelectedCompletion (completions.Length - 1)
+                min prompt.SelectedCompletion (completions.Length - 1)
 
-        { model with
-            CommandBar =
-                { model.CommandBar with
-                    Parsed = Commands.parse model.CommandBar.Text
-                    Completions = completions
-                    SelectedCompletion = selectedIndex } }
-        |> updatePreview
+        let withCompletions =
+            { model with
+                Prompt =
+                    { prompt with
+                        Mode = mode
+                        Parsed = parsed
+                        Completions = completions
+                        SelectedCompletion = selectedIndex
+                        SearchPreview = if mode = Search then prompt.SearchPreview else None } }
 
-    let private openCommandBar initialText model =
+        let withSearch =
+            if mode = Search then
+                updateSearchPreview withCompletions
+            else
+                withCompletions
+
+        updatePreview withSearch
+
+    let private openPrompt (initialText: string) model =
         { model with
-            Focus = CommandBar
-            CommandBar =
-                { model.CommandBar with
+            Focus = Prompt
+            Prompt =
+                { model.Prompt with
                     Active = true
                     Text = initialText
                     Cursor = initialText.Length
                     HistoryIndex = None
-                    SelectedCompletion = 0 } }
-        |> refreshCommandBar
+                    SelectedCompletion = 0
+                    SearchPreview = None } }
+        |> refreshPrompt
 
-    let private closeCommandBar model =
+    let private closePrompt model =
         { model with
             Focus = Editor
-            CommandBar =
-                { model.CommandBar with
+            Prompt =
+                { model.Prompt with
                     Active = false
                     Text = ""
                     Cursor = 0
+                    Mode = FilePicker
                     Parsed = Empty
                     Completions = []
                     SelectedCompletion = 0
                     HistoryIndex = None
-                    PreviewTheme = None } }
+                    PreviewTheme = None
+                    SearchPreview = None } }
 
     let private resolvePath (rootPath: string) (path: string) =
         if Path.IsPathRooted path then
@@ -155,49 +272,66 @@ module Editor =
         else
             Path.GetFullPath(Path.Combine(rootPath, path))
 
-    let private insertCommandText value model =
-        let cursor = max 0 (min model.CommandBar.Cursor model.CommandBar.Text.Length)
-        let nextText = model.CommandBar.Text.Insert(cursor, value)
+    let private insertPromptText value model =
+        let prompt = model.Prompt
+        let cursor = max 0 (min prompt.Cursor prompt.Text.Length)
+        let nextText = prompt.Text.Insert(cursor, value)
 
         { model with
-            CommandBar =
-                { model.CommandBar with
+            Prompt =
+                { prompt with
                     Text = nextText
                     Cursor = cursor + value.Length
                     SelectedCompletion = 0 } }
-        |> refreshCommandBar
+        |> refreshPrompt
 
-    let private replaceCommandText value model =
+    let private replacePromptText value model =
         { model with
-            CommandBar =
-                { model.CommandBar with
+            Prompt =
+                { model.Prompt with
                     Text = value
                     Cursor = value.Length
                     SelectedCompletion = 0 } }
-        |> refreshCommandBar
+        |> refreshPrompt
 
-    let private deleteCommandBackward model =
-        if model.CommandBar.Cursor = 0 then
+    let private prefixOf mode =
+        match mode with
+        | FilePicker -> ""
+        | Command -> ":"
+        | Search -> "/"
+        | Buffers -> "@"
+
+    /// Apply a completion's ApplyText to the prompt, preserving the active mode's prefix.
+    let private applyCompletion (item: CompletionItem) model =
+        replacePromptText (prefixOf model.Prompt.Mode + item.ApplyText) model
+
+    let private deletePromptBackward model =
+        let prompt = model.Prompt
+
+        if prompt.Cursor = 0 then
+            // Backspace on empty (or at start of empty Text) closes the prompt.
+            closePrompt model
+        else
+            { model with
+                Prompt =
+                    { prompt with
+                        Text = prompt.Text.Remove(prompt.Cursor - 1, 1)
+                        Cursor = prompt.Cursor - 1
+                        SelectedCompletion = 0 } }
+            |> refreshPrompt
+
+    let private deletePromptForward model =
+        let prompt = model.Prompt
+
+        if prompt.Cursor >= prompt.Text.Length then
             model
         else
             { model with
-                CommandBar =
-                    { model.CommandBar with
-                        Text = model.CommandBar.Text.Remove(model.CommandBar.Cursor - 1, 1)
-                        Cursor = model.CommandBar.Cursor - 1
+                Prompt =
+                    { prompt with
+                        Text = prompt.Text.Remove(prompt.Cursor, 1)
                         SelectedCompletion = 0 } }
-            |> refreshCommandBar
-
-    let private deleteCommandForward model =
-        if model.CommandBar.Cursor >= model.CommandBar.Text.Length then
-            model
-        else
-            { model with
-                CommandBar =
-                    { model.CommandBar with
-                        Text = model.CommandBar.Text.Remove(model.CommandBar.Cursor, 1)
-                        SelectedCompletion = 0 } }
-            |> refreshCommandBar
+            |> refreshPrompt
 
     let private saveActiveBuffer customPath model =
         let buffer = activeBufferState model
@@ -211,7 +345,7 @@ module Editor =
         match targetPath with
         | Some path -> model, [ SaveBuffer(buffer.Id, path, Buffer.serialize buffer) ]
         | None ->
-            openCommandBar "writeas " model
+            openPrompt ":writeas " model
             |> notify (Some(Notification.warning "Scratch buffers need a path.")),
             []
 
@@ -222,10 +356,10 @@ module Editor =
             model
         else
             { model with
-                CommandBar =
-                    { model.CommandBar with
+                Prompt =
+                    { model.Prompt with
                         History =
-                            trimmed :: (model.CommandBar.History |> List.filter ((<>) trimmed))
+                            trimmed :: (model.Prompt.History |> List.filter ((<>) trimmed))
                             |> List.truncate 20 } }
 
     let private switchBuffer offset model =
@@ -285,11 +419,6 @@ module Editor =
         | ReloadWorkspace -> model, [ ScanWorkspace model.Workspace.RootPath ]
         | NextBuffer -> switchBuffer 1 model, []
         | PreviousBuffer -> switchBuffer -1 model, []
-        | Help ->
-            { model with
-                ShowHelp = not model.ShowHelp }
-            |> notify (Some(Notification.info $"""Help: {if not model.ShowHelp then "ON" else "OFF"}""")),
-            []
         | Theme name ->
             match Themes.tryFindIn model.UserThemes name with
             | Some theme ->
@@ -339,7 +468,7 @@ module Editor =
                 |> notify (Some(Notification.info $"Buffer {id}")),
                 []
             | None -> model |> notify (Some(Notification.error $"Unknown buffer '{ident}'.")), []
-        | Goto(line, column) ->
+        | Command.Goto(line, column) ->
             let targetLine = max 0 (line - 1)
             let targetCol = max 0 ((Option.defaultValue 1 column) - 1)
 
@@ -355,114 +484,81 @@ module Editor =
 
             { moved with Focus = Editor }, []
 
-    let private openSearch model =
-        { model with
-            Focus = Search
-            Search =
-                Some
-                    { Query = ""
-                      Matches = []
-                      Current = 0 } }
-
-    let private closeSearch model =
-        { model with
-            Focus = Editor
-            Search = None }
-
-    let private updateSearchQuery query model =
-        let buffer = activeBufferState model
-        let matches = Buffer.findAll query buffer
-
-        let modelWithSearch =
-            { model with
-                Search =
-                    Some
-                        { Query = query
-                          Matches = matches
-                          Current = 0 } }
-
-        match matches with
-        | [] -> modelWithSearch
-        | first :: _ -> updateActiveBuffer (Buffer.moveToOffset first) modelWithSearch
-
     let private moveSearchMatch delta model =
-        match model.Search with
-        | Some search when not search.Matches.IsEmpty ->
-            let count = search.Matches.Length
-            let nextIdx = ((search.Current + delta) % count + count) % count
-            let target = search.Matches[nextIdx]
+        let prompt = model.Prompt
+
+        match prompt.SearchPreview with
+        | Some preview when not preview.Matches.IsEmpty ->
+            let count = preview.Matches.Length
+            let nextIdx = ((preview.Current + delta) % count + count) % count
+            let target = preview.Matches[nextIdx]
             let modelUpdated = updateActiveBuffer (Buffer.moveToOffset target) model
 
             { modelUpdated with
-                Search = Some { search with Current = nextIdx } }
+                Prompt =
+                    { modelUpdated.Prompt with
+                        SearchPreview = Some { preview with Current = nextIdx } } }
         | _ -> model
 
-    let private runSearch key model =
-        let current =
-            model.Search
-            |> Option.defaultValue
-                { Query = ""
-                  Matches = []
-                  Current = 0 }
-
-        match key with
-        | Escape -> closeSearch model, []
-        | Enter -> moveSearchMatch 1 model, []
-        | Up -> moveSearchMatch -1 model, []
-        | Down -> moveSearchMatch 1 model, []
-        | Backspace when current.Query.Length > 0 ->
-            let newQuery = current.Query.Substring(0, current.Query.Length - 1)
-            updateSearchQuery newQuery model, []
-        | Backspace -> closeSearch model, []
-        | Character c ->
-            let newQuery = current.Query + string c
-            updateSearchQuery newQuery model, []
-        | _ -> model, []
+    let private withClearedSearch workspace = Workspace.clearSearch workspace
 
     let private runSidebar key model =
         match key with
+        | Character c -> { model with Workspace = Workspace.appendSearch c model.Workspace }, []
+        | Backspace when model.Workspace.SearchBuffer.Length > 0 ->
+            { model with
+                Workspace = Workspace.backspaceSearch model.Workspace },
+            []
         | Up ->
             { model with
-                Workspace = Workspace.moveSelection -1 model.Workspace },
+                Workspace = Workspace.moveSelection -1 (withClearedSearch model.Workspace) },
             []
         | Down ->
             { model with
-                Workspace = Workspace.moveSelection 1 model.Workspace },
+                Workspace = Workspace.moveSelection 1 (withClearedSearch model.Workspace) },
             []
         | PageUp ->
             { model with
-                Workspace = Workspace.moveSelection -model.Config.TreePageJump model.Workspace },
+                Workspace =
+                    Workspace.moveSelection -model.Config.TreePageJump (withClearedSearch model.Workspace) },
             []
         | PageDown ->
             { model with
-                Workspace = Workspace.moveSelection model.Config.TreePageJump model.Workspace },
+                Workspace =
+                    Workspace.moveSelection model.Config.TreePageJump (withClearedSearch model.Workspace) },
             []
         | Home ->
             { model with
-                Workspace = Workspace.moveHome model.Workspace },
+                Workspace = Workspace.moveHome (withClearedSearch model.Workspace) },
             []
         | End ->
             { model with
-                Workspace = Workspace.moveEnd model.Workspace },
+                Workspace = Workspace.moveEnd (withClearedSearch model.Workspace) },
             []
         | Left ->
+            let cleared = withClearedSearch model.Workspace
+
             let nextWorkspace =
-                match Workspace.tryCollapseSelected model.Workspace with
+                match Workspace.tryCollapseSelected cleared with
                 | Some collapsed -> collapsed
-                | None -> Workspace.selectParent model.Workspace
+                | None -> Workspace.selectParent cleared
 
             { model with Workspace = nextWorkspace }, []
         | Right ->
             { model with
-                Workspace = Workspace.expandSelected model.Workspace },
+                Workspace = Workspace.expandSelected (withClearedSearch model.Workspace) },
             []
         | Enter ->
-            let workspace, action = Workspace.activateSelected model.Workspace
+            let workspace, action = Workspace.activateSelected (withClearedSearch model.Workspace)
 
             match action with
             | SidebarOpenFile path -> { model with Workspace = workspace }, [ LoadFile path ]
             | SidebarNoOp -> { model with Workspace = workspace }, []
-        | Escape -> { model with Focus = Editor }, []
+        | Escape ->
+            { model with
+                Workspace = withClearedSearch model.Workspace
+                Focus = Editor },
+            []
         | _ -> model, []
 
     let private runEditor key model =
@@ -515,122 +611,122 @@ module Editor =
         | CtrlDelete -> updateActiveBuffer (Buffer.deleteForwardWord model.Config.WordMotion) model, []
         | _ -> model, []
 
-    let private runCommandBar key model =
+    let private cycleCompletion delta model =
+        let prompt = model.Prompt
+
+        if prompt.Completions.IsEmpty then
+            model
+        else
+            let count = prompt.Completions.Length
+            let nextIndex = ((prompt.SelectedCompletion + delta) % count + count) % count
+
+            { model with
+                Prompt = { prompt with SelectedCompletion = nextIndex } }
+            |> updatePreview
+
+    let private applyHistory delta model =
+        let prompt = model.Prompt
+
+        if prompt.History.IsEmpty then
+            model
+        else
+            let index =
+                match prompt.HistoryIndex, delta with
+                | Some value, d when d < 0 -> max 0 (value - 1)
+                | Some value, _ -> min (prompt.History.Length - 1) (value + 1)
+                | None, d when d < 0 -> prompt.History.Length - 1
+                | None, _ -> 0
+
+            replacePromptText
+                prompt.History[index]
+                { model with
+                    Prompt = { prompt with HistoryIndex = Some index } }
+
+    let private runPrompt key model =
+        let prompt = model.Prompt
+
         match key with
-        | Escape -> closeCommandBar model, []
+        | Escape -> closePrompt model, []
         | Left ->
             { model with
-                CommandBar =
-                    { model.CommandBar with
-                        Cursor = max 0 (model.CommandBar.Cursor - 1) } },
+                Prompt = { prompt with Cursor = max 0 (prompt.Cursor - 1) } },
             []
         | Right ->
             { model with
-                CommandBar =
-                    { model.CommandBar with
-                        Cursor = min model.CommandBar.Text.Length (model.CommandBar.Cursor + 1) } },
+                Prompt =
+                    { prompt with
+                        Cursor = min prompt.Text.Length (prompt.Cursor + 1) } },
             []
-        | Home ->
-            { model with
-                CommandBar = { model.CommandBar with Cursor = 0 } },
-            []
+        | Home -> { model with Prompt = { prompt with Cursor = 0 } }, []
         | End ->
             { model with
-                CommandBar =
-                    { model.CommandBar with
-                        Cursor = model.CommandBar.Text.Length } },
+                Prompt = { prompt with Cursor = prompt.Text.Length } },
             []
-        | Backspace -> deleteCommandBackward model, []
-        | Delete -> deleteCommandForward model, []
-        | Character value -> insertCommandText (string value) model, []
-        | Tab when not model.CommandBar.Completions.IsEmpty ->
-            { model with
-                CommandBar =
-                    { model.CommandBar with
-                        SelectedCompletion =
-                            (model.CommandBar.SelectedCompletion + 1) % model.CommandBar.Completions.Length } }
-            |> updatePreview,
-            []
-        | ShiftTab when not model.CommandBar.Completions.IsEmpty ->
-            let count = model.CommandBar.Completions.Length
-
-            { model with
-                CommandBar =
-                    { model.CommandBar with
-                        SelectedCompletion = (model.CommandBar.SelectedCompletion + count - 1) % count } }
-            |> updatePreview,
-            []
-        | Up when not model.CommandBar.Completions.IsEmpty ->
-            let count = model.CommandBar.Completions.Length
-
-            { model with
-                CommandBar =
-                    { model.CommandBar with
-                        SelectedCompletion = (model.CommandBar.SelectedCompletion + count - 1) % count } }
-            |> updatePreview,
-            []
-        | Down when not model.CommandBar.Completions.IsEmpty ->
-            let count = model.CommandBar.Completions.Length
-
-            { model with
-                CommandBar =
-                    { model.CommandBar with
-                        SelectedCompletion = (model.CommandBar.SelectedCompletion + 1) % count } }
-            |> updatePreview,
-            []
-        | AltUp when not model.CommandBar.History.IsEmpty ->
-            let index =
-                match model.CommandBar.HistoryIndex with
-                | Some value -> max 0 (value - 1)
-                | None -> model.CommandBar.History.Length - 1
-
-            replaceCommandText
-                model.CommandBar.History[index]
-                { model with
-                    CommandBar =
-                        { model.CommandBar with
-                            HistoryIndex = Some index } },
-            []
-        | AltDown when not model.CommandBar.History.IsEmpty ->
-            let index =
-                match model.CommandBar.HistoryIndex with
-                | Some value -> min (model.CommandBar.History.Length - 1) (value + 1)
-                | None -> 0
-
-            replaceCommandText
-                model.CommandBar.History[index]
-                { model with
-                    CommandBar =
-                        { model.CommandBar with
-                            HistoryIndex = Some index } },
-            []
+        | Backspace -> deletePromptBackward model, []
+        | Delete -> deletePromptForward model, []
+        | Character value -> insertPromptText (string value) model, []
+        | Tab -> cycleCompletion 1 model, []
+        | ShiftTab -> cycleCompletion -1 model, []
+        | Up ->
+            match prompt.Mode with
+            | Search -> moveSearchMatch -1 model, []
+            | _ -> cycleCompletion -1 model, []
+        | Down ->
+            match prompt.Mode with
+            | Search -> moveSearchMatch 1 model, []
+            | _ -> cycleCompletion 1 model, []
+        | AltUp -> applyHistory -1 model, []
+        | AltDown -> applyHistory 1 model, []
         | Enter ->
-            match model.CommandBar.Parsed with
-            | Ready command ->
-                let remembered = pushHistory model.CommandBar.Text model
-                let closed = closeCommandBar remembered
-                executeCommand command closed
-            | Pending _ when not model.CommandBar.Completions.IsEmpty ->
-                match model.CommandBar.Completions |> List.tryItem model.CommandBar.SelectedCompletion with
-                | Some item -> replaceCommandText item.ApplyText model, []
+            match prompt.Mode with
+            | Search -> moveSearchMatch 1 model, []
+            | FilePicker ->
+                match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
+                | Some item ->
+                    let remembered = pushHistory prompt.Text model
+                    let closed = closePrompt remembered
+                    executeCommand (Open item.ApplyText) closed
                 | None -> model, []
-            | Pending message -> notify (Some(Notification.warning message)) model, []
-            | Invalid message -> notify (Some(Notification.error message)) model, []
-            | Empty -> closeCommandBar model, []
+            | Buffers ->
+                match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
+                | Some item ->
+                    let remembered = pushHistory prompt.Text model
+                    let closed = closePrompt remembered
+                    executeCommand (SwitchBuffer item.ApplyText) closed
+                | None ->
+                    let argument = Prompt.argumentOf prompt.Text
+
+                    if String.IsNullOrWhiteSpace argument then
+                        model, []
+                    else
+                        let remembered = pushHistory prompt.Text model
+                        let closed = closePrompt remembered
+                        executeCommand (SwitchBuffer(argument.Trim())) closed
+            | Command ->
+                match prompt.Parsed with
+                | Ready command ->
+                    let remembered = pushHistory prompt.Text model
+                    let closed = closePrompt remembered
+                    executeCommand command closed
+                | Pending _ when not prompt.Completions.IsEmpty ->
+                    match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
+                    | Some item -> applyCompletion item model, []
+                    | None -> model, []
+                | Pending message -> notify (Some(Notification.warning message)) model, []
+                | Invalid message -> notify (Some(Notification.error message)) model, []
+                | Empty -> closePrompt model, []
         | _ -> model, []
 
     let init rootPath size config userThemes =
         { Workspace = Workspace.create rootPath
           Editors = initialEditors
-          CommandBar = emptyCommandBar
+          Prompt = emptyPrompt
           Panels = initialPanels config
           Focus = Editor
           Terminal = size
-          Notification = Some(Notification.info "Ctrl+P commands  Ctrl+B tree  Ctrl+S save  Ctrl+Q quit")
+          Notification = Some(Notification.info "Ctrl+P prompt  Ctrl+B tree  Ctrl+S save  Ctrl+Q quit")
           Config = config
           UserThemes = userThemes
-          Search = None
-          ShowHelp = false
           QuitArmed = false
           ShouldQuit = false },
         [ ScanWorkspace rootPath ]
@@ -748,16 +844,50 @@ module Editor =
                                     $"Unsaved changes in {dirtyCount} buffer(s). Press Ctrl+Q again to discard."
                             ) },
                     []
-            | Ctrl 'p' -> openCommandBar "" { model with Notification = None }, []
-            | Ctrl 'f' -> openSearch { model with Notification = None }, []
-            | Ctrl 'b' ->
-                { model with
-                    Focus = Sidebar
-                    Notification = None },
+            | Ctrl 'p' ->
+                openPrompt
+                    ":"
+                    { model with
+                        Workspace = Workspace.clearSearch model.Workspace
+                        Notification = None },
                 []
+            | Ctrl 'o' ->
+                openPrompt
+                    ""
+                    { model with
+                        Workspace = Workspace.clearSearch model.Workspace
+                        Notification = None },
+                []
+            | Ctrl 'f' ->
+                openPrompt
+                    "/"
+                    { model with
+                        Workspace = Workspace.clearSearch model.Workspace
+                        Notification = None },
+                []
+            | Ctrl 'b' ->
+                // Zed-style three-state toggle: hidden → show+focus;
+                // visible-elsewhere → focus; visible-focused → hide+editor.
+                let panels = model.Panels
+                let cleared = { model with Notification = None }
+
+                if not panels.SidebarVisible then
+                    { cleared with
+                        Panels = { panels with SidebarVisible = true }
+                        Focus = Sidebar },
+                    []
+                elif cleared.Focus <> Sidebar then
+                    { cleared with Focus = Sidebar }, []
+                else
+                    { cleared with
+                        Panels = { panels with SidebarVisible = false }
+                        Focus = Editor
+                        Workspace = Workspace.clearSearch cleared.Workspace },
+                    []
             | Ctrl 'e' ->
                 { model with
                     Focus = Editor
+                    Workspace = Workspace.clearSearch model.Workspace
                     Notification = None },
                 []
             | Ctrl 's' -> saveActiveBuffer None { model with Notification = None }
@@ -792,5 +922,4 @@ module Editor =
                 match model.Focus with
                 | Sidebar -> runSidebar key { model with Notification = None }
                 | Editor -> runEditor key { model with Notification = None }
-                | CommandBar -> runCommandBar key { model with Notification = None }
-                | Search -> runSearch key { model with Notification = None }
+                | Prompt -> runPrompt key { model with Notification = None }

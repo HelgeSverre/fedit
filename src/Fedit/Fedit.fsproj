@@ -27,12 +27,14 @@
     <Compile Include="Themes.fs" />
     <Compile Include="Commands.fs" />
     <Compile Include="Model.fs" />
+    <Compile Include="Prompt.fs" />
     <Compile Include="Editor.fs" />
     <Compile Include="Screen.fs" />
     <Compile Include="Renderer.fs" />
     <Compile Include="Input.fs" />
     <Compile Include="View.fs" />
     <Compile Include="Runtime.fs" />
+    <Compile Include="Cli.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 </Project>

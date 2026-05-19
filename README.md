@@ -15,31 +15,46 @@ Opens a workspace, shows a file tree, edits files, saves to disk. Multi-buffer, 
 
 Brand assets and theme spec in [`brand/`](brand/). Marketing site in [`website/`](website/) — run with `just website::dev`.
 
-## Requirements
+## Install
 
-- .NET SDK 9 (pinned via `global.json` to `9.0.312` with `rollForward: latestFeature`, so any `9.0.x` patch ≥ 312 works)
-- `just` for the convenience recipes in `justfile`
+### Homebrew (macOS & Linux)
 
-This repository includes a local `.dotnet` SDK directory. The `fedit` wrapper script and the `justfile` recipes prepend `.dotnet` to `PATH`, so the local SDK is used when it is present.
+```shell
+brew install helgesverre/tap/fedit
+```
 
-## Quick Start
+Auto-detects your OS and CPU (arm64 / x64). Updates via `brew upgrade fedit`.
 
-Run the editor in the current directory using the included `fedit` shell shim (a thin wrapper that pins the local `.dotnet` SDK on `$PATH` and invokes `dotnet run`):
+### Windows
+
+Download `fedit-x86_64-pc-windows-msvc.zip` from [the latest release](https://github.com/HelgeSverre/fedit/releases/latest), extract, and add the folder to your `PATH`.
+
+### From source
+
+Requires .NET SDK 9 (pinned via `global.json` to `9.0.312` with `rollForward: latestFeature`, so any `9.0.x` patch ≥ 312 works) and [`just`](https://github.com/casey/just). The repo includes a local `.dotnet` SDK directory — the `fedit` wrapper script and `justfile` recipes prepend it to `PATH`, so a fresh clone has everything it needs.
+
+```shell
+git clone https://github.com/HelgeSverre/fedit
+cd fedit
+just install
+fedit .
+```
+
+`just install` publishes a self-contained single-file binary to `~/.local/bin` (override with `just install path/to/bin`; remove with `just uninstall`).
+
+### Run without installing
+
+Use the included `fedit` shell shim:
 
 ```shell
 ./fedit .
 ```
 
-Run it directly through .NET:
+Or through .NET directly:
 
 ```shell
 dotnet run --project src/Fedit/Fedit.fsproj -- .
-```
-
-Or use the just recipe:
-
-```shell
-just run .
+just run .              # via the recipe
 ```
 
 Pass a file or directory path as the first argument. If no path is provided, `fedit` uses the current working directory.
@@ -47,33 +62,6 @@ Pass a file or directory path as the first argument. If no path is provided, `fe
 ### Command-line flags
 
 - `--log <path>`: Append a UTC-timestamped trace of every `Msg` and `Effect` to `<path>`. Useful for debugging without polluting the TUI.
-
-## Build Commands
-
-Build the whole solution (both projects):
-
-```shell
-dotnet build Fedit.slnx
-```
-
-Or just the editor:
-
-```shell
-dotnet build src/Fedit/Fedit.fsproj
-```
-
-Run the editor:
-
-```shell
-dotnet run --project src/Fedit/Fedit.fsproj -- .
-```
-
-Clean generated output:
-
-```shell
-dotnet clean Fedit.slnx
-rm -rf src/Fedit/bin src/Fedit/obj tests/Fedit.Tests/bin tests/Fedit.Tests/obj
-```
 
 ## Justfile Recipes
 
@@ -147,9 +135,10 @@ just uninstall
 
 Global shortcuts:
 
-- `Ctrl+P`: Open the command bar.
-- `Ctrl+F`: Find in the active buffer.
-- `Ctrl+B`: Focus the file tree.
+- `Ctrl+P`: Open the prompt in command mode (`:` prefix).
+- `Ctrl+O`: Open the prompt in file-picker mode (recent + workspace files).
+- `Ctrl+F`: Open the prompt in search mode (`/` prefix) for the active buffer.
+- `Ctrl+B`: Toggle the file tree — hidden → show + focus; visible elsewhere → focus; visible + focused → hide and return to editor.
 - `Ctrl+E`: Focus the editor.
 - `Ctrl+S`: Save the active buffer.
 - `Ctrl+R`: Reload the workspace tree.
@@ -187,22 +176,31 @@ File tree keys:
 - `Enter` opens a file or toggles a directory.
 - `Escape` returns focus to the editor.
 
-Command bar keys:
+Prompt keys (any mode):
 
-- Type to filter; the dock panel shows matching commands or workspace paths.
-- `Up` / `Down` (and `Tab` / `Shift+Tab`) move the highlight through the completion list. The viewport scrolls so the selected item stays visible.
-- `Alt+Up` / `Alt+Down` walk through recent command history (up to 20 entries).
-- `Enter` runs the parsed command, or applies the highlighted completion when the command is incomplete.
-- `Left`, `Right`, `Home`, `End`, `Backspace`, and `Delete` edit the input.
-- `Escape` closes the command bar without running anything.
+- Type to extend the query; the dock panel shows matching items or live feedback for the active mode.
+- `Up` / `Down` (and `Tab` / `Shift+Tab`) move the highlight through the completion list. The viewport scrolls so the selected item stays visible. In Search mode `Up` / `Down` cycle through matches instead.
+- `Alt+Up` / `Alt+Down` walk through recent prompt history (up to 20 entries).
+- `Enter` runs the parsed command, applies the highlighted completion, opens the selected file/buffer, or advances to the next search match — depending on the mode.
+- `Left`, `Right`, `Home`, `End`, `Backspace`, and `Delete` edit the input. Backspace through the prefix character flips the mode (e.g. `/foo` → backspace → empty FilePicker); backspace on empty closes the prompt.
+- `Escape` closes the prompt without running anything; in Search mode it also clears the match highlights.
 
-Command bar commands:
+Prompt modes — type the prefix to switch modes inside the prompt, or use the dedicated chord to open in that mode directly:
+
+| Prefix | Mode | Opens via | What it does |
+| :---: | --- | --- | --- |
+| `:` | Command | `Ctrl+P` | Named commands and `:LINE[:COL]` cursor jumps. Argument starting with a digit is parsed as goto (`:42` or `:100:6`); otherwise as a command name. |
+| (none) | FilePicker | `Ctrl+O` | Recent files first, then workspace files; type to filter; Enter opens. |
+| `/` | Search | `Ctrl+F` | Incremental search in the active buffer. Cursor jumps live to the first match. |
+| `@` | Buffers | — | Switch to an open buffer by numeric id or name. |
+
+Named commands (typed after `:`):
 
 - `open <path>`: Open a file from the current workspace. Activates the existing buffer if the file is already open.
 - `write`: Save the active buffer.
 - `writeas <path>`: Save the active buffer to another path.
 - `quit`: Exit the editor.
-- `sidebar`: Toggle the sidebar.
+- `sidebar`: Toggle the sidebar visibility.
 - `tree`: Focus the file tree.
 - `editor`: Focus the editor.
 - `reload`: Reload the workspace tree.
@@ -211,24 +209,22 @@ Command bar commands:
 - `theme <name>`: Switch the accent color. Tab through `green` (default), `blue`, `orange`, `cyan`, `teal`, `yellow`, or `red`; the UI live-previews each highlight as you cycle. The choice persists to `~/.config/fedit/config.json` and is restored on next launch.
 - `recent <path>`: Pick a recently opened file. Tab to cycle through the last 20 files; the list persists in the same config file.
 - `buffers <id-or-name>`: Switch to an open buffer by numeric id or name. Completion shows `{id} {name}` with the file path as detail.
-- `help`: Show command help in the dock panel.
-- `<line>` / `<line>:<column>`: Jump the cursor to an absolute 1-based position. `:42` goes to line 42 column 1; `:100:6` goes to line 100 column 6. Out-of-range values clamp to the end of the buffer / line.
 
 ## Configuration
 
 `fedit` reads `~/.config/fedit/config.json` at startup. The file is created automatically the first time the editor persists state (`:theme` or opening a file updates `recent`). Hand-edited values are preserved on every save — unknown keys you add to the file are kept intact.
 
-| Key               | Type     | Default   | Range                        | What it controls                                                                                        |
-| ----------------- | -------- | --------- | ---------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `theme`           | string   | `cyan`    | —                            | Accent palette name (bundled or user theme from `~/.config/fedit/themes/*.json`).                       |
-| `recent`          | string[] | `[]`      | up to 20                     | Recently opened files; managed automatically.                                                           |
-| `completionLimit` | int      | `8`       | 1–64                         | Max items considered for `:open`, `:writeas`, `:recent`, `:buffers` completions.                        |
-| `sidebarIndent`   | int      | `2`       | 0–16                         | Spaces per depth level in the file tree.                                                                |
-| `sidebarWidth`    | int      | `30`      | 10–200                       | Initial sidebar width in columns.                                                                       |
-| `dockHeight`      | int      | `5`       | 1–40                         | Dock panel height in rows (used for the completion list and `:help`).                                   |
-| `wordMotion`      | string   | `wordEnd` | `wordEnd` or `nextWordStart` | Where `Alt+Right` / `Ctrl+Delete` land — end of current word (default) or start of next word (vim `w`). |
+| Key               | Type     | Default   | Range                        | What it controls                                                                                                                                                      |
+| ----------------- | -------- | --------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `theme`           | string   | `cyan`    | —                            | Accent palette name (bundled or user theme from `~/.config/fedit/themes/*.json`).                                                                                     |
+| `recent`          | string[] | `[]`      | up to 20                     | Recently opened files; managed automatically.                                                                                                                         |
+| `completionLimit` | int      | `8`       | 1–64                         | Max items considered for `:open`, `:writeas`, `:recent`, `:buffers` completions.                                                                                      |
+| `sidebarIndent`   | int      | `2`       | 0–16                         | Spaces per depth level in the file tree.                                                                                                                              |
+| `sidebarWidth`    | int      | `30`      | 10–200                       | Initial sidebar width in columns.                                                                                                                                     |
+| `dockHeight`      | int      | `8`       | 1–40                         | Dock panel height in rows (used for prompt completions and mode hints).                                                                                               |
+| `wordMotion`      | string   | `wordEnd` | `wordEnd` or `nextWordStart` | Where `Alt+Right` / `Ctrl+Delete` land — end of current word (default) or start of next word (vim `w`).                                                               |
 | `pageOverlap`     | int      | `2`       | 0–32                         | Lines kept on screen between `PageUp` / `PageDown` jumps in the editor. Editor jumps by `viewportHeight - pageOverlap`. Matches Zed / VSCode / token-editor defaults. |
-| `treePageJump`    | int      | `10`      | 1–500                        | Entries jumped on `PageUp` / `PageDown` in the file-tree sidebar. |
+| `treePageJump`    | int      | `10`      | 1–500                        | Entries jumped on `PageUp` / `PageDown` in the file-tree sidebar.                                                                                                     |
 
 Changes take effect on next launch. Out-of-range values clamp to the nearest valid bound rather than failing.
 
@@ -242,7 +238,7 @@ Text buffers are stored with a piece table. The original file contents stay in o
 
 Files are read as UTF-8. The line ending of the loaded file (`LF` or `CRLF`) is detected and reused on save; the buffer always works in `\n` form internally. Saving writes UTF-8 without a byte-order mark.
 
-The UI is split into a sidebar (file tree), an editor pane with a line-number gutter, a status line, a single-line command bar at the bottom, and a dock panel that's hidden by default. The dock appears automatically when the command bar is active (showing completions or parser feedback) and can be toggled on persistently via the `:help` command — handy for keeping the shortcut list in view while learning the bindings. The status line reports the current focus (`TREE`/`EDIT`/`CMD`/`FIND`), active file path, dirty marker, cursor position with total line count (`Ln 12/238`), the line-ending style (`LF` or `CRLF`), the count of open buffers, and the most recent notification.
+The UI is split into a sidebar (file tree), an editor pane with a line-number gutter, a status line, a single-line prompt row at the bottom, and a dock panel that's hidden when the prompt is inactive. The dock appears automatically when the prompt is active — showing completions for file/command/buffer modes and a match counter or jump hint for search and goto. The status line reports the current focus (`TREE`/`EDIT`, or one of `FILE`/`CMD`/`FIND`/`BUF` when the prompt is open), active file path, dirty marker, cursor position with total line count (`Ln 12/238`), the line-ending style (`LF` or `CRLF`), the count of open buffers, and the most recent notification.
 
 Themes are pure accent palettes — the dock title, status bar, selection highlight, and current-line gutter all swap together while the grayscale chrome stays constant across themes. The chosen theme, the most recent 20 opened files, and the runtime tunables described in [Configuration](#configuration) all live in `~/.config/fedit/config.json` and are restored on the next launch; the default theme is `green` (phosphor green, the brand accent).
 

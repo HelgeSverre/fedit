@@ -18,8 +18,7 @@ type Notification = { Severity: Severity; Message: string }
 type FocusTarget =
     | Sidebar
     | Editor
-    | CommandBar
-    | Search
+    | Prompt
 
 type KeyInput =
     | Character of char

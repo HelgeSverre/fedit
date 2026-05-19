@@ -15,7 +15,6 @@ type Command =
     | ReloadWorkspace
     | NextBuffer
     | PreviousBuffer
-    | Help
     | Theme of string
     | Recent of string
     | SwitchBuffer of string
@@ -101,10 +100,6 @@ module Commands =
             Usage = "prev"
             Summary = "Activate the previous open buffer."
             Constructor = simple PreviousBuffer }
-          { Name = "help"
-            Usage = "help"
-            Summary = "Show command help in the dock panel."
-            Constructor = simple Help }
           { Name = "theme"
             Usage = "theme <name>"
             Summary = "Switch accent color. Bundled palettes plus any user themes from ~/.config/fedit/themes/*.json."
@@ -139,11 +134,15 @@ module Commands =
                   else
                       Ready(SwitchBuffer trimmed) } ]
 
-    let private tryParseGoto (text: string) =
-        if text.Length = 0 || not (Char.IsDigit text[0]) then
-            None
+    /// Parse a `:LINE` or `:LINE:COL` argument (the text after the `:` prefix).
+    /// Used by the prompt's Goto mode.
+    let parseGoto (argument: string) =
+        let trimmed = argument.Trim()
+
+        if String.IsNullOrWhiteSpace trimmed then
+            Pending "Line number required."
         else
-            let parts = text.Split ':'
+            let parts = trimmed.Split ':'
 
             let tryPositive (s: string) =
                 match Int32.TryParse s with
@@ -153,13 +152,13 @@ module Commands =
             match parts with
             | [| lineText |] ->
                 match tryPositive lineText with
-                | Some line -> Some(Ready(Goto(line, None)))
-                | None -> Some(Invalid $"'{text}' is not a valid line number.")
+                | Some line -> Ready(Goto(line, None))
+                | None -> Invalid $"'{trimmed}' is not a valid line number."
             | [| lineText; colText |] ->
                 match tryPositive lineText, tryPositive colText with
-                | Some line, Some col -> Some(Ready(Goto(line, Some col)))
-                | _ -> Some(Invalid $"'{text}' must be <line>:<column> with positive numbers.")
-            | _ -> Some(Invalid $"'{text}' has too many ':' separators.")
+                | Some line, Some col -> Ready(Goto(line, Some col))
+                | _ -> Invalid $"'{trimmed}' must be <line>:<column> with positive numbers."
+            | _ -> Invalid $"'{trimmed}' has too many ':' separators."
 
     let parse (input: string) =
         let trimmed = input.Trim()
@@ -167,25 +166,22 @@ module Commands =
         if String.IsNullOrWhiteSpace trimmed then
             Empty
         else
-            match tryParseGoto trimmed with
-            | Some result -> result
-            | None ->
-                let firstSpace = trimmed.IndexOf ' '
+            let firstSpace = trimmed.IndexOf ' '
 
-                let name, argument =
-                    if firstSpace < 0 then
-                        trimmed, ""
-                    else
-                        trimmed[.. firstSpace - 1], trimmed[firstSpace + 1 ..]
+            let name, argument =
+                if firstSpace < 0 then
+                    trimmed, ""
+                else
+                    trimmed[.. firstSpace - 1], trimmed[firstSpace + 1 ..]
 
-                match specs |> List.tryFind (fun spec -> spec.Name = name.ToLowerInvariant()) with
-                | Some spec -> spec.Constructor argument
-                | None when
-                    specs
-                    |> List.exists (fun spec -> spec.Name.StartsWith(name, StringComparison.OrdinalIgnoreCase))
-                    ->
-                    Pending "Command is incomplete."
-                | None -> Invalid $"Unknown command '{name}'."
+            match specs |> List.tryFind (fun spec -> spec.Name = name.ToLowerInvariant()) with
+            | Some spec -> spec.Constructor argument
+            | None when
+                specs
+                |> List.exists (fun spec -> spec.Name.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+                ->
+                Pending "Command is incomplete."
+            | None -> Invalid $"Unknown command '{name}'."
 
     let completions context (input: string) =
         let trimmed = input.TrimStart()
