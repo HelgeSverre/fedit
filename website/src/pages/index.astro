@@ -3,7 +3,38 @@ import Site from "../layouts/Site.astro";
 import Symbol from "../components/Symbol.astro";
 import TuiFrame from "../components/TuiFrame.astro";
 import ThemeCard from "../components/ThemeCard.astro";
+import TypingMascot from "../components/TypingMascot.astro";
 import { themes } from "../data/themes";
+
+const features = [
+  {
+    name: "workspace tree",
+    desc: "open a directory, navigate with arrow keys, expand and collapse with left/right",
+  },
+  { name: "multi-buffer", desc: "open any number of files; switch with next / prev / buffers" },
+  {
+    name: "piece-table buffers",
+    desc: "inserts and deletes stay local; each buffer has its own undo/redo stack",
+  },
+  { name: "find", desc: "live-highlight as you type; enter or down to advance, up for previous" },
+  {
+    name: "command palette",
+    desc: "Ctrl+P opens a fuzzy-completing command bar with the last 20 entries as history",
+  },
+  {
+    name: "system clipboard",
+    desc: "Ctrl+C / Ctrl+X / Ctrl+V via pbcopy on macOS, xclip on Linux",
+  },
+  {
+    name: "live file watcher",
+    desc: "external changes trigger a debounced 300ms rescan; no need to press Ctrl+R",
+  },
+  {
+    name: "seven themes",
+    desc: "swap accent palette live; persists to ~/.config/fedit/config.json",
+  },
+  { name: "UTF-8", desc: "reads any line-ending style, preserves it on save, no BOM written" },
+];
 ---
 
 <Site>
@@ -12,22 +43,30 @@ import { themes } from "../data/themes";
   <!-- ============================================================ -->
   <section class="section hero">
     <div class="container">
-      <div class="hero-brand">
-        <Symbol size={56} color="var(--accent)" strokeWidth={3} class="hero-mark" />
-        <h1>fedit</h1>
+      <div class="hero-grid">
+        <div class="hero-text">
+          <div class="hero-brand">
+            <Symbol size={56} color="var(--accent)" strokeWidth={3} class="hero-mark" />
+            <h1>fedit</h1>
+          </div>
+          <p class="hero-lede">
+            Edit files in the terminal. Small. Written in <span class="hero-key">F#</span>.
+          </p>
+          <p class="hero-actions">
+            <a href="#install" class="cta-primary">Install fedit</a>
+            <a
+              href="https://github.com/HelgeSverre/fedit"
+              class="cta-secondary"
+              target="_blank"
+              rel="noopener">View on GitHub</a
+            >
+          </p>
+          <p class="caveat">macOS &amp; Linux via Homebrew. Windows binary on GitHub Releases.</p>
+        </div>
+        <div class="hero-mascot">
+          <TypingMascot />
+        </div>
       </div>
-      <p class="hero-lede">
-        Edit files in the terminal. Small. Written in <span class="hero-key">F#</span>.
-      </p>
-      <pre
-        class="hero-install"><span class="dim">$</span> git clone https://github.com/HelgeSverre/fedit
-<span class="dim">$</span> cd fedit
-<span class="dim">$</span> just install
-<span class="dim">$</span> fedit .</pre>
-      <p class="caveat">
-        Requires .NET SDK 9 and <a href="https://github.com/casey/just">just</a>. The repo ships a
-        local <code>.dotnet</code> SDK, so cloning is enough.
-      </p>
     </div>
   </section>
 
@@ -39,59 +78,15 @@ import { themes } from "../data/themes";
       <div class="section__head">
         <h2>what</h2>
       </div>
-      <div class="two-col">
-        <div>
-          <dl class="dl-feature">
-            <dt>workspace tree</dt>
-            <dd>open a directory, navigate with arrow keys, expand and collapse with left/right</dd>
-
-            <dt>multi-buffer</dt>
-            <dd>
-              open any number of files; switch with <code>next</code> / <code>prev</code> / <code
-                >buffers</code
-              >
-            </dd>
-
-            <dt>piece-table buffers</dt>
-            <dd>inserts and deletes stay local; each buffer has its own undo/redo stack</dd>
-
-            <dt>find</dt>
-            <dd>live-highlight as you type; enter or down to advance, up for previous</dd>
-
-            <dt>command palette</dt>
-            <dd>Ctrl+P opens a fuzzy-completing command bar with the last 20 entries as history</dd>
-
-            <dt>system clipboard</dt>
-            <dd>Ctrl+C / Ctrl+X / Ctrl+V via pbcopy on macOS, xclip on Linux</dd>
-
-            <dt>live file watcher</dt>
-            <dd>external changes trigger a debounced 300ms rescan; no need to press Ctrl+R</dd>
-
-            <dt>seven themes</dt>
-            <dd>swap accent palette live; persists to <code>~/.config/fedit/config.json</code></dd>
-
-            <dt>UTF-8</dt>
-            <dd>reads any line-ending style, preserves it on save, no BOM written</dd>
-          </dl>
-        </div>
-        <TuiFrame label="fedit . — workspace + editor">
-          <Fragment
-            set:html={`<span class="dim">┌─ workspace ──────────────────┬─ src/Main.fs · 312 lines ─────────────┐</span>
-<span class="dim">│</span> ▾ src                        <span class="dim">│</span>   1  <span class="muted">module</span> Main                       <span class="dim">│</span>
-<span class="dim">│</span>   ▸ Buffer                   <span class="dim">│</span>   2                                   <span class="dim">│</span>
-<span class="dim">│</span>   ▾ Editor                   <span class="dim">│</span>   3  <span class="muted">open</span> System                       <span class="dim">│</span>
-<span class="dim">│</span>       Cursor.fs              <span class="dim">│</span>   4  <span class="muted">open</span> Fedit.Buffer                 <span class="dim">│</span>
-<span class="dim">│</span>       Renderer.fs            <span class="dim">│</span>   5                                   <span class="dim">│</span>
-<span class="dim">│</span>       View.fs                <span class="dim">│</span>   6  [&lt;EntryPoint&gt;]                   <span class="dim">│</span>
-<span class="dim">│</span>   Main.fs                    <span class="dim">│</span>   7  <span class="muted">let</span> main argv =                  <span class="dim">│</span>
-<span class="dim">│</span> ▸ tests                      <span class="dim">│</span>   8      <span class="muted">match</span> argv <span class="muted">with</span>              <span class="dim">│</span>
-<span class="dim">│</span>   README.md                  <span class="dim">│</span>   9      | [| path |] -> Workspace.…  <span class="dim">│</span>
-<span class="dim">│</span>                              <span class="dim">│</span>  10      | _          -> printfn …   <span class="dim">│</span>
-<span class="dim">├──────────────────────────────┴───────────────────────────────────────┤</span>
-<span class="dim">│</span> <span class="accent">^</span> <span class="muted">src/Main.fs · Ln 7/312 · LF · 2 buffers</span>                       <span class="dim">│</span>
-<span class="dim">└──────────────────────────────────────────────────────────────────────┘</span>`}
-          />
-        </TuiFrame>
+      <div class="feature-grid">
+        {
+          features.map((f) => (
+            <article class="feature">
+              <h3>{f.name}</h3>
+              <p>{f.desc}</p>
+            </article>
+          ))
+        }
       </div>
     </div>
   </section>
@@ -102,6 +97,20 @@ import { themes } from "../data/themes";
   <section id="install" class="section">
     <div class="container">
       <div class="section__head"><h2>install</h2></div>
+
+      <h3>homebrew <span class="muted">(macOS &amp; Linux)</span></h3>
+      <pre class="block"><span class="dim">$</span> brew install helgesverre/tap/fedit</pre>
+      <p class="muted-p">
+        Auto-detects your OS and CPU (arm64 / x64). Updates land via <code>brew upgrade fedit</code
+        >.
+      </p>
+
+      <h3>windows</h3>
+      <p class="muted-p">
+        Download <code>fedit-x86_64-pc-windows-msvc.zip</code> from
+        <a href="https://github.com/HelgeSverre/fedit/releases/latest">the latest release</a>,
+        extract, and add the folder to your <code>PATH</code>.
+      </p>
 
       <h3>from source</h3>
       <pre
@@ -114,7 +123,8 @@ import { themes } from "../data/themes";
           >~/.local/bin</code
         >. Override the destination with <code>just install path/to/bin</code>. Remove with <code
           >just uninstall</code
-        >.
+        >. Requires .NET SDK 9 and <a href="https://github.com/casey/just">just</a>; the repo ships
+        a local <code>.dotnet</code> SDK so cloning is enough.
       </p>
 
       <h3>run without installing</h3>
@@ -128,7 +138,7 @@ import { themes } from "../data/themes";
         class="block"><span class="dim">$</span> just dev .         <span class="comment"># dotnet watch, re-launches on source changes</span>
 <span class="dim">$</span> just check         <span class="comment"># lint + build + test, the pre-commit gate</span>
 <span class="dim">$</span> just test          <span class="comment"># xUnit + FsCheck</span>
-<span class="dim">$</span> just format        <span class="comment"># fantomas</span></pre>
+<span class="dim">$</span> just format        <span class="comment"># fantomas + prettier</span></pre>
 
       <h3>flags</h3>
       <dl class="dl-grid">
@@ -393,16 +403,29 @@ import { themes } from "../data/themes";
 </Site>
 
 <style>
+  /* ----- hero ----- */
   .hero {
-    padding: 96px 0 72px;
+    padding: var(--space-6) 0;
     background: var(--surface-1);
     border-top: none;
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: var(--space-5);
+    align-items: center;
+  }
+  @media (max-width: 800px) {
+    .hero-grid {
+      grid-template-columns: 1fr;
+      gap: var(--space-4);
+    }
   }
   .hero-brand {
     display: flex;
     align-items: center;
-    gap: 16px;
-    margin-bottom: 24px;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
   }
   .hero h1 {
     font-size: clamp(48px, 9vw, 72px);
@@ -413,39 +436,112 @@ import { themes } from "../data/themes";
     font-size: clamp(20px, 3.2vw, 26px);
     line-height: 1.35;
     color: var(--fg);
-    margin: 0 0 36px;
+    margin: 0 0 var(--space-4);
     max-width: 36ch;
   }
   .hero-key {
     color: var(--accent);
   }
-  .hero-install {
-    max-width: 640px;
-    margin: 0 0 16px;
-    background: var(--surface-deep);
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-3);
   }
   .caveat {
     color: var(--fg-muted);
     font-size: 13px;
     margin: 0;
   }
-
-  .two-col {
-    display: grid;
-    grid-template-columns: 1fr 1.05fr;
-    gap: 32px;
-    align-items: start;
+  .hero-mascot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   @media (max-width: 800px) {
-    .two-col {
-      grid-template-columns: 1fr;
+    .hero-mascot {
+      order: -1; /* mascot above text on mobile keeps brand-first reading */
+      margin-bottom: var(--space-2);
     }
   }
 
+  /* ----- CTA buttons ----- */
+  .cta-primary,
+  .cta-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+    padding: 14px 22px;
+    border-radius: 2px;
+    text-decoration: none;
+    transition:
+      transform var(--t-fast) var(--ease),
+      background var(--t-fast) var(--ease),
+      border-color var(--t-fast) var(--ease),
+      color var(--t-fast) var(--ease);
+  }
+  .cta-primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: 1px solid var(--accent);
+  }
+  .cta-primary:hover {
+    background: var(--accent-700);
+    border-color: var(--accent-700);
+    color: var(--neutral-50);
+    transform: translateY(-1px);
+  }
+  .cta-primary:active {
+    transform: translateY(0);
+  }
+  .cta-secondary {
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border-strong);
+  }
+  .cta-secondary:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .cta-secondary:active {
+    transform: translateY(0);
+  }
+
+  /* ----- what (feature grid) ----- */
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--space-4) var(--space-4);
+  }
+  .feature {
+    padding: 0;
+    background: none;
+    border: none;
+  }
+  .feature h3 {
+    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-size: 14px;
+    color: var(--fg);
+    text-transform: none;
+    letter-spacing: -0.01em;
+    margin-top: 0; /* override global h3 margin in this borderless-card context */
+  }
+  .feature p {
+    color: var(--fg-muted);
+    font-size: 13px;
+    margin-top: var(--space-1);
+    line-height: 1.55;
+  }
+
+  /* ----- prose helpers ----- */
   .muted-p {
     color: var(--fg-muted);
     max-width: 65ch;
-    margin: 8px 0 0;
+    margin-top: var(--space-2);
   }
   .arch-p {
     color: var(--fg);
@@ -462,13 +558,14 @@ import { themes } from "../data/themes";
     max-width: 720px;
   }
 
+  /* ----- themes ----- */
   .theme-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 16px;
+    gap: var(--space-2);
   }
 
-  /* command list — accent dot before each */
+  /* command list — accent prefix on each item */
   .dl-grid.cmd dt::before {
     content: "›";
     color: var(--accent);

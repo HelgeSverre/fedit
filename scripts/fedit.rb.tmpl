@@ -1,0 +1,39 @@
+class Fedit < Formula
+  desc "A small terminal text editor written in F#"
+  homepage "https://github.com/HelgeSverre/fedit"
+  version "{{VERSION}}"
+  if OS.mac?
+    if Hardware::CPU.arm?
+      url "https://github.com/HelgeSverre/fedit/releases/download/v{{VERSION}}/fedit-aarch64-apple-darwin.tar.xz"
+      sha256 "{{SHA_OSX_ARM}}"
+    end
+    if Hardware::CPU.intel?
+      url "https://github.com/HelgeSverre/fedit/releases/download/v{{VERSION}}/fedit-x86_64-apple-darwin.tar.xz"
+      sha256 "{{SHA_OSX_X64}}"
+    end
+  end
+  if OS.linux?
+    if Hardware::CPU.arm?
+      url "https://github.com/HelgeSverre/fedit/releases/download/v{{VERSION}}/fedit-aarch64-unknown-linux-gnu.tar.xz"
+      sha256 "{{SHA_LINUX_ARM}}"
+    end
+    if Hardware::CPU.intel?
+      url "https://github.com/HelgeSverre/fedit/releases/download/v{{VERSION}}/fedit-x86_64-unknown-linux-gnu.tar.xz"
+      sha256 "{{SHA_LINUX_X64}}"
+    end
+  end
+  license "MIT"
+
+  def install
+    bin.install "fedit"
+    doc_files = Dir["README.*", "readme.*", "LICENSE", "LICENSE.*", "CHANGELOG.*"]
+    leftover = Dir["*"] - doc_files
+    pkgshare.install(*leftover) unless leftover.empty?
+  end
+
+  test do
+    # fedit is a TUI; we can't run it interactively under `brew test`.
+    # Verify the binary installed and is executable.
+    assert_predicate bin/"fedit", :executable?
+  end
+end

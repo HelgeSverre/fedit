@@ -87,3 +87,25 @@ uninstall dest="~/.local/bin":
 uninstall dest="%LOCALAPPDATA%\\Programs\\fedit":
     if exist "{{dest}}\fedit.exe" del /Q "{{dest}}\fedit.exe"
     @echo Removed {{dest}}\fedit.exe
+
+# Cut a release: tag and push. CI publishes binaries + updates the homebrew formula.
+# Usage: just release 0.1.0
+[group('release')]
+release version:
+    @if ! git diff-index --quiet HEAD --; then echo "✗ working tree is dirty, commit or stash first" >&2; exit 1; fi
+    @if [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]; then echo "✗ not on main branch" >&2; exit 1; fi
+    @echo "→ tagging v{{version}}"
+    git tag -a "v{{version}}" -m "fedit v{{version}}"
+    git push origin "v{{version}}"
+    @echo "→ tag pushed. watch CI: https://github.com/HelgeSverre/fedit/actions"
+
+# Dry-run the formula render locally (uses fake SHAs).
+[group('release')]
+release-formula-preview:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp -d)
+    for t in aarch64-apple-darwin x86_64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu; do
+      printf '0000000000000000000000000000000000000000000000000000000000000000' > "$tmp/fedit-$t.sha256"
+    done
+    bash scripts/render-formula.sh 0.0.0-preview "$tmp"

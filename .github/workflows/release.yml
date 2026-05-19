@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.triple }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            rid: osx-arm64
+            triple: aarch64-apple-darwin
+            ext: tar.xz
+          - os: macos-13
+            rid: osx-x64
+            triple: x86_64-apple-darwin
+            ext: tar.xz
+          - os: ubuntu-22.04
+            rid: linux-x64
+            triple: x86_64-unknown-linux-gnu
+            ext: tar.xz
+          - os: ubuntu-22.04
+            rid: linux-arm64
+            triple: aarch64-unknown-linux-gnu
+            ext: tar.xz
+          - os: windows-2022
+            rid: win-x64
+            triple: x86_64-pc-windows-msvc
+            ext: zip
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: dotnet publish
+        run: dotnet publish src/Fedit/Fedit.fsproj -c Release -r ${{ matrix.rid }} -o dist/${{ matrix.rid }} --nologo
+
+      - name: stage README + LICENSE
+        shell: bash
+        run: cp README.md LICENSE dist/${{ matrix.rid }}/
+
+      - name: archive (unix)
+        if: matrix.ext == 'tar.xz'
+        shell: bash
+        run: |
+          tar -cJf "fedit-${{ matrix.triple }}.tar.xz" -C "dist/${{ matrix.rid }}" fedit LICENSE README.md
+          shasum -a 256 "fedit-${{ matrix.triple }}.tar.xz" | awk '{print $1}' > "fedit-${{ matrix.triple }}.sha256"
+
+      - name: archive (windows)
+        if: matrix.ext == 'zip'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist/${{ matrix.rid }}/*" -DestinationPath "fedit-${{ matrix.triple }}.zip"
+          $h = (Get-FileHash -Algorithm SHA256 "fedit-${{ matrix.triple }}.zip").Hash.ToLower()
+          Set-Content -Path "fedit-${{ matrix.triple }}.sha256" -Value $h -NoNewline
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedit-${{ matrix.triple }}
+          path: |
+            fedit-${{ matrix.triple }}.${{ matrix.ext }}
+            fedit-${{ matrix.triple }}.sha256
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    name: Publish release + update homebrew tap
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: flatten artifacts to release/
+        shell: bash
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.tar.xz' -o -name '*.zip' -o -name '*.sha256' \) \
+            -exec mv {} release/ \;
+          ls -la release/
+
+      - name: compute version (strip leading v)
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "fedit ${{ steps.version.outputs.version }}" \
+            --generate-notes \
+            release/*.tar.xz release/*.zip release/*.sha256
+
+      - name: render homebrew formula
+        run: bash scripts/render-formula.sh "${{ steps.version.outputs.version }}" release > /tmp/fedit.rb
+
+      - name: checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: HelgeSverre/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: commit + push updated formula
+        shell: bash
+        run: |
+          mv /tmp/fedit.rb homebrew-tap/Formula/fedit.rb
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- Formula/fedit.rb; then
+            echo "No formula changes — skipping commit."
+            exit 0
+          fi
+          git add Formula/fedit.rb
+          git commit -m "fedit ${{ steps.version.outputs.version }}"
+          git push
