@@ -397,3 +397,60 @@ estate by hiding the dock panel when not needed.
       via the `:help` command. When active, the dock panel shows
       contextual help lines (Shortcuts/Commands) even when the command
       bar is inactive.
+
+---
+
+## View: dim-gray active-line background ✅
+
+The active-line text style used the theme's `SelectedBg` (the saturated
+accent), which made text harder to read when the cursor sat on a long
+line — the saturation overwhelmed the surface foreground.
+
+- [x] **`currentLineBg`** added as a fixed grayscale style
+      (`fg 252, bg 236`) in `View.fs`. Used in place of `selected` when
+      rendering the active line. The theme-derived `selected` style
+      stays for the sidebar selected row, the completion list, and the
+      multi-character text selection highlight — all places where the
+      saturated callout is wanted.
+
+The fixed style is intentionally not theme-derived; a source comment
+documents why so the value isn't "fixed" by routing it through `Theme`
+later.
+
+---
+
+## Buffer: 3-class word motion ✅
+
+Word boundaries used a 2-class predicate (`IsLetterOrDigit || '_'`) and
+treated everything else as a single "non-word" run. That collapses code
+shapes like `foo.bar(baz)` into one motion stop. Surveyed `../token-editor`
+(Rust, IntelliJ-style) and Zed for the standard upgrade.
+
+- [x] **`CharClass` classifier.** Four classes — `Whitespace`, `WordChar`,
+      `Punctuation`, `Other` — defined in `Buffer.fs`. `WordChar` keeps
+      the existing `IsLetterOrDigit || '_'` (Unicode-aware via .NET).
+      `Punctuation` is a hard-coded 31-char ASCII set matching IntelliJ
+      and token-editor. `Other` catches non-ASCII symbols (§, ¶, emoji)
+      so they don't sneak into `WordChar` runs.
+- [x] **Class-transition boundaries.** `wordIndexLeft` / `wordIndexRight`
+      stop at any class transition. `foo.bar(baz)` now has stops at
+      `foo|`, `.|`, `bar|`, `(|`, `baz|`, `)|` instead of one giant move.
+- [x] **`WordMotionLanding` DU.** `WordEnd` (default — matches Zed,
+      VSCode, JetBrains, and the previous fedit behavior) lands at the
+      end of the current run. `NextWordStart` additionally consumes
+      trailing whitespace, landing at the start of the next non-whitespace
+      run (vim `w`).
+- [x] **Configurable.** `Config.WordMotion : WordMotionLanding` carries
+      the preference, persisted in `~/.config/fedit/config.json` as
+      `"wordMotion": "wordEnd" | "nextWordStart"`. Unknown / missing
+      values fall back to `WordEnd`. No new commands; user edits config
+      and restarts.
+- [x] **Tests.** 13 new cases in `BufferTests.fs` covering each
+      class-transition direction, both landing modes, multi-char
+      punctuation runs, underscore-as-word, Unicode letters
+      (`Café.txt`), and leading-whitespace skip. Total suite: 82
+      tests, all passing.
+
+Out of scope (parked): subword motion (camelCase / snake_case /
+kebab-case via `Ctrl+Alt+arrow`, Zed-style); word-selection variants
+(`Alt+Shift+arrow`); runtime `:wordmotion` command.

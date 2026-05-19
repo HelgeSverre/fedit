@@ -190,8 +190,8 @@ File tree keys:
 Command bar keys:
 
 - Type to filter; the dock panel shows matching commands or workspace paths.
-- `Tab` and `Shift+Tab` cycle through completions.
-- `Up` and `Down` walk through recent command history (up to 20 entries).
+- `Up` / `Down` (and `Tab` / `Shift+Tab`) move the highlight through the completion list. The viewport scrolls so the selected item stays visible.
+- `Alt+Up` / `Alt+Down` walk through recent command history (up to 20 entries).
 - `Enter` runs the parsed command, or applies the highlighted completion when the command is incomplete.
 - `Left`, `Right`, `Home`, `End`, `Backspace`, and `Delete` edit the input.
 - `Escape` closes the command bar without running anything.
@@ -240,7 +240,7 @@ Text buffers are stored with a piece table. The original file contents stay in o
 
 Files are read as UTF-8. The line ending of the loaded file (`LF` or `CRLF`) is detected and reused on save; the buffer always works in `\n` form internally. Saving writes UTF-8 without a byte-order mark.
 
-The UI is split into a sidebar (file tree), an editor pane with a line-number gutter, a status line, a dock panel that shows contextual help or completions, and a single-line command bar at the bottom. The status line reports the current focus (`TREE`/`EDIT`/`CMD`/`FIND`), active file path, dirty marker, cursor position with total line count (`Ln 12/238`), the line-ending style (`LF` or `CRLF`), the count of open buffers, and the most recent notification.
+The UI is split into a sidebar (file tree), an editor pane with a line-number gutter, a status line, a single-line command bar at the bottom, and a dock panel that's hidden by default. The dock appears automatically when the command bar is active (showing completions or parser feedback) and can be toggled on persistently via the `:help` command — handy for keeping the shortcut list in view while learning the bindings. The status line reports the current focus (`TREE`/`EDIT`/`CMD`/`FIND`), active file path, dirty marker, cursor position with total line count (`Ln 12/238`), the line-ending style (`LF` or `CRLF`), the count of open buffers, and the most recent notification.
 
 Themes are pure accent palettes — the dock title, status bar, selection highlight, and current-line gutter all swap together while the grayscale chrome stays constant across themes. The chosen theme, the most recent 20 opened files, and the runtime tunables described in [Configuration](#configuration) all live in `~/.config/fedit/config.json` and are restored on the next launch; the default theme is `green` (phosphor green, the brand accent).
 
