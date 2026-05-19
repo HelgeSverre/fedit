@@ -13,11 +13,11 @@ session can implement it without re-deriving the design.
 
 Three-tier pyramid, weighted to the bottom two:
 
-| Tier | What | Tools | Volume |
-|------|------|-------|--------|
-| **1** | Pure model tests against `update`, `PieceTable`, `Buffer`, `Commands.parse`, `Workspace` | xUnit + FsUnit.xUnit + FsCheck | ~50–150 tests |
-| **2** | Frame snapshots: fold `Msg` list through `update` → `Layout.render` → stringified `Cell[,]` → golden file | Verify.Xunit | ~20–40 scenarios |
-| **3** | Binary smoke: prove the actual `fedit` executable launches and quits cleanly | charmbracelet/vhs OR `Process.Start` exit-code checks | 3–5 cases |
+| Tier  | What                                                                                                      | Tools                                                 | Volume           |
+| ----- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ---------------- |
+| **1** | Pure model tests against `update`, `PieceTable`, `Buffer`, `Commands.parse`, `Workspace`                  | xUnit + FsUnit.xUnit + FsCheck                        | ~50–150 tests    |
+| **2** | Frame snapshots: fold `Msg` list through `update` → `Layout.render` → stringified `Cell[,]` → golden file | Verify.Xunit                                          | ~20–40 scenarios |
+| **3** | Binary smoke: prove the actual `fedit` executable launches and quits cleanly                              | charmbracelet/vhs OR `Process.Start` exit-code checks | 3–5 cases        |
 
 All three run via `dotnet test` (+ `vhs` invocation for tier 3) on
 GitHub Actions, one job, ubuntu-latest.
@@ -45,24 +45,29 @@ This was confirmed by an internal multi-agent consensus analysis
 "tiers 1+2 with xUnit + Verify.Xunit"; the only real split was the
 shape of tier 3.
 
-## Tier 1 — Pure model tests
+## Tier 1 — Pure model tests ✅ Landed
 
-**Project layout.** Add a sibling project:
+**Project layout** (as shipped after Phase 6 reorganization):
 
 ```
-fedit.sln               # new — wraps both projects
-fedit/                  # existing source
-  fedit.fsproj
-  ...
-fedit.Tests/
-  fedit.Tests.fsproj
-  PieceTableTests.fs
-  BufferTests.fs
-  CommandsTests.fs
-  WorkspaceTests.fs
-  UpdateTests.fs        # Msg-sequence tests on Editor.update
-  Properties.fs         # FsCheck invariants
+Fedit.slnx                              # solution at repo root
+src/Fedit/
+  Fedit.fsproj
+  Primitives.fs / PieceTable.fs / Buffer.fs / Workspace.fs / Themes.fs /
+  Commands.fs / Model.fs / Editor.fs / Screen.fs / Renderer.fs /
+  Input.fs / View.fs / Runtime.fs / Program.fs
+tests/Fedit.Tests/
+  Fedit.Tests.fsproj
+  PieceTableTests.fs    # 16 tests + 3 FsCheck properties
+  BufferTests.fs        # 20 tests
+  CommandsTests.fs      # 14 tests
+  WorkspaceTests.fs     # 7 tests
+  UpdateTests.fs        # 6 Msg-sequence tests on Editor.update
+  Program.fs            # empty entrypoint
 ```
+
+Run via `dotnet test Fedit.slnx` or `just test`. Current count: **63 tests,
+all passing** on ubuntu / macos / windows in CI.
 
 **Package versions (current as of writing — verify before adoption):**
 
@@ -87,7 +92,7 @@ fedit.Tests/
 - `Workspace`: tree flattening with selection + expansion, navigation
   through `moveSelection`, `expandSelected`, `collapseSelected`.
 - `Editor.update`: scripted `Msg` sequences (open file → edit → save)
-  produce expected `Model` *and* expected `Effect list`.
+  produce expected `Model` _and_ expected `Effect list`.
 
 **Property tests (FsCheck).** These catch what scripted tests don't:
 
@@ -95,7 +100,7 @@ fedit.Tests/
   insert is identity); `length (insert i s t) = length t + s.Length`;
   `toString (insert (length t) s t) = toString t + s`.
 - `Buffer`: cursor never lands outside the document; `undo ∘ insertText
-  = identity` when starting from a clean state.
+= identity` when starting from a clean state.
 - `Commands.parse`: `parse (spec.Usage) ≠ Invalid` for every spec.
 
 ## Tier 2 — Frame snapshot tests
@@ -106,7 +111,7 @@ via `dotnet verify accept` or the IDE plugin → `.verified.txt` is
 committed alongside the test source.
 
 **The load-bearing helper.** A `Cell[,] -> string` projector lives in
-`fedit.Tests/Snapshot.fs`:
+`tests/Fedit.Tests/Snapshot.fs`:
 
 ```fsharp
 module Snapshot
@@ -190,6 +195,7 @@ GIF and release-notes screencaps. One artifact, three uses (test,
 demo, docs). This is the main reason to prefer vhs over option B.
 
 **Scenarios (cap at 5):**
+
 1. Cold start → quit cleanly.
 2. Open file via `Ctrl+P :o README.md` → type a line → save → quit.
 3. Sidebar navigation: `Ctrl+B`, arrow keys, Enter to open.
@@ -238,26 +244,26 @@ purity of `update` + `render` lets us route around it.
 name: ci
 on: [push, pull_request]
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with: { dotnet-version: '9.0.x' }
-      - run: dotnet test --configuration Release
-  vhs:
-    # only if Tier 3 Option A is chosen
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: charmbracelet/vhs-action@v2
-      - run: |
-          for tape in tests/e2e/*.tape; do
-            vhs "$tape"
-          done
-          # diff against tests/e2e/*.txt golden files
+    test:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-dotnet@v4
+              with: { dotnet-version: "9.0.x" }
+            - run: dotnet test --configuration Release
+    vhs:
+        # only if Tier 3 Option A is chosen
+        runs-on: ubuntu-latest
+        needs: test
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        steps:
+            - uses: actions/checkout@v4
+            - uses: charmbracelet/vhs-action@v2
+            - run: |
+                  for tape in tests/e2e/*.tape; do
+                    vhs "$tape"
+                  done
+                  # diff against tests/e2e/*.txt golden files
 ```
 
 Add `just test` (runs `dotnet test`) and, if Option A: `just test-e2e`

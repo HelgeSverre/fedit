@@ -6,6 +6,7 @@
 ===      ======== =======  ===   ===
 ```
 
+[![CI](https://github.com/HelgeSverre/fedit/actions/workflows/ci.yml/badge.svg)](https://github.com/HelgeSverre/fedit/actions/workflows/ci.yml)
 [![.NET SDK](https://img.shields.io/badge/dotnet-9%2B-blue.svg)](https://dotnet.microsoft.com/download)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 ![Project Type](https://img.shields.io/badge/language-F%23-blue.svg)
@@ -16,7 +17,7 @@
 
 ## Requirements
 
-- .NET SDK 9 or newer
+- .NET SDK 9 (pinned via `global.json` to `9.0.312` with `rollForward: latestFeature`, so any `9.0.x` patch ≥ 312 works)
 - `just` for the convenience recipes in `justfile`
 
 This repository includes a local `.dotnet` SDK directory. The `fedit` wrapper script and the `justfile` recipes prepend `.dotnet` to `PATH`, so the local SDK is used when it is present.
@@ -25,19 +26,19 @@ This repository includes a local `.dotnet` SDK directory. The `fedit` wrapper sc
 
 Run the editor in the current directory using the included `fedit` shell shim (a thin wrapper that pins the local `.dotnet` SDK on `$PATH` and invokes `dotnet run`):
 
-```sh
+```shell
 ./fedit .
 ```
 
 Run it directly through .NET:
 
-```sh
+```shell
 dotnet run --project src/Fedit/Fedit.fsproj -- .
 ```
 
 Or use the just recipe:
 
-```sh
+```shell
 just run .
 ```
 
@@ -51,25 +52,25 @@ Pass a file or directory path as the first argument. If no path is provided, `fe
 
 Build the whole solution (both projects):
 
-```sh
+```shell
 dotnet build Fedit.slnx
 ```
 
 Or just the editor:
 
-```sh
+```shell
 dotnet build src/Fedit/Fedit.fsproj
 ```
 
 Run the editor:
 
-```sh
+```shell
 dotnet run --project src/Fedit/Fedit.fsproj -- .
 ```
 
 Clean generated output:
 
-```sh
+```shell
 dotnet clean Fedit.slnx
 rm -rf src/Fedit/bin src/Fedit/obj tests/Fedit.Tests/bin tests/Fedit.Tests/obj
 ```
@@ -78,67 +79,67 @@ rm -rf src/Fedit/bin src/Fedit/obj tests/Fedit.Tests/bin tests/Fedit.Tests/obj
 
 List available recipes:
 
-```sh
+```shell
 just
 ```
 
 Start the app under `dotnet watch` (re-launches on source changes; expect a brief flash as the alt-screen tears down and re-enters on each rebuild):
 
-```sh
+```shell
 just dev .
 ```
 
 Build the project:
 
-```sh
+```shell
 just build
 ```
 
 Run the editor:
 
-```sh
+```shell
 just run .
 ```
 
 Clean compiled output:
 
-```sh
+```shell
 just clean
 ```
 
 Format F# sources with [fantomas](https://fsprojects.github.io/fantomas/) (restored from `.config/dotnet-tools.json`):
 
-```sh
+```shell
 just format
 ```
 
 Verify formatting without writing — fails if anything would change:
 
-```sh
-just format-check
+```shell
+just lint
 ```
 
 Run the xUnit test suite (Tier 1 coverage of `PieceTable`, `Buffer`, `Commands`, `Workspace`, `Editor.update`, plus FsCheck properties on the piece table):
 
-```sh
+```shell
 just test
 ```
 
-Run format-check, build, and test together as a single pre-commit gate:
+Run lint, build, and test together as a single pre-commit gate:
 
-```sh
+```shell
 just check
 ```
 
 Publish a self-contained single-file binary and install it to `~/.local/bin` (override with `just install path/to/bin`):
 
-```sh
+```shell
 just install
 ```
 
 Remove a previously installed binary:
 
-```sh
+```shell
 just uninstall
 ```
 
@@ -214,7 +215,7 @@ Command bar commands:
 
 ## How It Works
 
-The project is an executable defined by `fedit.fsproj`, with sources split across 13 numbered `.fs` files under `namespace Fedit` (see `<Compile Include="…">` entries in the fsproj for the canonical order). `Program.fs` is the entry-point shell; the actual logic lives in `Primitives.fs` → `PieceTable.fs` → `Buffer.fs` → `Workspace.fs` → `Themes.fs` → `Commands.fs` → `Model.fs` → `Editor.fs` → `Screen.fs` → `Renderer.fs` → `Input.fs` → `View.fs` → `Runtime.fs`. Startup reads the first non-flag command-line argument as the workspace root. If no argument is provided, it uses the current directory.
+The project is an executable defined by `src/Fedit/Fedit.fsproj`, with sources split across 14 numbered `.fs` files under `namespace Fedit` (see `<Compile Include="…">` entries in the fsproj for the canonical order). `Program.fs` is the entry-point shell; the actual logic lives in `Primitives.fs` → `PieceTable.fs` → `Buffer.fs` → `Workspace.fs` → `Themes.fs` → `Commands.fs` → `Model.fs` → `Editor.fs` → `Screen.fs` → `Renderer.fs` → `Input.fs` → `View.fs` → `Runtime.fs`. The test project lives in `tests/Fedit.Tests/` and the `Fedit.slnx` solution at the repo root ties both together. Startup reads the first non-flag command-line argument as the workspace root. If no argument is provided, it uses the current directory.
 
 At runtime, `fedit` scans the workspace into a tree model and skips `.DS_Store`, `.git`, `.dotnet`, `bin`, and `obj`. A `FileSystemWatcher` is installed on the same workspace root so external edits, creations, deletions, and renames trigger a debounced rescan (300ms) without `Ctrl+R`. The UI keeps a model containing the workspace tree, open buffers, focus target, terminal size, notifications, and panel state.
 

@@ -5,15 +5,15 @@ ordered by phase — earlier phases unblock later ones.
 
 ## Status (2026-05-19)
 
-| Area | State |
-|------|-------|
-| **Phase 0 — Theming** | ✅ 9/9. |
-| **Phase 1 — F1–F7** | ✅ 7/7. |
-| **Phase 2 — Module reorganization** | ✅ Done — `Program.fs` is now an entry-point shell; 13 numbered files under `namespace Fedit`. |
-| **Phase 3 — UX** | ✅ 11/11. User themes from JSON shipped as Tier-B-equivalent; Mouse is a closed decision (rationale in the Phase 3 section). |
-| **Phase 4 — DX** | ✅ Install / Format / Crash handler / Logging / `dotnet watch` docs / Tests / CI all done. |
-| **Phase 5 — Performance** | ✅ P1, P2, P3, P4, P5 all done. |
-| **Phase 6 — .NET conventions** | ✅ 8/8. |
+| Area                                | State                                                                                                                        |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Phase 0 — Theming**               | ✅ 9/9.                                                                                                                      |
+| **Phase 1 — F1–F7**                 | ✅ 7/7.                                                                                                                      |
+| **Phase 2 — Module reorganization** | ✅ Done — `Program.fs` is now an entry-point shell; 13 numbered files under `namespace Fedit`.                               |
+| **Phase 3 — UX**                    | ✅ 11/11. User themes from JSON shipped as Tier-B-equivalent; Mouse is a closed decision (rationale in the Phase 3 section). |
+| **Phase 4 — DX**                    | ✅ Install / Format / Crash handler / Logging / `dotnet watch` docs / Tests / CI all done.                                   |
+| **Phase 5 — Performance**           | ✅ P1, P2, P3, P4, P5 all done.                                                                                              |
+| **Phase 6 — .NET conventions**      | ✅ 8/8.                                                                                                                      |
 
 Recently landed (this session):
 
@@ -46,15 +46,15 @@ one either hides a latent bug or makes future change more expensive
 than it needs to be. References are by symbol so they survive edits;
 grep the symbol if a line is wanted.
 
-| # | Where | Finding |
-|---|-------|---------|
-| F1 | `Editor.updateActiveBuffer`, `Layout.renderEditor` | Viewport gutter width hardcoded `8` in `updateActiveBuffer`; `renderEditor` computes it as `digits + 2`. They will diverge for buffers with few or many lines and produce wrong horizontal scroll. |
-| F2 | `Editor.statusLine`, `Editor.dockPanel` | Build view strings inside the update module. They belong in the view layer. |
-| F3 | `Workspace.metadata` | Returns user-facing strings like `"Ctrl+B tree"`. UI strings leaking into the workspace data module. |
-| F4 | `Editor.saveActiveBuffer` | Newline conversion (`text.Replace("\n", buffer.Newline)`) lives here. `Buffer` knows the original line ending but doesn't expose a `serialize`. Caller has to remember the convention. |
-| F5 | `type Renderer`, `module Renderer` | `Renderer` is a single-field wrapper over `TextWriter`. Adds indirection without reducing complexity for the caller. |
-| F6 | `Workspace.collapseSelected` | Also reparents selection when the entry isn't expandable. Behavior invisible from the name. |
-| F7 | `Runtime.scanNode` | Wraps each child iteration in `try ... with _ -> ()`, so permission-denied folders or unreadable entries silently disappear from the tree. No surfacing to the user. |
+| #   | Where                                              | Finding                                                                                                                                                                                            |
+| --- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1  | `Editor.updateActiveBuffer`, `Layout.renderEditor` | Viewport gutter width hardcoded `8` in `updateActiveBuffer`; `renderEditor` computes it as `digits + 2`. They will diverge for buffers with few or many lines and produce wrong horizontal scroll. |
+| F2  | `Editor.statusLine`, `Editor.dockPanel`            | Build view strings inside the update module. They belong in the view layer.                                                                                                                        |
+| F3  | `Workspace.metadata`                               | Returns user-facing strings like `"Ctrl+B tree"`. UI strings leaking into the workspace data module.                                                                                               |
+| F4  | `Editor.saveActiveBuffer`                          | Newline conversion (`text.Replace("\n", buffer.Newline)`) lives here. `Buffer` knows the original line ending but doesn't expose a `serialize`. Caller has to remember the convention.             |
+| F5  | `type Renderer`, `module Renderer`                 | `Renderer` is a single-field wrapper over `TextWriter`. Adds indirection without reducing complexity for the caller.                                                                               |
+| F6  | `Workspace.collapseSelected`                       | Also reparents selection when the entry isn't expandable. Behavior invisible from the name.                                                                                                        |
+| F7  | `Runtime.scanNode`                                 | Wraps each child iteration in `try ... with _ -> ()`, so permission-denied folders or unreadable entries silently disappear from the tree. No surfacing to the user.                               |
 
 ---
 
@@ -72,12 +72,12 @@ grayscale chrome the editor uses today.
 `lineNumber`, `currentLineNumber` `let private`s). The chromatic slots
 — the only ones that should change with a theme — are:
 
-| Slot | ANSI 256 | Role |
-|------|---------:|------|
-| `accent` | 81 (light cyan) | Dock/panel titles |
-| `status` bg | 24 (deep blue) | Status bar background |
-| `selected` bg | 31 (teal) | Selected row in tree and completions |
-| `currentLineNumber` fg | 153 (pale blue) | Gutter highlight on cursor line |
+| Slot                   |        ANSI 256 | Role                                 |
+| ---------------------- | --------------: | ------------------------------------ |
+| `accent`               | 81 (light cyan) | Dock/panel titles                    |
+| `status` bg            |  24 (deep blue) | Status bar background                |
+| `selected` bg          |       31 (teal) | Selected row in tree and completions |
+| `currentLineNumber` fg | 153 (pale blue) | Gutter highlight on cursor line      |
 
 The grayscale slots (`surface` 252, `chrome` 244, `lineNumber` 241,
 command-bar fg/bg 230/237) carry no hue and should stay fixed across
@@ -92,19 +92,19 @@ fallback `statusFg` for palettes where white-on-color reads badly, e.g.
 yellow backgrounds). Ship a small bundled list, hand-picked from the
 6×6×6 ANSI cube so every terminal renders them identically:
 
-| Theme | accent | status bg | selected bg | current line | status fg |
-|-------|-------:|----------:|------------:|-------------:|----------:|
-| `cyan` (default) | 81 | 24 | 31 | 153 | 15 |
-| `teal` | 80 | 23 | 30 | 159 | 15 |
-| `green` | 82 | 22 | 28 | 157 | 15 |
-| `yellow` | 220 | 100 | 178 | 229 | 0 |
-| `orange` | 215 | 130 | 166 | 222 | 0 |
-| `red` | 203 | 88 | 124 | 217 | 15 |
-| `magenta` | 213 | 90 | 127 | 219 | 15 |
-| `purple` | 141 | 54 | 92 | 183 | 15 |
+| Theme            | accent | status bg | selected bg | current line | status fg |
+| ---------------- | -----: | --------: | ----------: | -----------: | --------: |
+| `cyan` (default) |     81 |        24 |          31 |          153 |        15 |
+| `teal`           |     80 |        23 |          30 |          159 |        15 |
+| `green`          |     82 |        22 |          28 |          157 |        15 |
+| `yellow`         |    220 |       100 |         178 |          229 |         0 |
+| `orange`         |    215 |       130 |         166 |          222 |         0 |
+| `red`            |    203 |        88 |         124 |          217 |        15 |
+| `magenta`        |    213 |        90 |         127 |          219 |        15 |
+| `purple`         |    141 |        54 |          92 |          183 |        15 |
 
 Picked by hand, not derived — contrast on the status bar in particular
-needs eyes, not math. The grayscale slots are *not* part of the
+needs eyes, not math. The grayscale slots are _not_ part of the
 record.
 
 **Tier B — full themes from YAML (later, optional).** Promote every
@@ -139,10 +139,10 @@ speculative; the accent swap matches the immediate ask.
 - [x] **Live preview.** Added `PreviewTheme : Theme option` to
       `CommandBarState`. `Layout.effectiveTheme` resolves the visible
       theme as `model.CommandBar.PreviewTheme |> Option.defaultValue
-      model.Theme`. Preview is recomputed in `Editor.updatePreview` on
+    model.Theme`. Preview is recomputed in `Editor.updatePreview` on
       text changes (via `refreshCommandBar`) and on Tab/ShiftTab
       cycling. Selected completion wins; falls back to `Parsed =
-      Ready (Theme name)`; `None` otherwise. Cleared in
+    Ready (Theme name)`; `None` otherwise. Cleared in
       `closeCommandBar` (Escape, successful commit, dismissal).
 - [x] On `Enter` with `Ready (Theme name)`, set `model.Theme` and
       persist `{"theme": "<name>"}` to `~/.config/fedit/config.json`.
@@ -159,7 +159,7 @@ speculative; the accent swap matches the immediate ask.
       file, malformed JSON, unknown theme name, non-string value)
       fall through to `Themes.defaultTheme`.
 - [x] `:theme` with no argument resolves to `Pending "Theme name
-      required."` so the dock shows the help line and the completion
+    required."` so the dock shows the help line and the completion
       list shows every theme — the command bar itself is the picker.
       (Fell out of the constructor; no extra code needed.)
 
@@ -213,27 +213,26 @@ higher than the avoided duplicate edit.
 Split landed. `Program.fs` is now the entry-point-only file; the rest
 of the code lives in 13 numbered files under `namespace Fedit`:
 
-| Order | File | Contents |
-|------:|------|----------|
-| 1 | `Primitives.fs` | `Size`, `Position`, `Severity`, `Notification`, `FocusTarget`, `KeyInput`, `CompletionKind`, `CompletionItem`, `DockPanel`, helpers |
-| 2 | `PieceTable.fs` | `PieceSource`, `Piece`, `PieceTable` type + module |
-| 3 | `Buffer.fs` | `BufferRevision`, `BufferState`, `Buffer` module (incl. new `serialize` and `gutterWidth`) |
-| 4 | `Workspace.fs` | `FileNode`, `WorkspaceEntry`, `WorkspaceState`, `SidebarAction`, `Workspace` module — `metadata` returns structured data, not display strings |
-| 5 | `Themes.fs` | `Theme` type, `Themes` module with bundled palette list |
-| 6 | `Commands.fs` | `Command`, `ParsedCommand`, `CommandContext`, `Commands` module (incl. `Command.Theme of string` after Phase 0) |
-| 7 | `Model.fs` | `EditorsState`, `CommandBarState`, `PanelsState`, `Model` (with `Theme : Theme`), `Msg`, `Effect` |
-| 8 | `Editor.fs` | `Editor` module — pure `update`, `init`, helpers. **No** `statusLine`/`dockPanel`. |
-| 9 | `Screen.fs` | `Color`, `Style`, `Cell`, `Cursor`, `Screen`, `Style` + `Screen` modules |
-| 10 | `View.fs` | `Layout.render`, `statusLine`, `dockPanel`, workspace-row formatting (formerly in Editor + Workspace.metadata) |
-| 11 | `Renderer.fs` | `Renderer` module (or just `Ansi` functions if F5 deletes the wrapper) |
-| 12 | `Input.fs` | `Input.tryMap` |
-| 13 | `Runtime.fs` | Effect interpreter, main loop |
-| 14 | `Program.fs` | `[<EntryPoint>]` only — argv parsing + `Runtime.run` |
+| Order | File            | Contents                                                                                                                                      |
+| ----: | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+|     1 | `Primitives.fs` | `Size`, `Position`, `Severity`, `Notification`, `FocusTarget`, `KeyInput`, `CompletionKind`, `CompletionItem`, `DockPanel`, helpers           |
+|     2 | `PieceTable.fs` | `PieceSource`, `Piece`, `PieceTable` type + module                                                                                            |
+|     3 | `Buffer.fs`     | `BufferRevision`, `BufferState`, `Buffer` module (incl. new `serialize` and `gutterWidth`)                                                    |
+|     4 | `Workspace.fs`  | `FileNode`, `WorkspaceEntry`, `WorkspaceState`, `SidebarAction`, `Workspace` module — `metadata` returns structured data, not display strings |
+|     5 | `Themes.fs`     | `Theme` type, `Themes` module with bundled palette list                                                                                       |
+|     6 | `Commands.fs`   | `Command`, `ParsedCommand`, `CommandContext`, `Commands` module (incl. `Command.Theme of string` after Phase 0)                               |
+|     7 | `Model.fs`      | `EditorsState`, `CommandBarState`, `PanelsState`, `Model` (with `Theme : Theme`), `Msg`, `Effect`                                             |
+|     8 | `Editor.fs`     | `Editor` module — pure `update`, `init`, helpers. **No** `statusLine`/`dockPanel`.                                                            |
+|     9 | `Screen.fs`     | `Color`, `Style`, `Cell`, `Cursor`, `Screen`, `Style` + `Screen` modules                                                                      |
+|    10 | `View.fs`       | `Layout.render`, `statusLine`, `dockPanel`, workspace-row formatting (formerly in Editor + Workspace.metadata)                                |
+|    11 | `Renderer.fs`   | `Renderer` module (or just `Ansi` functions if F5 deletes the wrapper)                                                                        |
+|    12 | `Input.fs`      | `Input.tryMap`                                                                                                                                |
+|    13 | `Runtime.fs`    | Effect interpreter, main loop                                                                                                                 |
+|    14 | `Program.fs`    | `[<EntryPoint>]` only — argv parsing + `Runtime.run`                                                                                          |
 
-Update `fedit.fsproj` `<Compile Include="..." />` entries to match.
-
-Verification: build + manual smoke test (`just run .`, open a file, edit,
-save, quit) before merging the reorganization.
+Project file is `src/Fedit/Fedit.fsproj`; `<Compile Include="…" />`
+entries are in the order above. Verified with `just check` (build +
+63-test suite) after the move.
 
 ## Phase 3 — UI / UX
 
@@ -306,11 +305,12 @@ slice of work.
       (binary smoke) tracked in `TESTING.md` as the next-tier
       expansion; the foundation here is enough to back the P2 async
       rewrite and catch regressions in `Buffer` / `Commands` / `update`.
-- [x] **Format + lint.** `just format` / `just format-check` / `just
-      check` recipes in `justfile`.
-- [x] **CI.** GitHub Actions workflow at `.github/workflows/ci.yml`
-      runs format-check + build + test on push and pull_request to
-      main, ubuntu-latest, .NET 9.
+- [x] **Format + lint.** `just format` / `just lint` / `just check`
+      recipes in `justfile` (the legacy `format-check` recipe was
+      renamed to `lint`; `just check` runs lint + build + test).
+- [x] **CI.** GitHub Actions workflow at `.github/workflows/ci.yml`.
+      Fantomas check on ubuntu-latest; build + test across
+      `{ubuntu, macos, windows}-latest` (Phase 6 C7).
 - [x] **`dotnet watch` ergonomics.** Documented the limitation in the
       README's `just dev` section; not worth a debounce until someone
       complains.
@@ -357,23 +357,17 @@ below are the ones with real bite. Ordered by impact, not difficulty.
 - [x] **P3 — `[<Struct>]` on small value types.**
       These types are small, value-equality already, and copied
       heavily on hot paths. Adding `[<Struct>]` avoids one heap
-      allocation per instance and improves cache behavior:
-      - `Size` — 2 ints, compared with `<>` every loop iteration in
-        `Runtime.run`.
-      - `Position` — 2 ints, copied on every cursor motion.
-      - `Piece` — 3 small fields, allocated by every piece-table
-        insert/delete.
-      - `Cell` — held in `Cell[,]` for the whole screen; struct
-        version avoids one heap object per character.
-      - `Style` — compared per-cell in `Renderer.render`.
-      - `Cursor`.
+      allocation per instance and improves cache behavior: - `Size` — 2 ints, compared with `<>` every loop iteration in
+      `Runtime.run`. - `Position` — 2 ints, copied on every cursor motion. - `Piece` — 3 small fields, allocated by every piece-table
+      insert/delete. - `Cell` — held in `Cell[,]` for the whole screen; struct
+      version avoids one heap object per character. - `Style` — compared per-cell in `Renderer.render`. - `Cursor`.
       Verify: build still passes, and `record { x with Field = y }`
       copy-update syntax keeps working (it does on struct records).
       No API changes for callers.
 
 - [x] **P4 — Cap the undo stack.** Capped at 200 entries.
       `Buffer.pushUndo` prepends to `buffer.Undo : BufferRevision
-      list` without bound. A long editing session grows this list
+    list` without bound. A long editing session grows this list
       forever. `Editor.pushHistory` already uses `List.truncate 20`
       for command history — apply the same pattern with a higher cap
       (suggest 200). Note that the piece table inside each revision
@@ -383,17 +377,15 @@ below are the ones with real bite. Ordered by impact, not difficulty.
 
 - [x] **P5 — Minor idiom cleanups.** Redundant `|> List.sort` on
       `Map.keys` dropped.
-      One-liners, no behavior change:
-      - `Editor.switchBuffer`: `model.Editors.Buffers |> Map.keys |>
-        Seq.toList |> List.sort` — `Map.keys` already returns sorted
-        keys (F# `Map` is ordered). Drop the `|> List.sort`.
-      - `Buffer.unindent`: `Seq.takeWhile ((=) ' ')` — readable as-is;
-        leave alone unless someone objects.
+      One-liners, no behavior change: - `Editor.switchBuffer`: `model.Editors.Buffers |> Map.keys |>
+      Seq.toList |> List.sort` — `Map.keys` already returns sorted
+      keys (F# `Map` is ordered). Drop the `|> List.sort`. - `Buffer.unindent`: `Seq.takeWhile ((=) ' ')` — readable as-is;
+      leave alone unless someone objects.
       (The newline-replace one-liner that lived in
       `Editor.saveActiveBuffer` is covered by F4 and is not listed
       here.)
 
-## Phase 6 — .NET conventions & repo hygiene
+## Phase 6 — .NET conventions & repo hygiene ✅
 
 The codebase works, builds, ships. This phase is about meeting the
 conventions an experienced .NET developer would expect when they clone
@@ -408,180 +400,180 @@ C7–C8 are optional polish.
 
 - [x] **C1 — Pin the SDK with `global.json`.**
 
-      *Context:* `fedit.fsproj` pins `net9.0` (the *target framework*) but
-      nothing pins the *SDK* used to build it. A contributor with .NET 10
-      preview installed will silently build against that toolchain; a
-      contributor with only .NET 8 will get a confusing restore error.
-      The presence of a hand-maintained `.dotnet/` shim and the
-      `PATH="$PWD/.dotnet:$PATH"` prefix in the `justfile` shows we
-      already care about toolchain control — `global.json` is the
-      standard way to express it.
+        *Context:* `fedit.fsproj` pins `net9.0` (the *target framework*) but
+        nothing pins the *SDK* used to build it. A contributor with .NET 10
+        preview installed will silently build against that toolchain; a
+        contributor with only .NET 8 will get a confusing restore error.
+        The presence of a hand-maintained `.dotnet/` shim and the
+        `PATH="$PWD/.dotnet:$PATH"` prefix in the `justfile` shows we
+        already care about toolchain control — `global.json` is the
+        standard way to express it.
 
-      *Action:*
-      - Add `global.json` at the repo root with `sdk.version` set to the
-        current local `dotnet --version` (likely `9.0.x`) and
-        `rollForward: latestFeature` so patch-level upgrades work
-        transparently.
-      - Mention it in the README's "Build from source" section.
-      - Leave `.dotnet/` and the `PATH` prefix alone; they are
-        complementary (one pins the version, the other lets a checkout
-        run without a system-wide install).
+        *Action:*
+        - Add `global.json` at the repo root with `sdk.version` set to the
+          current local `dotnet --version` (likely `9.0.x`) and
+          `rollForward: latestFeature` so patch-level upgrades work
+          transparently.
+        - Mention it in the README's "Build from source" section.
+        - Leave `.dotnet/` and the `PATH` prefix alone; they are
+          complementary (one pins the version, the other lets a checkout
+          run without a system-wide install).
 
 - [x] **C2 — Add `Directory.Build.props` for shared MSBuild settings.**
 
-      *Context:* Properties like `TreatWarningsAsErrors`, `LangVersion`,
-      `Nullable`, and `InvariantGlobalization` belong on both projects
-      (`fedit.fsproj` and `fedit.Tests/fedit.Tests.fsproj`). Duplicating
-      them in two `.fsproj` files invites drift; `Directory.Build.props`
-      at the repo root applies to every project beneath it.
+        *Context:* Properties like `TreatWarningsAsErrors`, `LangVersion`,
+        `Nullable`, and `InvariantGlobalization` belong on both projects
+        (`fedit.fsproj` and `fedit.Tests/fedit.Tests.fsproj`). Duplicating
+        them in two `.fsproj` files invites drift; `Directory.Build.props`
+        at the repo root applies to every project beneath it.
 
-      *Action:* Create `Directory.Build.props` with:
-      - `<LangVersion>latest</LangVersion>`
-      - `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>`
-      - `<Nullable>enable</Nullable>` (F# honors it for C#-interop
-        signatures and IDE tooling)
-      - `<InvariantGlobalization>true</InvariantGlobalization>` — fedit
-        does no culture-sensitive formatting; this trims published size
-        and avoids ICU dependency drift.
-      - `<DebugType>embedded</DebugType>` so single-file publish embeds
-        PDBs (better stack traces on crash with no extra files).
+        *Action:* Create `Directory.Build.props` with:
+        - `<LangVersion>latest</LangVersion>`
+        - `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>`
+        - `<Nullable>enable</Nullable>` (F# honors it for C#-interop
+          signatures and IDE tooling)
+        - `<InvariantGlobalization>true</InvariantGlobalization>` — fedit
+          does no culture-sensitive formatting; this trims published size
+          and avoids ICU dependency drift.
+        - `<DebugType>embedded</DebugType>` so single-file publish embeds
+          PDBs (better stack traces on crash with no extra files).
 
-      Then remove any of these now-duplicated lines from the two project
-      files.
+        Then remove any of these now-duplicated lines from the two project
+        files.
 
 - [x] **C3 — Add `.editorconfig` so Fantomas style is explicit.**
 
-      *Context:* Fantomas reads `.editorconfig` for `fsharp_*` style
-      keys. Without one, formatting follows Fantomas defaults — which
-      *currently* matches our source, but is implicit and will drift
-      silently if Fantomas changes its defaults in a future release. CI
-      runs `fantomas --check`, so a default-change would break main with
-      no obvious cause.
+        *Context:* Fantomas reads `.editorconfig` for `fsharp_*` style
+        keys. Without one, formatting follows Fantomas defaults — which
+        *currently* matches our source, but is implicit and will drift
+        silently if Fantomas changes its defaults in a future release. CI
+        runs `fantomas --check`, so a default-change would break main with
+        no obvious cause.
 
-      *Action:* Add `.editorconfig` at the repo root with at least:
-      - `root = true`
-      - `[*.fs]` block setting `indent_style = space`, `indent_size = 4`,
-        `end_of_line = lf`, `insert_final_newline = true`,
-        `trim_trailing_whitespace = true`.
-      - Any `fsharp_*` keys we want to pin (look at current Fantomas
-        output and lock in the values we already follow — e.g.
-        `fsharp_max_value_binding_width`,
-        `fsharp_multiline_bracket_style`).
+        *Action:* Add `.editorconfig` at the repo root with at least:
+        - `root = true`
+        - `[*.fs]` block setting `indent_style = space`, `indent_size = 4`,
+          `end_of_line = lf`, `insert_final_newline = true`,
+          `trim_trailing_whitespace = true`.
+        - Any `fsharp_*` keys we want to pin (look at current Fantomas
+          output and lock in the values we already follow — e.g.
+          `fsharp_max_value_binding_width`,
+          `fsharp_multiline_bracket_style`).
 
-      Run `dotnet fantomas .` once after adding to confirm no diff.
+        Run `dotnet fantomas .` once after adding to confirm no diff.
 
 - [x] **C4 — Move publish settings from the `justfile` into the project file.**
 
-      *Context:* `just install` passes `-p:PublishSingleFile=true
-      --self-contained true` on the command line. Anyone running
-      `dotnet publish` directly (the documented .NET workflow) gets a
-      different artifact. The properties should live in `fedit.fsproj`
-      so `dotnet publish -c Release` produces the right thing by
-      default; the justfile recipe stays as a convenience wrapper.
+        *Context:* `just install` passes `-p:PublishSingleFile=true
+        --self-contained true` on the command line. Anyone running
+        `dotnet publish` directly (the documented .NET workflow) gets a
+        different artifact. The properties should live in `fedit.fsproj`
+        so `dotnet publish -c Release` produces the right thing by
+        default; the justfile recipe stays as a convenience wrapper.
 
-      *Action:*
-      - Add to `fedit.fsproj` (inside a new `<PropertyGroup>` guarded
-        by `Condition="'$(Configuration)' == 'Release'"` so debug
-        builds stay fast):
-        - `<PublishSingleFile>true</PublishSingleFile>`
-        - `<SelfContained>true</SelfContained>`
-        - `<RuntimeIdentifiers>osx-arm64;osx-x64;linux-x64;win-x64</RuntimeIdentifiers>`
-        - `<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>`
-      - Drop `-p:PublishSingleFile=true --self-contained true` from the
-        `just install` recipe; keep `-c Release` and `-o bin/dist`.
-      - Verify `just install` still produces an identical single-file
-        binary.
+        *Action:*
+        - Add to `fedit.fsproj` (inside a new `<PropertyGroup>` guarded
+          by `Condition="'$(Configuration)' == 'Release'"` so debug
+          builds stay fast):
+          - `<PublishSingleFile>true</PublishSingleFile>`
+          - `<SelfContained>true</SelfContained>`
+          - `<RuntimeIdentifiers>osx-arm64;osx-x64;linux-x64;win-x64</RuntimeIdentifiers>`
+          - `<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>`
+        - Drop `-p:PublishSingleFile=true --self-contained true` from the
+          `just install` recipe; keep `-c Release` and `-o bin/dist`.
+        - Verify `just install` still produces an identical single-file
+          binary.
 
 - [x] **C5 — Restructure to `src/Fedit/` + `tests/Fedit.Tests/`.**
 
-      *Context:* The convention in the .NET ecosystem is `src/` for
-      application/library projects and `tests/` for test projects. Right
-      now `fedit.fsproj` and its 14 `.fs` files sit at the repo root,
-      mixed with README/LICENSE/TODO/justfile/`.config/`/`bin/`. A fresh
-      contributor sees a wall of files at the root and has to mentally
-      separate "code" from "repo metadata". The current layout also
-      makes the test project's `..\fedit.fsproj` reference an asymmetric
-      path.
-
-      Project names should be PascalCase per .NET convention. The output
-      binary stays lowercase via `AssemblyName`.
-
-      *Action:*
-      - `git mv` all 14 `.fs` files + `fedit.fsproj` into `src/Fedit/`
-        and rename to `Fedit.fsproj`.
-      - `git mv fedit.Tests` to `tests/Fedit.Tests/` and rename its
-        project file to `Fedit.Tests.fsproj`.
-      - Update the `ProjectReference` in the test project to the new
-        path (`..\..\src\Fedit\Fedit.fsproj`).
-      - Update `justfile` paths (`project := "src/Fedit/Fedit.fsproj"`,
-        test path, install output).
-      - Update `.github/workflows/ci.yml` paths.
-      - Update README and the `fedit` shell shim if it hardcodes the
+        *Context:* The convention in the .NET ecosystem is `src/` for
+        application/library projects and `tests/` for test projects. Right
+        now `fedit.fsproj` and its 14 `.fs` files sit at the repo root,
+        mixed with README/LICENSE/TODO/justfile/`.config/`/`bin/`. A fresh
+        contributor sees a wall of files at the root and has to mentally
+        separate "code" from "repo metadata". The current layout also
+        makes the test project's `..\fedit.fsproj` reference an asymmetric
         path.
-      - Confirm `AssemblyName` in the new project file is still `fedit`
-        (lowercase) so the binary name doesn't change.
 
-      Land this in one commit; mixed renames + content edits are hard
-      to review.
+        Project names should be PascalCase per .NET convention. The output
+        binary stays lowercase via `AssemblyName`.
+
+        *Action:*
+        - `git mv` all 14 `.fs` files + `fedit.fsproj` into `src/Fedit/`
+          and rename to `Fedit.fsproj`.
+        - `git mv fedit.Tests` to `tests/Fedit.Tests/` and rename its
+          project file to `Fedit.Tests.fsproj`.
+        - Update the `ProjectReference` in the test project to the new
+          path (`..\..\src\Fedit\Fedit.fsproj`).
+        - Update `justfile` paths (`project := "src/Fedit/Fedit.fsproj"`,
+          test path, install output).
+        - Update `.github/workflows/ci.yml` paths.
+        - Update README and the `fedit` shell shim if it hardcodes the
+          path.
+        - Confirm `AssemblyName` in the new project file is still `fedit`
+          (lowercase) so the binary name doesn't change.
+
+        Land this in one commit; mixed renames + content edits are hard
+        to review.
 
 - [x] **C6 — Add a `Fedit.slnx` solution file.**
 
-      *Context:* `dotnet build` / `dotnet test` at the repo root with no
-      solution file will fail or pick the wrong project. JetBrains
-      Rider, VS Code's C# Dev Kit, and Visual Studio all expect a
-      solution. `.slnx` is the new XML-based format that supersedes
-      `.sln`, supported by SDK 9+.
+        *Context:* `dotnet build` / `dotnet test` at the repo root with no
+        solution file will fail or pick the wrong project. JetBrains
+        Rider, VS Code's C# Dev Kit, and Visual Studio all expect a
+        solution. `.slnx` is the new XML-based format that supersedes
+        `.sln`, supported by SDK 9+.
 
-      *Action:*
-      - After C5 lands, run `dotnet sln Fedit.slnx add src/Fedit/Fedit.fsproj
-        tests/Fedit.Tests/Fedit.Tests.fsproj` (or hand-write the small
-        `.slnx`; it is only a few lines).
-      - Verify `dotnet build` and `dotnet test` at the repo root with
-        no arguments do the right thing.
-      - Optionally update the `justfile` to point at `Fedit.slnx`
-        instead of the project file for the `build` / `test` recipes,
-        so `dotnet` picks up both projects.
+        *Action:*
+        - After C5 lands, run `dotnet sln Fedit.slnx add src/Fedit/Fedit.fsproj
+          tests/Fedit.Tests/Fedit.Tests.fsproj` (or hand-write the small
+          `.slnx`; it is only a few lines).
+        - Verify `dotnet build` and `dotnet test` at the repo root with
+          no arguments do the right thing.
+        - Optionally update the `justfile` to point at `Fedit.slnx`
+          instead of the project file for the `build` / `test` recipes,
+          so `dotnet` picks up both projects.
 
 - [x] **C7 — Expand CI to a `{ubuntu, macos, windows}` matrix.**
 
-      *Context:* fedit is a TUI built on `System.Console`. Behavior
-      around raw mode, key encoding, and ANSI escape handling differs
-      meaningfully across platforms. CI currently runs on
-      `ubuntu-latest` only. A trivial matrix build catches compile-time
-      platform issues (P/Invoke signatures, path separators) cheaply,
-      even without running the editor itself.
+        *Context:* fedit is a TUI built on `System.Console`. Behavior
+        around raw mode, key encoding, and ANSI escape handling differs
+        meaningfully across platforms. CI currently runs on
+        `ubuntu-latest` only. A trivial matrix build catches compile-time
+        platform issues (P/Invoke signatures, path separators) cheaply,
+        even without running the editor itself.
 
-      *Action:*
-      - In `.github/workflows/ci.yml`, change `runs-on: ubuntu-latest`
-        to a `strategy.matrix.os: [ubuntu-latest, macos-latest,
-        windows-latest]` and use `runs-on: ${{ matrix.os }}`.
-      - Leave the format-check step pinned to `ubuntu-latest` only
-        (line-ending differences will produce false positives on Windows
-        otherwise).
-      - Consider a separate `release.yml` triggered on tag pushes that
-        runs `dotnet publish` per RID and uploads the binaries to a
-        GitHub Release.
+        *Action:*
+        - In `.github/workflows/ci.yml`, change `runs-on: ubuntu-latest`
+          to a `strategy.matrix.os: [ubuntu-latest, macos-latest,
+          windows-latest]` and use `runs-on: ${{ matrix.os }}`.
+        - Leave the format-check step pinned to `ubuntu-latest` only
+          (line-ending differences will produce false positives on Windows
+          otherwise).
+        - Consider a separate `release.yml` triggered on tag pushes that
+          runs `dotnet publish` per RID and uploads the binaries to a
+          GitHub Release.
 
 - [x] **C8 — Repo hygiene tidies.**
 
-      *Context:* Small things that accumulated as the project grew —
-      none individually worth a phase, collectively worth one commit.
+        *Context:* Small things that accumulated as the project grew —
+        none individually worth a phase, collectively worth one commit.
 
-      *Action items:*
-      - Delete the empty `docs/` directory, or move `TESTING.md` and
-        `TODO.md` into it (pick one — the root currently has both an
-        empty `docs/` and three top-level `*.md` files, which is the
-        worst of both worlds).
-      - Replace the hand-rolled `.gitignore` with the output of
-        `dotnet new gitignore` (covers `TestResults/`, `*.binlog`,
-        `.vs/`, IDE-specific swap files, etc.).
-      - Add `Description`, `Authors`, `RepositoryUrl`, and
-        `PackageLicenseExpression` properties to `fedit.fsproj` even
-        though we don't pack — they show up in `dotnet --info`,
-        crash-dump metadata, and `dotnet list package`, and are the
-        first place a curious developer looks.
-      - Document the `fedit` shell shim in the README's install
-        section. It exists, it works, and right now nobody knows.
+        *Action items:*
+        - Delete the empty `docs/` directory, or move `TESTING.md` and
+          `TODO.md` into it (pick one — the root currently has both an
+          empty `docs/` and three top-level `*.md` files, which is the
+          worst of both worlds).
+        - Replace the hand-rolled `.gitignore` with the output of
+          `dotnet new gitignore` (covers `TestResults/`, `*.binlog`,
+          `.vs/`, IDE-specific swap files, etc.).
+        - Add `Description`, `Authors`, `RepositoryUrl`, and
+          `PackageLicenseExpression` properties to `fedit.fsproj` even
+          though we don't pack — they show up in `dotnet --info`,
+          crash-dump metadata, and `dotnet list package`, and are the
+          first place a curious developer looks.
+        - Document the `fedit` shell shim in the README's install
+          section. It exists, it works, and right now nobody knows.
 
 ## Open questions
 
