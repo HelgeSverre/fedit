@@ -40,6 +40,8 @@ type KeyInput =
     | Ctrl of char
     | AltLeft
     | AltRight
+    | AltUp
+    | AltDown
     | CtrlBackspace
     | CtrlDelete
     | ShiftLeft

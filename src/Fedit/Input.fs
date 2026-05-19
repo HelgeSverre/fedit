@@ -25,6 +25,8 @@ module Input =
             match keyInfo.Key with
             | ConsoleKey.LeftArrow -> Some AltLeft
             | ConsoleKey.RightArrow -> Some AltRight
+            | ConsoleKey.UpArrow -> Some AltUp
+            | ConsoleKey.DownArrow -> Some AltDown
             | _ -> None
         elif hasCtrl then
             match keyInfo.Key with

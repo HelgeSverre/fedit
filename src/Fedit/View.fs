@@ -300,21 +300,42 @@ module Layout =
                     (pad (max 0 (width - 2)) lineText)
                     current)
         | DockCompletions(title, items, selectedIndex) ->
-            Screen.writeText 0 dockY accent width (pad width $" {title} ") current
+            let visibleHeight = max 0 (dockHeight - 1)
+            let totalCount = items.Length
+            let titleWithCount = $" {title} ({selectedIndex + 1}/{totalCount}) "
+            Screen.writeText 0 dockY accent width (pad width titleWithCount) current
 
-            items
-            |> List.truncate (max 0 (dockHeight - 1))
-            |> List.iteri (fun index item ->
-                let style = if index = selectedIndex then selected else chrome
-                let prefix = if index = selectedIndex then "> " else "  "
+            if visibleHeight > 0 then
+                let viewOffset =
+                    if selectedIndex < visibleHeight then
+                        0
+                    else
+                        selectedIndex - visibleHeight + 1
+                    |> min (max 0 (totalCount - visibleHeight))
 
-                Screen.writeText
-                    1
-                    (dockY + index + 1)
-                    style
-                    (max 0 (width - 2))
-                    (pad (max 0 (width - 2)) $"{prefix}{item.Label}  {item.Detail}")
-                    current)
+                items
+                |> List.skip viewOffset
+                |> List.truncate visibleHeight
+                |> List.iteri (fun i item ->
+                    let actualIndex = viewOffset + i
+                    let isSelected = actualIndex = selectedIndex
+                    let rowY = dockY + i + 1
+                    let rowWidth = max 0 (width - 2)
+                    let style = if isSelected then selected else chrome
+                    let prefix = if isSelected then "> " else "  "
+
+                    // Render prefix and label in the main style
+                    let labelPart = $"{prefix}{item.Label}"
+                    Screen.writeText 1 rowY style rowWidth (pad rowWidth labelPart) current
+
+                    // Render detail in a dimmed style if not selected, or just append if selected
+                    if not (String.IsNullOrEmpty item.Detail) then
+                        let detailX = 1 + labelPart.Length + 2
+                        let detailWidth = max 0 (rowWidth - labelPart.Length - 2)
+
+                        if detailWidth > 0 then
+                            let detailStyle = if isSelected then { style with Bold = false } else chrome
+                            Screen.writeText detailX rowY detailStyle detailWidth (pad detailWidth item.Detail) current)
 
         Screen.fillRect 0 commandY width 1 commandBar ' ' current
 

@@ -542,7 +542,25 @@ module Editor =
                         SelectedCompletion = (model.CommandBar.SelectedCompletion + count - 1) % count } }
             |> updatePreview,
             []
-        | Up when not model.CommandBar.History.IsEmpty ->
+        | Up when not model.CommandBar.Completions.IsEmpty ->
+            let count = model.CommandBar.Completions.Length
+
+            { model with
+                CommandBar =
+                    { model.CommandBar with
+                        SelectedCompletion = (model.CommandBar.SelectedCompletion + count - 1) % count } }
+            |> updatePreview,
+            []
+        | Down when not model.CommandBar.Completions.IsEmpty ->
+            let count = model.CommandBar.Completions.Length
+
+            { model with
+                CommandBar =
+                    { model.CommandBar with
+                        SelectedCompletion = (model.CommandBar.SelectedCompletion + 1) % count } }
+            |> updatePreview,
+            []
+        | AltUp when not model.CommandBar.History.IsEmpty ->
             let index =
                 match model.CommandBar.HistoryIndex with
                 | Some value -> max 0 (value - 1)
@@ -555,7 +573,7 @@ module Editor =
                         { model.CommandBar with
                             HistoryIndex = Some index } },
             []
-        | Down when not model.CommandBar.History.IsEmpty ->
+        | AltDown when not model.CommandBar.History.IsEmpty ->
             let index =
                 match model.CommandBar.HistoryIndex with
                 | Some value -> min (model.CommandBar.History.Length - 1) (value + 1)
