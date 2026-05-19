@@ -20,7 +20,10 @@ jobs:
             rid: osx-arm64
             triple: aarch64-apple-darwin
             ext: tar.xz
-          - os: macos-13
+          # Build x64 on the arm64 runner — dotnet publish cross-targets
+          # by RID, so we don't need an Intel Mac host. Avoids the macos-13
+          # runner queue which is often saturated.
+          - os: macos-14
             rid: osx-x64
             triple: x86_64-apple-darwin
             ext: tar.xz
