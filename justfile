@@ -31,17 +31,19 @@ clean:
     {{dotnet}} clean {{project}}
     rm -rf bin obj
 
-# Format sources.
+# Format sources (F# via fantomas, markdown via prettier).
 [group('format')]
 format:
     {{dotnet}} tool restore
     {{dotnet}} fantomas .
+    bunx --bun prettier --write "**/*.md"
 
 # Check formatting.
 [group('format')]
 lint:
     {{dotnet}} tool restore
     {{dotnet}} fantomas --check .
+    bunx --bun prettier --check "**/*.md"
 
 # Run tests.
 [group('test')]

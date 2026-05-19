@@ -1,0 +1,21 @@
+# Build outputs
+node_modules
+**/node_modules
+dist
+**/dist
+.astro
+**/.astro
+bin
+**/bin
+obj
+**/obj
+.dotnet
+
+# Lockfiles
+bun.lock
+package-lock.json
+**/bun.lock
+**/package-lock.json
+
+# Generated
+CHANGELOG.md

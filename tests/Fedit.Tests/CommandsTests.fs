@@ -75,6 +75,49 @@ let ``prefix of known command parses to Pending`` () =
     | other -> failwithf "expected Pending, got %A" other
 
 [<Fact>]
+let ``bare line number parses to Goto with no column`` () =
+    Commands.parse "42" |> should equal (Ready(Goto(42, None)))
+
+[<Fact>]
+let ``line and column parses to Goto with column`` () =
+    Commands.parse "100:6" |> should equal (Ready(Goto(100, Some 6)))
+
+[<Fact>]
+let ``goto with extra colons is Invalid`` () =
+    match Commands.parse "1:2:3" with
+    | Invalid _ -> ()
+    | other -> failwithf "expected Invalid, got %A" other
+
+[<Fact>]
+let ``goto with zero is Invalid`` () =
+    match Commands.parse "0" with
+    | Invalid _ -> ()
+    | other -> failwithf "expected Invalid, got %A" other
+
+    match Commands.parse "5:0" with
+    | Invalid _ -> ()
+    | other -> failwithf "expected Invalid for zero column, got %A" other
+
+[<Fact>]
+let ``goto with trailing colon is Invalid`` () =
+    match Commands.parse "42:" with
+    | Invalid _ -> ()
+    | other -> failwithf "expected Invalid, got %A" other
+
+[<Fact>]
+let ``completionLimit caps file completions`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = [ "a"; "b"; "c"; "d"; "e" ]
+          Recent = []
+          Buffers = []
+          Themes = Themes.all
+          CompletionLimit = 2 }
+
+    let comps = Commands.completions ctx "open "
+    comps |> List.length |> should equal 2
+
+[<Fact>]
 let ``helpLines returns one entry per spec`` () =
     let lines = Commands.helpLines ()
     lines |> List.length |> should be (greaterThanOrEqualTo 11)
@@ -86,7 +129,8 @@ let ``completions for theme prefix return matches`` () =
           Files = []
           Recent = []
           Buffers = []
-          Themes = Themes.all }
+          Themes = Themes.all
+          CompletionLimit = 8 }
 
     let comps = Commands.completions ctx "theme g"
     comps |> List.exists (fun c -> c.Label = "green") |> should equal true
@@ -98,7 +142,8 @@ let ``completions for empty input list all command names`` () =
           Files = []
           Recent = []
           Buffers = []
-          Themes = Themes.all }
+          Themes = Themes.all
+          CompletionLimit = 8 }
 
     let comps = Commands.completions ctx ""
     comps |> List.length |> should be (greaterThanOrEqualTo 11)

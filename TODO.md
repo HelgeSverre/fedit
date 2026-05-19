@@ -143,7 +143,7 @@ Each is `init → fold msgs → render → snapshot`:
 - [ ] Build `Snapshot.fs` with `styleMarker` + `render` helpers.
 - [ ] Write 8–10 baseline scenario tests in `SnapshotTests.fs`.
 - [ ] Run, inspect `*.received.txt` files, accept via `dotnet verify
-    accept` or rename to `*.verified.txt`.
+accept` or rename to `*.verified.txt`.
 - [ ] Confirm `dotnet test` runs them as part of the normal suite —
       no new wiring required.
 

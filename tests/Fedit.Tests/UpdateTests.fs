@@ -6,7 +6,7 @@ open FsUnit.Xunit
 
 let private initModel () =
     let model, _ =
-        Editor.init "/root" { Width = 80; Height = 24 } Themes.defaultTheme [] []
+        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) []
 
     model
 
@@ -20,7 +20,7 @@ let ``init produces a model with the scratch buffer`` () =
 [<Fact>]
 let ``init returns a ScanWorkspace startup effect`` () =
     let _, effects =
-        Editor.init "/root" { Width = 80; Height = 24 } Themes.defaultTheme [] []
+        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) []
 
     effects
     |> List.exists (fun e ->

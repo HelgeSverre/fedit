@@ -19,6 +19,7 @@ type Command =
     | Theme of string
     | Recent of string
     | SwitchBuffer of string
+    | Goto of line: int * column: int option
 
 type ParsedCommand =
     | Empty
@@ -31,7 +32,8 @@ type CommandContext =
       Files: string list
       Recent: string list
       Buffers: (int * string * string option) list
-      Themes: Theme list }
+      Themes: Theme list
+      CompletionLimit: int }
 
 [<RequireQualifiedAccess>]
 module Commands =
@@ -137,28 +139,53 @@ module Commands =
                   else
                       Ready(SwitchBuffer trimmed) } ]
 
+    let private tryParseGoto (text: string) =
+        if text.Length = 0 || not (Char.IsDigit text[0]) then
+            None
+        else
+            let parts = text.Split ':'
+
+            let tryPositive (s: string) =
+                match Int32.TryParse s with
+                | true, n when n > 0 -> Some n
+                | _ -> None
+
+            match parts with
+            | [| lineText |] ->
+                match tryPositive lineText with
+                | Some line -> Some(Ready(Goto(line, None)))
+                | None -> Some(Invalid $"'{text}' is not a valid line number.")
+            | [| lineText; colText |] ->
+                match tryPositive lineText, tryPositive colText with
+                | Some line, Some col -> Some(Ready(Goto(line, Some col)))
+                | _ -> Some(Invalid $"'{text}' must be <line>:<column> with positive numbers.")
+            | _ -> Some(Invalid $"'{text}' has too many ':' separators.")
+
     let parse (input: string) =
         let trimmed = input.Trim()
 
         if String.IsNullOrWhiteSpace trimmed then
             Empty
         else
-            let firstSpace = trimmed.IndexOf ' '
+            match tryParseGoto trimmed with
+            | Some result -> result
+            | None ->
+                let firstSpace = trimmed.IndexOf ' '
 
-            let name, argument =
-                if firstSpace < 0 then
-                    trimmed, ""
-                else
-                    trimmed[.. firstSpace - 1], trimmed[firstSpace + 1 ..]
+                let name, argument =
+                    if firstSpace < 0 then
+                        trimmed, ""
+                    else
+                        trimmed[.. firstSpace - 1], trimmed[firstSpace + 1 ..]
 
-            match specs |> List.tryFind (fun spec -> spec.Name = name.ToLowerInvariant()) with
-            | Some spec -> spec.Constructor argument
-            | None when
-                specs
-                |> List.exists (fun spec -> spec.Name.StartsWith(name, StringComparison.OrdinalIgnoreCase))
-                ->
-                Pending "Command is incomplete."
-            | None -> Invalid $"Unknown command '{name}'."
+                match specs |> List.tryFind (fun spec -> spec.Name = name.ToLowerInvariant()) with
+                | Some spec -> spec.Constructor argument
+                | None when
+                    specs
+                    |> List.exists (fun spec -> spec.Name.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+                    ->
+                    Pending "Command is incomplete."
+                | None -> Invalid $"Unknown command '{name}'."
 
     let completions context (input: string) =
         let trimmed = input.TrimStart()
@@ -190,7 +217,7 @@ module Commands =
                 | "writeas" ->
                     context.Files
                     |> List.filter (fun filePath -> filePath.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
-                    |> List.truncate 8
+                    |> List.truncate context.CompletionLimit
                     |> List.map (fun filePath ->
                         { Label = filePath
                           ApplyText = $"{commandName} {filePath}"
@@ -212,7 +239,7 @@ module Commands =
 
                         display.StartsWith(argument, StringComparison.OrdinalIgnoreCase)
                         || filePath.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
-                    |> List.truncate 8
+                    |> List.truncate context.CompletionLimit
                     |> List.map (fun filePath ->
                         let label =
                             Path.GetFileName filePath |> Option.ofObj |> Option.defaultValue filePath
@@ -226,7 +253,7 @@ module Commands =
                     |> List.filter (fun (id, name, _) ->
                         name.StartsWith(argument, StringComparison.OrdinalIgnoreCase)
                         || (string id).StartsWith argument)
-                    |> List.truncate 8
+                    |> List.truncate context.CompletionLimit
                     |> List.map (fun (id, name, filePath) ->
                         let detail = filePath |> Option.defaultValue "scratch"
 

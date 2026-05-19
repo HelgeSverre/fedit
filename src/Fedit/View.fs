@@ -27,7 +27,7 @@ module Layout =
         Style.withColors (Indexed theme.CurrentLine) Default
 
     let private effectiveTheme model =
-        model.CommandBar.PreviewTheme |> Option.defaultValue model.Theme
+        model.CommandBar.PreviewTheme |> Option.defaultValue model.Config.Theme
 
     let private workspaceMetadataLines workspace =
         match Workspace.metadata workspace with
@@ -128,7 +128,7 @@ module Layout =
                 else
                     "    "
 
-            let indentation = String.replicate entry.Depth "  "
+            let indentation = String.replicate (entry.Depth * model.Config.SidebarIndent) " "
 
             let text = $"{indentation}{marker}{entry.Name}"
             Screen.writeText 0 row (if entry.IsSelected then selected else surface) width (pad width text) screen)
