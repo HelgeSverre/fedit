@@ -91,13 +91,25 @@ module Runtime =
                     | Some "wordEnd" -> WordEnd
                     | _ -> defaults.WordMotion
 
+                let pageOverlap =
+                    getIntProp root "pageOverlap"
+                    |> Option.defaultValue defaults.PageOverlap
+                    |> clampInt 0 32
+
+                let treePageJump =
+                    getIntProp root "treePageJump"
+                    |> Option.defaultValue defaults.TreePageJump
+                    |> clampInt 1 500
+
                 { Theme = theme
                   Recent = recent
                   CompletionLimit = completionLimit
                   SidebarIndent = sidebarIndent
                   SidebarWidth = sidebarWidth
                   DockHeight = dockHeight
-                  WordMotion = wordMotion }
+                  WordMotion = wordMotion
+                  PageOverlap = pageOverlap
+                  TreePageJump = treePageJump }
             else
                 defaults
         with _ ->
@@ -238,6 +250,8 @@ module Runtime =
         root["sidebarWidth"] <- System.Text.Json.Nodes.JsonValue.Create config.SidebarWidth
         root["dockHeight"] <- System.Text.Json.Nodes.JsonValue.Create config.DockHeight
         root["wordMotion"] <- System.Text.Json.Nodes.JsonValue.Create wordMotionStr
+        root["pageOverlap"] <- System.Text.Json.Nodes.JsonValue.Create config.PageOverlap
+        root["treePageJump"] <- System.Text.Json.Nodes.JsonValue.Create config.TreePageJump
 
         let options = System.Text.Json.JsonSerializerOptions(WriteIndented = true)
         let json = root.ToJsonString options

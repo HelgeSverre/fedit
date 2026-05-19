@@ -431,11 +431,11 @@ module Editor =
             []
         | PageUp ->
             { model with
-                Workspace = Workspace.moveSelection -10 model.Workspace },
+                Workspace = Workspace.moveSelection -model.Config.TreePageJump model.Workspace },
             []
         | PageDown ->
             { model with
-                Workspace = Workspace.moveSelection 10 model.Workspace },
+                Workspace = Workspace.moveSelection model.Config.TreePageJump model.Workspace },
             []
         | Home ->
             { model with
@@ -495,17 +495,15 @@ module Editor =
         | ShiftHome -> updateActiveBuffer (Buffer.extendSelectionToCursor >> Buffer.moveHome) model, []
         | ShiftEnd -> updateActiveBuffer (Buffer.extendSelectionToCursor >> Buffer.moveEnd) model, []
         | PageUp ->
-            updateActiveBuffer
-                (Buffer.clearSelection
-                 >> Buffer.movePageUp (max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)))
-                model,
-            []
+            let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
+            let jump = max 1 (viewportHeight - model.Config.PageOverlap)
+
+            updateActiveBuffer (Buffer.clearSelection >> Buffer.movePageUp jump) model, []
         | PageDown ->
-            updateActiveBuffer
-                (Buffer.clearSelection
-                 >> Buffer.movePageDown (max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)))
-                model,
-            []
+            let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
+            let jump = max 1 (viewportHeight - model.Config.PageOverlap)
+
+            updateActiveBuffer (Buffer.clearSelection >> Buffer.movePageDown jump) model, []
         | Tab -> updateActiveBuffer (Buffer.clearSelection >> Buffer.indent) model, []
         | ShiftTab -> updateActiveBuffer (Buffer.clearSelection >> Buffer.unindent) model, []
         | AltLeft -> updateActiveBuffer (Buffer.clearSelection >> Buffer.moveLeftWord) model, []

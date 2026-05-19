@@ -29,13 +29,21 @@ type PanelsState =
       DockHeight: int }
 
 type Config =
-    { Theme: Theme
-      Recent: string list
-      CompletionLimit: int
-      SidebarIndent: int
-      SidebarWidth: int
-      DockHeight: int
-      WordMotion: WordMotionLanding }
+    {
+        Theme: Theme
+        Recent: string list
+        CompletionLimit: int
+        SidebarIndent: int
+        SidebarWidth: int
+        DockHeight: int
+        WordMotion: WordMotionLanding
+        /// Lines kept on screen between PageUp/PageDown jumps in the editor.
+        /// Matches Zed / VSCode / token-editor default of 2 (jump by
+        /// `viewportHeight - PageOverlap`). Set to 0 for full-screen jumps.
+        PageOverlap: int
+        /// Entries jumped on PageUp/PageDown in the file-tree sidebar.
+        TreePageJump: int
+    }
 
 [<RequireQualifiedAccess>]
 module Config =
@@ -46,7 +54,9 @@ module Config =
           SidebarIndent = 2
           SidebarWidth = 30
           DockHeight = 5
-          WordMotion = WordEnd }
+          WordMotion = WordEnd
+          PageOverlap = 2
+          TreePageJump = 10 }
 
 type Model =
     { Workspace: WorkspaceState

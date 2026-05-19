@@ -180,7 +180,7 @@ Find keys (after `Ctrl+F`):
 File tree keys:
 
 - `Up` and `Down` move selection.
-- `PageUp` and `PageDown` jump ten entries at a time.
+- `PageUp` and `PageDown` jump by `treePageJump` entries at a time (default 10; configurable).
 - `Home` and `End` jump to the first or last visible entry.
 - `Left` collapses the selected directory or moves to its parent.
 - `Right` expands the selected directory.
@@ -227,6 +227,8 @@ Command bar commands:
 | `sidebarWidth`    | int      | `30`      | 10–200                       | Initial sidebar width in columns.                                                                       |
 | `dockHeight`      | int      | `5`       | 1–40                         | Dock panel height in rows (used for the completion list and `:help`).                                   |
 | `wordMotion`      | string   | `wordEnd` | `wordEnd` or `nextWordStart` | Where `Alt+Right` / `Ctrl+Delete` land — end of current word (default) or start of next word (vim `w`). |
+| `pageOverlap`     | int      | `2`       | 0–32                         | Lines kept on screen between `PageUp` / `PageDown` jumps in the editor. Editor jumps by `viewportHeight - pageOverlap`. Matches Zed / VSCode / token-editor defaults. |
+| `treePageJump`    | int      | `10`      | 1–500                        | Entries jumped on `PageUp` / `PageDown` in the file-tree sidebar. |
 
 Changes take effect on next launch. Out-of-range values clamp to the nearest valid bound rather than failing.
 
