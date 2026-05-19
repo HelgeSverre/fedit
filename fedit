@@ -5,4 +5,4 @@ repo_dir=${0:A:h}
 target_path=${1:-$PWD}
 
 export PATH="$repo_dir/.dotnet:$PATH"
-exec dotnet run --project "$repo_dir/fedit.fsproj" -- "$target_path"
+exec dotnet run --project "$repo_dir/src/Fedit/Fedit.fsproj" -- "$target_path"

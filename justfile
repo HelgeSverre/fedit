@@ -1,49 +1,65 @@
-project := "fedit.fsproj"
+project := "src/Fedit/Fedit.fsproj"
+tests := "tests/Fedit.Tests/Fedit.Tests.fsproj"
+solution := "Fedit.slnx"
 dotnet := "PATH=\"$PWD/.dotnet:$PATH\" dotnet"
 
-# Show available recipes.
+[private]
 default:
     @just --list
 
-# Start the app under dotnet watch. Pass a workspace path with `just dev path/to/project`.
+# Watch and run.
+[group('run')]
 dev path=".":
     {{dotnet}} watch --project {{project}} run -- "{{path}}"
 
-# Build the F# project.
-build:
-    {{dotnet}} build {{project}}
-
-# Run the editor. Pass a workspace path with `just run path/to/project`.
+# Run the editor.
+[group('run')]
 run path=".":
     {{dotnet}} run --project {{project}} -- "{{path}}"
 
-# Remove compiled output.
+# Build the solution.
+[group('build')]
+build:
+    {{dotnet}} build {{solution}}
+
+# Remove build output.
+[group('build')]
 clean:
     {{dotnet}} clean {{project}}
     rm -rf bin obj
 
-# Format F# sources with fantomas (local tool).
+# Format sources.
+[group('format')]
 format:
     {{dotnet}} tool restore
     {{dotnet}} fantomas .
 
-# Verify formatting without writing — fails if any file would change.
-format-check:
+# Check formatting.
+[group('format')]
+lint:
     {{dotnet}} tool restore
     {{dotnet}} fantomas --check .
 
-# Run format-check + build as a single pre-commit gate.
-check: format-check build
+# Run tests.
+[group('test')]
+test:
+    {{dotnet}} test {{tests}} --nologo
 
-# Install fedit to a local bin directory as a self-contained single-file binary.
+# Pre-commit gate.
+[group('test')]
+check: lint build test
+
+# Publish and install fedit.
+[group('install')]
 install dest="~/.local/bin":
-    {{dotnet}} publish {{project}} -c Release -p:PublishSingleFile=true --self-contained true -o bin/dist
+    {{dotnet}} publish {{project}} -c Release -o bin/dist
     mkdir -p {{dest}}
     install -m 0755 bin/dist/fedit {{dest}}/fedit
     @echo "Installed fedit to {{dest}}/fedit"
     @echo "Ensure {{dest}} is on your PATH."
 
-# Remove a previously installed fedit binary.
+# Uninstall fedit.
+[group('install')]
 uninstall dest="~/.local/bin":
     rm -f {{dest}}/fedit
     @echo "Removed {{dest}}/fedit"

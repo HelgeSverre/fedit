@@ -23,7 +23,7 @@ This repository includes a local `.dotnet` SDK directory. The `fedit` wrapper sc
 
 ## Quick Start
 
-Run the editor in the current directory:
+Run the editor in the current directory using the included `fedit` shell shim (a thin wrapper that pins the local `.dotnet` SDK on `$PATH` and invokes `dotnet run`):
 
 ```sh
 ./fedit .
@@ -32,7 +32,7 @@ Run the editor in the current directory:
 Run it directly through .NET:
 
 ```sh
-dotnet run --project fedit.fsproj -- .
+dotnet run --project src/Fedit/Fedit.fsproj -- .
 ```
 
 Or use the just recipe:
@@ -43,25 +43,35 @@ just run .
 
 Pass a file or directory path as the first argument. If no path is provided, `fedit` uses the current working directory.
 
+### Command-line flags
+
+- `--log <path>`: Append a UTC-timestamped trace of every `Msg` and `Effect` to `<path>`. Useful for debugging without polluting the TUI.
+
 ## Build Commands
 
-Build the project:
+Build the whole solution (both projects):
 
 ```sh
-dotnet build fedit.fsproj
+dotnet build Fedit.slnx
 ```
 
-Run the project:
+Or just the editor:
 
 ```sh
-dotnet run --project fedit.fsproj -- .
+dotnet build src/Fedit/Fedit.fsproj
+```
+
+Run the editor:
+
+```sh
+dotnet run --project src/Fedit/Fedit.fsproj -- .
 ```
 
 Clean generated output:
 
 ```sh
-dotnet clean fedit.fsproj
-rm -rf bin obj
+dotnet clean Fedit.slnx
+rm -rf src/Fedit/bin src/Fedit/obj tests/Fedit.Tests/bin tests/Fedit.Tests/obj
 ```
 
 ## Justfile Recipes
@@ -72,7 +82,7 @@ List available recipes:
 just
 ```
 
-Start the app under `dotnet watch`:
+Start the app under `dotnet watch` (re-launches on source changes; expect a brief flash as the alt-screen tears down and re-enters on each rebuild):
 
 ```sh
 just dev .
@@ -108,7 +118,13 @@ Verify formatting without writing — fails if anything would change:
 just format-check
 ```
 
-Run format-check and build together as a single gate (handy before a commit):
+Run the xUnit test suite (Tier 1 coverage of `PieceTable`, `Buffer`, `Commands`, `Workspace`, `Editor.update`, plus FsCheck properties on the piece table):
+
+```sh
+just test
+```
+
+Run format-check, build, and test together as a single pre-commit gate:
 
 ```sh
 just check
@@ -131,20 +147,34 @@ just uninstall
 Global shortcuts:
 
 - `Ctrl+P`: Open the command bar.
+- `Ctrl+F`: Find in the active buffer.
 - `Ctrl+B`: Focus the file tree.
 - `Ctrl+E`: Focus the editor.
 - `Ctrl+S`: Save the active buffer.
 - `Ctrl+R`: Reload the workspace tree.
-- `Ctrl+Q`: Quit.
+- `Ctrl+Q`: Quit (prompts once if buffers are dirty; press again to discard).
 - `Ctrl+Z`: Undo.
 - `Ctrl+Y`: Redo.
 
 Editor keys:
 
 - Arrow keys, `Home`, `End`, `PageUp`, and `PageDown` move the cursor.
+- `Alt+Left` / `Alt+Right` move the cursor by word.
+- `Ctrl+Backspace` / `Ctrl+Delete` delete the previous / next word.
+- `Shift+Arrow`, `Shift+Home`, `Shift+End` extend the text selection.
+- `Ctrl+A` selects the whole buffer.
+- `Ctrl+C` / `Ctrl+X` copy or cut the current selection to the system clipboard (via `pbcopy` on macOS, `xclip` on Linux).
+- `Ctrl+V` pastes from the system clipboard.
 - `Tab` indents the current line.
 - `Shift+Tab` unindents the current line.
-- `Enter`, `Backspace`, and `Delete` edit text normally.
+- `Enter`, `Backspace`, and `Delete` edit text normally; with a selection, they replace it.
+
+Find keys (after `Ctrl+F`):
+
+- Type to extend the query; matches highlight live and the cursor jumps to the first hit.
+- `Enter` or `Down` advances to the next match; `Up` goes to the previous.
+- `Backspace` shortens the query; on an empty query it closes the prompt.
+- `Escape` closes the prompt and clears the highlights.
 
 File tree keys:
 
@@ -177,22 +207,24 @@ Command bar commands:
 - `reload`: Reload the workspace tree.
 - `next`: Activate the next open buffer.
 - `prev`: Activate the previous open buffer.
-- `theme <name>`: Switch the accent color. Tab through `cyan`, `teal`, `green`, `yellow`, `orange`, `red`, `magenta`, or `purple`; the UI live-previews each highlight as you cycle.
+- `theme <name>`: Switch the accent color. Tab through `cyan`, `teal`, `green`, `yellow`, `orange`, `red`, `magenta`, or `purple`; the UI live-previews each highlight as you cycle. The choice persists to `~/.config/fedit/config.json` and is restored on next launch.
+- `recent <path>`: Pick a recently opened file. Tab to cycle through the last 20 files; the list persists in the same config file.
+- `buffers <id-or-name>`: Switch to an open buffer by numeric id or name. Completion shows `{id} {name}` with the file path as detail.
 - `help`: Show command help in the dock panel.
 
 ## How It Works
 
-The project is a single executable defined by `fedit.fsproj`, with `Program.fs` as the only compiled source file. Startup reads the first command-line argument as the workspace root. If no argument is provided, it uses the current directory.
+The project is an executable defined by `fedit.fsproj`, with sources split across 13 numbered `.fs` files under `namespace Fedit` (see `<Compile Include="…">` entries in the fsproj for the canonical order). `Program.fs` is the entry-point shell; the actual logic lives in `Primitives.fs` → `PieceTable.fs` → `Buffer.fs` → `Workspace.fs` → `Themes.fs` → `Commands.fs` → `Model.fs` → `Editor.fs` → `Screen.fs` → `Renderer.fs` → `Input.fs` → `View.fs` → `Runtime.fs`. Startup reads the first non-flag command-line argument as the workspace root. If no argument is provided, it uses the current directory.
 
-At runtime, `fedit` scans the workspace into a tree model and skips `.DS_Store`, `.git`, `.dotnet`, `bin`, and `obj`. The UI keeps a model containing the workspace tree, open buffers, focus target, terminal size, notifications, and panel state.
+At runtime, `fedit` scans the workspace into a tree model and skips `.DS_Store`, `.git`, `.dotnet`, `bin`, and `obj`. A `FileSystemWatcher` is installed on the same workspace root so external edits, creations, deletions, and renames trigger a debounced rescan (300ms) without `Ctrl+R`. The UI keeps a model containing the workspace tree, open buffers, focus target, terminal size, notifications, and panel state.
 
 Text buffers are stored with a piece table. The original file contents stay in one string, inserted text is appended to another string, and the visible document is represented as a list of pieces. This keeps inserts and deletes local to the piece list while preserving enough state for undo and redo snapshots. Each open buffer keeps its own undo and redo stacks, cursor position, and viewport.
 
 Files are read as UTF-8. The line ending of the loaded file (`LF` or `CRLF`) is detected and reused on save; the buffer always works in `\n` form internally. Saving writes UTF-8 without a byte-order mark.
 
-The UI is split into a sidebar (file tree), an editor pane with a line-number gutter, a status line, a dock panel that shows contextual help or completions, and a single-line command bar at the bottom. The status line reports the current focus, active file path, dirty marker, cursor position, and the most recent notification.
+The UI is split into a sidebar (file tree), an editor pane with a line-number gutter, a status line, a dock panel that shows contextual help or completions, and a single-line command bar at the bottom. The status line reports the current focus (`TREE`/`EDIT`/`CMD`/`FIND`), active file path, dirty marker, cursor position with total line count (`Ln 12/238`), the line-ending style (`LF` or `CRLF`), the count of open buffers, and the most recent notification.
 
-Themes are pure accent palettes — the dock title, status bar, selection highlight, and current-line gutter all swap together while the grayscale chrome stays constant across themes. The active theme lives in the model and is not persisted between runs (default: `cyan`).
+Themes are pure accent palettes — the dock title, status bar, selection highlight, and current-line gutter all swap together while the grayscale chrome stays constant across themes. The chosen theme and the most recent 20 opened files persist to `~/.config/fedit/config.json` and are restored on the next launch; the default theme is `cyan`.
 
 ### Architecture
 
@@ -234,7 +266,7 @@ Themes are pure accent palettes — the dock title, status bar, selection highli
                        feeds back
 ```
 
-`dispatch` is the recursive knot: every effect produces a `Msg`, which goes back through `Editor.update`, which may yield more effects, until the list is empty. All of it runs on the main thread.
+`dispatch` is the integration point: every effect produces a `Msg`, which goes back through `Editor.update`, which may yield more effects, until the queue is drained. Effects run on the .NET thread pool via `Task.Run` and post their result `Msg` into a `ConcurrentQueue`; the main loop drains the queue each tick. `ScanWorkspace` and `LoadFile` each carry a single `CancellationTokenSource` so a second instance dropping the previous result Msg. Large workspaces and large files therefore never freeze input.
 
 ### Lifecycle
 
@@ -296,4 +328,4 @@ Startup is sequential: parse arg, set up the console, build the initial model, d
                     +---------------------+
 ```
 
-Two things to notice. First, the workspace scan happens *before* the alternate screen is entered, so a slow scan blocks startup with no UI feedback. Second, because `runEffect` is synchronous, file I/O during the session freezes input until it completes — large saves or reloads show as a brief input stall.
+The workspace scan, file open, file save, clipboard, and config writes all run on the thread pool via `Task.Run`. The main loop drains a `ConcurrentQueue<Msg>` of completed effects each tick, so input never blocks behind I/O. The initial render happens immediately on the freshly-built model — the file tree appears once the scan task completes and the `WorkspaceLoaded` `Msg` is drained.

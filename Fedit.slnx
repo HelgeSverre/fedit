@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Fedit/Fedit.fsproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Fedit.Tests/Fedit.Tests.fsproj" />
+  </Folder>
+</Solution>

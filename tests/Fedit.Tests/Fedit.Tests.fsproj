@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <!-- FsCheck generators emit nullable strings; suppress the noisy nullness
+         warning inside test code only. Production code keeps Nullable=enable
+         with TreatWarningsAsErrors=true. -->
+    <NoWarn>$(NoWarn);3261</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="PieceTableTests.fs" />
+    <Compile Include="BufferTests.fs" />
+    <Compile Include="CommandsTests.fs" />
+    <Compile Include="WorkspaceTests.fs" />
+    <Compile Include="UpdateTests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="FsUnit.xUnit" Version="6.0.0" />
+    <PackageReference Include="FsCheck.Xunit" Version="3.0.0-rc3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Fedit\Fedit.fsproj" />
+  </ItemGroup>
+</Project>
