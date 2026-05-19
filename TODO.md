@@ -14,7 +14,9 @@ Active work and future ideas. Shipped phases (0–6) live in
 | **Phase 11 — Renderer diff**                           | Pending | Cell-level diff against previous frame; drop `pad`/`crop` allocations.          |
 | **Phase 12 — Async follow-ups**                        | Pending | Dirty-state race after save, config-save ordering, search-as-effect.            |
 | **Phase 13 — Workspace caching & startup errors**      | Pending | Flat `Map<string, FileNode>` cache; surface load errors instead of swallowing.  |
-| Phase 14 — Polish                                  | Pending | Theme-preview placement, Recent debounce, named metadata record, tab width.    |
+| **Phase 14 — Polish**                                  | Pending | Theme-preview placement, Recent debounce, named metadata record, tab width.    |
+| **Phase 15 — Borders and file-tree icons**             | Pending | Unicode box-drawing separator; opt-in icon set for the file tree.              |
+| **Phase 16 — Buffer internals refactor**               | Pending | Simplify `ensureViewport`; replace `Lines` cache with `Offsets : int[]`; delta-based undo. |
 
 Recently landed (this session):
 
@@ -822,6 +824,365 @@ real-`\t` mode (would need a save-time roundtrip story).
 
 ---
 
+## Phase 15 — Borders and file-tree icons
+
+Two independent visual upgrades sourced from a survey of mature TUIs
+(ratatui, lipgloss, helix, zellij, yazi, nvim-web-devicons). 15.1 is
+risk-free and worth landing immediately; 15.2 is a small subsystem
+that must ship behind an opt-in config key.
+
+### 15.1 — Replace `'|'` sidebar separator with `│` (U+2502)
+
+**Where:** `View.fs:281`
+(`Screen.drawVerticalLine sidebarWidth 0 mainHeight chrome '|' current`)
+
+**Why:** The literal ASCII pipe is what every TUI looks like before
+someone notices Unicode box-drawing exists. `│` (BOX DRAWINGS LIGHT
+VERTICAL, **U+2502**) is plain Unicode since 1.0 — present in every
+monospace terminal font ever shipped (Consolas, Menlo, Cascadia,
+DejaVu). Not a Nerd Font glyph, no detection or fallback required.
+
+Every mature TUI uses it:
+
+- ratatui `PLAIN` border set → `│`
+- lipgloss `NormalBorder()` → `│`
+- zellij `boundary_type::VERTICAL` → `│`
+- helix picker → `│`
+
+**Action:** One-character patch.
+
+```fsharp
+// View.fs:281
+Screen.drawVerticalLine sidebarWidth 0 mainHeight chrome '│' current
+```
+
+**Optional in the same patch — extend `Screen` with a `Borders`
+reference module** so future bordered components (popups, dock
+divider, completion frame) all pull from one place:
+
+```fsharp
+// Screen.fs (or a new tiny Borders.fs)
+[<RequireQualifiedAccess>]
+module Borders =
+    // Plain — matches ratatui PLAIN, lipgloss Normal, zellij default
+    let vertical    = '│'  // U+2502
+    let horizontal  = '─'  // U+2500
+    let topLeft     = '┌'  // U+250C
+    let topRight    = '┐'  // U+2510
+    let bottomLeft  = '└'  // U+2514
+    let bottomRight = '┘'  // U+2518
+    let teeLeft     = '┤'  // U+2524
+    let teeRight    = '├'  // U+251C
+    let teeDown     = '┬'  // U+252C
+    let teeUp       = '┴'  // U+2534
+    let cross       = '┼'  // U+253C
+
+    // Rounded — purely cosmetic alternative to plain corners
+    let roundedTL   = '╭'  // U+256D
+    let roundedTR   = '╮'  // U+256E
+    let roundedBL   = '╰'  // U+2570
+    let roundedBR   = '╯'  // U+256F
+```
+
+If we ever want a visible horizontal rule between dock and editor
+body (currently the inverted status background does that job), `─`
+is the answer; nothing to do today.
+
+**Effort:** ~15 minutes including manual smoke + screenshot check
+in `Terminal.app`, `iTerm2`, and one Linux terminal.
+
+### 15.2 — Optional Nerd Font file-tree icons (opt-in config flag)
+
+**Where:** `View.fs:118-128` (`renderSidebar` inlines
+`marker = "[+] " | "[-] " | "    "`), `Model.fs` (extend `Model` with
+`Icons: IconMode`), `Runtime.fs:saveConfig` / `loadConfig` (extend
+config schema), `Commands.fs` (new `:icons` command).
+
+**Why:** Nerd Fonts are PUA glyphs (U+E000–U+F8FF, U+F0000–U+FFFFF)
+that show file-type and folder-state icons in monospace. They make
+sidebar trees scannable at a glance — `.fs`, `.md`, `.json`, `.toml`
+each gets a colored glyph instead of competing for column space with
+the filename. **But** the user must have a Nerd Font installed in
+their terminal, and there is no reliable way to detect this.
+
+**Universal pattern across mature projects:** icons are user-opt-in,
+default off, no auto-detection. yazi does this via `theme.toml`;
+nvim-tree assumes the user opted in by installing the plugin. lazygit,
+gitui, helix, and ratatui all ship **no icons at all**. fedit can
+sit between those two: keep the current ASCII default, add a `nerd`
+mode for users who want it.
+
+The canonical mapping table is `nvim-web-devicons` — yazi ships it
+as its default. Relevant entries for fedit:
+
+| Ext              | Glyph    | Code Point | Nerd Font name         |
+| ---------------- | -------- | ---------- | ---------------------- |
+| `fs`/`fsi`/`fsx` | ``     | U+E7A7     | nf-dev-fsharp          |
+| `md`             | ``     | U+F48A     | nf-oct-markdown        |
+| `json`           | ``     | U+E60B     | nf-seti-json           |
+| `toml`           | ``     | U+E6B2     | nf-seti-config         |
+| `yaml`/`yml`     | ``     | U+E6A8     | nf-seti-yaml           |
+| `sh`             | ``     | U+F489     | nf-oct-terminal        |
+| `txt`            | ``     | U+F15C     | nf-fa-file_text        |
+| folder (closed)  | ``     | U+E5FF     | nf-custom-folder       |
+| folder (open)    | ``     | U+E5FE     | nf-custom-folder_open  |
+| default file     | ``     | U+F15B     | nf-fa-file             |
+
+**Action — three pieces.**
+
+**1. Add `IconMode` and thread it through `Model` + config:**
+
+```fsharp
+// Primitives.fs (or new Icons.fs at the same layer)
+type IconMode =
+    | IconsOff      // current "[+] / [-] /     " (default; no regression)
+    | IconsAscii    // "v / > /   " — slightly less noisy than [+]/[-]
+    | IconsNerd     // PUA glyphs; requires Nerd Font in the terminal
+
+// Model.fs — add Icons : IconMode to Model record
+
+// Runtime.fs — extend config.json schema:
+//   { "theme": "cyan", "icons": "off" | "ascii" | "nerd", "recent": [...] }
+//   parse with the same pattern as theme; default to IconsOff on missing
+//   or invalid value.
+```
+
+**2. Add a small icon module.** Mirror nvim-web-devicons' extension
+table. Keep the table small at first; grow on demand:
+
+```fsharp
+// Icons.fs — new module, lives after Primitives.fs and Workspace.fs
+[<RequireQualifiedAccess>]
+module Icons =
+    // Nerd Font v3 code points. Verified against nerdfonts.com/cheat-sheet.
+    // Each glyph is 1 cell wide; pair with a trailing space.
+    let private nerdFolderClosed = "\uE5FF "   // nf-custom-folder
+    let private nerdFolderOpen   = "\uE5FE "   // nf-custom-folder_open
+    let private nerdFileDefault  = "\uF15B "   // nf-fa-file
+
+    let private nerdByExt =
+        Map.ofList [
+            "fs",       "\uE7A7 "; "fsi",  "\uE7A7 "
+            "fsx",      "\uE7A7 "; "fsproj","\uE7A7 "
+            "md",       "\uF48A "; "markdown","\uF48A "
+            "json",     "\uE60B "; "toml", "\uE6B2 "
+            "yaml",     "\uE6A8 "; "yml",  "\uE6A8 "
+            "txt",      "\uF15C "; "sh",   "\uF489 "
+            "rs",       "\uE7A8 "; "cs",   "\uF81A "
+            "py",       "\uE73C "; "js",   "\uE74E "
+            "ts",       "\uE628 "; "html", "\uE736 "
+            "css",      "\uE749 "; "lock", "\uF023 "
+        ]
+
+    let entryIcon mode (entry: WorkspaceEntry) =
+        match mode with
+        | IconsOff ->
+            if entry.IsDirectory then
+                if entry.IsExpanded then "[-] " else "[+] "
+            else
+                "    "
+        | IconsAscii ->
+            if entry.IsDirectory then
+                if entry.IsExpanded then "v " else "> "
+            else
+                "  "
+        | IconsNerd ->
+            if entry.IsDirectory then
+                if entry.IsExpanded then nerdFolderOpen else nerdFolderClosed
+            else
+                let ext =
+                    Path.GetExtension entry.Name
+                    |> Option.ofObj
+                    |> Option.map (fun s -> s.TrimStart('.').ToLowerInvariant())
+                    |> Option.defaultValue ""
+                Map.tryFind ext nerdByExt |> Option.defaultValue nerdFileDefault
+```
+
+**3. Wire it into `View.renderSidebar`:**
+
+```fsharp
+// View.fs:118-127 — replace the inline marker block with:
+let prefix = Icons.entryIcon model.Icons entry
+let indentation = String.replicate entry.Depth "  "
+let text = $"{indentation}{prefix}{entry.Name}"
+```
+
+**Also add a `:icons` command** to flip modes at runtime, mirroring
+the shape of `:theme`. New entry in `Commands.specs`:
+
+```fsharp
+{ Name = "icons"
+  Usage = "icons <off|ascii|nerd>"
+  Summary = "Sidebar icon mode. Nerd requires a Nerd Font in the terminal."
+  Constructor =
+    fun argument ->
+        match argument.Trim().ToLowerInvariant() with
+        | "off"   -> Ready (Icons IconsOff)
+        | "ascii" -> Ready (Icons IconsAscii)
+        | "nerd"  -> Ready (Icons IconsNerd)
+        | ""      -> Pending "Icon mode required: off | ascii | nerd."
+        | other   -> Invalid $"Unknown icon mode '{other}'." }
+```
+
+Add `Icons of IconMode` to the `Command` DU and handle it in
+`executeCommand` — set `model.Icons` and emit `SaveConfig` with the
+new field included.
+
+**Code-point caveats** (these bite people):
+
+- **Nerd Fonts v2 → v3 (2023) relocated many glyphs.** The table
+  above uses v3 code points — what every current Nerd Fonts release
+  ships. Users on very old patched fonts will see tofu (`▯`).
+  Document "Nerd Fonts v3+ required" in the README's `:icons nerd`
+  section.
+- **Some Nerd Font glyphs are double-wide** in certain fonts
+  (Cascadia PL is the worst offender). Our 1-cell `Cell[,]` grid
+  assumes 1-wide monospace everywhere. Recommend specific safe
+  fonts in docs: JetBrainsMono Nerd Font, FiraCode Nerd Font,
+  Iosevka Nerd Font (all render Nerd Font glyphs as 1 cell wide).
+- **Verify each code point against the [Nerd Fonts cheat
+  sheet](https://www.nerdfonts.com/cheat-sheet)** before relying
+  on a specific U+XXXX in this table — the glyphs above are
+  illustrative and based on v3.
+
+**Detection heuristics — don't bother.** No reliable terminal
+capability query for "has Nerd Font" exists. Env vars like
+`$KITTY_WINDOW_ID` or `$WEZTERM_EXECUTABLE` tell you the terminal
+emulator, not the font. The honest answer is what yazi and lazygit
+do: explicit config key, sensible default (`off`).
+
+**Why this stays opt-in, not auto-on:** the immediate downside of
+shipping `IconsNerd` as default is that on any terminal without a
+Nerd Font (TTY, basic SSH, default Terminal.app font), the user
+sees `▯` tofu rectangles everywhere in the sidebar. ASCII fallback
+default + opt-in upgrade = no regression for anyone, real win for
+opted-in users.
+
+**Effort:** ~half-day. ~100–150 LOC across `Primitives.fs`,
+`Model.fs`, `Icons.fs` (new), `Commands.fs`, `View.fs`, `Runtime.fs`
+(config schema). Test coverage: one parametric test per
+`(IconMode, IsDirectory, IsExpanded, ext)` combination through
+`Icons.entryIcon`; verify config round-trip in
+`Runtime.saveConfig`/`loadConfig`.
+
+---
+
+## Phase 16 — Buffer internals refactor
+
+Three independent changes inside `src/Fedit/Buffer.fs`, promoted out
+of "Considered, not pursued" after explicit decision. 16.1 is a small
+aesthetic refactor; 16.2 and 16.3 are real shape changes worth
+landing as separate commits with test coverage between them. Land
+16.1 first as a warm-up, then 16.2 (which 16.3 builds on for its
+derived-state recompute), then 16.3.
+
+### 16.1 — Simplify `Buffer.ensureViewport`
+
+**Where:** `src/Fedit/Buffer.fs` `ensureViewport`.
+
+**Why.** The current implementation computes `maxTop`, `maxLeft`,
+`nextTop`, `nextLeft` independently with clamped arithmetic. Works
+correctly and each clamp documents its constraint, but the four-step
+arithmetic is harder to extend than necessary.
+
+**Action.** Rewrite to derive a single "target scroll offset" per
+axis from the cursor + viewport dims, then clamp once. Confirm
+equivalence with a property test holding cursor / viewport / content
+invariants over generated buffers.
+
+Pre-refactor test guardrail: cursor-at-top, cursor-at-bottom,
+cursor-past-line-end, single-line buffer, viewport-larger-than-buffer.
+
+### 16.2 — Replace `Lines : string[]` cache with `Offsets : int[]`
+
+**Where:** `src/Fedit/Buffer.fs` — `BufferState`, `computeLines`,
+`rawLines`, `lines`, `line`, `lineCount`, `clamp`,
+`positionToIndex`, `indexToPosition`, `findAll`; `src/Fedit/View.fs`
+rendering path.
+
+**Why.** Phase 9.1 eliminates the per-edit double-compute symptom,
+but the underlying cache still materializes the file content twice
+on every edit (piece table + `string[]`). On large files this
+doubles RAM cost and puts pressure on GC. Offsets-only — `Offsets
+: int[]` of newline positions, slicing the piece table on demand —
+removes the duplication and is the better shape for incremental
+syntax highlighting (TreeSitter, per the existing `c400dee` commit),
+folding, and large-file streaming.
+
+**Action.**
+
+- Replace `Lines : string[]` with `Offsets : int[]` on `BufferState`.
+  `Offsets[i]` = the absolute index of the start of line `i`.
+- `computeOffsets : PieceTable -> int[]` scans the piece-table
+  string once for `\n` positions. Cheaper than building a `string[]`
+  because it doesn't allocate per-line substrings.
+- `lineCount buffer = buffer.Offsets.Length`.
+- `line lineIdx buffer` and `lines buffer` slice on demand:
+  `PieceTable.substring start (endExclusive - start) buffer.Document`.
+  Add `PieceTable.substring` if it doesn't exist (a private walk
+  that builds only the requested range).
+- `positionToIndex` becomes `buffer.Offsets[line] + column`.
+- `indexToPosition` binary-searches `Offsets` (was a linear walk).
+- The renderer's per-row read becomes `line buffer rowIndex` — one
+  allocation per visible row, not the whole file.
+
+**Verify.** Tier 1 tests cover all reader functions; they should
+pass unchanged. Add a property test: editing then reading a line
+produces the expected substring; `lineCount` matches the count of
+`\n` in `toString`; `positionToIndex >> indexToPosition` is
+identity.
+
+Sequencing: land *after* Phase 9.1 so the perf delta from this work
+is attributable to the shape change, not the call-site fix.
+
+### 16.3 — Delta/patch undo
+
+**Where:** `src/Fedit/Buffer.fs` — `BufferRevision`, `pushUndo`,
+`undo`, `redo`, `changeDocument`, all edit primitives.
+
+**Why.** Snapshot+cap is bounded but per-keystroke each revision
+still records a full `Pieces` list. Composition lets many
+keystrokes merge into one revision (typing "hello" is one undo
+step, not five). Deltas also serialize cleanly for the
+session-persistent-undo direction in Open questions — snapshots
+don't.
+
+**Action.**
+
+- ```fsharp
+  type Delta =
+      | Insert of pos: int * text: string
+      | Delete of pos: int * removed: string  // keep removed text so undo can re-insert
+  ```
+- `BufferRevision` becomes `{ Delta: Delta; Cursor: Position;
+  PreferredColumn: int option; Dirty: bool }`.
+- `pushUndo` accepts a `Delta` arg from the edit primitive that
+  produced it. `replaceRange` knows the deleted range + inserted
+  text — emit `Delete` of removed content followed by `Insert`, or
+  model `Replace` directly.
+- `Buffer.undo` applies the inverse delta to `Document` and rebuilds
+  derived state (`Offsets` post 16.2); `redo` re-applies the
+  forward delta.
+- **Composition.** Consecutive `Insert`s where the second starts at
+  the end of the first merge into one revision. Same for
+  consecutive `Delete`s at the same position. Time-bounded: break
+  the group if more than 500ms passes between edits, so undo
+  doesn't collapse a minute of typing into one step.
+- Cap stays at 200 *revisions*; each revision is now a small record
+  not a full snapshot.
+
+**Verify.** Tier 1 tests for undo/redo become the regression net.
+Add coverage for composition: "typing 5 chars produces 1 revision";
+"5 chars then backspace then 2 chars produces 3 revisions";
+"undo + redo round-trips the document".
+
+Optional follow-up: serialize the undo stack with the buffer when
+session persistence (Open questions) lands. Deltas serialize as
+JSON; snapshots don't without re-implementing `PieceTable`
+serialization.
+
+---
+
 ## Test suite maintenance
 
 Applies to Tier 1 (shipped) and Phases 7 + 8:
@@ -845,6 +1206,10 @@ different approach. Each is parked with a revisit trigger; the
 WIP-suggested redesign might still be the better long-term answer
 once the trigger appears.
 
+(The previous siblings — delta undo, `ensureViewport` simplification,
+and the `Lines → Offsets` redesign — were promoted to Phase 16
+after explicit decision.)
+
 ### Selection state shape — record vs anchor + cursor
 
 **Shipped:** `BufferState.Selection : int option` (anchor) + `Cursor`
@@ -863,59 +1228,6 @@ Desynchronization is currently prevented by clearing on motion-edits.
 **Revisit when:** a use case appears where the selection should
 outlive the cursor (persistent highlights after a non-selecting
 motion, "find all" mode that highlights without moving the cursor).
-
-### Delta / patch undo vs snapshot + cap
-
-**Shipped:** `BufferRevision` stores a full `PieceTable` snapshot per
-undo step, capped at 200. The piece table shares `Original` / `Added`
-strings by reference, so per-revision cost is only the `Pieces` list.
-
-**Suggested (WIP):** store only `(startIndex, count, replacementText)`
-deltas.
-
-**Trade-off:** real win on multi-megabyte files with deep histories;
-significant complexity on redo / composition (consecutive deletes
-should merge to one delta, etc.). The shipped design's memory is
-bounded by both the 200-cap and the string-sharing — not unbounded.
-
-**Revisit when:** memory pressure shows up in a real profile, or a
-"persistent undo across sessions" feature is wanted (deltas serialize
-better than snapshots).
-
-### `Buffer.ensureViewport` simplification
-
-**Shipped:** `Buffer.ensureViewport` computes `maxTop` / `maxLeft` /
-`nextTop` / `nextLeft` independently with clamped arithmetic.
-
-**Suggested (WIP):** derive a single "target scroll offset" from
-cursor + viewport dims.
-
-**Trade-off:** same behavior, fewer lines. No bug observed in the
-current form; the verbosity is the documentation of intent.
-
-**Revisit when:** a viewport edge-case bug appears (e.g., scrolling
-at the document tail, soft-wrap, virtual lines), or the function
-needs extension and the current arithmetic gets in the way.
-
-### `Lines : string[]` cache vs offsets-only
-
-**Shipped:** `BufferState.Lines : string[]` materialized on every
-edit (CHANGELOG P5/P1).
-
-**Suggested (WIP #1):** derive `Lines` lazily.
-
-**Suggested (IMPROVEMENTS P7 deeper question):** replace
-`Lines : string[]` with `Offsets : int[]` of newline positions and
-slice the piece table on demand.
-
-**Trade-off:** the offsets-only design is the better long-term win
-(less RAM, no duplicate file content). Phase 9.1 (the per-edit
-double-compute fix) keeps the current cache shape but eliminates the
-symptom that motivated the redesign.
-
-**Revisit when:** memory shows up in a profile on large files, or the
-next feature wants offsets directly (folding, large-file streaming,
-incremental syntax highlighting).
 
 ---
 
