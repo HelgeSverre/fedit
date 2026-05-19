@@ -14,6 +14,7 @@ live in [`TODO.md`](TODO.md).
 |     4 | DX: install recipe, Tier 1 tests (63 passing), CI on `{ubuntu, macos, windows}`, format/lint, crash handler, `--log` flag, `dotnet watch` docs.        |
 |     5 | Performance: P1 line cache, P2 async + cancellation I/O, P3 struct types, P4 undo cap (200), P5 idiom cleanups.                                        |
 |     6 | .NET conventions: `global.json`, `Directory.Build.props`, `.editorconfig`, publish settings in fsproj, `src/` + `tests/` restructure, `Fedit.slnx`, OS-matrix CI, repo hygiene (8/8). |
+|   UX  | Command Bar & Dock: Vertical completion navigation, virtual scrolling, dimmed details, slim dock (hidden by default), `:help` toggle.                                  |
 
 ## Architecture review findings (all resolved)
 
@@ -366,3 +367,33 @@ make the project legible to the broader .NET ecosystem.
 - Embedded PDBs: no `.pdb` files alongside the published binary.
 - `dotnet test Fedit.slnx` → 63/63 passing.
 - `NoWarn 3261` scoped only to the test project (empty in main).
+
+---
+
+## UX: Command Bar & Dock ✅
+
+Goal: Make the command bar feel like a modern command palette with snappy
+navigation and a cleaner visual hierarchy, while reclaiming screen real
+estate by hiding the dock panel when not needed.
+
+- [x] **Vertical completion navigation.** Up/Down arrows move the
+      selection highlight in the completions list. Tab and Shift+Tab
+      continue to work for forward/backward cycling.
+- [x] **Alt-based history navigation.** Command history navigation moved
+      to Alt+Up and Alt+Down to prevent collision with the completion
+      list highlight.
+- [x] **Virtual scrolling (Viewport).** The completion list now supports
+      vertical scrolling. If the list is longer than the dock height, it
+      scrolls so the selected item always stays in view.
+- [x] **Visual hierarchy.** Labels in the completion list are rendered
+      normally; details (like file paths) are dimmed using the `chrome`
+      style to reduce visual noise.
+- [x] **Status indicators.** The completion panel title includes a
+      position indicator (e.g., `Completions (3/24)`).
+- [x] **Slim dock.** The dock panel is now hidden by default (`NoDock`)
+      and collapses to 0 height. It appears automatically for
+      completions and active commands.
+- [x] **Help toggle.** Added a `ShowHelp` flag to the model; toggled
+      via the `:help` command. When active, the dock panel shows
+      contextual help lines (Shortcuts/Commands) even when the command
+      bar is inactive.
