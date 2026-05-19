@@ -1,0 +1,49 @@
+---
+/**
+ * A bordered terminal-output frame. Accepts a slot for plain text content;
+ * content should be wrapped in classes (.dim, .muted, .accent) for ANSI-style
+ * coloring. Bulletproof monospace via the .tui class in global.css.
+ */
+interface Props {
+  label?: string;
+  accent?: string;
+  class?: string;
+}
+const { label, accent, class: className = "" } = Astro.props;
+const style = accent ? `--accent:${accent};` : undefined;
+---
+
+<div class={`tui-frame ${className}`} style={style}>
+  {label && <div class="tui-frame__label">{label}</div>}
+  <pre class="tui"><slot /></pre>
+</div>
+
+<style>
+  .tui-frame {
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    transition: border-color var(--t-base) var(--ease);
+  }
+  .tui-frame:hover { border-color: var(--accent-soft); }
+  .tui-frame__label {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-subtle);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  pre.tui {
+    margin: 0;
+    border: none;
+    background: transparent;
+    padding: 16px 18px;
+    font-size: 11px;
+    line-height: 1.55;
+    white-space: pre;
+    overflow-x: auto;
+  }
+</style>

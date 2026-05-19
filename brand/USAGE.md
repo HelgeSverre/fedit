@@ -2,6 +2,8 @@
 
 The brand is `caret + Departure Mono + phosphor green`. If you reach for a second font or a second color, stop and reconsider.
 
+**Live showcase:** `website/` (Astro). Run with `just website::dev` and browse `/brand`. The showcase renders every artifact in this directory in context — palette swatches, typography samples, voice rules, do/don't gallery, and the full theme catalog.
+
 ## Files in this Directory
 
 | File | What | When to use |

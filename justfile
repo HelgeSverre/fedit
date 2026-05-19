@@ -3,9 +3,12 @@ tests := "tests/Fedit.Tests/Fedit.Tests.fsproj"
 solution := "Fedit.slnx"
 dotnet := "PATH=\"$PWD/.dotnet:$PATH\" dotnet"
 
+# Marketing site (Astro + bun) — see website/justfile
+mod website
+
 [private]
 default:
-    @just --list
+    @just --list --list-submodules
 
 # Watch and run.
 [group('run')]

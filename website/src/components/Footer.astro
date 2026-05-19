@@ -1,0 +1,130 @@
+---
+import SocialIcon from "./SocialIcon.astro";
+
+const cols = [
+  {
+    title: "fedit",
+    links: [
+      { href: "/",              label: "home" },
+      { href: "/brand",         label: "brand" },
+      { href: "/#install",      label: "install" },
+      { href: "/#commands",     label: "commands" },
+      { href: "/#themes",       label: "themes" },
+      { href: "/#architecture", label: "how it works" },
+    ],
+  },
+];
+---
+
+<footer class="site-foot">
+  <div class="container">
+    <div class="foot-cols">
+      {cols.map((col) => (
+        <div>
+          <strong>{col.title}</strong>
+          <ul>
+            {col.links.map((l) => <li><a href={l.href}>{l.label}</a></li>)}
+          </ul>
+        </div>
+      ))}
+      <div>
+        <strong>source</strong>
+        <ul>
+          <li>
+            <a href="https://github.com/HelgeSverre/fedit" target="_blank" rel="noopener" class="with-icon">
+              <SocialIcon kind="github" size={14} />
+              <span>github.com/HelgeSverre/fedit</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/HelgeSverre/fedit/blob/main/LICENSE" target="_blank" rel="noopener">MIT license</a>
+          </li>
+        </ul>
+      </div>
+      <div>
+        <strong>made by</strong>
+        <p>
+          <a href="https://helgesver.re" target="_blank" rel="noopener">Helge Sverre</a> in Bergen, Norway
+        </p>
+        <p class="socials">
+          <a href="https://x.com/HelgeSverre" target="_blank" rel="noopener" class="icon-link" aria-label="Helge Sverre on X">
+            <SocialIcon kind="x" size={16} />
+          </a>
+          <a href="https://github.com/HelgeSverre" target="_blank" rel="noopener" class="icon-link" aria-label="Helge Sverre on GitHub">
+            <SocialIcon kind="github" size={16} />
+          </a>
+        </p>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .site-foot {
+    padding: 48px 0 64px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .foot-cols {
+    display: grid;
+    grid-template-columns: 1.4fr 1.4fr 1fr;
+    gap: 40px;
+    align-items: start;
+  }
+  @media (max-width: 700px) {
+    .foot-cols { grid-template-columns: 1fr; gap: 32px; }
+  }
+  .site-foot strong {
+    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-size: 14px;
+    letter-spacing: -0.01em;
+    display: block;
+    margin-bottom: 12px;
+    color: var(--fg);
+  }
+  .site-foot p,
+  .site-foot ul {
+    margin: 0;
+    font-size: 13px;
+    color: var(--fg-muted);
+  }
+  .site-foot ul { list-style: none; padding: 0; }
+  .site-foot ul li { margin: 6px 0; }
+  .site-foot a {
+    text-decoration-color: transparent;
+    transition: text-decoration-color var(--t-base) var(--ease), color var(--t-base) var(--ease);
+  }
+  .site-foot a:hover { text-decoration-color: var(--accent); }
+  .with-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .with-icon :global(svg) { color: var(--fg-subtle); transition: color var(--t-base) var(--ease); }
+  .with-icon:hover :global(svg) { color: var(--accent); }
+  .socials {
+    margin-top: 12px;
+    display: flex;
+    gap: 10px;
+  }
+  .icon-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    color: var(--fg-muted);
+    text-decoration: none;
+    transition: color var(--t-base) var(--ease),
+                border-color var(--t-base) var(--ease),
+                transform var(--t-fast) var(--ease);
+  }
+  .icon-link:hover {
+    color: var(--accent);
+    border-color: var(--accent-soft);
+    transform: translateY(-1px);
+  }
+  .icon-link:active { transform: translateY(0); }
+</style>

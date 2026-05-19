@@ -1,0 +1,98 @@
+---
+import type { Theme } from "../data/themes";
+interface Props { theme: Theme; }
+const { theme } = Astro.props;
+---
+
+<article class="theme-card" style={`--accent:${theme.hex};`}>
+  <header>
+    <span class="dot" aria-hidden="true"></span>
+    <span class="name">{theme.name}</span>
+    {theme.isDefault && <span class="label">default</span>}
+  </header>
+  <pre class="mini-tui"><span class="dim">┌─ src ─────────┬─ Main.fs ──┐</span>
+<span class="dim">│</span> ▾ src         <span class="dim">│</span>   1 module     <span class="dim">│</span>
+<span class="dim">│</span>   Buffer.fs   <span class="dim">│</span>   2 open …     <span class="dim">│</span>
+<span class="dim">│</span>   Main.fs     <span class="dim">│</span>   3            <span class="dim">│</span>
+<span class="dim">├───────────────┴────────────┤</span>
+<span class="dim">│</span> <span class="accent">^</span> <span class="muted">Ln 1 · LF · 1 buf</span>     <span class="dim">│</span>
+<span class="dim">└────────────────────────────┘</span></pre>
+  <footer>
+    <span>{theme.description}</span>
+    <code>{theme.hex} · ansi {theme.ansi256}</code>
+  </footer>
+</article>
+
+<style>
+  .theme-card {
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    transition: border-color var(--t-base) var(--ease),
+                transform var(--t-base) var(--ease);
+  }
+  .theme-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+  .theme-card:focus-within {
+    border-color: var(--accent);
+    outline: 2px solid var(--accent-soft);
+    outline-offset: 2px;
+  }
+  header {
+    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-size: 14px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  header .dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+  header .name { color: var(--fg); }
+  header .label {
+    margin-left: auto;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    background: color-mix(in oklch, var(--accent) 12%, transparent);
+    padding: 2px 6px;
+    border-radius: 2px;
+  }
+  pre.mini-tui {
+    margin: 0;
+    border: none;
+    background: var(--surface-2);
+    border-radius: 0;
+    font-size: 10px;
+    padding: 12px;
+    line-height: 1.45;
+  }
+  pre.mini-tui .accent { color: var(--accent); }
+  footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--fg-subtle);
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+  }
+  footer code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--fg-muted);
+    font-size: 11px;
+  }
+</style>

@@ -1,0 +1,44 @@
+default:
+    @just --list
+
+# Install JavaScript dependencies
+deps:
+    bun install
+
+[private]
+deps-if-needed:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -d node_modules ]; then
+        bun install
+    fi
+
+# Run the Astro dev server (http://localhost:4321 by default)
+[group('run')]
+dev: deps-if-needed
+    bun run dev
+
+# Build the static site to dist/
+[group('build')]
+build: deps-if-needed
+    bun run build
+
+# Preview the production build locally
+[group('build')]
+preview: deps-if-needed
+    bun run preview
+
+# Type-check the site
+[group('test')]
+check: deps-if-needed
+    bun run check
+
+# Remove build artifacts
+[group('build')]
+clean:
+    rm -rf dist .astro
+
+# Nuke everything (deps + build artifacts)
+[group('build')]
+nuke: clean
+    rm -rf node_modules bun.lock

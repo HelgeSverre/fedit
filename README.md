@@ -1,19 +1,19 @@
-```
-:::===== :::===== :::====  ::: :::====
-:::      :::      :::  === ::: :::====
-======   ======   ===  === ===   ===
-===      ===      ===  === ===   ===
-===      ======== =======  ===   ===
-```
+<p>
+  <img src="brand/symbol.svg" alt="" width="48" align="left" />
+</p>
+
+# fedit
+
+**Edit files in the terminal. Small. Written in F#.**
 
 [![CI](https://github.com/HelgeSverre/fedit/actions/workflows/ci.yml/badge.svg)](https://github.com/HelgeSverre/fedit/actions/workflows/ci.yml)
 [![.NET SDK](https://img.shields.io/badge/dotnet-9%2B-blue.svg)](https://dotnet.microsoft.com/download)
-[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 ![Project Type](https://img.shields.io/badge/language-F%23-blue.svg)
 
----
+Opens a workspace, shows a file tree, edits files, saves to disk. Multi-buffer, undo/redo, find, command palette, system clipboard. Seven color themes. Persists the last 20 opened files and your theme across sessions.
 
-`fedit` is a small terminal text editor written in F#. It opens a workspace, shows a file tree, edits files in a terminal UI, and saves changes back to disk.
+Brand assets and theme spec in [`brand/`](brand/). Marketing site in [`website/`](website/) — run with `just website::dev`.
 
 ## Requirements
 
@@ -208,10 +208,27 @@ Command bar commands:
 - `reload`: Reload the workspace tree.
 - `next`: Activate the next open buffer.
 - `prev`: Activate the previous open buffer.
-- `theme <name>`: Switch the accent color. Tab through `cyan`, `teal`, `green`, `yellow`, `orange`, `red`, `magenta`, or `purple`; the UI live-previews each highlight as you cycle. The choice persists to `~/.config/fedit/config.json` and is restored on next launch.
+- `theme <name>`: Switch the accent color. Tab through `green` (default), `blue`, `orange`, `cyan`, `teal`, `yellow`, or `red`; the UI live-previews each highlight as you cycle. The choice persists to `~/.config/fedit/config.json` and is restored on next launch.
 - `recent <path>`: Pick a recently opened file. Tab to cycle through the last 20 files; the list persists in the same config file.
 - `buffers <id-or-name>`: Switch to an open buffer by numeric id or name. Completion shows `{id} {name}` with the file path as detail.
 - `help`: Show command help in the dock panel.
+- `<line>` / `<line>:<column>`: Jump the cursor to an absolute 1-based position. `:42` goes to line 42 column 1; `:100:6` goes to line 100 column 6. Out-of-range values clamp to the end of the buffer / line.
+
+## Configuration
+
+`fedit` reads `~/.config/fedit/config.json` at startup. The file is created automatically the first time the editor persists state (`:theme` or opening a file updates `recent`). Hand-edited values are preserved on every save — unknown keys you add to the file are kept intact.
+
+| Key               | Type     | Default  | Range     | What it controls                                                                                  |
+| ----------------- | -------- | -------- | --------- | ------------------------------------------------------------------------------------------------- |
+| `theme`           | string   | `cyan`   | —         | Accent palette name (bundled or user theme from `~/.config/fedit/themes/*.json`).                 |
+| `recent`          | string[] | `[]`     | up to 20  | Recently opened files; managed automatically.                                                     |
+| `completionLimit` | int      | `8`      | 1–64      | Max items considered for `:open`, `:writeas`, `:recent`, `:buffers` completions.                  |
+| `sidebarIndent`   | int      | `2`      | 0–16      | Spaces per depth level in the file tree.                                                          |
+| `sidebarWidth`    | int      | `30`     | 10–200    | Initial sidebar width in columns.                                                                 |
+| `dockHeight`      | int      | `5`      | 1–40      | Dock panel height in rows (used for the completion list and `:help`).                             |
+| `wordMotion`      | string   | `wordEnd` | `wordEnd` or `nextWordStart` | Where `Alt+Right` / `Ctrl+Delete` land — end of current word (default) or start of next word (vim `w`). |
+
+Changes take effect on next launch. Out-of-range values clamp to the nearest valid bound rather than failing.
 
 ## How It Works
 
@@ -225,7 +242,7 @@ Files are read as UTF-8. The line ending of the loaded file (`LF` or `CRLF`) is 
 
 The UI is split into a sidebar (file tree), an editor pane with a line-number gutter, a status line, a dock panel that shows contextual help or completions, and a single-line command bar at the bottom. The status line reports the current focus (`TREE`/`EDIT`/`CMD`/`FIND`), active file path, dirty marker, cursor position with total line count (`Ln 12/238`), the line-ending style (`LF` or `CRLF`), the count of open buffers, and the most recent notification.
 
-Themes are pure accent palettes — the dock title, status bar, selection highlight, and current-line gutter all swap together while the grayscale chrome stays constant across themes. The chosen theme and the most recent 20 opened files persist to `~/.config/fedit/config.json` and are restored on the next launch; the default theme is `cyan`.
+Themes are pure accent palettes — the dock title, status bar, selection highlight, and current-line gutter all swap together while the grayscale chrome stays constant across themes. The chosen theme, the most recent 20 opened files, and the runtime tunables described in [Configuration](#configuration) all live in `~/.config/fedit/config.json` and are restored on the next launch; the default theme is `green` (phosphor green, the brand accent).
 
 ### Architecture
 
