@@ -2,7 +2,13 @@ namespace Fedit
 
 open System
 
-
+// Themes are pure accent palettes — the dock title, status bar, selection
+// highlight, and current-line gutter all swap together while the grayscale
+// chrome stays constant across themes.
+//
+// Canonical brand spec lives in brand/themes/*.json. This module is the
+// implementation. Values use ANSI 256 color codes for compatibility with
+// any terminal; true-color terminals upgrade transparently elsewhere.
 type Theme =
     { Name: string
       Description: string
@@ -14,9 +20,39 @@ type Theme =
 
 [<RequireQualifiedAccess>]
 module Themes =
+    // Brand default. Phosphor green #00B86B → ANSI 35 (#00AF5F).
+    let green =
+        { Name = "green"
+          Description = "Phosphor green — brand default"
+          Accent = 35
+          StatusFg = 15
+          StatusBg = 22
+          SelectedBg = 28
+          CurrentLine = 35 }
+
+    // Electric blue #1F6FEB → ANSI 33 (#0087FF). GitHub-adjacent, not purple.
+    let blue =
+        { Name = "blue"
+          Description = "Electric blue — high contrast"
+          Accent = 33
+          StatusFg = 15
+          StatusBg = 17
+          SelectedBg = 25
+          CurrentLine = 33 }
+
+    // Burnt orange #D2691E → ANSI 166. Warm, retro-terminal feel.
+    let orange =
+        { Name = "orange"
+          Description = "Burnt orange — warm, retro"
+          Accent = 166
+          StatusFg = 15
+          StatusBg = 94
+          SelectedBg = 130
+          CurrentLine = 173 }
+
     let cyan =
         { Name = "cyan"
-          Description = "Default — cool blue accent"
+          Description = "Cool cyan accent"
           Accent = 81
           StatusFg = 15
           StatusBg = 24
@@ -32,32 +68,14 @@ module Themes =
           SelectedBg = 30
           CurrentLine = 159 }
 
-    let green =
-        { Name = "green"
-          Description = "Forest green accent"
-          Accent = 82
-          StatusFg = 15
-          StatusBg = 22
-          SelectedBg = 28
-          CurrentLine = 157 }
-
     let yellow =
         { Name = "yellow"
-          Description = "Warm yellow accent (dark text)"
+          Description = "Warm yellow (dark text)"
           Accent = 220
           StatusFg = 0
           StatusBg = 100
           SelectedBg = 178
           CurrentLine = 229 }
-
-    let orange =
-        { Name = "orange"
-          Description = "Warm amber accent (dark text)"
-          Accent = 215
-          StatusFg = 0
-          StatusBg = 130
-          SelectedBg = 166
-          CurrentLine = 222 }
 
     let red =
         { Name = "red"
@@ -68,27 +86,9 @@ module Themes =
           SelectedBg = 124
           CurrentLine = 217 }
 
-    let magenta =
-        { Name = "magenta"
-          Description = "Hot pink accent"
-          Accent = 213
-          StatusFg = 15
-          StatusBg = 90
-          SelectedBg = 127
-          CurrentLine = 219 }
+    let all = [ green; blue; orange; cyan; teal; yellow; red ]
 
-    let purple =
-        { Name = "purple"
-          Description = "Royal purple accent"
-          Accent = 141
-          StatusFg = 15
-          StatusBg = 54
-          SelectedBg = 92
-          CurrentLine = 183 }
-
-    let all = [ cyan; teal; green; yellow; orange; red; magenta; purple ]
-
-    let defaultTheme = cyan
+    let defaultTheme = green
 
     let tryFind (name: string) =
         let needle = name.Trim().ToLowerInvariant()
@@ -96,7 +96,7 @@ module Themes =
 
     /// Look up a theme across both the bundled list and a supplied set of
     /// user-defined themes. User themes win on name collision so a user can
-    /// override `cyan` etc. by dropping a file with that name.
+    /// override `green` etc. by dropping a file with that name.
     let tryFindIn (userThemes: Theme list) (name: string) =
         let needle = name.Trim().ToLowerInvariant()
         let user = userThemes |> List.tryFind (fun theme -> theme.Name = needle)
