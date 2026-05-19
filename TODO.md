@@ -18,7 +18,7 @@ Active work and future ideas. Shipped phases (0–6) live in
 | **Phase 15 — Borders and file-tree icons**        | Pending | Unicode box-drawing separator; opt-in icon set for the file tree.                                      |
 | **Phase 16 — Buffer internals refactor**          | Pending | Simplify `ensureViewport`; replace `Lines` cache with `Offsets : int[]`; delta-based undo.             |
 | **Phase 17 — .NET 10 LTS upgrade**                | Pending | Bump SDK to `10.0.x`, TFM to `net10.0`, refresh test packages and `FsCheck.Xunit` out of RC.           |
-| **Phase 18 — Central Package Management**         | Pending | Hoist `<PackageReference>` versions into `Directory.Packages.props` so test deps live in one file.     |
+| **Phase 18 — Central Package Management**         | Shipped | `Directory.Packages.props` at repo root; `Fedit.Tests.fsproj` no longer carries versions.              |
 | **Phase 19 — Release automation**                 | Pending | Tag-triggered `release.yml`: matrix `dotnet publish` per RID, SHA256 checksums, GitHub Release attach. |
 | **Phase 20 — CI hardening**                       | Pending | Dependabot (actions + nuget), NuGet cache, concurrency cancel, deterministic builds, CodeQL.           |
 | **Phase 21 — Repo hygiene**                       | Pending | CI/license badges in README, `SECURITY.md`, slim issue/PR templates, `FUNDING.yml` if relevant.        |
