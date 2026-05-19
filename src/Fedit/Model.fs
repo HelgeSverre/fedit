@@ -40,6 +40,7 @@ type Model =
       UserThemes: Theme list
       Recent: string list
       Search: SearchState option
+      ShowHelp: bool
       QuitArmed: bool
       ShouldQuit: bool }
 

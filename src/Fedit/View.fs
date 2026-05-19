@@ -75,19 +75,22 @@ module Layout =
                 | Ready _ -> [ "Press Enter to run the command." ]
 
             DockInfo("Command", lines)
-        elif model.Focus = Sidebar then
-            DockInfo("File Tree", workspaceMetadataLines model.Workspace)
-        else
-            let buffer = Editor.activeBufferState model
+        elif model.ShowHelp then
+            if model.Focus = Sidebar then
+                DockInfo("File Tree", workspaceMetadataLines model.Workspace)
+            else
+                let buffer = Editor.activeBufferState model
 
-            DockInfo(
-                "Editor",
-                [ $"Buffer: {buffer.Name}"
-                  $"Open buffers: {model.Editors.Buffers.Count}"
-                  "Ctrl+B tree, Ctrl+E editor"
-                  "Ctrl+P commands, Ctrl+S save"
-                  "Tab indent, Shift+Tab unindent" ]
-            )
+                DockInfo(
+                    "Editor",
+                    [ $"Buffer: {buffer.Name}"
+                      $"Open buffers: {model.Editors.Buffers.Count}"
+                      "Ctrl+B tree, Ctrl+E editor"
+                      "Ctrl+P commands, Ctrl+S save"
+                      "Tab indent, Shift+Tab unindent" ]
+                )
+        else
+            NoDock
 
     let private pad width (text: string) =
         if width <= 0 then ""
@@ -259,7 +262,14 @@ module Layout =
         let selected = selectedOf theme
         let width = max 1 model.Terminal.Width
         let height = max 1 model.Terminal.Height
-        let dockHeight = min model.Panels.DockHeight (max 3 (height / 3))
+
+        let panel = dockPanel model
+
+        let dockHeight =
+            match panel with
+            | NoDock -> 0
+            | _ -> min model.Panels.DockHeight (max 3 (height / 3))
+
         let statusY = max 0 (height - dockHeight - 2)
         let dockY = max 0 (height - dockHeight - 1)
         let commandY = height - 1
@@ -283,9 +293,12 @@ module Layout =
         current <- renderEditor editorX editorWidth mainHeight current model
         Screen.fillRect 0 statusY width 1 status ' ' current
         Screen.writeText 0 statusY status width (pad width (statusLine model)) current
-        Screen.fillRect 0 dockY width dockHeight chrome ' ' current
 
-        match dockPanel model with
+        if dockHeight > 0 then
+            Screen.fillRect 0 dockY width dockHeight chrome ' ' current
+
+        match panel with
+        | NoDock -> ()
         | DockInfo(title, lines) ->
             Screen.writeText 0 dockY accent width (pad width $" {title} ") current
 

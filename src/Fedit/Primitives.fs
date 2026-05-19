@@ -62,6 +62,7 @@ type CompletionItem =
       Kind: CompletionKind }
 
 type DockPanel =
+    | NoDock
     | DockInfo of title: string * lines: string list
     | DockCompletions of title: string * items: CompletionItem list * selectedIndex: int
 

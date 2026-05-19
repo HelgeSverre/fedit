@@ -285,8 +285,9 @@ module Editor =
         | NextBuffer -> switchBuffer 1 model, []
         | PreviousBuffer -> switchBuffer -1 model, []
         | Help ->
-            model
-            |> notify (Some(Notification.info "Dock panel lists the current shortcuts and commands.")),
+            { model with
+                ShowHelp = not model.ShowHelp }
+            |> notify (Some(Notification.info $"""Help: {if not model.ShowHelp then "ON" else "OFF"}""")),
             []
         | Theme name ->
             match Themes.tryFindIn model.UserThemes name with
@@ -613,6 +614,7 @@ module Editor =
           UserThemes = userThemes
           Recent = recent
           Search = None
+          ShowHelp = false
           QuitArmed = false
           ShouldQuit = false },
         [ ScanWorkspace rootPath ]
