@@ -8,6 +8,9 @@ module Layout =
     let private chrome = Style.withColors (Indexed 244) Default
     let private commandBar = Style.withColors (Indexed 230) (Indexed 237)
     let private lineNumber = Style.withColors (Indexed 241) Default
+    // Active editor line background — dim gray, fixed (intentionally not
+    // theme-derived: the theme accent is too saturated to use behind text).
+    let private currentLineBg = Style.withColors (Indexed 252) (Indexed 236)
 
     let private accentOf (theme: Theme) =
         Style.withColors (Indexed theme.Accent) Default
@@ -166,7 +169,7 @@ module Layout =
 
                 let textStyle =
                     if activeLine && model.Focus = Editor then
-                        selected
+                        currentLineBg
                     else
                         surface
 
