@@ -56,6 +56,10 @@ type Config =
         TreePageJump: int
         /// Spaces inserted by `Tab` and removed by `Shift+Tab`. Default 4.
         TabWidth: int
+        /// File-tree icon style. `IconsOff` (default) keeps the ASCII
+        /// markers; `IconsNerd` swaps in PUA glyphs which require the user
+        /// to have a Nerd Font configured in their terminal.
+        Icons: IconMode
     }
 
 [<RequireQualifiedAccess>]
@@ -70,7 +74,8 @@ module Config =
           WordMotion = WordEnd
           PageOverlap = 2
           TreePageJump = 10
-          TabWidth = 4 }
+          TabWidth = 4
+          Icons = IconsOff }
 
 type Model =
     { Workspace: WorkspaceState

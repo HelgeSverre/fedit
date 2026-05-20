@@ -26,6 +26,30 @@ module Layout =
     let private currentLineOf (theme: Theme) =
         Style.withColors (Indexed theme.CurrentLine) Default
 
+    /// Nerd Font glyph for a file name (by extension). Returns a 2-char
+    /// "<glyph><space>" so the column count matches the ASCII `[+] ` marker.
+    let private nerdIconFor (fileName: string) =
+        let ext =
+            match System.IO.Path.GetExtension fileName with
+            | null -> ""
+            | s -> s.TrimStart('.').ToLowerInvariant()
+
+        let glyph =
+            match ext with
+            | "fs"
+            | "fsi"
+            | "fsx" -> ""
+            | "md" -> ""
+            | "json" -> ""
+            | "toml" -> ""
+            | "yaml"
+            | "yml" -> ""
+            | "sh" -> ""
+            | "txt" -> ""
+            | _ -> ""
+
+        $"{glyph} "
+
     let private themeFromApplyText (userThemes: Theme list) (applyText: string) =
         if applyText.StartsWith("theme ", System.StringComparison.OrdinalIgnoreCase) then
             Themes.tryFindIn userThemes (applyText.Substring 6)
@@ -145,16 +169,26 @@ module Layout =
         let startIndex =
             max 0 (min (max 0 (entries.Length - height)) (selectedIndex - (height / 2)))
 
-        entries
-        |> List.skip startIndex
-        |> List.truncate height
-        |> List.iteri (fun row entry ->
-            let marker =
+        let icons = model.Config.Icons
+
+        let markerFor (entry: WorkspaceEntry) =
+            match icons with
+            | IconsOff ->
                 if entry.IsDirectory then
                     if entry.IsExpanded then "[-] " else "[+] "
                 else
                     "    "
+            | IconsNerd ->
+                if entry.IsDirectory then
+                    if entry.IsExpanded then " " else " "
+                else
+                    nerdIconFor entry.Name
 
+        entries
+        |> List.skip startIndex
+        |> List.truncate height
+        |> List.iteri (fun row entry ->
+            let marker = markerFor entry
             let indentation = String.replicate (entry.Depth * model.Config.SidebarIndent) " "
 
             let text = $"{indentation}{marker}{entry.Name}"
@@ -320,7 +354,7 @@ module Layout =
 
         if sidebarWidth > 0 then
             renderSidebar sidebarWidth mainHeight current model
-            Screen.drawVerticalLine sidebarWidth 0 mainHeight chrome '|' current
+            Screen.drawVerticalLine sidebarWidth 0 mainHeight chrome '│' current
 
         current <- renderEditor editorX editorWidth mainHeight current model
         Screen.fillRect 0 statusY width 1 status ' ' current

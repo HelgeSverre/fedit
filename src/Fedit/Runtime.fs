@@ -106,6 +106,12 @@ module Runtime =
                     |> Option.defaultValue defaults.TabWidth
                     |> clampInt 1 16
 
+                let icons =
+                    match getStringProp root "icons" with
+                    | Some "nerd" -> IconsNerd
+                    | Some "off" -> IconsOff
+                    | _ -> defaults.Icons
+
                 { Theme = theme
                   Recent = recent
                   CompletionLimit = completionLimit
@@ -115,7 +121,8 @@ module Runtime =
                   WordMotion = wordMotion
                   PageOverlap = pageOverlap
                   TreePageJump = treePageJump
-                  TabWidth = tabWidth }
+                  TabWidth = tabWidth
+                  Icons = icons }
             else
                 defaults
         with _ ->
@@ -259,6 +266,13 @@ module Runtime =
         root["pageOverlap"] <- System.Text.Json.Nodes.JsonValue.Create config.PageOverlap
         root["treePageJump"] <- System.Text.Json.Nodes.JsonValue.Create config.TreePageJump
         root["tabWidth"] <- System.Text.Json.Nodes.JsonValue.Create config.TabWidth
+
+        let iconsStr =
+            match config.Icons with
+            | IconsOff -> "off"
+            | IconsNerd -> "nerd"
+
+        root["icons"] <- System.Text.Json.Nodes.JsonValue.Create iconsStr
 
         let options = System.Text.Json.JsonSerializerOptions(WriteIndented = true)
         let json = root.ToJsonString options

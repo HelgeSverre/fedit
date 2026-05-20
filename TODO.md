@@ -15,7 +15,7 @@ Active work and future ideas. Shipped phases (0–6) live in
 | **Phase 12 — Async follow-ups**                   | Shipped | EditTick-guarded `markSaved`; serialized config writes via task chain; `RunSearch` effect with cancellation. |
 | **Phase 13 — Workspace caching & startup errors** | Pending | Flat `Map<string, FileNode>` cache; surface load errors instead of swallowing.                         |
 | **Phase 14 — Polish**                             | Shipped | Theme preview is now derived in View; Recent persists at quit; tab width configurable; metadata removed (unused). |
-| **Phase 15 — Borders and file-tree icons**        | Pending | Unicode box-drawing separator; opt-in icon set for the file tree.                                      |
+| **Phase 15 — Borders and file-tree icons**        | Shipped | Sidebar separator is now `│` (U+2502). `icons` config field enables Nerd Font file/folder glyphs (opt-in, default off). |
 | **Phase 16 — Buffer internals refactor**          | Pending | Simplify `ensureViewport`; replace `Lines` cache with `Offsets : int[]`; delta-based undo.             |
 | **Phase 17 — .NET 10 LTS upgrade**                | Pending | Bump SDK to `10.0.x`, TFM to `net10.0`, refresh test packages and `FsCheck.Xunit` out of RC.           |
 | **Phase 18 — Central Package Management**         | Shipped | `Directory.Packages.props` at repo root; `Fedit.Tests.fsproj` no longer carries versions.              |

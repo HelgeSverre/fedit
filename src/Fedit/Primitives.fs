@@ -50,6 +50,12 @@ type KeyInput =
     | ShiftHome
     | ShiftEnd
 
+type IconMode =
+    /// Default — ASCII `[+] / [-] / 4-space` markers.
+    | IconsOff
+    /// Nerd Font PUA glyphs (requires a Nerd Font in the user's terminal).
+    | IconsNerd
+
 type CompletionKind =
     | Command
     | PathItem
