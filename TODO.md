@@ -23,33 +23,28 @@ Active work and future ideas. Shipped phases (0–6) live in
 | **Phase 20 — CI hardening**                       | Shipped | Dependabot config; NuGet cache step; concurrency cancel; ContinuousIntegrationBuild env + det. props. CodeQL → repo Settings (default scan).                                                                                                            |
 | **Phase 21 — Repo hygiene**                       | Shipped | Badges already present; added `SECURITY.md`, bug-report issue template, PR template. FUNDING/CODEOWNERS deferred.                                                                                                                                       |
 
-Recently landed (this session):
+Recently landed:
 
-- **Command bar completions UX:** Vertical navigation via Up/Down arrows,
-  virtual scrolling (viewport) for long completion lists, and a dimmed visual
-  style for details (e.g., file paths) to reduce noise.
-- **Slim dock bar:** The dock panel is now hidden by default (`NoDock`) and
-  collapses to 0 height. It only appears for completions, active commands, or
-  when explicitly toggled via the new `:help` command.
-- **Config tunables:** `~/.config/fedit/config.json` now carries
-  `completionLimit`, `sidebarIndent`, `sidebarWidth`, `dockHeight`, and
-  `wordMotion` alongside `theme` / `recent`. `saveConfig` round-trips
-  through a `JsonObject` DOM so user-added unknown keys survive. Each int
-  is clamped to a sane range. See README → Configuration.
-- **`:LINE` / `:LINE:COL` jump:** Numeric command-bar input now jumps the
-  cursor to an absolute 1-based position (`:42`, `:100:6`). Malformed forms
-  (`:0`, `:42:`, `:1:2:3`) produce `Invalid` messages instead of falling
-  through to "unknown command".
-- **Phase 9 quick wins:** `Buffer.replaceRange` and the six other edit
-  paths (`backspace`, `deleteForward`, `backspaceWord`, `deleteForwardWord`,
-  `unindent`, `deleteSelection`) used to compute `Lines` twice per
-  keystroke — once via `withDocument` for cursor math, once via
-  `changeDocument` for the final state. Replaced both with a single
-  `finalizeEdit` helper that reuses the already-computed `Lines`. Dropped
-  the now-orphaned `changeDocument` and `pushUndo`. `runEditor`'s cursor-
-  motion branches collapsed onto two helpers (`move` / `extend`) plus a
-  `pageJump` for page motion. (`jsonEscape` was already removed during
-  the config-tunables work.)
+The whole pending phase ladder (7, 8, 10–21) shipped, plus the
+prompt unification and the unified `Color` type. Phase 16's two big
+sub-items (Lines→Offsets cache, delta-based undo) are explicitly
+deferred — each is a multi-day refactor better done in a dedicated
+session. See `CHANGELOG.md` for per-phase summaries.
+
+Open architectural follow-ups worth tracking separately:
+
+- **Phase 16.2 — `Lines: string[]` → `Offsets: int[]` cache.** Needs
+  a `PieceTable.substring` helper to avoid O(n²) on-demand line
+  slicing. Win: removes the per-edit Lines duplication (currently
+  PieceTable + `string[]`); on-shape for incremental highlighting,
+  folding, and large-file streaming.
+- **Phase 16.3 — Delta-based undo with time-windowed composition.**
+  Snapshots become deltas; typing N chars within 500 ms merges into
+  one revision. Serializable for the session-persistent-undo
+  direction in Open questions.
+- **`pad` / `crop` allocations in `View.fs`** (Phase 11 follow-up).
+  Once a `ReadOnlySpan<char>` `Screen.writeText` exists, drop both
+  helpers; per-row string allocations go away.
 
 ---
 

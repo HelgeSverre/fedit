@@ -216,7 +216,7 @@ Named commands (typed after `:`):
 
 | Key               | Type     | Default   | Range                        | What it controls                                                                                                                                                      |
 | ----------------- | -------- | --------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `theme`           | string   | `cyan`    | —                            | Accent palette name (bundled or user theme from `~/.config/fedit/themes/*.json`).                                                                                     |
+| `theme`           | string   | `green`   | —                            | Accent palette name (bundled — `green` / `blue` / `orange` / `cyan` / `teal` / `yellow` / `red` — or user theme from `~/.config/fedit/themes/*.json`).                |
 | `recent`          | string[] | `[]`      | up to 20                     | Recently opened files; managed automatically.                                                                                                                         |
 | `completionLimit` | int      | `8`       | 1–64                         | Max items considered for `:open`, `:writeas`, `:recent`, `:buffers` completions.                                                                                      |
 | `sidebarIndent`   | int      | `2`       | 0–16                         | Spaces per depth level in the file tree.                                                                                                                              |
@@ -225,12 +225,32 @@ Named commands (typed after `:`):
 | `wordMotion`      | string   | `wordEnd` | `wordEnd` or `nextWordStart` | Where `Alt+Right` / `Ctrl+Delete` land — end of current word (default) or start of next word (vim `w`).                                                               |
 | `pageOverlap`     | int      | `2`       | 0–32                         | Lines kept on screen between `PageUp` / `PageDown` jumps in the editor. Editor jumps by `viewportHeight - pageOverlap`. Matches Zed / VSCode / token-editor defaults. |
 | `treePageJump`    | int      | `10`      | 1–500                        | Entries jumped on `PageUp` / `PageDown` in the file-tree sidebar.                                                                                                     |
+| `tabWidth`        | int      | `4`       | 1–16                         | Spaces inserted by `Tab` and removed by `Shift+Tab`.                                                                                                                  |
+| `icons`           | string   | `off`     | `off` or `nerd`              | File-tree icon style. `nerd` swaps in Nerd Font PUA glyphs (requires a Nerd Font in your terminal); `off` keeps the ASCII `[+] / [-] / 4-space` markers.              |
 
 Changes take effect on next launch. Out-of-range values clamp to the nearest valid bound rather than failing.
 
+### User themes
+
+Drop a JSON file in `~/.config/fedit/themes/`. The schema:
+
+```json
+{
+    "name": "midnight",
+    "description": "Hand-rolled midnight palette",
+    "accent": "#7AA2F7",
+    "statusFg": "brightWhite",
+    "statusBg": "#1A1B26",
+    "selectedBg": "#283457",
+    "currentLine": "#3B4261"
+}
+```
+
+Color fields accept either a hex string (`#RGB` or `#RRGGBB`) or a named color (case- / kebab- / snake- / camel-insensitive). Standard 16 ANSI names (`red`, `brightWhite`, …) plus the curated cube picks defined in `Color.fs` (`deepSkyBlue`, `phosphorGreen`, `burntOrange`, …) are recognised. Modern terminals render hex values as truecolor (`38;2;r;g;b`); the renderer doesn't downgrade today, so a Nerd Font / truecolor-capable terminal is assumed. User themes load at startup; a malformed file is logged in the startup notification rather than crashing.
+
 ## How It Works
 
-The project is an executable defined by `src/Fedit/Fedit.fsproj`, with sources split across 14 numbered `.fs` files under `namespace Fedit` (see `<Compile Include="…">` entries in the fsproj for the canonical order). `Program.fs` is the entry-point shell; the actual logic lives in `Primitives.fs` → `PieceTable.fs` → `Buffer.fs` → `Workspace.fs` → `Themes.fs` → `Commands.fs` → `Model.fs` → `Editor.fs` → `Screen.fs` → `Renderer.fs` → `Input.fs` → `View.fs` → `Runtime.fs`. The test project lives in `tests/Fedit.Tests/` and the `Fedit.slnx` solution at the repo root ties both together. Startup reads the first non-flag command-line argument as the workspace root. If no argument is provided, it uses the current directory.
+The project is an executable defined by `src/Fedit/Fedit.fsproj`, with sources split across 18 `.fs` files under `namespace Fedit` (see `<Compile Include="…">` entries in the fsproj for the canonical order). `Program.fs` is the entry-point shell; the actual logic lives in `Primitives.fs` → `PieceTable.fs` → `Buffer.fs` → `Workspace.fs` → `Screen.fs` → `Color.fs` → `Themes.fs` → `Commands.fs` → `Model.fs` → `Prompt.fs` → `Editor.fs` → `Renderer.fs` → `Input.fs` → `View.fs` → `Config.fs` → `Runtime.fs` → `Cli.fs`. The test project lives in `tests/Fedit.Tests/` and the `Fedit.slnx` solution at the repo root ties both together. Startup reads the first non-flag command-line argument as the workspace root. If no argument is provided, it uses the current directory.
 
 At runtime, `fedit` scans the workspace into a tree model and skips `.DS_Store`, `.git`, `.dotnet`, `bin`, and `obj`. A `FileSystemWatcher` is installed on the same workspace root so external edits, creations, deletions, and renames trigger a debounced rescan (300ms) without `Ctrl+R`. The UI keeps a model containing the workspace tree, open buffers, focus target, terminal size, notifications, and panel state.
 
