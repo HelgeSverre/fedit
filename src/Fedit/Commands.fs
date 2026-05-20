@@ -4,6 +4,13 @@ open System
 open System.IO
 
 
+/// How the user referenced a buffer when invoking `:buffers` or `@`.
+/// Parsed at the prompt layer so `executeCommand` doesn't reinterpret a
+/// string against three different lookups.
+type BufferRef =
+    | ById of int
+    | ByName of string
+
 type Command =
     | Open of string
     | Write
@@ -17,7 +24,7 @@ type Command =
     | PreviousBuffer
     | Theme of string
     | Recent of string
-    | SwitchBuffer of string
+    | SwitchBuffer of BufferRef
     | Goto of line: int * column: int option
 
 type ParsedCommand =
@@ -132,7 +139,12 @@ module Commands =
                   if String.IsNullOrWhiteSpace trimmed then
                       Pending "Buffer id or name required."
                   else
-                      Ready(SwitchBuffer trimmed) } ]
+                      let bufferRef =
+                          match Int32.TryParse trimmed with
+                          | true, id -> ById id
+                          | _ -> ByName trimmed
+
+                      Ready(SwitchBuffer bufferRef) } ]
 
     /// Parse a `:LINE` or `:LINE:COL` argument (the text after the `:` prefix).
     /// Used by the prompt's Goto mode.

@@ -39,6 +39,7 @@
     <Compile Include="Renderer.fs" />
     <Compile Include="Input.fs" />
     <Compile Include="View.fs" />
+    <Compile Include="Config.fs" />
     <Compile Include="Runtime.fs" />
     <Compile Include="Cli.fs" />
     <Compile Include="Program.fs" />

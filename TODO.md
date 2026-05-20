@@ -10,7 +10,7 @@ Active work and future ideas. Shipped phases (0–6) live in
 | **Phase 7 — Tier 2 frame snapshots**              | Shipped | In-house `Snapshot.fs` projector (style markers + cursor footer); 8 scenario tests covering focus/prompt/sidebar/resize. |
 | **Phase 8 — Tier 3 binary smoke**                 | Shipped | `dotnet run` from xunit covers `--help` / `-h` / `--version` short-circuits. Interactive scenarios deferred. |
 | **Phase 9 — Quick wins**                          | Shipped | Buffer double-computeLines fixed; `jsonEscape` removed earlier (config DOM); motion helper landed.     |
-| **Phase 10 — Module splits**                      | Pending | Typed command payloads, `Editor.fs` split, `Runtime.fs` split.                                         |
+| **Phase 10 — Module splits**                      | Shipped | `BufferRef` DU for `SwitchBuffer` (10.1); `Config.fs` split out of `Runtime.fs` (10.3). 10.2 prompt split already subsumed by `Prompt.fs` from the Phase 1 unification. |
 | **Phase 11 — Renderer diff**                      | Shipped | `Renderer.render` now takes `previous: Screen voption` and emits cursor jumps + SGR only for changed cells. `pad`/`crop` follow-up deferred. |
 | **Phase 12 — Async follow-ups**                   | Shipped | EditTick-guarded `markSaved`; serialized config writes via task chain; `RunSearch` effect with cancellation. |
 | **Phase 13 — Workspace caching & startup errors** | Shipped | `WorkspaceState.ByPath` map + pre-sorted children; `loadConfig`/`loadUserThemes` return errors folded into the startup notification. |

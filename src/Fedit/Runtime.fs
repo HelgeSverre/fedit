@@ -11,129 +11,10 @@ open System.Collections.Concurrent
 module Runtime =
     let private utf8WithoutBom = UTF8Encoding false
 
-    let private configDirectory () =
-        Path.Combine(Environment.GetFolderPath Environment.SpecialFolder.UserProfile, ".config", "fedit")
-
-    let private configPath () =
-        Path.Combine(configDirectory (), "config.json")
-
-    let private themesDirectory () =
-        Path.Combine(configDirectory (), "themes")
-
     let private optStr (s: string | null) =
         match s with
         | null -> None
         | value -> Some value
-
-    let private getStringProp (root: System.Text.Json.JsonElement) (name: string) =
-        match root.TryGetProperty(name: string) with
-        | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.String -> optStr (elem.GetString())
-        | _ -> None
-
-    let private getIntProp (root: System.Text.Json.JsonElement) (name: string) =
-        match root.TryGetProperty(name: string) with
-        | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.Number -> Some(elem.GetInt32())
-        | _ -> None
-
-    let private clampInt low high value = max low (min high value)
-
-    /// Returns the loaded config and an optional error message. On parse
-    /// failure we still return defaults (so the editor boots) but surface
-    /// the error in the startup notification — silent corruption was a
-    /// real user-confusion source.
-    let private loadConfig (userThemes: Theme list) : Config * string option =
-        let defaults = Config.defaults Themes.defaultTheme
-
-        try
-            let path = configPath ()
-
-            if File.Exists path then
-                let json = File.ReadAllText path
-                use doc = System.Text.Json.JsonDocument.Parse json
-                let root = doc.RootElement
-
-                let theme =
-                    getStringProp root "theme"
-                    |> Option.bind (fun name -> Themes.tryFindIn userThemes name)
-                    |> Option.defaultValue defaults.Theme
-
-                let recent =
-                    match root.TryGetProperty "recent" with
-                    | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.Array ->
-                        elem.EnumerateArray()
-                        |> Seq.choose (fun item ->
-                            if item.ValueKind = System.Text.Json.JsonValueKind.String then
-                                optStr (item.GetString())
-                            else
-                                None)
-                        |> Seq.toList
-                    | _ -> defaults.Recent
-
-                let completionLimit =
-                    getIntProp root "completionLimit"
-                    |> Option.defaultValue defaults.CompletionLimit
-                    |> clampInt 1 64
-
-                let sidebarIndent =
-                    getIntProp root "sidebarIndent"
-                    |> Option.defaultValue defaults.SidebarIndent
-                    |> clampInt 0 16
-
-                let sidebarWidth =
-                    getIntProp root "sidebarWidth"
-                    |> Option.defaultValue defaults.SidebarWidth
-                    |> clampInt 10 200
-
-                let dockHeight =
-                    getIntProp root "dockHeight"
-                    |> Option.defaultValue defaults.DockHeight
-                    |> clampInt 1 40
-
-                let wordMotion =
-                    match getStringProp root "wordMotion" with
-                    | Some "nextWordStart" -> NextWordStart
-                    | Some "wordEnd" -> WordEnd
-                    | _ -> defaults.WordMotion
-
-                let pageOverlap =
-                    getIntProp root "pageOverlap"
-                    |> Option.defaultValue defaults.PageOverlap
-                    |> clampInt 0 32
-
-                let treePageJump =
-                    getIntProp root "treePageJump"
-                    |> Option.defaultValue defaults.TreePageJump
-                    |> clampInt 1 500
-
-                let tabWidth =
-                    getIntProp root "tabWidth"
-                    |> Option.defaultValue defaults.TabWidth
-                    |> clampInt 1 16
-
-                let icons =
-                    match getStringProp root "icons" with
-                    | Some "nerd" -> IconsNerd
-                    | Some "off" -> IconsOff
-                    | _ -> defaults.Icons
-
-                let config =
-                    { Theme = theme
-                      Recent = recent
-                      CompletionLimit = completionLimit
-                      SidebarIndent = sidebarIndent
-                      SidebarWidth = sidebarWidth
-                      DockHeight = dockHeight
-                      WordMotion = wordMotion
-                      PageOverlap = pageOverlap
-                      TreePageJump = treePageJump
-                      TabWidth = tabWidth
-                      Icons = icons }
-
-                config, None
-            else
-                defaults, None
-        with ex ->
-            defaults, Some $"config.json: {ex.Message}"
 
     let private isMac =
         System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX)
@@ -184,114 +65,6 @@ module Runtime =
         |> Option.iter (fun directory ->
             if not (String.IsNullOrWhiteSpace directory) then
                 Directory.CreateDirectory directory |> ignore)
-
-    /// Returns the loaded themes and a list of per-file error messages.
-    /// Malformed user-theme JSON used to disappear silently; now the
-    /// startup notification surfaces a count.
-    let private loadUserThemes () : Theme list * string list =
-        try
-            let dir = themesDirectory ()
-
-            if not (Directory.Exists dir) then
-                [], []
-            else
-                let mutable errors: string list = []
-                let mutable themes: Theme list = []
-
-                for file in Directory.EnumerateFiles(dir, "*.json") do
-                    try
-                        let json = File.ReadAllText file
-                        use doc = System.Text.Json.JsonDocument.Parse json
-                        let root = doc.RootElement
-
-                        let fallbackName =
-                            Path.GetFileNameWithoutExtension file
-                            |> optStr
-                            |> Option.defaultValue "user-theme"
-
-                        let name =
-                            getStringProp root "name"
-                            |> Option.defaultValue fallbackName
-                            |> fun s -> s.ToLowerInvariant()
-
-                        let description =
-                            getStringProp root "description" |> Option.defaultValue $"User theme '{name}'"
-
-                        match
-                            getIntProp root "accent",
-                            getIntProp root "statusFg",
-                            getIntProp root "statusBg",
-                            getIntProp root "selectedBg",
-                            getIntProp root "currentLine"
-                        with
-                        | Some a, Some sf, Some sb, Some seb, Some cl ->
-                            themes <-
-                                { Name = name
-                                  Description = description
-                                  Accent = a
-                                  StatusFg = sf
-                                  StatusBg = sb
-                                  SelectedBg = seb
-                                  CurrentLine = cl }
-                                :: themes
-                        | _ ->
-                            errors <- $"theme '{Path.GetFileName file}': missing required color fields" :: errors
-                    with ex ->
-                        errors <- $"theme '{Path.GetFileName file}': {ex.Message}" :: errors
-
-                List.rev themes, List.rev errors
-        with ex ->
-            [], [ $"themes dir: {ex.Message}" ]
-
-    let private saveConfig (config: Config) =
-        let directory = configDirectory ()
-        Directory.CreateDirectory directory |> ignore
-        let path = configPath ()
-
-        let root =
-            if File.Exists path then
-                try
-                    let existing = File.ReadAllText path
-
-                    match System.Text.Json.Nodes.JsonNode.Parse existing with
-                    | :? System.Text.Json.Nodes.JsonObject as obj -> obj
-                    | _ -> System.Text.Json.Nodes.JsonObject()
-                with _ ->
-                    System.Text.Json.Nodes.JsonObject()
-            else
-                System.Text.Json.Nodes.JsonObject()
-
-        let recentArray = System.Text.Json.Nodes.JsonArray()
-
-        for item in config.Recent do
-            recentArray.Add(System.Text.Json.Nodes.JsonValue.Create item)
-
-        let wordMotionStr =
-            match config.WordMotion with
-            | WordEnd -> "wordEnd"
-            | NextWordStart -> "nextWordStart"
-
-        root["theme"] <- System.Text.Json.Nodes.JsonValue.Create config.Theme.Name
-        root["recent"] <- recentArray
-        root["completionLimit"] <- System.Text.Json.Nodes.JsonValue.Create config.CompletionLimit
-        root["sidebarIndent"] <- System.Text.Json.Nodes.JsonValue.Create config.SidebarIndent
-        root["sidebarWidth"] <- System.Text.Json.Nodes.JsonValue.Create config.SidebarWidth
-        root["dockHeight"] <- System.Text.Json.Nodes.JsonValue.Create config.DockHeight
-        root["wordMotion"] <- System.Text.Json.Nodes.JsonValue.Create wordMotionStr
-        root["pageOverlap"] <- System.Text.Json.Nodes.JsonValue.Create config.PageOverlap
-        root["treePageJump"] <- System.Text.Json.Nodes.JsonValue.Create config.TreePageJump
-        root["tabWidth"] <- System.Text.Json.Nodes.JsonValue.Create config.TabWidth
-
-        let iconsStr =
-            match config.Icons with
-            | IconsOff -> "off"
-            | IconsNerd -> "nerd"
-
-        root["icons"] <- System.Text.Json.Nodes.JsonValue.Create iconsStr
-
-        let options = System.Text.Json.JsonSerializerOptions(WriteIndented = true)
-        let json = root.ToJsonString options
-        File.WriteAllText(path, json + "\n", utf8WithoutBom)
 
     let private makeNode (path: string) isDirectory children : FileNode =
         let rawName = Path.GetFileName path |> optStr |> Option.defaultValue path
@@ -448,7 +221,7 @@ module Runtime =
                             (fun (_: Task) ->
                                 let msg =
                                     try
-                                        saveConfig config
+                                        ConfigIO.save config
                                         ConfigSaved(Result.Ok())
                                     with ex ->
                                         ConfigSaved(Result.Error ex.Message)
@@ -508,8 +281,8 @@ module Runtime =
             effects |> List.iter startEffect
             nextModel
 
-        let userThemes, themeErrors = loadUserThemes ()
-        let config, configError = loadConfig userThemes
+        let userThemes, themeErrors = ConfigIO.loadUserThemes ()
+        let config, configError = ConfigIO.load userThemes
 
         let initialModel, startupEffects =
             Editor.init rootPath (consoleSize ()) config userThemes

@@ -411,17 +411,23 @@ module Editor =
                 |> notify (Some(Notification.info $"Activated {Path.GetFileName absolute}")),
                 []
             | None -> { model with Focus = Editor }, [ LoadFile absolute ]
-        | SwitchBuffer ident ->
+        | SwitchBuffer bufferRef ->
             let buffers = model.Editors.Buffers
 
             let target =
-                match System.Int32.TryParse ident with
-                | true, id when buffers.ContainsKey id -> Some id
-                | _ ->
+                match bufferRef with
+                | ById id when buffers.ContainsKey id -> Some id
+                | ById _ -> None
+                | ByName name ->
                     buffers
                     |> Map.toList
-                    |> List.tryFind (fun (_, b) -> b.Name = ident || b.FilePath = Some ident)
+                    |> List.tryFind (fun (_, b) -> b.Name = name || b.FilePath = Some name)
                     |> Option.map fst
+
+            let label =
+                match bufferRef with
+                | ById id -> string id
+                | ByName name -> name
 
             match target with
             | Some id ->
@@ -432,7 +438,7 @@ module Editor =
                     Focus = Editor }
                 |> notify (Some(Notification.info $"Buffer {id}")),
                 []
-            | None -> model |> notify (Some(Notification.error $"Unknown buffer '{ident}'.")), []
+            | None -> model |> notify (Some(Notification.error $"Unknown buffer '{label}'.")), []
         | Command.Goto(line, column) ->
             let targetLine = max 0 (line - 1)
             let targetCol = max 0 ((Option.defaultValue 1 column) - 1)
@@ -657,11 +663,16 @@ module Editor =
                     executeCommand (Open item.ApplyText) closed
                 | None -> model, []
             | Buffers ->
+                let bufferRefOf (text: string) =
+                    match Int32.TryParse text with
+                    | true, id -> ById id
+                    | _ -> ByName text
+
                 match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
                 | Some item ->
                     let remembered = pushHistory prompt.Text model
                     let closed = closePrompt remembered
-                    executeCommand (SwitchBuffer item.ApplyText) closed
+                    executeCommand (SwitchBuffer(bufferRefOf item.ApplyText)) closed
                 | None ->
                     let argument = Prompt.argumentOf prompt.Text
 
@@ -670,7 +681,7 @@ module Editor =
                     else
                         let remembered = pushHistory prompt.Text model
                         let closed = closePrompt remembered
-                        executeCommand (SwitchBuffer(argument.Trim())) closed
+                        executeCommand (SwitchBuffer(bufferRefOf (argument.Trim()))) closed
             | Command ->
                 match prompt.Parsed with
                 | Ready command ->
