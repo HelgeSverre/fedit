@@ -9,7 +9,7 @@ import TuiFrame from "../components/TuiFrame.astro";
   image="/og/how.png"
 >
   <section class="section">
-    <div class="container">
+    <div class="container stack stack--lg">
       <div class="section__head">
         <h1>how it works</h1>
         <p class="section__lede">
@@ -18,18 +18,19 @@ import TuiFrame from "../components/TuiFrame.astro";
         </p>
       </div>
 
-      <p class="arch-p">
-        The <code>Model</code> is pure data. <code>Editor.update</code> is a pure function that takes
-        a <code>Msg</code> and returns a new model plus a list of effects. <code>runEffect</code> is the
-        only impure code path — it does file I/O and folds its result back into the loop as another
-        <code>Msg</code>. <code>Layout.render</code> projects the model to a <code>Screen</code>,
-        and
-        <code>Renderer.render</code> writes that grid as ANSI escapes.
-      </p>
+      <section>
+        <p class="arch-p">
+          The <code>Model</code> is pure data. <code>Editor.update</code> is a pure function that takes
+          a <code>Msg</code> and returns a new model plus a list of effects. <code>runEffect</code> is
+          the only impure code path — it does file I/O and folds its result back into the loop as another
+          <code>Msg</code>. <code>Layout.render</code> projects the model to a <code>Screen</code>,
+          and
+          <code>Renderer.render</code> writes that grid as ANSI escapes.
+        </p>
 
-      <TuiFrame label="data flow">
-        <Fragment
-          set:html={`                        +----------------------+
+        <TuiFrame label="data flow">
+          <Fragment
+            set:html={`                        +----------------------+
                         |        Model         |
                         |  workspace . tree    |
                         |  buffers + cursors   |
@@ -62,44 +63,53 @@ import TuiFrame from "../components/TuiFrame.astro";
                             ^                       (main loop)
                             |
                        feeds back`}
-        />
-      </TuiFrame>
+          />
+        </TuiFrame>
+      </section>
 
-      <h2>buffer storage</h2>
-      <p class="arch-p">
-        Text buffers use a piece table. The original file contents stay in one string, inserted text
-        is appended to another string, and the visible document is represented as a list of pieces.
-        Inserts and deletes stay local to the piece list while preserving enough state for undo and
-        redo snapshots.
-      </p>
+      <section>
+        <h2>buffer storage</h2>
+        <p class="arch-p">
+          Text buffers use a piece table. The original file contents stay in one string, inserted
+          text is appended to another string, and the visible document is represented as a list of
+          pieces. Inserts and deletes stay local to the piece list while preserving enough state for
+          undo and redo snapshots.
+        </p>
+      </section>
 
-      <h2>files and encoding</h2>
-      <p class="arch-p">
-        Files are read as UTF-8. The line ending of the loaded file (<code>LF</code> or <code
-          >CRLF</code
-        >) is detected and reused on save; the buffer always works in <code>\n</code> form internally.
-        Saving writes UTF-8 without a byte-order mark.
-      </p>
+      <section>
+        <h2>files and encoding</h2>
+        <p class="arch-p">
+          Files are read as UTF-8. The line ending of the loaded file (<code>LF</code> or <code
+            >CRLF</code
+          >) is detected and reused on save; the buffer always works in <code>\n</code> form internally.
+          Saving writes UTF-8 without a byte-order mark.
+        </p>
+      </section>
 
-      <h2>concurrency</h2>
-      <p class="arch-p">
-        The workspace scan, file open, file save, clipboard, and config writes all run on the thread
-        pool via <code>Task.Run</code>. The main loop drains a <code
-          >ConcurrentQueue&lt;Msg&gt;</code
-        > of completed effects each tick, so input never blocks behind I/O. <code
-          >ScanWorkspace</code
-        > and <code>LoadFile</code> each carry a single <code>CancellationTokenSource</code> so a second
-        invocation drops the previous result.
-      </p>
+      <section>
+        <h2>concurrency</h2>
+        <p class="arch-p">
+          The workspace scan, file open, file save, clipboard, and config writes all run on the
+          thread pool via <code>Task.Run</code>. The main loop drains a <code
+            >ConcurrentQueue&lt;Msg&gt;</code
+          > of completed effects each tick, so input never blocks behind I/O. <code
+            >ScanWorkspace</code
+          > and <code>LoadFile</code> each carry a single <code>CancellationTokenSource</code> so a second
+          invocation drops the previous result.
+        </p>
+      </section>
 
-      <h2>further reading</h2>
-      <p class="arch-p">
-        The full architecture overview, including module dependency order and the <code>Msg</code> /
-        <code>Effect</code> taxonomy, lives in <a
-          href="https://github.com/HelgeSverre/fedit/blob/main/CLAUDE.md">CLAUDE.md</a
-        > in the repo. Phase notes for shipped work are in
-        <a href="https://github.com/HelgeSverre/fedit/blob/main/CHANGELOG.md">CHANGELOG.md</a>.
-      </p>
+      <section>
+        <h2>further reading</h2>
+        <p class="arch-p">
+          The full architecture overview, including module dependency order and the <code>Msg</code>
+          / <code>Effect</code> taxonomy, lives in <a
+            href="https://github.com/HelgeSverre/fedit/blob/main/CLAUDE.md">CLAUDE.md</a
+          > in the repo. Phase notes for shipped work are in
+          <a href="https://github.com/HelgeSverre/fedit/blob/main/CHANGELOG.md">CHANGELOG.md</a>.
+        </p>
+      </section>
     </div>
   </section>
 </Site>

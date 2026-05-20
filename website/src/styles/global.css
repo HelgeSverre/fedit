@@ -317,6 +317,30 @@ h3 {
   margin: 0;
 }
 
+/* Vertical stack: flex-column with a consistent gap between every direct
+ * child. Drive the gap via --stack-gap so modifiers can override it. Use
+ * on any container that holds a series of sibling blocks needing
+ * predictable rhythm — sub-sections inside a page, card lists, etc. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--stack-gap, var(--space-4));
+}
+.stack--sm {
+  --stack-gap: var(--space-3);
+}
+.stack--lg {
+  --stack-gap: var(--space-5);
+}
+.stack--xl {
+  --stack-gap: var(--space-6);
+}
+/* Inside a stack, the first child of a sub-section has no top margin —
+ * the stack's gap is the only source of vertical separation. */
+.stack > section > :first-child {
+  margin-top: 0;
+}
+
 /* ----- prose helpers ----- */
 /* Muted body paragraph. Used between code blocks for descriptive text. */
 .muted-p {
