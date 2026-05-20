@@ -59,7 +59,7 @@ const cols = [
       <div>
         <strong>made by</strong>
         <p>
-          <a href="https://helgesver.re" target="_blank" rel="noopener">Helge Sverre</a> in Bergen, Norway
+          <a href="https://helgesver.re" target="_blank" rel="noopener">Helge Sverre</a>
         </p>
         <p class="socials">
           <a
@@ -69,7 +69,7 @@ const cols = [
             class="icon-link"
             aria-label="Helge Sverre on X"
           >
-            <SocialIcon kind="x" size={16} />
+            <SocialIcon kind="x" size={18} />
           </a>
           <a
             href="https://github.com/HelgeSverre"
@@ -78,7 +78,25 @@ const cols = [
             class="icon-link"
             aria-label="Helge Sverre on GitHub"
           >
-            <SocialIcon kind="github" size={16} />
+            <SocialIcon kind="github" size={18} />
+          </a>
+          <a
+            href="https://bsky.app/profile/helgesver.re"
+            target="_blank"
+            rel="noopener"
+            class="icon-link"
+            aria-label="Helge Sverre on Bluesky"
+          >
+            <SocialIcon kind="bluesky" size={18} />
+          </a>
+          <a
+            href="https://www.linkedin.com/in/helgesverre/"
+            target="_blank"
+            rel="noopener"
+            class="icon-link"
+            aria-label="Helge Sverre on LinkedIn"
+          >
+            <SocialIcon kind="linkedin" size={18} />
           </a>
         </p>
       </div>
@@ -147,28 +165,22 @@ const cols = [
     color: var(--accent);
   }
   .socials {
-    margin-top: 12px;
+    margin-top: var(--space-3);
     display: flex;
-    gap: 10px;
+    gap: 14px;
   }
   .icon-link {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
-    border: 1px solid var(--border);
-    border-radius: 2px;
     color: var(--fg-muted);
     text-decoration: none;
     transition:
       color var(--t-base) var(--ease),
-      border-color var(--t-base) var(--ease),
       transform var(--t-fast) var(--ease);
   }
   .icon-link:hover {
     color: var(--accent);
-    border-color: var(--accent-soft);
     transform: translateY(-1px);
   }
   .icon-link:active {
