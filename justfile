@@ -50,14 +50,14 @@ lint:
 test:
     {{dotnet}} test {{tests}} --nologo
 
-# Generate HTML coverage report at coverage/index.html.
+# Generate HTML coverage report at coverage/index.html. Pass `open` to launch it.
 [group('test')]
-coverage:
+coverage open="":
     {{dotnet}} tool restore
     rm -rf coverage TestResults
     {{dotnet}} test {{tests}} --nologo --collect:"XPlat Code Coverage" --results-directory TestResults
     {{dotnet}} reportgenerator -reports:'TestResults/**/coverage.cobertura.xml' -targetdir:coverage -reporttypes:Html
-    @echo "→ open coverage/index.html"
+    @if [ -n "{{open}}" ]; then open coverage/index.html; else echo "→ open coverage/index.html"; fi
 
 # Pre-commit gate.
 [group('test')]
