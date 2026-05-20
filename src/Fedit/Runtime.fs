@@ -37,7 +37,11 @@ module Runtime =
 
     let private clampInt low high value = max low (min high value)
 
-    let private loadConfig (userThemes: Theme list) =
+    /// Returns the loaded config and an optional error message. On parse
+    /// failure we still return defaults (so the editor boots) but surface
+    /// the error in the startup notification — silent corruption was a
+    /// real user-confusion source.
+    let private loadConfig (userThemes: Theme list) : Config * string option =
         let defaults = Config.defaults Themes.defaultTheme
 
         try
@@ -112,21 +116,24 @@ module Runtime =
                     | Some "off" -> IconsOff
                     | _ -> defaults.Icons
 
-                { Theme = theme
-                  Recent = recent
-                  CompletionLimit = completionLimit
-                  SidebarIndent = sidebarIndent
-                  SidebarWidth = sidebarWidth
-                  DockHeight = dockHeight
-                  WordMotion = wordMotion
-                  PageOverlap = pageOverlap
-                  TreePageJump = treePageJump
-                  TabWidth = tabWidth
-                  Icons = icons }
+                let config =
+                    { Theme = theme
+                      Recent = recent
+                      CompletionLimit = completionLimit
+                      SidebarIndent = sidebarIndent
+                      SidebarWidth = sidebarWidth
+                      DockHeight = dockHeight
+                      WordMotion = wordMotion
+                      PageOverlap = pageOverlap
+                      TreePageJump = treePageJump
+                      TabWidth = tabWidth
+                      Icons = icons }
+
+                config, None
             else
-                defaults
-        with _ ->
-            defaults
+                defaults, None
+        with ex ->
+            defaults, Some $"config.json: {ex.Message}"
 
     let private isMac =
         System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX)
@@ -178,15 +185,20 @@ module Runtime =
             if not (String.IsNullOrWhiteSpace directory) then
                 Directory.CreateDirectory directory |> ignore)
 
-    let private loadUserThemes () =
+    /// Returns the loaded themes and a list of per-file error messages.
+    /// Malformed user-theme JSON used to disappear silently; now the
+    /// startup notification surfaces a count.
+    let private loadUserThemes () : Theme list * string list =
         try
             let dir = themesDirectory ()
 
             if not (Directory.Exists dir) then
-                []
+                [], []
             else
-                Directory.EnumerateFiles(dir, "*.json")
-                |> Seq.choose (fun file ->
+                let mutable errors: string list = []
+                let mutable themes: Theme list = []
+
+                for file in Directory.EnumerateFiles(dir, "*.json") do
                     try
                         let json = File.ReadAllText file
                         use doc = System.Text.Json.JsonDocument.Parse json
@@ -213,7 +225,7 @@ module Runtime =
                             getIntProp root "currentLine"
                         with
                         | Some a, Some sf, Some sb, Some seb, Some cl ->
-                            Some
+                            themes <-
                                 { Name = name
                                   Description = description
                                   Accent = a
@@ -221,12 +233,15 @@ module Runtime =
                                   StatusBg = sb
                                   SelectedBg = seb
                                   CurrentLine = cl }
-                        | _ -> None
-                    with _ ->
-                        None)
-                |> Seq.toList
-        with _ ->
-            []
+                                :: themes
+                        | _ ->
+                            errors <- $"theme '{Path.GetFileName file}': missing required color fields" :: errors
+                    with ex ->
+                        errors <- $"theme '{Path.GetFileName file}': {ex.Message}" :: errors
+
+                List.rev themes, List.rev errors
+        with ex ->
+            [], [ $"themes dir: {ex.Message}" ]
 
     let private saveConfig (config: Config) =
         let directory = configDirectory ()
@@ -493,11 +508,22 @@ module Runtime =
             effects |> List.iter startEffect
             nextModel
 
-        let userThemes = loadUserThemes ()
-        let config = loadConfig userThemes
+        let userThemes, themeErrors = loadUserThemes ()
+        let config, configError = loadConfig userThemes
 
         let initialModel, startupEffects =
             Editor.init rootPath (consoleSize ()) config userThemes
+
+        // Replace the default welcome notification with a warning if any
+        // startup loaders failed. Otherwise leave the welcome in place.
+        let initialModel =
+            let allErrors = (Option.toList configError) @ themeErrors
+
+            match allErrors with
+            | [] -> initialModel
+            | errs ->
+                { initialModel with
+                    Notification = Some(Notification.warning (String.concat "; " errs)) }
 
         startupEffects |> List.iter startEffect
 

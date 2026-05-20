@@ -21,6 +21,10 @@ type WorkspaceEntry =
 type WorkspaceState =
     { RootPath: string
       Tree: FileNode option
+      /// Flat path → node lookup, populated once in `setTree`. Replaces
+      /// the recursive `tryPick` walk in `findNodeByPath`, which used to
+      /// run several times per sidebar keypress.
+      ByPath: Map<string, FileNode>
       Expanded: Set<string>
       SelectedPath: string option
       /// Type-ahead search query (Finder / VS Code Explorer style).
@@ -38,6 +42,7 @@ module Workspace =
     let create rootPath =
         { RootPath = rootPath
           Tree = None
+          ByPath = Map.empty
           Expanded = Set.singleton rootPath
           SelectedPath = None
           SearchBuffer = "" }
@@ -78,12 +83,32 @@ module Workspace =
                 SelectedPath = Some first.Path }
         | _ -> workspace
 
+    /// Recursively sort a tree's children so `visibleEntries` doesn't have
+    /// to sort on every keypress.
+    let rec private preSort (node: FileNode) : FileNode =
+        if node.IsDirectory then
+            { node with
+                Children = node.Children |> List.map preSort |> sortChildren }
+        else
+            node
+
+    let rec private collectByPath (acc: Map<string, FileNode>) (node: FileNode) =
+        let acc = Map.add node.Path node acc
+
+        if node.IsDirectory then
+            node.Children |> List.fold collectByPath acc
+        else
+            acc
+
     let setTree (tree: FileNode) workspace =
+        let sorted = preSort tree
+
         { workspace with
-            Tree = Some tree
+            Tree = Some sorted
+            ByPath = collectByPath Map.empty sorted
             Expanded =
-                if tree.IsDirectory then
-                    Set.add tree.Path workspace.Expanded
+                if sorted.IsDirectory then
+                    Set.add sorted.Path workspace.Expanded
                 else
                     workspace.Expanded }
         |> ensureSelected
@@ -122,13 +147,7 @@ module Workspace =
         | None -> workspace
 
     let private findNodeByPath path workspace =
-        let rec loop (node: FileNode) =
-            if node.Path = path then
-                Some node
-            else
-                node.Children |> List.tryPick loop
-
-        workspace.Tree |> Option.bind loop
+        Map.tryFind path workspace.ByPath
 
     let expandSelected workspace =
         match
