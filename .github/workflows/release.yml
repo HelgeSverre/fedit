@@ -128,10 +128,13 @@ jobs:
           cd homebrew-tap
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- Formula/fedit.rb; then
+          git add Formula/fedit.rb
+          # `--cached` reads the staged tree — handles both 'changed' and
+          # 'newly tracked' correctly. Without --cached, an untracked file
+          # registers as "no diff" and we'd skip the commit silently.
+          if git diff --cached --quiet -- Formula/fedit.rb; then
             echo "No formula changes — skipping commit."
             exit 0
           fi
-          git add Formula/fedit.rb
           git commit -m "fedit ${{ steps.version.outputs.version }}"
           git push
