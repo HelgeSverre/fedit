@@ -11,9 +11,9 @@
 // Spread across the width; varied durations + delays so the field never
 // pulses in unison. Sizes alternate so the depth reads as parallax.
 const carets = [
-  { x: 22,  size: 14, dur: 6.4, delay: 0.0 },
-  { x: 48,  size: 18, dur: 8.2, delay: 1.7 },
-  { x: 76,  size: 12, dur: 5.6, delay: 3.4 },
+  { x: 22, size: 14, dur: 6.4, delay: 0.0 },
+  { x: 48, size: 18, dur: 8.2, delay: 1.7 },
+  { x: 76, size: 12, dur: 5.6, delay: 3.4 },
   { x: 104, size: 22, dur: 9.1, delay: 0.9 },
   { x: 132, size: 14, dur: 6.8, delay: 4.1 },
   { x: 160, size: 16, dur: 7.4, delay: 2.2 },
@@ -77,14 +77,30 @@ const carets = [
   /* Rise 180px so each caret enters from below the 140px frame and exits
    * cleanly past the top. Opacity ramps up, peaks at mid-flight, then decays. */
   @keyframes caret-rise {
-    0%   { transform: translateY(0);     opacity: 0; }
-    15%  {                               opacity: 0.35; }
-    50%  { transform: translateY(-90px); opacity: 0.95; }
-    85%  {                               opacity: 0.35; }
-    100% { transform: translateY(-180px); opacity: 0; }
+    0% {
+      transform: translateY(0);
+      opacity: 0;
+    }
+    15% {
+      opacity: 0.35;
+    }
+    50% {
+      transform: translateY(-90px);
+      opacity: 0.95;
+    }
+    85% {
+      opacity: 0.35;
+    }
+    100% {
+      transform: translateY(-180px);
+      opacity: 0;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .caret { animation: none; opacity: 0; }
+    .caret {
+      animation: none;
+      opacity: 0;
+    }
   }
 </style>

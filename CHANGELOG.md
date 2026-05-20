@@ -15,6 +15,10 @@ live in [`TODO.md`](TODO.md).
 |     5 | Performance: P1 line cache, P2 async + cancellation I/O, P3 struct types, P4 undo cap (200), P5 idiom cleanups.                                                                       |
 |     6 | .NET conventions: `global.json`, `Directory.Build.props`, `.editorconfig`, publish settings in fsproj, `src/` + `tests/` restructure, `Fedit.slnx`, OS-matrix CI, repo hygiene (8/8). |
 |    UX | Command Bar & Dock: Vertical completion navigation, virtual scrolling, dimmed details, slim dock (hidden by default), `:help` toggle.                                                 |
+| Brand | `brand/` system: caret SVG mark, Phosphor Green `#00B86B` accent, Departure Mono (brand) + JetBrains Mono (code), 5 voice rules, do-not gallery. Seven themes (`green` default, `blue`, `orange`, `cyan`, `teal`, `yellow`, `red`); `purple`/`magenta` dropped per brand bans. |
+|  Site | `website/` Astro 5 + bun: `/` (features, install, commands, themes, architecture) and `/brand` (mark, palette, typography, voice). Hero with typing-style SVG mascot, CTA → smooth scroll to install. `just website::{dev,build,check,lint,format}`. |
+|  Dist | Release pipeline: `just release <version>` tags + pushes. `.github/workflows/release.yml` cross-builds 5 RIDs (mac arm64/x64 on macos-14, linux arm64/x64, win-x64), publishes `.tar.xz`/`.zip` + SHA256 to GitHub Release, renders `scripts/fedit.rb.tmpl` and auto-commits the updated formula to `HelgeSverre/homebrew-tap`. Install via `brew install helgesverre/tap/fedit`. |
+|  Docs | Root `just format`/`lint` now runs prettier on `**/*.md` alongside fantomas. README install section leads with Homebrew; build-from-source demoted. `CLAUDE.md` added for agent onboarding. |
 
 ## Architecture review findings (all resolved)
 

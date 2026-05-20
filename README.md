@@ -187,12 +187,12 @@ Prompt keys (any mode):
 
 Prompt modes — type the prefix to switch modes inside the prompt, or use the dedicated chord to open in that mode directly:
 
-| Prefix | Mode | Opens via | What it does |
-| :---: | --- | --- | --- |
-| `:` | Command | `Ctrl+P` | Named commands and `:LINE[:COL]` cursor jumps. Argument starting with a digit is parsed as goto (`:42` or `:100:6`); otherwise as a command name. |
-| (none) | FilePicker | `Ctrl+O` | Recent files first, then workspace files; type to filter; Enter opens. |
-| `/` | Search | `Ctrl+F` | Incremental search in the active buffer. Cursor jumps live to the first match. |
-| `@` | Buffers | — | Switch to an open buffer by numeric id or name. |
+| Prefix | Mode       | Opens via | What it does                                                                                                                                      |
+| :----: | ---------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+|  `:`   | Command    | `Ctrl+P`  | Named commands and `:LINE[:COL]` cursor jumps. Argument starting with a digit is parsed as goto (`:42` or `:100:6`); otherwise as a command name. |
+| (none) | FilePicker | `Ctrl+O`  | Recent files first, then workspace files; type to filter; Enter opens.                                                                            |
+|  `/`   | Search     | `Ctrl+F`  | Incremental search in the active buffer. Cursor jumps live to the first match.                                                                    |
+|  `@`   | Buffers    | —         | Switch to an open buffer by numeric id or name.                                                                                                   |
 
 Named commands (typed after `:`):
 
