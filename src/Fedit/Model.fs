@@ -58,6 +58,12 @@ type Config =
         /// markers; `IconsNerd` swaps in PUA glyphs which require the user
         /// to have a Nerd Font configured in their terminal.
         Icons: IconMode
+        /// Format string for the status bar. Tokens: `[MODE]`,
+        /// `[LINE]`, `[COLUMN]`, `[LINE_ENDING]`, `[BUFFER]`, `[DIRTY]`,
+        /// `[NOTIFICATION]`, `[CURRENT_FILE]` / `[CURRENT_FILE:short]` /
+        /// `[CURRENT_FILE:full]`. `<EXPAND>` absorbs remaining width.
+        /// Unknown tokens render literally so typos are visible.
+        StatusFormat: string
     }
 
 [<RequireQualifiedAccess>]
@@ -73,7 +79,9 @@ module Config =
           PageOverlap = 2
           TreePageJump = 10
           TabWidth = 4
-          Icons = IconsOff }
+          Icons = IconsOff
+          StatusFormat =
+            "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]" }
 
 type Model =
     { Workspace: WorkspaceState

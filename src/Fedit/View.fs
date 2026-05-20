@@ -76,39 +76,8 @@ module Layout =
     let private effectiveTheme model =
         previewTheme model |> Option.defaultValue model.Config.Theme
 
-    let private promptModeLabel mode =
-        match mode with
-        | FilePicker -> "FILE"
-        | Command -> "CMD"
-        | Search -> "FIND"
-        | Buffers -> "BUF"
-
-    let statusLine model =
-        let buffer = Editor.activeBufferState model
-
-        let focusText =
-            match model.Focus with
-            | Sidebar ->
-                if model.Workspace.SearchBuffer.Length > 0 then
-                    $"TREE  find:{model.Workspace.SearchBuffer}"
-                else
-                    "TREE"
-            | Editor -> "EDIT"
-            | Prompt -> promptModeLabel model.Prompt.Mode
-
-        let dirty = if buffer.Dirty then " [+]" else ""
-
-        let note =
-            model.Notification
-            |> Option.map _.Message
-            |> Option.defaultValue "Ctrl+P prompt"
-
-        let pathText = buffer.FilePath |> Option.defaultValue "[scratch]"
-        let newlineStyle = if buffer.Newline = "\r\n" then "CRLF" else "LF"
-        let totalLines = Buffer.lineCount buffer
-        let bufferCount = model.Editors.Buffers.Count
-
-        $"{focusText}  {pathText}{dirty}  Ln {buffer.Cursor.Line + 1}/{totalLines}, Col {buffer.Cursor.Column + 1}  {newlineStyle}  buf {bufferCount}  {note}"
+    // Status bar rendering moved to `Status.render`, driven by the
+    // `Config.StatusFormat` template. See `Status.fs`.
 
     let dockPanel model =
         let prompt = model.Prompt
@@ -358,7 +327,9 @@ module Layout =
         current <- renderEditor editorX editorWidth mainHeight current model
         Screen.fillRect 0 statusY width 1 status ' ' current
         let statusInner = max 0 (width - 2)
-        Screen.writeText 1 statusY status statusInner (pad statusInner (statusLine model)) current
+        // Status.render lays the format itself, including `<EXPAND>`
+        // spacing, so we don't pad after the fact.
+        Screen.writeText 1 statusY status statusInner (Status.render statusInner model) current
 
         if dockHeight > 0 then
             Screen.fillRect 0 dockY width dockHeight chrome ' ' current

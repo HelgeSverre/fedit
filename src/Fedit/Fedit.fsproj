@@ -42,6 +42,7 @@
     <Compile Include="Config.fs" />
     <Compile Include="Prompt.fs" />
     <Compile Include="Editor.fs" />
+    <Compile Include="Status.fs" />
     <Compile Include="Renderer.fs" />
     <Compile Include="Input.fs" />
     <Compile Include="View.fs" />

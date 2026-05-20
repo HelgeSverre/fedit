@@ -115,6 +115,9 @@ module ConfigIO =
                     | Some "off" -> IconsOff
                     | _ -> defaults.Icons
 
+                let statusFormat =
+                    getStringProp root "statusFormat" |> Option.defaultValue defaults.StatusFormat
+
                 let config =
                     { Theme = theme
                       Recent = recent
@@ -126,7 +129,8 @@ module ConfigIO =
                       PageOverlap = pageOverlap
                       TreePageJump = treePageJump
                       TabWidth = tabWidth
-                      Icons = icons }
+                      Icons = icons
+                      StatusFormat = statusFormat }
 
                 config, None
             else
@@ -241,6 +245,7 @@ module ConfigIO =
         root["treePageJump"] <- System.Text.Json.Nodes.JsonValue.Create config.TreePageJump
         root["tabWidth"] <- System.Text.Json.Nodes.JsonValue.Create config.TabWidth
         root["icons"] <- System.Text.Json.Nodes.JsonValue.Create iconsStr
+        root["statusFormat"] <- System.Text.Json.Nodes.JsonValue.Create config.StatusFormat
 
         let options = System.Text.Json.JsonSerializerOptions(WriteIndented = true)
         let json = root.ToJsonString options

@@ -22,6 +22,7 @@
     <Compile Include="PluginsTests.fs" />
     <Compile Include="CliTests.fs" />
     <Compile Include="CompletionsTests.fs" />
+    <Compile Include="StatusTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
