@@ -56,7 +56,7 @@ const cols = [
           </li>
         </ul>
       </div>
-      <div>
+      <div class="made-by stack stack--sm">
         <strong>made by</strong>
         <p>
           <a href="https://helgesver.re" target="_blank" rel="noopener">Helge Sverre</a>
@@ -164,8 +164,14 @@ const cols = [
   .with-icon:hover :global(svg) {
     color: var(--accent);
   }
+  /* The made-by column owns its own rhythm via .stack — kill the strong
+   * bottom margin and the .socials top margin so the gap is the single
+   * source of separation. */
+  .made-by strong {
+    margin-bottom: 0;
+  }
   .socials {
-    margin-top: var(--space-3);
+    margin: 0;
     display: flex;
     gap: 14px;
   }
