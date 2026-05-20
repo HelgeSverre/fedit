@@ -50,6 +50,15 @@ lint:
 test:
     {{dotnet}} test {{tests}} --nologo
 
+# Generate HTML coverage report at coverage/index.html.
+[group('test')]
+coverage:
+    {{dotnet}} tool restore
+    rm -rf coverage TestResults
+    {{dotnet}} test {{tests}} --nologo --collect:"XPlat Code Coverage" --results-directory TestResults
+    {{dotnet}} reportgenerator -reports:'TestResults/**/coverage.cobertura.xml' -targetdir:coverage -reporttypes:Html
+    @echo "→ open coverage/index.html"
+
 # Pre-commit gate.
 [group('test')]
 check: lint build test

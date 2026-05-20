@@ -29,6 +29,10 @@
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="FsUnit.xUnit" />
     <PackageReference Include="FsCheck.Xunit" />
+    <PackageReference Include="coverlet.collector">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Fedit\Fedit.fsproj" />

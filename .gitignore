@@ -153,6 +153,10 @@ coverage*.json
 coverage*.xml
 coverage*.info
 
+# Test result + coverage directories (just coverage)
+TestResults/
+coverage/
+
 # Visual Studio code coverage results
 *.coverage
 *.coveragexml
