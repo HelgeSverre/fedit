@@ -498,35 +498,30 @@ module Buffer =
             let withDoc = buffer |> withDocument nextDocument
             finalizeEdit buffer nextCursor withDoc
 
+    /// Slide the viewport just enough to keep `cursor` inside `[viewport,
+    /// viewport + span)`. Returns the current `viewport` unchanged if the
+    /// cursor is already visible; otherwise pulls the window along the
+    /// cursor by exactly the minimum.
+    let private slideViewport cursor viewport span =
+        if cursor < viewport then cursor
+        elif cursor >= viewport + span then cursor - span + 1
+        else viewport
+
     let ensureViewport viewportHeight viewportWidth buffer =
         let safeHeight = max 1 viewportHeight
         let safeWidth = max 1 viewportWidth
         let maxTop = max 0 (lineCount buffer - safeHeight)
         let maxLeft = max 0 ((line buffer.Cursor.Line buffer).Length - safeWidth)
 
-        let nextTop =
-            if buffer.Cursor.Line < buffer.ViewportTop then
-                buffer.Cursor.Line
-            elif buffer.Cursor.Line >= buffer.ViewportTop + safeHeight then
-                buffer.Cursor.Line - safeHeight + 1
-            else
-                buffer.ViewportTop
-            |> max 0
-            |> min maxTop
-
-        let nextLeft =
-            if buffer.Cursor.Column < buffer.ViewportLeft then
-                buffer.Cursor.Column
-            elif buffer.Cursor.Column >= buffer.ViewportLeft + safeWidth then
-                buffer.Cursor.Column - safeWidth + 1
-            else
-                buffer.ViewportLeft
-            |> max 0
-            |> min maxLeft
+        let clamp lo hi value = value |> max lo |> min hi
 
         { buffer with
-            ViewportTop = nextTop
-            ViewportLeft = nextLeft }
+            ViewportTop =
+                slideViewport buffer.Cursor.Line buffer.ViewportTop safeHeight
+                |> clamp 0 maxTop
+            ViewportLeft =
+                slideViewport buffer.Cursor.Column buffer.ViewportLeft safeWidth
+                |> clamp 0 maxLeft }
 
     /// Mark a buffer as saved. If `expectedTick` matches the buffer's
     /// current `EditTick`, the write captured the latest content so
