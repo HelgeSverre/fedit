@@ -30,12 +30,13 @@
     <Compile Include="PieceTable.fs" />
     <Compile Include="Buffer.fs" />
     <Compile Include="Workspace.fs" />
+    <Compile Include="Screen.fs" />
+    <Compile Include="Color.fs" />
     <Compile Include="Themes.fs" />
     <Compile Include="Commands.fs" />
     <Compile Include="Model.fs" />
     <Compile Include="Prompt.fs" />
     <Compile Include="Editor.fs" />
-    <Compile Include="Screen.fs" />
     <Compile Include="Renderer.fs" />
     <Compile Include="Input.fs" />
     <Compile Include="View.fs" />

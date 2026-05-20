@@ -7,16 +7,22 @@ open System
 // chrome stays constant across themes.
 //
 // Canonical brand spec lives in brand/themes/*.json. This module is the
-// implementation. Values use ANSI 256 color codes for compatibility with
-// any terminal; true-color terminals upgrade transparently elsewhere.
+// implementation. Values use the unified `Color` type from Color.fs:
+// bundled themes mix named statics (`Color.deepSkyBlue`) where they exist
+// and `Color.ofHex` for cube picks without a curated name. Truecolor
+// (`Rgb`) values are accepted; the renderer emits them directly and
+// `Color.toIndexed` quantizes if a future capability profile demands it.
 type Theme =
     { Name: string
       Description: string
-      Accent: int
-      StatusFg: int
-      StatusBg: int
-      SelectedBg: int
-      CurrentLine: int }
+      // Hue family — four shades of the theme's primary color, from
+      // brightest (Accent) to softest (CurrentLine).
+      Accent: Color
+      StatusBg: Color
+      SelectedBg: Color
+      CurrentLine: Color
+      // Foreground policy — text on StatusBg.
+      StatusFg: Color }
 
 [<RequireQualifiedAccess>]
 module Themes =
@@ -24,67 +30,67 @@ module Themes =
     let green =
         { Name = "green"
           Description = "Phosphor green — brand default"
-          Accent = 35
-          StatusFg = 15
-          StatusBg = 22
-          SelectedBg = 28
-          CurrentLine = 35 }
+          Accent = Color.phosphorGreen
+          StatusBg = Color.forestGreen
+          SelectedBg = Color.mossGreen
+          CurrentLine = Color.phosphorGreen
+          StatusFg = Color.brightWhite }
 
     // Electric blue #1F6FEB → ANSI 33 (#0087FF). GitHub-adjacent, not purple.
     let blue =
         { Name = "blue"
           Description = "Electric blue — high contrast"
-          Accent = 33
-          StatusFg = 15
-          StatusBg = 17
-          SelectedBg = 25
-          CurrentLine = 33 }
+          Accent = Color.electricBlue
+          StatusBg = Color.midnightBlue
+          SelectedBg = Color.steelBlue
+          CurrentLine = Color.electricBlue
+          StatusFg = Color.brightWhite }
 
     // Burnt orange #D2691E → ANSI 166. Warm, retro-terminal feel.
     let orange =
         { Name = "orange"
           Description = "Burnt orange — warm, retro"
-          Accent = 166
-          StatusFg = 15
-          StatusBg = 94
-          SelectedBg = 130
-          CurrentLine = 173 }
+          Accent = Color.burntOrange
+          StatusBg = Color.saddleBrown
+          SelectedBg = Color.copper
+          CurrentLine = Color.peach
+          StatusFg = Color.brightWhite }
 
     let cyan =
         { Name = "cyan"
           Description = "Cool cyan accent"
-          Accent = 81
-          StatusFg = 15
-          StatusBg = 24
-          SelectedBg = 31
-          CurrentLine = 153 }
+          Accent = Color.deepSkyBlue
+          StatusBg = Color.oceanBlue
+          SelectedBg = Color.azure
+          CurrentLine = Color.paleSky
+          StatusFg = Color.brightWhite }
 
     let teal =
         { Name = "teal"
           Description = "Cyan-green hybrid"
-          Accent = 80
-          StatusFg = 15
-          StatusBg = 23
-          SelectedBg = 30
-          CurrentLine = 159 }
+          Accent = Color.teal
+          StatusBg = Color.darkTeal
+          SelectedBg = Color.seafoam
+          CurrentLine = Color.paleCyan
+          StatusFg = Color.brightWhite }
 
     let yellow =
         { Name = "yellow"
           Description = "Warm yellow (dark text)"
-          Accent = 220
-          StatusFg = 0
-          StatusBg = 100
-          SelectedBg = 178
-          CurrentLine = 229 }
+          Accent = Color.amber
+          StatusBg = Color.goldenrod
+          SelectedBg = Color.mustard
+          CurrentLine = Color.lemonChiffon
+          StatusFg = Color.black }
 
     let red =
         { Name = "red"
           Description = "Crimson accent"
-          Accent = 203
-          StatusFg = 15
-          StatusBg = 88
-          SelectedBg = 124
-          CurrentLine = 217 }
+          Accent = Color.crimson
+          StatusBg = Color.darkRed
+          SelectedBg = Color.firebrick
+          CurrentLine = Color.salmon
+          StatusFg = Color.brightWhite }
 
     let all = [ green; blue; orange; cyan; teal; yellow; red ]
 

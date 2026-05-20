@@ -4,7 +4,12 @@ open System
 
 type Color =
     | Default
-    | Indexed of int
+    /// ANSI 256-color cube index (0–15 standard, 16–231 cube, 232–255 ramp).
+    | Indexed of byte
+    /// Truecolor RGB (24-bit). Renderer emits `38;2;r;g;b` directly; modern
+    /// terminals support this. Use `Color.toIndexed` to quantize when
+    /// targeting a 256-only terminal.
+    | Rgb of red: byte * green: byte * blue: byte
 
 [<Struct>]
 type Style =

@@ -11,6 +11,7 @@
   <ItemGroup>
     <Compile Include="PieceTableTests.fs" />
     <Compile Include="BufferTests.fs" />
+    <Compile Include="ColorTests.fs" />
     <Compile Include="CommandsTests.fs" />
     <Compile Include="PromptTests.fs" />
     <Compile Include="WorkspaceTests.fs" />

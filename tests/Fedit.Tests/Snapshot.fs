@@ -17,6 +17,7 @@ let private formatColor =
     function
     | Default -> "_"
     | Indexed n -> string n
+    | Rgb(r, g, b) -> $"{r}.{g}.{b}"
 
 let private formatStyle (style: Style) =
     let bold = if style.Bold then "B" else "."

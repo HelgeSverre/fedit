@@ -134,6 +134,12 @@ module ConfigIO =
         with ex ->
             defaults, Some $"config.json: {ex.Message}"
 
+    /// Read a color field as a hex string ("#RRGGBB" / "#RGB") or a
+    /// named color ("deepSkyBlue"). Integer values are rejected — the
+    /// schema is hex-or-name only after the Color unification.
+    let private getColorProp (root: System.Text.Json.JsonElement) (name: string) =
+        getStringProp root name |> Option.bind Color.tryParse
+
     /// Returns the loaded themes and a list of per-file error messages.
     let loadUserThemes () : Theme list * string list =
         try
@@ -165,11 +171,11 @@ module ConfigIO =
                             getStringProp root "description" |> Option.defaultValue $"User theme '{name}'"
 
                         match
-                            getIntProp root "accent",
-                            getIntProp root "statusFg",
-                            getIntProp root "statusBg",
-                            getIntProp root "selectedBg",
-                            getIntProp root "currentLine"
+                            getColorProp root "accent",
+                            getColorProp root "statusFg",
+                            getColorProp root "statusBg",
+                            getColorProp root "selectedBg",
+                            getColorProp root "currentLine"
                         with
                         | Some a, Some sf, Some sb, Some seb, Some cl ->
                             themes <-
@@ -181,7 +187,10 @@ module ConfigIO =
                                   SelectedBg = seb
                                   CurrentLine = cl }
                                 :: themes
-                        | _ -> errors <- $"theme '{Path.GetFileName file}': missing required color fields" :: errors
+                        | _ ->
+                            errors <-
+                                $"theme '{Path.GetFileName file}': missing or malformed color fields (need #RRGGBB or named color)"
+                                :: errors
                     with ex ->
                         errors <- $"theme '{Path.GetFileName file}': {ex.Message}" :: errors
 

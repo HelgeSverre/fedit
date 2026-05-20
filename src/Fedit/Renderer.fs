@@ -20,6 +20,11 @@ module Renderer =
         match color with
         | Default -> if isForeground then "39" else "49"
         | Indexed value -> if isForeground then $"38;5;{value}" else $"48;5;{value}"
+        | Rgb(r, g, b) ->
+            if isForeground then
+                $"38;2;{r};{g};{b}"
+            else
+                $"48;2;{r};{g};{b}"
 
     let private styleToAnsiSequence style =
         let parts =
@@ -77,7 +82,7 @@ module Renderer =
                     lastRow <- row
                     lastCol <- col
 
-    let private appendCursor (builder: StringBuilder) screen =
+    let private appendCursor (builder: StringBuilder) (screen: Screen) =
         match screen.Cursor with
         | Some cursor when cursor.Visible ->
             append builder showCursor

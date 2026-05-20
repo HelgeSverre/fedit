@@ -4,27 +4,26 @@ open System
 
 [<RequireQualifiedAccess>]
 module Layout =
-    let private surface = Style.withColors (Indexed 252) Default
-    let private chrome = Style.withColors (Indexed 244) Default
-    let private commandBar = Style.withColors (Indexed 230) (Indexed 237)
-    let private lineNumber = Style.withColors (Indexed 241) Default
+    let private surface = Style.withColors (Indexed 252uy) Default
+    let private chrome = Style.withColors (Indexed 244uy) Default
+    let private commandBar = Style.withColors (Indexed 230uy) (Indexed 237uy)
+    let private lineNumber = Style.withColors (Indexed 241uy) Default
     // Active editor line background — dim gray, fixed (intentionally not
     // theme-derived: the theme accent is too saturated to use behind text).
-    let private currentLineBg = Style.withColors (Indexed 252) (Indexed 236)
+    let private currentLineBg = Style.withColors (Indexed 252uy) (Indexed 236uy)
 
-    let private accentOf (theme: Theme) =
-        Style.withColors (Indexed theme.Accent) Default
+    let private accentOf (theme: Theme) = Style.withColors theme.Accent Default
 
     let private statusOf (theme: Theme) =
-        Style.withColors (Indexed theme.StatusFg) (Indexed theme.StatusBg)
+        Style.withColors theme.StatusFg theme.StatusBg
 
     let private selectedOf (theme: Theme) =
         { commandBar with
-            Background = Indexed theme.SelectedBg
+            Background = theme.SelectedBg
             Bold = true }
 
     let private currentLineOf (theme: Theme) =
-        Style.withColors (Indexed theme.CurrentLine) Default
+        Style.withColors theme.CurrentLine Default
 
     /// Nerd Font glyph for a file name (by extension). Returns a 2-char
     /// "<glyph><space>" so the column count matches the ASCII `[+] ` marker.
