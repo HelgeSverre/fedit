@@ -92,7 +92,7 @@ let ``Ctrl+F opens the prompt in Search mode with / prefix`` () =
     next.Focus |> should equal Prompt
 
 [<Fact>]
-let ``backspace through the command prefix flips to FilePicker then closes`` () =
+let ``backspace through the command prefix flips to FilePicker and then stays open`` () =
     let model = initModel ()
     let opened, _ = Editor.update (KeyPressed(Ctrl 'p')) model
     opened.Prompt.Text |> should equal ":"
@@ -102,15 +102,27 @@ let ``backspace through the command prefix flips to FilePicker then closes`` () 
     flipped.Prompt.Text |> should equal ""
     flipped.Prompt.Mode |> should equal FilePicker
 
-    let closed, _ = Editor.update (KeyPressed Backspace) flipped
-    closed.Prompt.Active |> should equal false
+    // Holding backspace past the prefix must not dismiss the prompt — Esc
+    // is the only way out so we don't drop the user's session by accident.
+    let stillOpen, _ = Editor.update (KeyPressed Backspace) flipped
+    stillOpen.Prompt.Active |> should equal true
+    stillOpen.Prompt.Text |> should equal ""
 
 [<Fact>]
-let ``backspace on empty FilePicker prompt closes`` () =
+let ``backspace on empty FilePicker prompt is a no-op`` () =
     let model = initModel ()
     let opened, _ = Editor.update (KeyPressed(Ctrl 'o')) model
     opened.Prompt.Active |> should equal true
-    let closed, _ = Editor.update (KeyPressed Backspace) opened
+    let next, _ = Editor.update (KeyPressed Backspace) opened
+    next.Prompt.Active |> should equal true
+    next.Prompt.Text |> should equal opened.Prompt.Text
+
+[<Fact>]
+let ``Escape closes the prompt and returns focus to the editor`` () =
+    let model = initModel ()
+    let opened, _ = Editor.update (KeyPressed(Ctrl 'p')) model
+    opened.Prompt.Active |> should equal true
+    let closed, _ = Editor.update (KeyPressed Escape) opened
     closed.Prompt.Active |> should equal false
     closed.Focus |> should equal Editor
 

@@ -282,8 +282,10 @@ module Editor =
         let prompt = model.Prompt
 
         if prompt.Cursor = 0 then
-            // Backspace on empty (or at start of empty Text) closes the prompt.
-            closePrompt model, []
+            // Backspace at the start is a no-op; closing the prompt is
+            // Esc's job alone so users can't accidentally dismiss their
+            // session by holding backspace past the mode prefix.
+            model, []
         else
             { model with
                 Prompt =
