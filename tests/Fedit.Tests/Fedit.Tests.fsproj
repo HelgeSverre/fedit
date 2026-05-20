@@ -15,6 +15,8 @@
     <Compile Include="PromptTests.fs" />
     <Compile Include="WorkspaceTests.fs" />
     <Compile Include="UpdateTests.fs" />
+    <Compile Include="Snapshot.fs" />
+    <Compile Include="SnapshotTests.fs" />
     <Compile Include="BinarySmokeTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
