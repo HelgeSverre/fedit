@@ -529,6 +529,7 @@ module Runtime =
 
         let mutable model = initialModel
         let mutable needsRender = true
+        let mutable previousFrame: Screen voption = ValueNone
         let writer = Console.Out
 
         let isExcludedFsPath (path: string) =
@@ -594,7 +595,9 @@ module Runtime =
                 | _ -> ()
 
                 if needsRender then
-                    model |> Layout.render |> Renderer.render writer
+                    let frame = Layout.render model
+                    Renderer.render writer previousFrame frame
+                    previousFrame <- ValueSome frame
                     needsRender <- false
 
                 if Console.KeyAvailable then

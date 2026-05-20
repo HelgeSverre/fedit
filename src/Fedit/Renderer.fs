@@ -39,22 +39,43 @@ module Renderer =
 
     let private appendChar (builder: StringBuilder) (glyph: char) = builder.Append(glyph) |> ignore
 
-    let private appendScreenRows (builder: StringBuilder) screen =
-        for row in 0 .. screen.Height - 1 do
-            append builder (cursorPosition row 0)
+    /// Diff cells between `previous` and `next`; emit cursor jumps and
+    /// style changes only for cells that actually changed. Style is
+    /// tracked across rows so unchanged styles don't re-emit when crossing
+    /// a row boundary.
+    let private appendDiffedCells (builder: StringBuilder) (previous: Screen voption) (next: Screen) =
+        let sameDimensions =
+            match previous with
+            | ValueSome p -> p.Width = next.Width && p.Height = next.Height
+            | ValueNone -> false
 
-            let mutable currentStyle: Style option = None
+        let sameAsPrev row col =
+            if not sameDimensions then
+                false
+            else
+                match previous with
+                | ValueSome p -> p.Cells[row, col] = next.Cells[row, col]
+                | ValueNone -> false
 
-            for col in 0 .. screen.Width - 1 do
-                let cell = screen.Cells[row, col]
+        let mutable currentStyle: Style voption = ValueNone
+        let mutable lastRow = -2
+        let mutable lastCol = -2
 
-                if currentStyle <> Some cell.Style then
-                    append builder (styleToAnsiSequence cell.Style)
-                    currentStyle <- Some cell.Style
+        for row in 0 .. next.Height - 1 do
+            for col in 0 .. next.Width - 1 do
+                if not (sameAsPrev row col) then
+                    let cell = next.Cells[row, col]
 
-                appendChar builder cell.Glyph
+                    if row <> lastRow || col <> lastCol + 1 then
+                        append builder (cursorPosition row col)
 
-            append builder resetStyle
+                    if currentStyle <> ValueSome cell.Style then
+                        append builder (styleToAnsiSequence cell.Style)
+                        currentStyle <- ValueSome cell.Style
+
+                    appendChar builder cell.Glyph
+                    lastRow <- row
+                    lastCol <- col
 
     let private appendCursor (builder: StringBuilder) screen =
         match screen.Cursor with
@@ -69,11 +90,26 @@ module Renderer =
     let leave (writer: TextWriter) =
         writer.Write($"{resetStyle}{showCursor}{leaveAlternateScreen}")
 
-    let render (writer: TextWriter) screen =
-        let builder = StringBuilder(homeCursor)
+    /// Render `next` to the writer. If `previous` is `ValueSome` and has
+    /// the same dimensions, only cells that differ are written. On size
+    /// change or first render, falls back to a full repaint preceded by a
+    /// clear-screen so stale glyphs don't linger.
+    let render (writer: TextWriter) (previous: Screen voption) (next: Screen) =
+        let builder = StringBuilder()
 
-        appendScreenRows builder screen
-        appendCursor builder screen
+        let dimensionsChanged =
+            match previous with
+            | ValueSome p -> p.Width <> next.Width || p.Height <> next.Height
+            | ValueNone -> true
+
+        if dimensionsChanged then
+            append builder clearScreen
+            append builder homeCursor
+            appendDiffedCells builder ValueNone next
+        else
+            appendDiffedCells builder previous next
+
+        appendCursor builder next
 
         writer.Write(builder.ToString())
         writer.Flush()

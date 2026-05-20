@@ -11,7 +11,7 @@ Active work and future ideas. Shipped phases (0–6) live in
 | **Phase 8 — Tier 3 binary smoke**                 | Shipped | `dotnet run` from xunit covers `--help` / `-h` / `--version` short-circuits. Interactive scenarios deferred. |
 | **Phase 9 — Quick wins**                          | Shipped | Buffer double-computeLines fixed; `jsonEscape` removed earlier (config DOM); motion helper landed.     |
 | **Phase 10 — Module splits**                      | Pending | Typed command payloads, `Editor.fs` split, `Runtime.fs` split.                                         |
-| **Phase 11 — Renderer diff**                      | Pending | Cell-level diff against previous frame; drop `pad`/`crop` allocations.                                 |
+| **Phase 11 — Renderer diff**                      | Shipped | `Renderer.render` now takes `previous: Screen voption` and emits cursor jumps + SGR only for changed cells. `pad`/`crop` follow-up deferred. |
 | **Phase 12 — Async follow-ups**                   | Shipped | EditTick-guarded `markSaved`; serialized config writes via task chain; `RunSearch` effect with cancellation. |
 | **Phase 13 — Workspace caching & startup errors** | Shipped | `WorkspaceState.ByPath` map + pre-sorted children; `loadConfig`/`loadUserThemes` return errors folded into the startup notification. |
 | **Phase 14 — Polish**                             | Shipped | Theme preview is now derived in View; Recent persists at quit; tab width configurable; metadata removed (unused). |
