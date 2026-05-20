@@ -159,3 +159,39 @@ let ``completions for empty input list all command names`` () =
 
     let comps = Commands.completions ctx ""
     comps |> List.length |> should be (greaterThanOrEqualTo 11)
+
+[<Fact>]
+let ``config parses to Ready OpenConfig`` () =
+    match Commands.parse "config" with
+    | ParsedCommand.Ready Command.OpenConfig -> ()
+    | other -> failwithf "expected Ready OpenConfig, got %A" other
+
+[<Fact>]
+let ``hidden commands stay parseable but never appear in completions`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = []
+          Recent = []
+          Buffers = []
+          Themes = Themes.all
+          CompletionLimit = 8 }
+
+    let comps = Commands.completions ctx ""
+    let labels = comps |> List.map (fun c -> c.Label)
+
+    // Keyboard-first verbs are hidden so the menu doesn't grow stale.
+    labels |> should not' (contain "sidebar")
+    labels |> should not' (contain "tree")
+    labels |> should not' (contain "editor")
+
+    // ...but typing them still works.
+    match Commands.parse "sidebar" with
+    | ParsedCommand.Ready Command.ToggleSidebar -> ()
+    | other -> failwithf "expected Ready ToggleSidebar, got %A" other
+
+[<Fact>]
+let ``hidden commands are omitted from helpLines`` () =
+    let lines = Commands.helpLines ()
+    lines |> List.exists (fun l -> l.StartsWith("sidebar")) |> should equal false
+    lines |> List.exists (fun l -> l.StartsWith("editor")) |> should equal false
+    lines |> List.exists (fun l -> l.StartsWith("tree")) |> should equal false

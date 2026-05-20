@@ -465,6 +465,20 @@ module Editor =
             | None -> { model with Focus = Editor }, [ LoadFile absolutePath ]
         | Write -> saveActiveBuffer None model
         | WriteAs path -> saveActiveBuffer (Some path) model
+        | OpenConfig ->
+            let configPath = ConfigIO.path ()
+
+            // Materialize the config on first use so LoadFile has something
+            // to read instead of returning a "failed to open" notification.
+            // Synchronous write keeps the file ready before the async
+            // LoadFile fires.
+            if not (File.Exists configPath) then
+                try
+                    ConfigIO.save model.Config
+                with _ ->
+                    ()
+
+            executeCommand (Open configPath) model
         | Quit -> { model with ShouldQuit = true }, [ SaveConfig model.Config ]
         | ToggleSidebar ->
             { model with
@@ -850,7 +864,15 @@ module Editor =
         | Backspace -> deletePromptBackward model
         | Delete -> deletePromptForward model
         | Character value -> insertPromptText (string value) model
-        | Tab -> cycleCompletion 1 model, []
+        | Tab ->
+            // Tab fills the prompt with the highlighted completion so users
+            // can type `:o<Tab>` → `:open` and continue with arguments.
+            // Up/Down/ShiftTab still cycle the selection.
+            match prompt.Completions with
+            | [] -> model, []
+            | items ->
+                let idx = max 0 (min prompt.SelectedCompletion (items.Length - 1))
+                applyCompletion items[idx] model
         | ShiftTab -> cycleCompletion -1 model, []
         | Up ->
             match prompt.Mode with

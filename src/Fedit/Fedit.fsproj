@@ -39,12 +39,12 @@
     <Compile Include="Commands.fs" />
     <Compile Include="Plugins.fs" />
     <Compile Include="Model.fs" />
+    <Compile Include="Config.fs" />
     <Compile Include="Prompt.fs" />
     <Compile Include="Editor.fs" />
     <Compile Include="Renderer.fs" />
     <Compile Include="Input.fs" />
     <Compile Include="View.fs" />
-    <Compile Include="Config.fs" />
     <Compile Include="Runtime.fs" />
     <Compile Include="Cli.fs" />
     <Compile Include="Cli\Commands\Plugins.fs" />

@@ -28,6 +28,9 @@ type Command =
     | Goto of line: int * column: int option
     /// Built-in plugin manager command. `plugin list|enable|disable|install|remove|reload|validate`.
     | Plugin of verb: string * argument: string
+    /// Open the user's config file (`~/.config/fedit/config.json`) in a
+    /// buffer. Creates the file with the running config if absent.
+    | OpenConfig
     /// Invocation of a plugin-registered command. `source` is the owning
     /// plugin name (for diagnostics); `commandName` matches the
     /// `PluginCommand.Name` the plugin registered. `argument` is any text
@@ -51,10 +54,19 @@ type CommandContext =
 [<RequireQualifiedAccess>]
 module Commands =
     type Spec =
-        { Name: string
-          Usage: string
-          Summary: string
-          Constructor: string -> ParsedCommand }
+        {
+            Name: string
+            Usage: string
+            Summary: string
+            /// Skip this spec when building completion menus and help
+            /// listings. Still resolves through `parseWith` so users can
+            /// type it (and future macro/scripting layers can reach it).
+            /// Use for verbs that have a stronger keyboard shortcut and
+            /// don't read naturally as typed commands (focus changes,
+            /// panel toggles, etc.).
+            Hidden: bool
+            Constructor: string -> ParsedCommand
+        }
 
     let private simple command argument =
         if String.IsNullOrWhiteSpace argument then
@@ -67,6 +79,7 @@ module Commands =
         [ { Name = "open"
             Usage = "open <path>"
             Summary = "Open a file from the workspace."
+            Hidden = false
             Constructor =
               fun argument ->
                   if String.IsNullOrWhiteSpace argument then
@@ -76,10 +89,12 @@ module Commands =
           { Name = "write"
             Usage = "write"
             Summary = "Save the active buffer."
+            Hidden = false
             Constructor = simple Write }
           { Name = "writeas"
             Usage = "writeas <path>"
             Summary = "Save the active buffer to a new path."
+            Hidden = false
             Constructor =
               fun argument ->
                   if String.IsNullOrWhiteSpace argument then
@@ -89,34 +104,51 @@ module Commands =
           { Name = "quit"
             Usage = "quit"
             Summary = "Exit fedit."
+            Hidden = false
             Constructor = simple Quit }
+          { Name = "config"
+            Usage = "config"
+            Summary = "Open the fedit config file (~/.config/fedit/config.json) in a buffer."
+            Hidden = false
+            Constructor = simple OpenConfig }
+          // Focus / panel toggles are keyboard-first (Ctrl+B, Ctrl+E):
+          // hidden from completion so the palette isn't cluttered with
+          // verbs nobody types. Still parseable for muscle-memory and
+          // any future scripting layer.
           { Name = "sidebar"
             Usage = "sidebar"
             Summary = "Toggle the sidebar."
+            Hidden = true
             Constructor = simple ToggleSidebar }
           { Name = "tree"
             Usage = "tree"
             Summary = "Focus the file tree."
+            Hidden = true
             Constructor = simple FocusTree }
           { Name = "editor"
             Usage = "editor"
             Summary = "Focus the editor."
+            Hidden = true
             Constructor = simple FocusEditor }
           { Name = "reload"
             Usage = "reload"
             Summary = "Reload the workspace tree."
+            Hidden = false
             Constructor = simple ReloadWorkspace }
           { Name = "next"
             Usage = "next"
             Summary = "Activate the next open buffer."
+            Hidden = false
             Constructor = simple NextBuffer }
           { Name = "prev"
             Usage = "prev"
             Summary = "Activate the previous open buffer."
+            Hidden = false
             Constructor = simple PreviousBuffer }
           { Name = "theme"
             Usage = "theme <name>"
             Summary = "Switch accent color. Bundled palettes plus any user themes from ~/.config/fedit/themes/*.json."
+            Hidden = false
             Constructor =
               fun argument ->
                   let trimmed = argument.Trim()
@@ -128,6 +160,7 @@ module Commands =
           { Name = "recent"
             Usage = "recent <path>"
             Summary = "Open a recently used file."
+            Hidden = false
             Constructor =
               fun argument ->
                   let trimmed = argument.Trim()
@@ -139,6 +172,7 @@ module Commands =
           { Name = "buffers"
             Usage = "buffers <id-or-name>"
             Summary = "Switch to an open buffer."
+            Hidden = false
             Constructor =
               fun argument ->
                   let trimmed = argument.Trim()
@@ -155,6 +189,7 @@ module Commands =
           { Name = "plugin"
             Usage = "plugin <list|enable|disable|install|remove|reload|validate> [arg]"
             Summary = "Manage installed plugins."
+            Hidden = false
             Constructor =
               fun argument ->
                   let trimmed = argument.Trim()
@@ -198,6 +233,7 @@ module Commands =
             { Name = name
               Usage = name
               Summary = $"[{source}] {summary}"
+              Hidden = false
               Constructor = fun argument -> Ready(PluginInvoke(source, name, argument.Trim())) })
 
     /// All specs — built-ins first, then plugin commands.
@@ -261,8 +297,11 @@ module Commands =
     let completionsWith (availableSpecs: Spec list) context (input: string) =
         let trimmed = input.TrimStart()
 
+        // Hidden specs stay parseable but never surface in the menu.
+        let visibleSpecs = availableSpecs |> List.filter (fun s -> not s.Hidden)
+
         if String.IsNullOrWhiteSpace trimmed then
-            availableSpecs
+            visibleSpecs
             |> List.map (fun spec ->
                 { Label = spec.Name
                   ApplyText = spec.Name
@@ -272,7 +311,7 @@ module Commands =
             let firstSpace = trimmed.IndexOf ' '
 
             if firstSpace < 0 then
-                availableSpecs
+                visibleSpecs
                 |> List.filter (fun spec -> spec.Name.StartsWith(trimmed, StringComparison.OrdinalIgnoreCase))
                 |> List.map (fun spec ->
                     { Label = spec.Name
@@ -346,4 +385,6 @@ module Commands =
     let completions context (input: string) = completionsWith specs context input
 
     let helpLines () =
-        specs |> List.map (fun spec -> $"{spec.Usage}  {spec.Summary}")
+        specs
+        |> List.filter (fun spec -> not spec.Hidden)
+        |> List.map (fun spec -> $"{spec.Usage}  {spec.Summary}")

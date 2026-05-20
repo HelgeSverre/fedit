@@ -118,6 +118,39 @@ let ``backspace on empty FilePicker prompt is a no-op`` () =
     next.Prompt.Text |> should equal opened.Prompt.Text
 
 [<Fact>]
+let ``Tab fills the prompt with the highlighted completion`` () =
+    let model = initModel ()
+    let opened, _ = Editor.update (KeyPressed(Ctrl 'p')) model
+
+    // Type `o` so the highlighted completion is `open`.
+    let typed, _ = Editor.update (KeyPressed(Character 'o')) opened
+    typed.Prompt.Completions |> List.isEmpty |> should equal false
+
+    let firstApply =
+        typed.Prompt.Completions.[typed.Prompt.SelectedCompletion].ApplyText
+
+    let filled, _ = Editor.update (KeyPressed Tab) typed
+    // Prompt is rewritten to ":<ApplyText>" of the highlighted item.
+    filled.Prompt.Text |> should equal (":" + firstApply)
+    // Prompt stays open so the user can keep typing arguments.
+    filled.Prompt.Active |> should equal true
+
+[<Fact>]
+let ``Tab on empty completion list is a no-op`` () =
+    let model = initModel ()
+    let opened, _ = Editor.update (KeyPressed(Ctrl 'p')) model
+
+    // Type something that matches no command so completions empty out.
+    let typed, _ =
+        Editor.update (KeyPressed(Character 'z')) opened
+        |> fst
+        |> fun m -> Editor.update (KeyPressed(Character 'z')) m
+
+    typed.Prompt.Completions |> should equal ([]: CompletionItem list)
+    let after, _ = Editor.update (KeyPressed Tab) typed
+    after.Prompt.Text |> should equal typed.Prompt.Text
+
+[<Fact>]
 let ``Escape closes the prompt and returns focus to the editor`` () =
     let model = initModel ()
     let opened, _ = Editor.update (KeyPressed(Ctrl 'p')) model
