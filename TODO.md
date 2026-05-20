@@ -1650,3 +1650,79 @@ a decision driven by the comparison page at
   back + ship MVP-1 → 2 → 3 (defer Full). Ship the prompt
   unification first so both modality and shell features land on top
   of a consistent prompt.
+
+---
+
+## Deferred — Vale.sh prose linting
+
+Idea logged 2026-05-20. Automate enforcement of [`brand/voice.md`](brand/voice.md)
+across README, CLI help, error messages, release notes, commit messages,
+and the Astro website. Vale's `existence` / `substitution` / `occurrence`
+styles map directly onto the five voice rules.
+
+**Coverage targets.**
+
+| Voice rule                       | Vale style   | Notes                                                                                 |
+| -------------------------------- | ------------ | ------------------------------------------------------------------------------------- |
+| No marketing adjectives          | existence    | List: blazing, lightning, simply, just, easily, intuitive, powerful, amazing, modern. |
+| Banned phrases ("all-in-one", …) | substitution | Source from the table in `voice.md` "Things to Avoid".                                |
+| No "users" / "developers"        | existence    | Suggest "you".                                                                        |
+| No emoji                         | existence    | Regex on `[\x{1F300}-\x{1FAFF}]`.                                                     |
+| ≤1 em-dash per paragraph         | occurrence   | scope: paragraph, max: 1, token: `—`. The "three is the tell" LLM signature catch.    |
+| Lead with the verb (headings)    | existence    | Flag headings starting with "A " / "The ".                                            |
+
+**Suggested shape.**
+
+```
+.vale.ini
+styles/Fedit/
+  ├─ Adjectives.yml
+  ├─ BannedPhrases.yml
+  ├─ Emoji.yml
+  ├─ EmDash.yml
+  ├─ LLMTells.yml
+  └─ Users.yml
+```
+
+Scope by glob (full ruleset on `README.md` and `website/`; only the
+adjective + emoji + em-dash subset on `CHANGELOG.md` so factual entries
+don't trip on "powerful").
+
+**Integration.**
+
+- New `just lint-prose` recipe alongside `lint` (fantomas + prettier).
+  Keep separate until rule churn settles; surfacing a noisy linter as
+  part of the pre-commit gate is worse than not having one.
+- CI step after the existing lint job in `ci.yml`. Vale is a Go binary
+  (~5MB), pinned via the official `errata-ai/vale-action` or Homebrew.
+  Sub-second on a repo this size.
+- Optional `commit-msg` git hook running `vale --no-exit` on the message
+  buffer — `voice.md` explicitly governs commit messages.
+
+**Open questions.**
+
+- **F# string literals.** Vale doesn't understand `.fs`. CLI help and
+  error message strings (`Cli.fs`, `Editor.fs`) are voice-governed but
+  invisible to Vale unless we (a) extract them to a sibling `.md` and
+  embed at build time, or (b) skip linting them and rely on review.
+  (a) is the right shape eventually — it also makes
+  `--help` testable as a snapshot — but it's a bigger change than the
+  Vale wiring itself.
+- **Source of truth duplication.** `voice.md` describes the rules in
+  prose; Vale styles are a parallel encoding. They will drift unless
+  one is generated from the other, or the prose explicitly defers to
+  the styles directory.
+
+**Minimal first step.** `.vale.ini` + three styles (`Adjectives`,
+`Emoji`, `EmDash`), scoped to `README.md` and `website/src/**`. Fix
+the hits, then expand. Don't try to codify all five rules on day one.
+
+**Why deferred.** Voice rules currently land via author memory + review.
+That's working — `brand/voice.md` exists, commits already follow the
+"lead with the verb" convention. Vale is upside-only once the build
+infra is justified; right now `just check` is already four tools
+(`fantomas`, `prettier`, `dotnet build`, `dotnet test`) and adding a
+fifth on day one risks tool-fatigue without a precipitating incident.
+Revisit when (a) a prose regression slips into a release, or (b)
+external contributors start opening docs PRs and "matches house voice"
+becomes an unhelpful review comment.
