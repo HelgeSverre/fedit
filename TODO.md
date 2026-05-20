@@ -1726,3 +1726,76 @@ fifth on day one risks tool-fatigue without a precipitating incident.
 Revisit when (a) a prose regression slips into a release, or (b)
 external contributors start opening docs PRs and "matches house voice"
 becomes an unhelpful review comment.
+
+## Deferred — Status bar shell-command tokens
+
+Idea logged 2026-05-21. Extend the format-string engine in
+[`src/Fedit/Status.fs`](src/Fedit/Status.fs) so users can drop in
+arbitrary shell commands and treat their stdout as a status token.
+Starship-style "module" coverage without writing F# for every
+nice-to-have.
+
+**Sketch syntax.**
+
+```
+[MODE] <EXPAND> [$(git rev-parse --abbrev-ref HEAD)/refresh:5s/truncate:24]  [LINE]:[COLUMN]
+```
+
+`$( … )` is the command body. Modifiers chain after a `/`:
+
+| Modifier      | Effect                                                                        |
+| ------------- | ----------------------------------------------------------------------------- |
+| `refresh:Ns`  | Re-run no more than every N seconds; cache between renders.                   |
+| `truncate:N`  | Cap output at N chars; append `…` when cut.                                   |
+| `trim`        | Strip leading/trailing whitespace (default behavior; explicit form for docs). |
+| `fallback:S`  | Show `S` when the command errors or times out.                                |
+| `timeout:Nms` | Abort the process after N milliseconds. Default ~50ms.                        |
+
+**Wiring.** Adds two pieces:
+
+- A small command cache keyed by `(cmd, refresh)`, swept on each render.
+  Holds `(lastRun, lastOutput, lastExit)`. Status rendering is on the hot
+  path (every keystroke triggers a redraw), so anything synchronous must
+  be sub-millisecond — the cache is what makes that possible.
+- Async execution: spawn `System.Diagnostics.Process` off the render
+  thread, deliver via the existing `ConcurrentQueue<Msg>` as a
+  `StatusCommandFinished` Msg. Render uses the last-known output until
+  the new one arrives — no blocking the redraw.
+
+**Open questions.**
+
+- **Security.** Format strings live in `~/.config/fedit/config.json`. A
+  malicious config could exfiltrate via `$(curl …)`. Mitigation options:
+  (a) require an opt-in flag (`shellTokens: true`) before shell tokens
+  parse, (b) whitelist allowed commands, (c) sandbox via `prlimit` /
+  `ulimit -t`. (a) is the smallest hammer and matches how starship
+  handles `custom` modules — opt-in via the config itself.
+- **Cross-platform.** macOS / Linux can `/bin/sh -c "<cmd>"`. Windows
+  needs `cmd /c` or PowerShell. Probably worth a `[$ps( … )]` variant
+  or letting the user pick a shell per token, but the MVP can just be
+  POSIX-only and document that.
+- **Failure modes.** A command that hangs or returns megabytes of
+  output mustn't freeze the editor. The `timeout` modifier + a hard
+  output cap (8KB?) need to be enforced even when the user forgets
+  them.
+- **Discoverability vs. clutter.** Once shell tokens land, the named
+  token set risks becoming "the boring subset of `$( … )`." Worth
+  keeping a strong opinion that built-in tokens (`[GIT_BRANCH]`,
+  `[USERNAME]`, etc.) are still the recommended path — they're
+  zero-cost, portable, and pinnable. Shell tokens are the escape
+  hatch.
+
+**Minimal first step.** Land `[USERNAME]` / `[HOSTNAME]` / `[GIT_BRANCH]`
+as built-in tokens first (no opt-in, no async, single match arm each).
+That covers 80% of what people would reach for shell tokens to do, and
+gives us a baseline to compare the perceived complexity of the shell
+escape against.
+
+**Why deferred.** No concrete user pain. The format engine already
+exists, so adding shell-token support later is additive — `Status.fs`
+can grow a `ShellToken` Part variant without touching the existing
+parser/layout. Shipping the MVP without it keeps the surface area
+small enough to actually finish, and the security questions above
+deserve a real answer rather than a "we'll figure it out" handwave.
+Revisit when somebody asks "how do I show my git branch / battery /
+clock" and the answer isn't already a built-in token.
