@@ -18,25 +18,30 @@ let private specs: CliOptionSpec<Opt> list =
         Long = "help"
         Value = NoValue
         Description = "Show this help and exit"
-        Option = Help }
+        Option = Help
+        Completion = NoHint }
       { Short = Some 'f'
         Long = "flag"
         Value = NoValue
         Description = "A boolean flag"
-        Option = Flag }
+        Option = Flag
+        Completion = NoHint }
       { Short = None
         Long = "log"
         Value = RequiredValue "path"
         Description = "Append trace to <path>"
-        Option = Log } ]
+        Option = Log
+        Completion = FilePath } ]
 
 let private app: CliApp<Opt> =
     { Name = "tool"
       Summary = "a test tool"
       Positionals =
         [ { Name = "path"
-            Description = "Workspace directory" } ]
-      Options = specs }
+            Description = "Workspace directory"
+            Completion = FilePath } ]
+      Options = specs
+      Subcommands = [] }
 
 // Small helpers so tests stay readable. `okParsed` asserts Result.Ok and
 // returns the parsed list; `errors` asserts Result.Error and returns the
@@ -302,3 +307,96 @@ let ``formatErrors lists multiple errors`` () =
 
     rendered |> should haveSubstring "flag '--log' requires a value"
     rendered |> should haveSubstring "unknown flag '--whatver'"
+
+// ─────────────────────────────────────────────────────────────────────
+// Subcommand routing
+// ─────────────────────────────────────────────────────────────────────
+
+let private subSpecs: CliSubcommandSpec list =
+    [ { Name = "plugins"
+        Aliases = []
+        HiddenAliases = [ "plugin" ]
+        Summary = "Manage installed plugins" }
+      { Name = "list"
+        Aliases = [ "ls" ]
+        HiddenAliases = []
+        Summary = "List things" } ]
+
+// FsUnit's `should equal` collapses to reference equality for arrays, so
+// route tests pattern-match the tuple and compare the remaining argv as a
+// list (which has structural equality).
+
+[<Fact>]
+let ``route matches canonical name and returns it verbatim with remaining argv`` () =
+    match Cli.route subSpecs [| "plugins"; "install"; "/path" |] with
+    | Some(name, rest) ->
+        name |> should equal "plugins"
+        List.ofArray rest |> should equal [ "install"; "/path" ]
+    | None -> failwith "expected Some, got None"
+
+[<Fact>]
+let ``route matches a visible alias and rewrites to canonical name`` () =
+    // `ls` is the visible alias for `list`; callers always branch on the
+    // canonical name so they don't repeat the alias table.
+    match Cli.route subSpecs [| "ls" |] with
+    | Some(name, rest) ->
+        name |> should equal "list"
+        List.ofArray rest |> should equal ([]: string list)
+    | None -> failwith "expected Some, got None"
+
+[<Fact>]
+let ``route matches a hidden alias and rewrites to canonical name`` () =
+    // The singular form `plugin` is the hidden alias — it must resolve
+    // identically to `plugins` so `fedit plugin install …` works.
+    match Cli.route subSpecs [| "plugin"; "install"; "/p" |] with
+    | Some(name, rest) ->
+        name |> should equal "plugins"
+        List.ofArray rest |> should equal [ "install"; "/p" ]
+    | None -> failwith "expected Some, got None"
+
+[<Fact>]
+let ``route returns None when the first token looks like a flag`` () =
+    Cli.route subSpecs [| "--help" |] |> Option.isNone |> should be True
+
+[<Fact>]
+let ``route returns None for an unknown first token`` () =
+    Cli.route subSpecs [| "wat" |] |> Option.isNone |> should be True
+
+[<Fact>]
+let ``route returns None for empty argv`` () =
+    Cli.route subSpecs [||] |> Option.isNone |> should be True
+
+// ─────────────────────────────────────────────────────────────────────
+// Subcommand rendering in help
+// ─────────────────────────────────────────────────────────────────────
+
+let private appWithSubs: CliApp<Opt> = { app with Subcommands = subSpecs }
+
+[<Fact>]
+let ``formatHelp includes a Commands section when subcommands exist`` () =
+    Cli.formatHelp appWithSubs |> should haveSubstring "Commands:"
+
+[<Fact>]
+let ``formatHelp renders visible aliases next to the canonical name`` () =
+    let help = Cli.formatHelp appWithSubs
+    // `list (ls)` — the visible alias is shown in parens.
+    help |> should haveSubstring "list (ls)"
+
+[<Fact>]
+let ``formatHelp omits hidden aliases entirely`` () =
+    let help = Cli.formatHelp appWithSubs
+    help |> should haveSubstring "plugins"
+    // The singular form is the hidden alias — it must not appear anywhere
+    // in the rendered help. Match on the parenthesized form because the
+    // canonical `plugins` legitimately contains the substring `plugin`.
+    help |> should not' (haveSubstring "(plugin")
+    help |> should not' (haveSubstring "plugin,")
+    help |> should not' (haveSubstring "plugin)")
+
+[<Fact>]
+let ``formatUsage includes [<command>] when subcommands exist`` () =
+    Cli.formatUsage appWithSubs |> should haveSubstring "[<command>]"
+
+[<Fact>]
+let ``formatUsage omits [<command>] when no subcommands are declared`` () =
+    Cli.formatUsage app |> should not' (haveSubstring "[<command>]")

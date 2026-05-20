@@ -570,18 +570,7 @@ module Editor =
             notify (Some(Notification.info body)) model, []
 
         | Plugin("install", arg) ->
-            let source =
-                if
-                    arg.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-                    || arg.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-                    || arg.StartsWith("git@", StringComparison.OrdinalIgnoreCase)
-                then
-                    GitSource arg
-                elif arg.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) then
-                    ZipSource arg
-                else
-                    FolderSource arg
-
+            let source = Plugins.detectSource arg
             notify (Some(Notification.info $"Installing {arg}…")) model, [ InstallPluginFromSource source ]
 
         | Plugin("remove", name) -> notify (Some(Notification.info $"Removing {name}…")) model, [ RemovePluginDir name ]

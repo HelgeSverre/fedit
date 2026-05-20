@@ -287,6 +287,22 @@ module private PluginLoad =
 module Plugins =
     let tryParseManifest (path: string) : Result<PluginManifest, string> = ManifestJson.parse path
 
+    /// Classify an install argument into the right source kind. Used by
+    /// both the in-editor `:plugin install` handler and the CLI
+    /// `fedit plugins install` subcommand so the URL/zip/path detection
+    /// stays in one place.
+    let detectSource (arg: string) : PluginSource =
+        if
+            arg.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || arg.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            || arg.StartsWith("git@", StringComparison.OrdinalIgnoreCase)
+        then
+            GitSource arg
+        elif arg.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) then
+            ZipSource arg
+        else
+            FolderSource arg
+
     let isBuildStale (pluginDir: string) (entryAssembly: string) : bool =
         PluginIO.isBuildStale pluginDir entryAssembly
 

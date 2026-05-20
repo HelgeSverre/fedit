@@ -47,6 +47,8 @@
     <Compile Include="Config.fs" />
     <Compile Include="Runtime.fs" />
     <Compile Include="Cli.fs" />
+    <Compile Include="CliCommands\Plugins.fs" />
+    <Compile Include="CliCommands\Completions.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 </Project>

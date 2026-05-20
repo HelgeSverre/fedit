@@ -7,20 +7,67 @@ type CliValue =
     | NoValue
     | RequiredValue of name: string
 
+/// What the shell should suggest when the user tabs at this position.
+/// `DynamicCommand` shells out to the running binary to enumerate
+/// candidates (e.g. installed plugin names) on every Tab.
+type CliCompletionKind =
+    | NoHint
+    | FilePath
+    | DirectoryPath
+    | DynamicCommand of args: string list
+    | Choices of values: string list
+
 type CliOptionSpec<'Option> =
     { Short: char option
       Long: string
       Value: CliValue
       Description: string
-      Option: 'Option }
+      Option: 'Option
+      Completion: CliCompletionKind }
 
-type CliPositional = { Name: string; Description: string }
+type CliPositional =
+    { Name: string
+      Description: string
+      Completion: CliCompletionKind }
+
+/// One subcommand exposed by a `CliApp`. `Aliases` are rendered in help;
+/// `HiddenAliases` resolve at the router but never appear in help text —
+/// the canonical `Name` is what the caller branches on.
+type CliSubcommandSpec =
+    { Name: string
+      Aliases: string list
+      HiddenAliases: string list
+      Summary: string }
+
+/// Type-erased projection of `CliOptionSpec<'Option>` used by the
+/// completions generator. Built via `Cli.toOptionDescriptor` from the
+/// real spec so the descriptor can't lie about parser config.
+type CliOptionDescriptor =
+    { Short: char option
+      Long: string
+      Value: CliValue
+      Description: string
+      Completion: CliCompletionKind }
+
+/// Recursive description of a command + all its subcommands, with
+/// enough metadata for the completions generator to emit shell scripts.
+/// Each call site builds this tree by projecting from its own
+/// `CliApp<_>` and nesting child descriptors.
+type CliCommandDescriptor =
+    { Name: string
+      Aliases: string list
+      HiddenAliases: string list
+      Summary: string
+      Positionals: CliPositional list
+      Options: CliOptionDescriptor list
+      Subcommands: CliCommandDescriptor list }
 
 type CliApp<'Option> =
     { Name: string
       Summary: string
       Positionals: CliPositional list
-      Options: CliOptionSpec<'Option> list }
+      Options: CliOptionSpec<'Option> list
+      Subcommands: CliSubcommandSpec list }
 
 type CliError =
     | UnknownFlag of token: string * suggestions: string list
@@ -34,15 +81,28 @@ type CliParsed<'Option> =
 module Cli =
 
     // ─────────────────────────────────────────────────────────────────────
+    // Descriptor projection
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Erase the `'Option` type parameter so the spec can sit inside a
+    /// `CliCommandDescriptor` tree alongside specs from other subcommands.
+    let toOptionDescriptor (spec: CliOptionSpec<_>) : CliOptionDescriptor =
+        { Short = spec.Short
+          Long = spec.Long
+          Value = spec.Value
+          Description = spec.Description
+          Completion = spec.Completion }
+
+    // ─────────────────────────────────────────────────────────────────────
     // Spec lookup
     // ─────────────────────────────────────────────────────────────────────
 
     let private trimLong (token: string) = token.Substring 2
 
-    let private tryFindLong specs (longName: string) =
+    let private tryFindLong (specs: CliOptionSpec<'a> list) (longName: string) =
         specs |> List.tryFind (fun spec -> spec.Long = longName)
 
-    let private tryFindShort specs (c: char) =
+    let private tryFindShort (specs: CliOptionSpec<'a> list) (c: char) =
         specs |> List.tryFind (fun spec -> spec.Short = Some c)
 
     // ─────────────────────────────────────────────────────────────────────
@@ -163,6 +223,31 @@ module Cli =
             Result.Error errors
 
     // ─────────────────────────────────────────────────────────────────────
+    // Subcommand routing
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// Match `argv.[0]` against a subcommand spec's `Name`, `Aliases`, or
+    /// `HiddenAliases`. On match, returns the canonical `Name` plus the
+    /// remaining argv (so callers always branch on one string regardless of
+    /// which surface form the user typed). Returns `None` when argv is
+    /// empty, the first token looks like a flag (`-…`), or no spec matches.
+    let route (specs: CliSubcommandSpec list) (argv: string[]) : (string * string[]) option =
+        match Array.tryHead argv with
+        | None -> None
+        | Some token when token.StartsWith("-", StringComparison.Ordinal) -> None
+        | Some token ->
+            specs
+            |> List.tryPick (fun spec ->
+                if
+                    spec.Name = token
+                    || List.contains token spec.Aliases
+                    || List.contains token spec.HiddenAliases
+                then
+                    Some(spec.Name, Array.skip 1 argv)
+                else
+                    None)
+
+    // ─────────────────────────────────────────────────────────────────────
     // Help rendering
     // ─────────────────────────────────────────────────────────────────────
 
@@ -187,6 +272,9 @@ module Cli =
     let formatUsage (app: CliApp<_>) =
         let parts =
             [ yield $"Usage: {app.Name}"
+
+              if not (List.isEmpty app.Subcommands) then
+                  yield "[<command>]"
 
               for positional in app.Positionals do
                   yield $"[<{positional.Name}>]"
@@ -219,6 +307,21 @@ module Cli =
 
             for left, p in List.zip positionalLefts app.Positionals do
                 appendLine $"  {left.PadRight(posWidth)}   {p.Description}"
+
+        if not (List.isEmpty app.Subcommands) then
+            appendLine ""
+            appendLine "Commands:"
+
+            let subLeft (spec: CliSubcommandSpec) =
+                match spec.Aliases with
+                | [] -> spec.Name
+                | aliases -> $"""{spec.Name} ({String.Join(", ", aliases)})"""
+
+            let lefts = app.Subcommands |> List.map subLeft
+            let subWidth = lefts |> List.map String.length |> List.max
+
+            for left, spec in List.zip lefts app.Subcommands do
+                appendLine $"  {left.PadRight(subWidth)}   {spec.Summary}"
 
         if not (List.isEmpty app.Options) then
             appendLine ""
