@@ -15,16 +15,25 @@ module Program =
           HelpRequested: bool
           VersionRequested: bool }
 
-    let private options =
-        [ { Names = [ "--log" ]
-            Value = RequiredValue "path"
-            Option = Log }
-          { Names = [ "--help"; "-h" ]
-            Value = NoValue
-            Option = Help }
-          { Names = [ "--version"; "-V" ]
-            Value = NoValue
-            Option = Version } ]
+    let private app: CliApp<ProgramOption> =
+        { Name = "fedit"
+          Summary = "a small terminal text editor written in F#"
+          Positionals =
+            [ { Name = "path"
+                Description = "Workspace directory or file to open (default: cwd)" } ]
+          Options =
+            [ { Names = [ "-h"; "--help" ]
+                Value = NoValue
+                Description = "Show this help and exit"
+                Option = Help }
+              { Names = [ "-V"; "--version" ]
+                Value = NoValue
+                Description = "Print version and exit"
+                Option = Version }
+              { Names = [ "--log" ]
+                Value = RequiredValue "path"
+                Description = "Append Msg/Effect trace to <path> for debugging"
+                Option = Log } ] }
 
     let private parseArgs (argv: string[]) =
         let apply parsed item =
@@ -37,26 +46,13 @@ module Program =
             | CliParsed.Option(Version, _) -> { parsed with VersionRequested = true }
 
         argv
-        |> Cli.parse options
+        |> Cli.parse app.Options
         |> List.fold
             apply
             { Workspace = None
               LogPath = None
               HelpRequested = false
               VersionRequested = false }
-
-    let private printHelp () =
-        printfn "fedit — a small terminal text editor written in F#"
-        printfn ""
-        printfn "Usage: fedit [<path>] [options]"
-        printfn ""
-        printfn "Arguments:"
-        printfn "  <path>             Workspace directory or file to open (default: cwd)"
-        printfn ""
-        printfn "Options:"
-        printfn "  -h, --help         Show this help and exit"
-        printfn "  -V, --version      Print version and exit"
-        printfn "      --log <path>   Append Msg/Effect trace to <path> for debugging"
 
     let private versionString () =
         let asm = System.Reflection.Assembly.GetExecutingAssembly()
@@ -70,7 +66,7 @@ module Program =
         let parsed = parseArgs argv
 
         if parsed.HelpRequested then
-            printHelp ()
+            printfn "%s" (Cli.formatHelp app)
             0
         elif parsed.VersionRequested then
             printfn "%s" (versionString ())
