@@ -26,8 +26,13 @@ let private repoRoot =
 
     dir.FullName
 
-let private feditProject =
-    Path.Combine(repoRoot, "src", "Fedit", "Fedit.fsproj")
+let private feditProject = Path.Combine(repoRoot, "src", "Fedit", "Fedit.fsproj")
+
+let private _feditDllForReference =
+    // Kept here so a TFM bump is a one-line edit. `dotnet run` doesn't
+    // need this path — included as documentation for anyone running the
+    // binary directly.
+    Path.Combine(repoRoot, "src", "Fedit", "bin", "Debug", "net10.0", "fedit.dll")
 
 let private runFedit (args: string list) =
     let info = ProcessStartInfo("dotnet")

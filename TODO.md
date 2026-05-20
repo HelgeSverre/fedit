@@ -17,7 +17,7 @@ Active work and future ideas. Shipped phases (0–6) live in
 | **Phase 14 — Polish**                             | Shipped | Theme preview is now derived in View; Recent persists at quit; tab width configurable; metadata removed (unused). |
 | **Phase 15 — Borders and file-tree icons**        | Shipped | Sidebar separator is now `│` (U+2502). `icons` config field enables Nerd Font file/folder glyphs (opt-in, default off). |
 | **Phase 16 — Buffer internals refactor**          | Partial | 16.1 `ensureViewport` simplified (single `slideViewport` helper + clamp). 16.2 `Offsets[]` cache and 16.3 delta-undo deferred — each needs PieceTable.substring or undo composition design, both multi-day refactors better done in dedicated sessions. |
-| **Phase 17 — .NET 10 LTS upgrade**                | Pending | Bump SDK to `10.0.x`, TFM to `net10.0`, refresh test packages and `FsCheck.Xunit` out of RC.           |
+| **Phase 17 — .NET 10 LTS upgrade**                | Shipped | `global.json` → 10.0.100; both fsproj → `net10.0`; `FSharp.Core` 10.0.100; `FsCheck.Xunit` 3.0.0 stable; release workflow → `10.0.x`; README + smoke-test helper paths updated. |
 | **Phase 18 — Central Package Management**         | Shipped | `Directory.Packages.props` at repo root; `Fedit.Tests.fsproj` no longer carries versions.              |
 | **Phase 19 — Release automation**                 | Shipped | `release.yml` ships matrix publish (5 RIDs), tar.xz/zip + SHA256 sidecars, GitHub Release, homebrew tap update. |
 | **Phase 20 — CI hardening**                       | Shipped | Dependabot config; NuGet cache step; concurrency cancel; ContinuousIntegrationBuild env + det. props. CodeQL → repo Settings (default scan). |

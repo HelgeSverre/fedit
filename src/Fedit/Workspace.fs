@@ -19,17 +19,19 @@ type WorkspaceEntry =
       IsSelected: bool }
 
 type WorkspaceState =
-    { RootPath: string
-      Tree: FileNode option
-      /// Flat path → node lookup, populated once in `setTree`. Replaces
-      /// the recursive `tryPick` walk in `findNodeByPath`, which used to
-      /// run several times per sidebar keypress.
-      ByPath: Map<string, FileNode>
-      Expanded: Set<string>
-      SelectedPath: string option
-      /// Type-ahead search query (Finder / VS Code Explorer style).
-      /// Empty when no search is in progress.
-      SearchBuffer: string }
+    {
+        RootPath: string
+        Tree: FileNode option
+        /// Flat path → node lookup, populated once in `setTree`. Replaces
+        /// the recursive `tryPick` walk in `findNodeByPath`, which used to
+        /// run several times per sidebar keypress.
+        ByPath: Map<string, FileNode>
+        Expanded: Set<string>
+        SelectedPath: string option
+        /// Type-ahead search query (Finder / VS Code Explorer style).
+        /// Empty when no search is in progress.
+        SearchBuffer: string
+    }
 
 type SidebarAction =
     | SidebarNoOp
@@ -146,8 +148,7 @@ module Workspace =
                 SelectedPath = Some last.Path }
         | None -> workspace
 
-    let private findNodeByPath path workspace =
-        Map.tryFind path workspace.ByPath
+    let private findNodeByPath path workspace = Map.tryFind path workspace.ByPath
 
     let expandSelected workspace =
         match
@@ -239,8 +240,7 @@ module Workspace =
                 if currentIsMatch && workspace.SearchBuffer = newBuffer then
                     // Same query re-typed — cycle to next matching entry.
                     let currentIdx =
-                        matched
-                        |> List.findIndex (fun m -> Some m.Path = workspace.SelectedPath)
+                        matched |> List.findIndex (fun m -> Some m.Path = workspace.SelectedPath)
 
                     matched[(currentIdx + 1) % matched.Length]
                 else
@@ -270,5 +270,6 @@ module Workspace =
                     { workspace with
                         SearchBuffer = shorter
                         SelectedPath = Some first.Path }
-                | [] -> { workspace with SearchBuffer = shorter }
-
+                | [] ->
+                    { workspace with
+                        SearchBuffer = shorter }

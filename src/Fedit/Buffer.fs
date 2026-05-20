@@ -516,9 +516,7 @@ module Buffer =
         let clamp lo hi value = value |> max lo |> min hi
 
         { buffer with
-            ViewportTop =
-                slideViewport buffer.Cursor.Line buffer.ViewportTop safeHeight
-                |> clamp 0 maxTop
+            ViewportTop = slideViewport buffer.Cursor.Line buffer.ViewportTop safeHeight |> clamp 0 maxTop
             ViewportLeft =
                 slideViewport buffer.Cursor.Column buffer.ViewportLeft safeWidth
                 |> clamp 0 maxLeft }

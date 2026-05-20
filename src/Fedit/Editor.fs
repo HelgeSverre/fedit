@@ -75,8 +75,7 @@ module Editor =
             if String.IsNullOrEmpty needle then
                 true
             else
-                let fileName =
-                    Path.GetFileName path |> Option.ofObj |> Option.defaultValue path
+                let fileName = Path.GetFileName path |> Option.ofObj |> Option.defaultValue path
 
                 fileName.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0
                 || path.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0
@@ -90,14 +89,12 @@ module Editor =
                     path)
 
         let recentFiltered =
-            List.zip recent recentRelative
-            |> List.filter (fun (_, rel) -> matches rel)
+            List.zip recent recentRelative |> List.filter (fun (_, rel) -> matches rel)
 
         let workspaceFiltered =
             let recentSet = System.Collections.Generic.HashSet(recentRelative)
 
-            files
-            |> List.filter (fun rel -> not (recentSet.Contains rel) && matches rel)
+            files |> List.filter (fun rel -> not (recentSet.Contains rel) && matches rel)
 
         let recentItems =
             recentFiltered
@@ -475,7 +472,10 @@ module Editor =
 
     let private runSidebar key model =
         match key with
-        | Character c -> { model with Workspace = Workspace.appendSearch c model.Workspace }, []
+        | Character c ->
+            { model with
+                Workspace = Workspace.appendSearch c model.Workspace },
+            []
         | Backspace when model.Workspace.SearchBuffer.Length > 0 ->
             { model with
                 Workspace = Workspace.backspaceSearch model.Workspace },
@@ -490,13 +490,11 @@ module Editor =
             []
         | PageUp ->
             { model with
-                Workspace =
-                    Workspace.moveSelection -model.Config.TreePageJump (withClearedSearch model.Workspace) },
+                Workspace = Workspace.moveSelection -model.Config.TreePageJump (withClearedSearch model.Workspace) },
             []
         | PageDown ->
             { model with
-                Workspace =
-                    Workspace.moveSelection model.Config.TreePageJump (withClearedSearch model.Workspace) },
+                Workspace = Workspace.moveSelection model.Config.TreePageJump (withClearedSearch model.Workspace) },
             []
         | Home ->
             { model with
@@ -520,7 +518,8 @@ module Editor =
                 Workspace = Workspace.expandSelected (withClearedSearch model.Workspace) },
             []
         | Enter ->
-            let workspace, action = Workspace.activateSelected (withClearedSearch model.Workspace)
+            let workspace, action =
+                Workspace.activateSelected (withClearedSearch model.Workspace)
 
             match action with
             | SidebarOpenFile path -> { model with Workspace = workspace }, [ LoadFile path ]
@@ -597,7 +596,9 @@ module Editor =
             let nextIndex = ((prompt.SelectedCompletion + delta) % count + count) % count
 
             { model with
-                Prompt = { prompt with SelectedCompletion = nextIndex } }
+                Prompt =
+                    { prompt with
+                        SelectedCompletion = nextIndex } }
 
     let private applyHistory delta model =
         let prompt = model.Prompt
@@ -615,7 +616,9 @@ module Editor =
             replacePromptText
                 prompt.History[index]
                 { model with
-                    Prompt = { prompt with HistoryIndex = Some index } }
+                    Prompt =
+                        { prompt with
+                            HistoryIndex = Some index } }
 
     let private runPrompt key model =
         let prompt = model.Prompt
@@ -624,7 +627,9 @@ module Editor =
         | Escape -> closePrompt model, []
         | Left ->
             { model with
-                Prompt = { prompt with Cursor = max 0 (prompt.Cursor - 1) } },
+                Prompt =
+                    { prompt with
+                        Cursor = max 0 (prompt.Cursor - 1) } },
             []
         | Right ->
             { model with
@@ -632,10 +637,15 @@ module Editor =
                     { prompt with
                         Cursor = min prompt.Text.Length (prompt.Cursor + 1) } },
             []
-        | Home -> { model with Prompt = { prompt with Cursor = 0 } }, []
+        | Home ->
+            { model with
+                Prompt = { prompt with Cursor = 0 } },
+            []
         | End ->
             { model with
-                Prompt = { prompt with Cursor = prompt.Text.Length } },
+                Prompt =
+                    { prompt with
+                        Cursor = prompt.Text.Length } },
             []
         | Backspace -> deletePromptBackward model
         | Delete -> deletePromptForward model
@@ -794,6 +804,7 @@ module Editor =
             // Drop stale results: prompt may have closed, mode changed, query
             // moved on, or the active buffer switched while the effect ran.
             let prompt = model.Prompt
+
             let isStale =
                 not prompt.Active
                 || prompt.Mode <> Search
@@ -807,7 +818,9 @@ module Editor =
 
                 let withPreview =
                     { model with
-                        Prompt = { prompt with SearchPreview = Some preview } }
+                        Prompt =
+                            { prompt with
+                                SearchPreview = Some preview } }
 
                 match matches with
                 | [] -> withPreview, []

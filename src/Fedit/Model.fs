@@ -18,9 +18,7 @@ type PromptMode =
     /// Text starts with '@' — buffer picker.
     | Buffers
 
-type SearchPreview =
-    { Matches: int list
-      Current: int }
+type SearchPreview = { Matches: int list; Current: int }
 
 type PromptState =
     { Active: bool

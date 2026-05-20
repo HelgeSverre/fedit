@@ -15,7 +15,8 @@ module ConfigIO =
     let directory () =
         Path.Combine(Environment.GetFolderPath Environment.SpecialFolder.UserProfile, ".config", "fedit")
 
-    let path () = Path.Combine(directory (), "config.json")
+    let path () =
+        Path.Combine(directory (), "config.json")
 
     let themesDirectory () = Path.Combine(directory (), "themes")
 
@@ -180,8 +181,7 @@ module ConfigIO =
                                   SelectedBg = seb
                                   CurrentLine = cl }
                                 :: themes
-                        | _ ->
-                            errors <- $"theme '{Path.GetFileName file}': missing required color fields" :: errors
+                        | _ -> errors <- $"theme '{Path.GetFileName file}': missing required color fields" :: errors
                     with ex ->
                         errors <- $"theme '{Path.GetFileName file}': {ex.Message}" :: errors
 

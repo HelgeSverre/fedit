@@ -7,7 +7,7 @@
 **Edit files in the terminal. Small. Written in F#.**
 
 [![CI](https://github.com/HelgeSverre/fedit/actions/workflows/ci.yml/badge.svg)](https://github.com/HelgeSverre/fedit/actions/workflows/ci.yml)
-[![.NET SDK](https://img.shields.io/badge/dotnet-9%2B-blue.svg)](https://dotnet.microsoft.com/download)
+[![.NET SDK](https://img.shields.io/badge/dotnet-10%2B-blue.svg)](https://dotnet.microsoft.com/download)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 ![Project Type](https://img.shields.io/badge/language-F%23-blue.svg)
 
@@ -31,7 +31,7 @@ Download `fedit-x86_64-pc-windows-msvc.zip` from [the latest release](https://gi
 
 ### From source
 
-Requires .NET SDK 9 (pinned via `global.json` to `9.0.312` with `rollForward: latestFeature`, so any `9.0.x` patch ≥ 312 works) and [`just`](https://github.com/casey/just). The repo includes a local `.dotnet` SDK directory — the `fedit` wrapper script and `justfile` recipes prepend it to `PATH`, so a fresh clone has everything it needs.
+Requires .NET SDK 10 (pinned via `global.json` to `10.0.100` with `rollForward: latestFeature`, so any `10.0.x` patch ≥ 100 works) and [`just`](https://github.com/casey/just). The repo includes a local `.dotnet` SDK directory — the `fedit` wrapper script and `justfile` recipes prepend it to `PATH`, so a fresh clone has everything it needs.
 
 ```shell
 git clone https://github.com/HelgeSverre/fedit

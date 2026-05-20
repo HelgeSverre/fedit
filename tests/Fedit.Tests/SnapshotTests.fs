@@ -15,8 +15,7 @@ open Xunit
 let private size width height = { Width = width; Height = height }
 
 let private baseModel terminal =
-    let model, _ =
-        Editor.init "/root" terminal (Config.defaults Themes.defaultTheme) []
+    let model, _ = Editor.init "/root" terminal (Config.defaults Themes.defaultTheme) []
 
     model
 
@@ -70,7 +69,9 @@ let ``Ctrl+B with hidden sidebar shows and focuses it`` () =
 
     let hidden =
         { base' with
-            Panels = { base'.Panels with SidebarVisible = false } }
+            Panels =
+                { base'.Panels with
+                    SidebarVisible = false } }
 
     let next, _ = Editor.update (KeyPressed(Ctrl 'b')) hidden
     let actual = renderOf next
