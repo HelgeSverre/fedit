@@ -6,27 +6,66 @@ import "../styles/global.css";
 interface Props {
   title?: string;
   description?: string;
+  /** Path to an OG image under /public, e.g. "/og/commands.png". Defaults to /og/default.png. */
+  image?: string;
+  /** Override <title> entirely (otherwise we append " — fedit"). Use for the home page. */
+  titleOverride?: boolean;
 }
+
 const {
-  title = "fedit — edit files in the terminal",
+  title = "fedit",
   description = "A small terminal text editor written in F#. Workspace tree, multi-buffer, piece-table buffers, find, command palette, system clipboard, seven color themes.",
+  image = "/og/default.png",
+  titleOverride = false,
 } = Astro.props;
+
+const fullTitle = titleOverride ? title : `${title} — fedit`;
+const canonical = new URL(Astro.url.pathname, Astro.site).toString();
+const ogImage = new URL(image, Astro.site).toString();
 ---
 
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>{title}</title>
+    <title>{fullTitle}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
-    <meta name="theme-color" content="#00B86B" />
+    <meta name="theme-color" content="#0B0B0D" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#FAFAFA" media="(prefers-color-scheme: light)" />
+    <link rel="canonical" href={canonical} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <meta property="og:title" content={title} />
+    <link
+      rel="alternate"
+      type="application/rss+xml"
+      title="fedit releases"
+      href="https://github.com/HelgeSverre/fedit/releases.atom"
+    />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+
+    <!-- Open Graph -->
+    <meta property="og:site_name" content="fedit" />
+    <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={fullTitle} />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
     <meta name="twitter:creator" content="@HelgeSverre" />
+    <meta name="twitter:site" content="@HelgeSverre" />
+
+    <!-- robots -->
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="generator" content={Astro.generator} />
   </head>
   <body>
     <Header />

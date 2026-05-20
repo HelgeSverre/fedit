@@ -1,10 +1,7 @@
 ---
 import Site from "../layouts/Site.astro";
 import Symbol from "../components/Symbol.astro";
-import TuiFrame from "../components/TuiFrame.astro";
-import ThemeCard from "../components/ThemeCard.astro";
 import CaretRise from "../components/mascots/CaretRise.astro";
-import { themes } from "../data/themes";
 
 const features = [
   {
@@ -35,9 +32,37 @@ const features = [
   },
   { name: "UTF-8", desc: "reads any line-ending style, preserves it on save, no BOM written" },
 ];
+
+const cards = [
+  {
+    href: "/commands",
+    title: "commands",
+    blurb: "Every keybinding and command bar verb in one reference.",
+  },
+  {
+    href: "/themes",
+    title: "themes",
+    blurb: "Seven accent palettes. Switch live from the command bar.",
+  },
+  {
+    href: "/how",
+    title: "how it works",
+    blurb: "Pure-data MVU loop, piece-table buffers, effects on the thread pool.",
+  },
+  {
+    href: "/brand",
+    title: "brand",
+    blurb: "Caret, Departure Mono, phosphor green. The voice rules and the do-not list.",
+  },
+];
 ---
 
-<Site>
+<Site
+  title="fedit — edit files in the terminal"
+  description="A small terminal text editor written in F#. Workspace tree, multi-buffer, piece-table buffers, find, command palette, system clipboard, seven color themes."
+  image="/og/index.png"
+  titleOverride
+>
   <!-- ============================================================ -->
   <!-- HERO                                                         -->
   <!-- ============================================================ -->
@@ -152,252 +177,24 @@ const features = [
   </section>
 
   <!-- ============================================================ -->
-  <!-- COMMANDS                                                     -->
+  <!-- READ NEXT                                                    -->
   <!-- ============================================================ -->
-  <section id="commands" class="section section--alt">
+  <section class="section section--alt">
     <div class="container">
-      <div class="section__head"><h2>commands</h2></div>
-
-      <h3>global</h3>
-      <dl class="dl-grid">
-        <dt><kbd>Ctrl+P</kbd></dt>
-        <dd>open the command bar</dd>
-        <dt><kbd>Ctrl+F</kbd></dt>
-        <dd>find in the active buffer</dd>
-        <dt><kbd>Ctrl+B</kbd></dt>
-        <dd>focus the file tree</dd>
-        <dt><kbd>Ctrl+E</kbd></dt>
-        <dd>focus the editor</dd>
-        <dt><kbd>Ctrl+S</kbd></dt>
-        <dd>save the active buffer</dd>
-        <dt><kbd>Ctrl+R</kbd></dt>
-        <dd>reload the workspace tree</dd>
-        <dt><kbd>Ctrl+Q</kbd></dt>
-        <dd>quit (prompts once if buffers are dirty; press again to discard)</dd>
-        <dt><kbd>Ctrl+Z</kbd></dt>
-        <dd>undo</dd>
-        <dt><kbd>Ctrl+Y</kbd></dt>
-        <dd>redo</dd>
-      </dl>
-
-      <h3>editor</h3>
-      <dl class="dl-grid">
-        <dt><kbd>← → ↑ ↓</kbd></dt>
-        <dd>move the cursor</dd>
-        <dt><kbd>Home</kbd> · <kbd>End</kbd></dt>
-        <dd>jump to line start / end</dd>
-        <dt><kbd>PageUp</kbd> · <kbd>PageDown</kbd></dt>
-        <dd>scroll a screen at a time</dd>
-        <dt><kbd>Alt+←</kbd> · <kbd>Alt+→</kbd></dt>
-        <dd>move by word</dd>
-        <dt><kbd>Ctrl+Backspace</kbd> · <kbd>Ctrl+Delete</kbd></dt>
-        <dd>delete the previous / next word</dd>
-        <dt><kbd>Shift+←/→/↑/↓</kbd> · <kbd>Shift+Home</kbd> · <kbd>Shift+End</kbd></dt>
-        <dd>extend the selection</dd>
-        <dt><kbd>Ctrl+A</kbd></dt>
-        <dd>select the whole buffer</dd>
-        <dt><kbd>Ctrl+C</kbd> · <kbd>Ctrl+X</kbd></dt>
-        <dd>copy / cut to system clipboard</dd>
-        <dt><kbd>Ctrl+V</kbd></dt>
-        <dd>paste from system clipboard</dd>
-        <dt><kbd>Tab</kbd> · <kbd>Shift+Tab</kbd></dt>
-        <dd>indent / unindent the current line</dd>
-        <dt><kbd>Enter</kbd> · <kbd>Backspace</kbd> · <kbd>Delete</kbd></dt>
-        <dd>edit text; with a selection, replace it</dd>
-      </dl>
-
-      <h3>find <span class="muted">(after Ctrl+F)</span></h3>
-      <dl class="dl-grid">
-        <dt>type</dt>
-        <dd>extend the query; matches highlight live and the cursor jumps to the first hit</dd>
-        <dt><kbd>Enter</kbd> · <kbd>↓</kbd></dt>
-        <dd>advance to next match</dd>
-        <dt><kbd>↑</kbd></dt>
-        <dd>previous match</dd>
-        <dt><kbd>Backspace</kbd></dt>
-        <dd>shorten query; on empty query, close the prompt</dd>
-        <dt><kbd>Escape</kbd></dt>
-        <dd>close the prompt and clear the highlights</dd>
-      </dl>
-
-      <h3>file tree</h3>
-      <dl class="dl-grid">
-        <dt><kbd>↑</kbd> · <kbd>↓</kbd></dt>
-        <dd>move selection</dd>
-        <dt><kbd>PageUp</kbd> · <kbd>PageDown</kbd></dt>
-        <dd>jump ten entries at a time</dd>
-        <dt><kbd>Home</kbd> · <kbd>End</kbd></dt>
-        <dd>first / last visible entry</dd>
-        <dt><kbd>←</kbd></dt>
-        <dd>collapse the selected directory or move to its parent</dd>
-        <dt><kbd>→</kbd></dt>
-        <dd>expand the selected directory</dd>
-        <dt><kbd>Enter</kbd></dt>
-        <dd>open a file or toggle a directory</dd>
-        <dt><kbd>Escape</kbd></dt>
-        <dd>return focus to the editor</dd>
-      </dl>
-
-      <h3>command bar</h3>
-      <dl class="dl-grid">
-        <dt>type</dt>
-        <dd>filter; the dock panel shows matching commands or workspace paths</dd>
-        <dt><kbd>Tab</kbd> · <kbd>Shift+Tab</kbd></dt>
-        <dd>cycle completions</dd>
-        <dt><kbd>↑</kbd> · <kbd>↓</kbd></dt>
-        <dd>walk through recent command history (last 20)</dd>
-        <dt><kbd>Enter</kbd></dt>
-        <dd>run the parsed command or apply the highlighted completion</dd>
-        <dt><kbd>Escape</kbd></dt>
-        <dd>close the command bar without running anything</dd>
-      </dl>
-
-      <h3>command bar commands</h3>
-      <dl class="dl-grid cmd">
-        <dt><code>open &lt;path&gt;</code></dt>
-        <dd>
-          open a file from the current workspace; activates the existing buffer if already open
-        </dd>
-
-        <dt><code>write</code></dt>
-        <dd>save the active buffer</dd>
-
-        <dt><code>writeas &lt;path&gt;</code></dt>
-        <dd>save the active buffer to another path</dd>
-
-        <dt><code>quit</code></dt>
-        <dd>exit the editor</dd>
-
-        <dt><code>sidebar</code></dt>
-        <dd>toggle the sidebar</dd>
-
-        <dt><code>tree</code> · <code>editor</code></dt>
-        <dd>focus the file tree / focus the editor</dd>
-
-        <dt><code>reload</code></dt>
-        <dd>reload the workspace tree</dd>
-
-        <dt><code>next</code> · <code>prev</code></dt>
-        <dd>activate the next / previous open buffer</dd>
-
-        <dt><code>buffers &lt;id-or-name&gt;</code></dt>
-        <dd>switch to an open buffer by numeric id or name</dd>
-
-        <dt><code>theme &lt;name&gt;</code></dt>
-        <dd>
-          switch the accent color — tab through <code>green</code>, <code>blue</code>, <code
-            >orange</code
-          >, <code>cyan</code>, <code>teal</code>, <code>yellow</code>, <code>red</code>;
-          live-previews each as you cycle
-        </dd>
-
-        <dt><code>recent &lt;path&gt;</code></dt>
-        <dd>pick a recently opened file; tab cycles through the last 20</dd>
-
-        <dt><code>help</code></dt>
-        <dd>show command help in the dock panel</dd>
-      </dl>
-    </div>
-  </section>
-
-  <!-- ============================================================ -->
-  <!-- THEMES                                                       -->
-  <!-- ============================================================ -->
-  <section id="themes" class="section">
-    <div class="container">
-      <div class="section__head"><h2>themes</h2></div>
-      <p class="section__lede">
-        Seven accent palettes. The dock title, status bar, selection highlight, and current-line
-        gutter swap together; the grayscale chrome stays constant. Switch with <code
-          >theme &lt;name&gt;</code
-        > in the command bar.
-      </p>
-      <div class="theme-grid">
-        {themes.map((theme) => <ThemeCard theme={theme} />)}
+      <div class="section__head"><h2>read next</h2></div>
+      <div class="card-grid">
+        {
+          cards.map((c) => (
+            <a class="card" href={c.href}>
+              <h3>{c.title}</h3>
+              <p>{c.blurb}</p>
+              <span class="card-arrow" aria-hidden="true">
+                →
+              </span>
+            </a>
+          ))
+        }
       </div>
-    </div>
-  </section>
-
-  <!-- ============================================================ -->
-  <!-- ARCHITECTURE                                                 -->
-  <!-- ============================================================ -->
-  <section id="architecture" class="section section--alt">
-    <div class="container">
-      <div class="section__head"><h2>how it works</h2></div>
-
-      <p class="arch-p">
-        fedit is built as an Elm-style update loop. The <code>Model</code> is pure data. <code
-          >Editor.update</code
-        > is a pure function that takes a <code>Msg</code> and returns a new model plus a list of effects.
-        <code>runEffect</code> is the only impure code path — it does file I/O and folds its result back
-        into the loop as another <code>Msg</code>. <code>Layout.render</code> projects the model to a
-        <code>Screen</code>, and <code>Renderer.render</code> writes that grid as ANSI escapes.
-      </p>
-
-      <TuiFrame label="data flow">
-        <Fragment
-          set:html={`                        +----------------------+
-                        |        Model         |
-                        |  workspace . tree    |
-                        |  buffers + cursors   |
-                        |  focus, theme,       |
-                        |  panels, terminal    |
-                        +-----+----------+-----+
-                              |          |
-              read by         |          |     read by
-        +---------------------+          +---------------------+
-        |                                                      |
-        v                                                      v
-+-----------------+                                  +-------------------+
-|  <span class="accent">Editor.update</span>  |                                  |   <span class="accent">Layout.render</span>   |
-|     (pure)      |                                  |      (pure)       |
-+--------+--------+                                  +---------+---------+
-         |                                                     |
-   (model', effects)                                        Screen
-         |                                                     |
-         v                                                     v
-+-----------------+                                  +-------------------+
-|    runEffect    |                                  |  <span class="accent">Renderer.render</span>  |
-|    (impure)     |                                  |   ANSI escapes    |
-|  ScanWorkspace  |                                  +---------+---------+
-|  LoadFile       |                                            |
-|  SaveBuffer     |                                            v
-+--------+--------+                                     terminal output
-         |
-         v
-        Msg  ----------> dispatch &lt;---------- KeyPressed / Resize
-                            ^                       (main loop)
-                            |
-                       feeds back`}
-        />
-      </TuiFrame>
-
-      <h3>buffer storage</h3>
-      <p class="arch-p">
-        Text buffers use a piece table. The original file contents stay in one string, inserted text
-        is appended to another string, and the visible document is represented as a list of pieces.
-        Inserts and deletes stay local to the piece list while preserving enough state for undo and
-        redo snapshots.
-      </p>
-
-      <h3>files and encoding</h3>
-      <p class="arch-p">
-        Files are read as UTF-8. The line ending of the loaded file (<code>LF</code> or <code
-          >CRLF</code
-        >) is detected and reused on save; the buffer always works in <code>\n</code> form internally.
-        Saving writes UTF-8 without a byte-order mark.
-      </p>
-
-      <h3>concurrency</h3>
-      <p class="arch-p">
-        The workspace scan, file open, file save, clipboard, and config writes all run on the thread
-        pool via <code>Task.Run</code>. The main loop drains a <code
-          >ConcurrentQueue&lt;Msg&gt;</code
-        > of completed effects each tick, so input never blocks behind I/O. <code
-          >ScanWorkspace</code
-        > and <code>LoadFile</code> each carry a single <code>CancellationTokenSource</code> so a second
-        invocation drops the previous result.
-      </p>
     </div>
   </section>
 </Site>
@@ -460,7 +257,7 @@ const features = [
   }
   @media (max-width: 800px) {
     .hero-mascot {
-      order: -1; /* mascot above text on mobile keeps brand-first reading */
+      order: -1;
       margin-bottom: var(--space-2);
     }
   }
@@ -528,7 +325,7 @@ const features = [
     color: var(--fg);
     text-transform: none;
     letter-spacing: -0.01em;
-    margin-top: 0; /* override global h3 margin in this borderless-card context */
+    margin-top: 0;
   }
   .feature p {
     color: var(--fg-muted);
@@ -537,38 +334,54 @@ const features = [
     line-height: 1.55;
   }
 
-  /* ----- prose helpers ----- */
-  .muted-p {
-    color: var(--fg-muted);
-    max-width: 65ch;
-    margin-top: var(--space-2);
-  }
-  .arch-p {
-    color: var(--fg);
-    max-width: 75ch;
-  }
-  .arch-p code {
-    color: var(--fg);
-  }
-  .muted {
-    color: var(--fg-muted);
-    font-weight: 400;
-  }
   .block {
     max-width: 720px;
   }
 
-  /* ----- themes ----- */
-  .theme-grid {
+  /* ----- read next cards ----- */
+  .card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: var(--space-2);
   }
-
-  /* command list — accent prefix on each item */
-  .dl-grid.cmd dt::before {
-    content: "›";
+  .card {
+    position: relative;
+    display: block;
+    padding: var(--space-3);
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    text-decoration: none;
+    color: var(--fg);
+    transition:
+      border-color var(--t-base) var(--ease),
+      transform var(--t-base) var(--ease);
+  }
+  .card:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .card h3 {
+    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-size: 18px;
+    margin: 0 0 var(--space-1);
+    color: var(--fg);
+  }
+  .card p {
+    color: var(--fg-muted);
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 0;
+    max-width: 40ch;
+  }
+  .card-arrow {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
     color: var(--accent);
-    margin-right: 6px;
+    transition: transform var(--t-base) var(--ease);
+  }
+  .card:hover .card-arrow {
+    transform: translateX(2px);
   }
 </style>

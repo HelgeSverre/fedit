@@ -1,0 +1,43 @@
+---
+import Site from "../layouts/Site.astro";
+import ThemeCard from "../components/ThemeCard.astro";
+import { themes } from "../data/themes";
+---
+
+<Site
+  title="themes"
+  description="Seven accent palettes ship with fedit. Switch live from the command bar. The dock title, status bar, selection highlight, and current-line gutter swap together; chrome stays constant."
+  image="/og/themes.png"
+>
+  <section class="section">
+    <div class="container">
+      <div class="section__head">
+        <h1>themes</h1>
+        <p class="section__lede">
+          Seven accent palettes. The dock title, status bar, selection highlight, and current-line
+          gutter swap together; the grayscale chrome stays constant. Switch with <code
+            >theme &lt;name&gt;</code
+          > in the command bar — every theme live-previews as you cycle through completions.
+        </p>
+      </div>
+      <div class="theme-grid">
+        {themes.map((theme) => <ThemeCard theme={theme} />)}
+      </div>
+      <p class="muted-p">
+        Themes ship as JSON in <code>brand/themes/*.json</code> and the F# implementation lives in
+        <code>src/Fedit/Themes.fs</code>. The user's choice persists to <code
+          >~/.config/fedit/config.json</code
+        >. See <a href="/brand">brand</a> for the design constraints (no purple, no magenta).
+      </p>
+    </div>
+  </section>
+</Site>
+
+<style>
+  .theme-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+  }
+</style>

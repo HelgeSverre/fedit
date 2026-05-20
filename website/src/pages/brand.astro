@@ -68,8 +68,9 @@ const dontList = [
 ---
 
 <Site
-  title="fedit — brand"
+  title="brand"
   description="The fedit brand: caret mark, Departure Mono + JetBrains Mono, phosphor green accent, seven editor themes, voice rules."
+  image="/og/brand.png"
 >
   <!-- ============================================================ -->
   <!-- HERO                                                         -->
@@ -92,12 +93,14 @@ const dontList = [
   <!-- ============================================================ -->
   <section class="section section--alt">
     <div class="container">
-      <div class="section__head"><h2>the mark</h2></div>
-      <p class="section__lede">
-        The caret. Echoes the editor's cursor, the upward chevron in the status bar, the visual
-        rhythm of the wordmark. Renders cleanly at 16px, collapses to a single ANSI glyph for
-        terminal banners.
-      </p>
+      <div class="section__head">
+        <h2>the mark</h2>
+        <p class="section__lede">
+          The caret. Echoes the editor's cursor, the upward chevron in the status bar, the visual
+          rhythm of the wordmark. Renders cleanly at 16px, collapses to a single ANSI glyph for
+          terminal banners.
+        </p>
+      </div>
 
       <div class="mark-row">
         <div class="mark-cell">
@@ -141,12 +144,14 @@ const dontList = [
   <!-- ============================================================ -->
   <section class="section">
     <div class="container">
-      <div class="section__head"><h2>color</h2></div>
-      <p class="section__lede">
-        11-step cool-gray neutral scale + 5-step phosphor-green accent scale. Contrast warning:
-        green fails 4.5:1 against white, so text on accent surfaces uses neutral-900, not
-        neutral-50.
-      </p>
+      <div class="section__head">
+        <h2>color</h2>
+        <p class="section__lede">
+          11-step cool-gray neutral scale + 5-step phosphor-green accent scale. Contrast warning:
+          green fails 4.5:1 against white, so text on accent surfaces uses neutral-900, not
+          neutral-50.
+        </p>
+      </div>
 
       <h3>neutrals · cool gray, hue 250</h3>
       <div class="swatch-row">
@@ -210,11 +215,13 @@ const dontList = [
   <!-- ============================================================ -->
   <section class="section section--alt">
     <div class="container">
-      <div class="section__head"><h2>typography</h2></div>
-      <p class="section__lede">
-        Two fonts, one job each. Departure Mono carries the brand at heading sizes. JetBrains Mono
-        carries body, code, and CLI fallback.
-      </p>
+      <div class="section__head">
+        <h2>typography</h2>
+        <p class="section__lede">
+          Two fonts, one job each. Departure Mono carries the brand at heading sizes. JetBrains Mono
+          carries body, code, and CLI fallback.
+        </p>
+      </div>
 
       <div class="type-card">
         <header>
@@ -260,11 +267,13 @@ const dontList = [
   <!-- ============================================================ -->
   <section class="section">
     <div class="container">
-      <div class="section__head"><h2>voice</h2></div>
-      <p class="section__lede">
-        Five rules. They apply to README, landing page, CLI help, error messages, release notes, and
-        commit messages.
-      </p>
+      <div class="section__head">
+        <h2>voice</h2>
+        <p class="section__lede">
+          Five rules. They apply to README, landing page, CLI help, error messages, release notes,
+          and commit messages.
+        </p>
+      </div>
 
       <ol class="voice-list">
         {
@@ -294,11 +303,13 @@ const dontList = [
   <!-- ============================================================ -->
   <section class="section section--alt">
     <div class="container">
-      <div class="section__head"><h2>don't</h2></div>
-      <p class="section__lede">
-        Refusing the AI median is the brand's identity. The 2026 baseline of vibe-coded UI is what
-        this list rejects on sight.
-      </p>
+      <div class="section__head">
+        <h2>don't</h2>
+        <p class="section__lede">
+          Refusing the AI median is the brand's identity. The 2026 baseline of vibe-coded UI is what
+          this list rejects on sight.
+        </p>
+      </div>
 
       <ul class="dont-list">
         {
@@ -320,13 +331,16 @@ const dontList = [
   <!-- ============================================================ -->
   <section class="section">
     <div class="container">
-      <div class="section__head"><h2>themes</h2></div>
-      <p class="section__lede">
-        Seven user-selectable accent palettes. Each shares the same neutral chrome; only five slots
-        swap (dock title, status bar, selection highlight, current-line gutter, cursor). Spec in <code
-          >brand/themes/*.json</code
-        >, implementation in <code>src/Fedit/Themes.fs</code>.
-      </p>
+      <div class="section__head">
+        <h2>themes</h2>
+        <p class="section__lede">
+          Seven user-selectable accent palettes. Each shares the same neutral chrome; only five
+          slots swap (dock title, status bar, selection highlight, current-line gutter, cursor).
+          Spec in <code>brand/themes/*.json</code>, implementation in <code
+            >src/Fedit/Themes.fs</code
+          >.
+        </p>
+      </div>
       <div class="theme-grid">
         {themes.map((theme) => <ThemeCard theme={theme} />)}
       </div>

@@ -16,10 +16,13 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.0",
+    "@astrojs/sitemap": "^3.7.2",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@proj-airi/font-departure-mono": "^0.10.0",
+    "@resvg/resvg-js": "^2.6.2",
     "prettier": "^3.3.0",
     "prettier-plugin-astro": "^0.14.0",
+    "satori": "^0.26.0",
     "typescript": "^5.6.0"
   }
 }

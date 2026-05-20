@@ -20,8 +20,13 @@ dev: deps-if-needed
 
 # Build the static site to dist/
 [group('build')]
-build: deps-if-needed
+build: deps-if-needed og
     bun run build
+
+# Generate Open Graph cards (1200x630 PNGs in public/og/)
+[group('build')]
+og: deps-if-needed
+    bun scripts/gen-og.mjs
 
 # Preview the production build locally
 [group('build')]

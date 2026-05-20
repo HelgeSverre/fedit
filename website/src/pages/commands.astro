@@ -1,0 +1,161 @@
+---
+import Site from "../layouts/Site.astro";
+---
+
+<Site
+  title="commands"
+  description="fedit keybindings and command bar reference: global shortcuts, editor motions, find, file tree navigation, and every command you can run after Ctrl+P."
+  image="/og/commands.png"
+>
+  <section class="section">
+    <div class="container">
+      <div class="section__head">
+        <h1>commands</h1>
+        <p class="section__lede">
+          Every keybinding and command in fedit. Modifier symbols: <kbd>Ctrl</kbd> is <kbd>⌘</kbd> on
+          macOS where applicable; <kbd>Alt</kbd> is <kbd>Option</kbd>.
+        </p>
+      </div>
+
+      <h2>global</h2>
+      <dl class="dl-grid">
+        <dt><kbd>Ctrl+P</kbd></dt>
+        <dd>open the command bar</dd>
+        <dt><kbd>Ctrl+F</kbd></dt>
+        <dd>find in the active buffer</dd>
+        <dt><kbd>Ctrl+B</kbd></dt>
+        <dd>focus the file tree</dd>
+        <dt><kbd>Ctrl+E</kbd></dt>
+        <dd>focus the editor</dd>
+        <dt><kbd>Ctrl+S</kbd></dt>
+        <dd>save the active buffer</dd>
+        <dt><kbd>Ctrl+R</kbd></dt>
+        <dd>reload the workspace tree</dd>
+        <dt><kbd>Ctrl+Q</kbd></dt>
+        <dd>quit (prompts once if buffers are dirty; press again to discard)</dd>
+        <dt><kbd>Ctrl+Z</kbd></dt>
+        <dd>undo</dd>
+        <dt><kbd>Ctrl+Y</kbd></dt>
+        <dd>redo</dd>
+      </dl>
+
+      <h2>editor</h2>
+      <dl class="dl-grid">
+        <dt><kbd>← → ↑ ↓</kbd></dt>
+        <dd>move the cursor</dd>
+        <dt><kbd>Home</kbd> · <kbd>End</kbd></dt>
+        <dd>jump to line start / end</dd>
+        <dt><kbd>PageUp</kbd> · <kbd>PageDown</kbd></dt>
+        <dd>scroll a screen at a time</dd>
+        <dt><kbd>Alt+←</kbd> · <kbd>Alt+→</kbd></dt>
+        <dd>move by word</dd>
+        <dt><kbd>Ctrl+Backspace</kbd> · <kbd>Ctrl+Delete</kbd></dt>
+        <dd>delete the previous / next word</dd>
+        <dt><kbd>Shift+←/→/↑/↓</kbd> · <kbd>Shift+Home</kbd> · <kbd>Shift+End</kbd></dt>
+        <dd>extend the selection</dd>
+        <dt><kbd>Ctrl+A</kbd></dt>
+        <dd>select the whole buffer</dd>
+        <dt><kbd>Ctrl+C</kbd> · <kbd>Ctrl+X</kbd></dt>
+        <dd>copy / cut to system clipboard</dd>
+        <dt><kbd>Ctrl+V</kbd></dt>
+        <dd>paste from system clipboard</dd>
+        <dt><kbd>Tab</kbd> · <kbd>Shift+Tab</kbd></dt>
+        <dd>indent / unindent the current line</dd>
+        <dt><kbd>Enter</kbd> · <kbd>Backspace</kbd> · <kbd>Delete</kbd></dt>
+        <dd>edit text; with a selection, replace it</dd>
+      </dl>
+
+      <h2>find <span class="muted">(after Ctrl+F)</span></h2>
+      <dl class="dl-grid">
+        <dt>type</dt>
+        <dd>extend the query; matches highlight live and the cursor jumps to the first hit</dd>
+        <dt><kbd>Enter</kbd> · <kbd>↓</kbd></dt>
+        <dd>advance to next match</dd>
+        <dt><kbd>↑</kbd></dt>
+        <dd>previous match</dd>
+        <dt><kbd>Backspace</kbd></dt>
+        <dd>shorten query; on empty query, close the prompt</dd>
+        <dt><kbd>Escape</kbd></dt>
+        <dd>close the prompt and clear the highlights</dd>
+      </dl>
+
+      <h2>file tree</h2>
+      <dl class="dl-grid">
+        <dt><kbd>↑</kbd> · <kbd>↓</kbd></dt>
+        <dd>move selection</dd>
+        <dt><kbd>PageUp</kbd> · <kbd>PageDown</kbd></dt>
+        <dd>jump ten entries at a time</dd>
+        <dt><kbd>Home</kbd> · <kbd>End</kbd></dt>
+        <dd>first / last visible entry</dd>
+        <dt><kbd>←</kbd></dt>
+        <dd>collapse the selected directory or move to its parent</dd>
+        <dt><kbd>→</kbd></dt>
+        <dd>expand the selected directory</dd>
+        <dt><kbd>Enter</kbd></dt>
+        <dd>open a file or toggle a directory</dd>
+        <dt><kbd>Escape</kbd></dt>
+        <dd>return focus to the editor</dd>
+      </dl>
+
+      <h2>command bar</h2>
+      <dl class="dl-grid">
+        <dt>type</dt>
+        <dd>filter; the dock panel shows matching commands or workspace paths</dd>
+        <dt><kbd>Tab</kbd> · <kbd>Shift+Tab</kbd></dt>
+        <dd>cycle completions</dd>
+        <dt><kbd>↑</kbd> · <kbd>↓</kbd></dt>
+        <dd>walk through recent command history (last 20)</dd>
+        <dt><kbd>Enter</kbd></dt>
+        <dd>run the parsed command or apply the highlighted completion</dd>
+        <dt><kbd>Escape</kbd></dt>
+        <dd>close the command bar without running anything</dd>
+      </dl>
+
+      <h2>command bar commands</h2>
+      <dl class="dl-grid cmd">
+        <dt><code>open &lt;path&gt;</code></dt>
+        <dd>
+          open a file from the current workspace; activates the existing buffer if already open
+        </dd>
+
+        <dt><code>write</code></dt>
+        <dd>save the active buffer</dd>
+
+        <dt><code>writeas &lt;path&gt;</code></dt>
+        <dd>save the active buffer to another path</dd>
+
+        <dt><code>quit</code></dt>
+        <dd>exit the editor</dd>
+
+        <dt><code>sidebar</code></dt>
+        <dd>toggle the sidebar</dd>
+
+        <dt><code>tree</code> · <code>editor</code></dt>
+        <dd>focus the file tree / focus the editor</dd>
+
+        <dt><code>reload</code></dt>
+        <dd>reload the workspace tree</dd>
+
+        <dt><code>next</code> · <code>prev</code></dt>
+        <dd>activate the next / previous open buffer</dd>
+
+        <dt><code>buffers &lt;id-or-name&gt;</code></dt>
+        <dd>switch to an open buffer by numeric id or name</dd>
+
+        <dt><code>theme &lt;name&gt;</code></dt>
+        <dd>
+          switch the accent color — tab through <code>green</code>, <code>blue</code>, <code
+            >orange</code
+          >, <code>cyan</code>, <code>teal</code>, <code>yellow</code>, <code>red</code>;
+          live-previews each as you cycle
+        </dd>
+
+        <dt><code>recent &lt;path&gt;</code></dt>
+        <dd>pick a recently opened file; tab cycles through the last 20</dd>
+
+        <dt><code>help</code></dt>
+        <dd>show command help in the dock panel</dd>
+      </dl>
+    </div>
+  </section>
+</Site>

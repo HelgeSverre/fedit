@@ -289,11 +289,13 @@ h3 {
 .section:first-of-type {
   border-top: none;
 }
+/* Section head is a mini-hero: heading on top, lede directly under.
+ * Holds either an h1 (page hero on subpages) or an h2 (section break). */
 .section__head {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 32px;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 .section__head h2 {
   display: inline-flex;
@@ -312,10 +314,22 @@ h3 {
 .section__lede {
   color: var(--fg-muted);
   max-width: 65ch;
-  margin: 0 0 24px;
+  margin: 0;
 }
 
 /* ----- prose helpers ----- */
+/* Muted body paragraph. Used between code blocks for descriptive text. */
+.muted-p {
+  color: var(--fg-muted);
+  max-width: 65ch;
+  margin-top: var(--space-2);
+}
+/* Inline muted modifier — for parenthetical hints inside headings, etc. */
+.muted {
+  color: var(--fg-muted);
+  font-weight: 400;
+}
+
 .dl-grid {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -330,20 +344,11 @@ h3 {
   margin: 0;
   color: var(--fg-muted);
 }
-
-.dl-feature dt {
-  font-family: "Departure Mono", "JetBrains Mono", monospace;
-  font-size: 14px;
-  color: var(--fg);
-  margin-top: 16px;
-}
-.dl-feature dt:first-child {
-  margin-top: 0;
-}
-.dl-feature dd {
-  margin: 4px 0 0;
-  color: var(--fg-muted);
-  font-size: 13px;
+/* Accent chevron prefix on command-list entries. */
+.dl-grid.cmd dt::before {
+  content: "›";
+  color: var(--accent);
+  margin-right: 6px;
 }
 
 /* ----- motion ----- */
