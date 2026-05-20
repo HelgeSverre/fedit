@@ -1,7 +1,7 @@
 module Fedit.Tests.CompletionsTests
 
-open Fedit
-open Fedit.CliCommands
+open Fedit.Cli
+open Fedit.Cli.Commands
 open Xunit
 open FsUnit.Xunit
 

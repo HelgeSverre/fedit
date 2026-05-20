@@ -2,11 +2,12 @@
 /// `:plugin <verb>` commands by calling the same `Plugins.*` helpers
 /// directly — no Effects, no TUI loop. Each handler returns an exit
 /// code (0 success, 1 failure, 2 bad usage).
-module Fedit.CliCommands.Plugins
+module Fedit.Cli.Commands.Plugins
 
 open System
 open System.IO
 open Fedit
+open Fedit.Cli
 
 let private pluginsRoot () =
     Path.Combine(ConfigIO.directory (), "plugins")
@@ -119,7 +120,7 @@ let descriptor: CliCommandDescriptor =
           HiddenAliases = []
           Summary = summary
           Positionals = app.Positionals
-          Options = app.Options |> List.map Cli.toOptionDescriptor
+          Options = app.Options |> List.map Parser.toOptionDescriptor
           Subcommands = [] }
 
     { Name = "plugins"
@@ -127,7 +128,7 @@ let descriptor: CliCommandDescriptor =
       HiddenAliases = [ "plugin" ]
       Summary = "Manage installed plugins"
       Positionals = []
-      Options = [ helpSpec ] |> List.map Cli.toOptionDescriptor
+      Options = [ helpSpec ] |> List.map Parser.toOptionDescriptor
       Subcommands =
         [ sub "install" [] "Install a plugin from a folder, git URL, or .zip" installApp
           sub "remove" [] "Uninstall a plugin by name" removeApp
@@ -180,12 +181,12 @@ let private wantsNames items =
 // ─────────────────────────────────────────────────────────────────────
 
 let private install (argv: string[]) : int =
-    match Cli.parse installApp.Options argv with
+    match Parser.parse installApp.Options argv with
     | Result.Error errors ->
-        eprintfn "%s" (Cli.formatErrors installApp errors)
+        eprintfn "%s" (Parser.formatErrors installApp errors)
         2
     | Result.Ok items when wantsHelp items ->
-        printfn "%s" (Cli.formatHelp installApp)
+        printfn "%s" (Parser.formatHelp installApp)
         0
     | Result.Ok items ->
         match firstPositional items with
@@ -205,12 +206,12 @@ let private install (argv: string[]) : int =
                 1
 
 let private remove (argv: string[]) : int =
-    match Cli.parse removeApp.Options argv with
+    match Parser.parse removeApp.Options argv with
     | Result.Error errors ->
-        eprintfn "%s" (Cli.formatErrors removeApp errors)
+        eprintfn "%s" (Parser.formatErrors removeApp errors)
         2
     | Result.Ok items when wantsHelp items ->
-        printfn "%s" (Cli.formatHelp removeApp)
+        printfn "%s" (Parser.formatHelp removeApp)
         0
     | Result.Ok items ->
         match firstPositional items with
@@ -243,12 +244,12 @@ let private formatManifestRow (plugin: LoadedPlugin) =
     sprintf "%-24s %s" plugin.Manifest.Name status
 
 let private list (argv: string[]) : int =
-    match Cli.parse listApp.Options argv with
+    match Parser.parse listApp.Options argv with
     | Result.Error errors ->
-        eprintfn "%s" (Cli.formatErrors listApp errors)
+        eprintfn "%s" (Parser.formatErrors listApp errors)
         2
     | Result.Ok items when wantsListHelp items ->
-        printfn "%s" (Cli.formatHelp listApp)
+        printfn "%s" (Parser.formatHelp listApp)
         0
     | Result.Ok items ->
         let root = pluginsRoot ()
@@ -287,12 +288,12 @@ let private list (argv: string[]) : int =
             1
 
 let private validate (argv: string[]) : int =
-    match Cli.parse validateApp.Options argv with
+    match Parser.parse validateApp.Options argv with
     | Result.Error errors ->
-        eprintfn "%s" (Cli.formatErrors validateApp errors)
+        eprintfn "%s" (Parser.formatErrors validateApp errors)
         2
     | Result.Ok items when wantsHelp items ->
-        printfn "%s" (Cli.formatHelp validateApp)
+        printfn "%s" (Parser.formatHelp validateApp)
         0
     | Result.Ok items ->
         match firstPositional items with
@@ -326,7 +327,7 @@ let private validate (argv: string[]) : int =
 // ─────────────────────────────────────────────────────────────────────
 
 let run (argv: string[]) : int =
-    match Cli.route subcommands argv with
+    match Parser.route subcommands argv with
     | Some("install", rest) -> install rest
     | Some("remove", rest) -> remove rest
     | Some("list", rest) -> list rest
@@ -337,5 +338,5 @@ let run (argv: string[]) : int =
         eprintfn "Run 'fedit plugins --help' for usage."
         2
     | None ->
-        printfn "%s" (Cli.formatHelp topApp)
+        printfn "%s" (Parser.formatHelp topApp)
         0

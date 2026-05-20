@@ -7,7 +7,7 @@
 /// subcommand layer), which is what fedit needs today. Going deeper
 /// would mean recursively emitting per-subcommand functions and that
 /// trade-off can wait until a third level actually shows up.
-module Fedit.CliCommands.Completions
+module Fedit.Cli.Commands.Completions
 
 // FS3261: nullness warning on Path.GetDirectoryName (returns nullable).
 // Matches the convention in Plugins.fs.
@@ -17,6 +17,7 @@ open System
 open System.IO
 open System.Text
 open Fedit
+open Fedit.Cli
 
 type Shell =
     | Zsh
@@ -681,7 +682,7 @@ let descriptor: CliCommandDescriptor =
       HiddenAliases = []
       Summary = completionsApp.Summary
       Positionals = completionsApp.Positionals
-      Options = completionsApp.Options |> List.map Cli.toOptionDescriptor
+      Options = completionsApp.Options |> List.map Parser.toOptionDescriptor
       Subcommands = [] }
 
 let private wantsHelp items =
@@ -706,12 +707,12 @@ let private firstPositional items =
 /// caller because Program.fs is the only place that sees the full
 /// tree (root + plugins + completions).
 let run (root: CliCommandDescriptor) (argv: string[]) : int =
-    match Cli.parse completionsApp.Options argv with
+    match Parser.parse completionsApp.Options argv with
     | Result.Error errors ->
-        eprintfn "%s" (Cli.formatErrors completionsApp errors)
+        eprintfn "%s" (Parser.formatErrors completionsApp errors)
         2
     | Result.Ok items when wantsHelp items ->
-        printfn "%s" (Cli.formatHelp completionsApp)
+        printfn "%s" (Parser.formatHelp completionsApp)
         0
     | Result.Ok items ->
         match firstPositional items with

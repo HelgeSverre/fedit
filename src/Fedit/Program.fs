@@ -2,7 +2,8 @@ namespace Fedit
 
 open System
 open System.IO
-open Fedit.CliCommands
+open Fedit.Cli
+open Fedit.Cli.Commands
 
 module Program =
     type private ProgramOption =
@@ -89,26 +90,26 @@ module Program =
           HiddenAliases = []
           Summary = app.Summary
           Positionals = app.Positionals
-          Options = app.Options |> List.map Cli.toOptionDescriptor
+          Options = app.Options |> List.map Parser.toOptionDescriptor
           Subcommands = [ Plugins.descriptor; Completions.descriptor ] }
 
     [<EntryPoint>]
     let main argv =
-        match Cli.route subcommands argv with
+        match Parser.route subcommands argv with
         | Some("plugins", rest) -> Plugins.run rest
         | Some("completions", rest) -> Completions.run rootDescriptor rest
         | _ ->
 
-            match Cli.parse app.Options argv with
+            match Parser.parse app.Options argv with
             | Result.Error errors ->
-                eprintfn "%s" (Cli.formatErrors app errors)
+                eprintfn "%s" (Parser.formatErrors app errors)
                 2
 
             | Result.Ok items ->
                 let parsed = foldParsed items
 
                 if parsed.HelpRequested then
-                    printfn "%s" (Cli.formatHelp app)
+                    printfn "%s" (Parser.formatHelp app)
                     0
                 elif parsed.VersionRequested then
                     printfn "%s" (versionString ())

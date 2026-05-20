@@ -1,4 +1,4 @@
-namespace Fedit
+namespace Fedit.Cli
 
 open System
 open System.Text
@@ -40,7 +40,7 @@ type CliSubcommandSpec =
       Summary: string }
 
 /// Type-erased projection of `CliOptionSpec<'Option>` used by the
-/// completions generator. Built via `Cli.toOptionDescriptor` from the
+/// completions generator. Built via `Parser.toOptionDescriptor` from the
 /// real spec so the descriptor can't lie about parser config.
 type CliOptionDescriptor =
     { Short: char option
@@ -78,7 +78,7 @@ type CliParsed<'Option> =
     | Argument of string
 
 [<RequireQualifiedAccess>]
-module Cli =
+module Parser =
 
     // ─────────────────────────────────────────────────────────────────────
     // Descriptor projection
