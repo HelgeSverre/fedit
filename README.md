@@ -7,6 +7,7 @@
 **Edit files in the terminal. Small. Written in F#.**
 
 [![CI](https://github.com/HelgeSverre/fedit/actions/workflows/ci.yml/badge.svg)](https://github.com/HelgeSverre/fedit/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/HelgeSverre/fedit/branch/main/graph/badge.svg)](https://codecov.io/gh/HelgeSverre/fedit)
 [![.NET SDK](https://img.shields.io/badge/dotnet-10%2B-blue.svg)](https://dotnet.microsoft.com/download)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 ![Project Type](https://img.shields.io/badge/language-F%23-blue.svg)

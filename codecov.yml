@@ -1,0 +1,17 @@
+# Report-only: post a PR comment with delta coverage, never block merges.
+# Matches the local `just coverage` recipe choice — surface the number,
+# don't gate on it. Revisit once we have a stable baseline.
+
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
