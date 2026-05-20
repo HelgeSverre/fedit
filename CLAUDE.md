@@ -89,12 +89,37 @@ Local dry-run of the formula renderer: `just release-formula-preview`.
 - `git diff --quiet -- <path>` against an untracked file returns 0 (no diff). When checking for staged formula changes in CI, always `git add` first then check `--cached`.
 - macOS Intel runners (`macos-13`) in GitHub Actions can queue for 20+ minutes during peak. Cross-compile from `macos-14` instead — `.NET publish` cross-targets by RID without issue.
 
+## Plugin API
+
+`Fedit.PluginApi` (separate library, `src/Fedit.PluginApi/`) defines
+the public contract: `IPluginHost`, `PluginCommand`, `PluginAction`,
+`KeyChord`. The host loads plugins from `~/.config/fedit/plugins/<name>/`
+on startup via `Plugins.scanAndLoad` (in `src/Fedit/Plugins.fs`),
+auto-generates a fsproj if the plugin folder has none, builds with
+`dotnet build -c Release`, and loads each DLL into an isolated
+`AssemblyLoadContext`. Plugin commands merge into the prompt; plugin
+keybindings dispatch in editor focus (plain `Char` chords are reserved).
+
+When touching the plugin pipeline:
+
+- The plugin API's `Severity` shadows `Result.Error` in lexical scope —
+  use explicit `Result.Error` in `Plugins.fs` if you re-`open
+Fedit.PluginApi`.
+- `AppContext.BaseDirectory` is the host's running-binary directory.
+  `Fedit.PluginApi.dll` ships alongside via ProjectReference, so the
+  auto-generated fsproj's HintPath resolves naturally.
+- Reference implementations in [`examples/`](examples/) — copy any of
+  them to `~/.config/fedit/plugins/` to test. The end-to-end test
+  `PluginsTests.fs` does this against `wordcount` on every `just test`.
+- Full author guide in [`docs/plugins.md`](docs/plugins.md).
+
 ## Useful docs
 
 - [`README.md`](README.md) — user-facing
 - [`CHANGELOG.md`](CHANGELOG.md) — shipped phases
 - [`TODO.md`](TODO.md) — active work
+- [`docs/plugins.md`](docs/plugins.md) — plugin author guide
 - [`brand/USAGE.md`](brand/USAGE.md) — brand do/don't
 - [`brand/voice.md`](brand/voice.md) — copy rules
 - [`brand/themes/README.md`](brand/themes/README.md) — theme schema
-- [`docs/superpowers/`](docs/superpowers/) — forward-looking research + plans (syntax highlighting, plugin API)
+- [`docs/superpowers/`](docs/superpowers/) — forward-looking research + plans (syntax highlighting, etc.)

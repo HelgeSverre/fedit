@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>Fedit.PluginApi</AssemblyName>
+    <RootNamespace>Fedit.PluginApi</RootNamespace>
+    <Version>1.0.0</Version>
+    <Description>Public plugin API contract for fedit.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Types.fs" />
+    <Compile Include="Host.fs" />
+  </ItemGroup>
+</Project>

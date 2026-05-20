@@ -131,6 +131,22 @@ Remove a previously installed binary:
 just uninstall
 ```
 
+## Plugins
+
+`fedit` supports third-party plugins written in F#. Plugins register
+commands and keybindings via the `Fedit.PluginApi` library; the host
+builds and loads them at startup.
+
+- **Marketing-tinted introduction:** [fedit.dev/plugins](https://fedit.dev/plugins) — hero, quick start, lifecycle diagram, action cheatsheet, example cards.
+- **Author guide:** [docs/plugins.md](docs/plugins.md) — manifest reference, every type, conflict policy, debugging.
+- **Reference implementations:** [`examples/`](examples/) — `wordcount`, `journal`, and three TODO finders (`todo-count`, `todo-list`, `todo-next`).
+
+```bash
+mkdir -p ~/.config/fedit/plugins
+cp -R examples/wordcount ~/.config/fedit/plugins/
+fedit .              # in editor: Ctrl+P → plugin reload → wc
+```
+
 ## Using the Editor
 
 Global shortcuts:

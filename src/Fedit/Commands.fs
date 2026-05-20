@@ -26,6 +26,13 @@ type Command =
     | Recent of string
     | SwitchBuffer of BufferRef
     | Goto of line: int * column: int option
+    /// Built-in plugin manager command. `plugin list|enable|disable|install|remove|reload|validate`.
+    | Plugin of verb: string * argument: string
+    /// Invocation of a plugin-registered command. `source` is the owning
+    /// plugin name (for diagnostics); `commandName` matches the
+    /// `PluginCommand.Name` the plugin registered. `argument` is any text
+    /// after the command name on the prompt.
+    | PluginInvoke of source: string * commandName: string * argument: string
 
 type ParsedCommand =
     | Empty
@@ -144,7 +151,57 @@ module Commands =
                           | true, id -> ById id
                           | _ -> ByName trimmed
 
-                      Ready(SwitchBuffer bufferRef) } ]
+                      Ready(SwitchBuffer bufferRef) }
+          { Name = "plugin"
+            Usage = "plugin <list|enable|disable|install|remove|reload|validate> [arg]"
+            Summary = "Manage installed plugins."
+            Constructor =
+              fun argument ->
+                  let trimmed = argument.Trim()
+
+                  if String.IsNullOrWhiteSpace trimmed then
+                      Pending "Plugin verb required (list, enable, disable, install, remove, reload, validate)."
+                  else
+                      let firstSpace = trimmed.IndexOf ' '
+
+                      let verb, rest =
+                          if firstSpace < 0 then
+                              trimmed, ""
+                          else
+                              trimmed[.. firstSpace - 1], trimmed[firstSpace + 1 ..].Trim()
+
+                      let known =
+                          Set.ofList [ "list"; "enable"; "disable"; "install"; "remove"; "reload"; "validate" ]
+
+                      let verbLower = verb.ToLowerInvariant()
+
+                      if not (known.Contains verbLower) then
+                          Invalid $"Unknown plugin verb '{verb}'."
+                      else
+                          let needsArg = Set.ofList [ "enable"; "disable"; "install"; "remove"; "validate" ]
+
+                          if needsArg.Contains verbLower && String.IsNullOrWhiteSpace rest then
+                              Pending $"plugin {verbLower} requires an argument."
+                          else
+                              Ready(Plugin(verbLower, rest)) } ]
+
+    /// Specs synthesized from currently-loaded plugin commands. Each tuple
+    /// is `(commandName, summary, sourcePluginName)`. Plugin specs sit
+    /// alongside built-ins for completion / parse, but the built-in name
+    /// wins on collision (filtered out here).
+    let pluginSpecs (pluginCommands: (string * string * string) list) : Spec list =
+        let builtinNames = specs |> List.map (fun s -> s.Name) |> Set.ofList
+
+        pluginCommands
+        |> List.filter (fun (name, _, _) -> not (builtinNames.Contains name))
+        |> List.map (fun (name, summary, source) ->
+            { Name = name
+              Usage = name
+              Summary = $"[{source}] {summary}"
+              Constructor = fun argument -> Ready(PluginInvoke(source, name, argument.Trim())) })
+
+    /// All specs — built-ins first, then plugin commands.
+    let allSpecs (pluginCommands: (string * string * string) list) : Spec list = specs @ pluginSpecs pluginCommands
 
     /// Parse a `:LINE` or `:LINE:COL` argument (the text after the `:` prefix).
     /// Used by the prompt's Goto mode.
@@ -172,7 +229,9 @@ module Commands =
                 | _ -> Invalid $"'{trimmed}' must be <line>:<column> with positive numbers."
             | _ -> Invalid $"'{trimmed}' has too many ':' separators."
 
-    let parse (input: string) =
+    /// Parse using an explicit spec list. Use this when plugin commands are
+    /// in play so they participate in name lookup and "incomplete" hints.
+    let parseWith (availableSpecs: Spec list) (input: string) =
         let trimmed = input.Trim()
 
         if String.IsNullOrWhiteSpace trimmed then
@@ -186,20 +245,24 @@ module Commands =
                 else
                     trimmed[.. firstSpace - 1], trimmed[firstSpace + 1 ..]
 
-            match specs |> List.tryFind (fun spec -> spec.Name = name.ToLowerInvariant()) with
+            match availableSpecs |> List.tryFind (fun spec -> spec.Name = name.ToLowerInvariant()) with
             | Some spec -> spec.Constructor argument
             | None when
-                specs
+                availableSpecs
                 |> List.exists (fun spec -> spec.Name.StartsWith(name, StringComparison.OrdinalIgnoreCase))
                 ->
                 Pending "Command is incomplete."
             | None -> Invalid $"Unknown command '{name}'."
 
-    let completions context (input: string) =
+    /// Built-ins-only parser. Plugin-aware callers should use `parseWith`.
+    let parse (input: string) = parseWith specs input
+
+    /// Completion using an explicit spec list. The plugin-aware variant.
+    let completionsWith (availableSpecs: Spec list) context (input: string) =
         let trimmed = input.TrimStart()
 
         if String.IsNullOrWhiteSpace trimmed then
-            specs
+            availableSpecs
             |> List.map (fun spec ->
                 { Label = spec.Name
                   ApplyText = spec.Name
@@ -209,7 +272,7 @@ module Commands =
             let firstSpace = trimmed.IndexOf ' '
 
             if firstSpace < 0 then
-                specs
+                availableSpecs
                 |> List.filter (fun spec -> spec.Name.StartsWith(trimmed, StringComparison.OrdinalIgnoreCase))
                 |> List.map (fun spec ->
                     { Label = spec.Name
@@ -269,7 +332,18 @@ module Commands =
                           ApplyText = $"buffers {id}"
                           Detail = detail
                           Kind = PathItem })
+                | "plugin" ->
+                    [ "list"; "enable"; "disable"; "install"; "remove"; "reload"; "validate" ]
+                    |> List.filter (fun verb -> verb.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
+                    |> List.map (fun verb ->
+                        { Label = verb
+                          ApplyText = $"plugin {verb}"
+                          Detail = "plugin manager verb"
+                          Kind = Command })
                 | _ -> []
+
+    /// Built-ins-only completion. Plugin-aware callers should use `completionsWith`.
+    let completions context (input: string) = completionsWith specs context input
 
     let helpLines () =
         specs |> List.map (fun spec -> $"{spec.Usage}  {spec.Summary}")

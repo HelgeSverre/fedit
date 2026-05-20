@@ -1,5 +1,10 @@
 namespace Fedit
 
+// FS3261: BCL APIs like AppContext.BaseDirectory and Path.Combine surface
+// nullable strings under net10. The plugin paths feed runtime-time only —
+// guard them later if a null actually appears.
+#nowarn "3261"
+
 open System
 open System.IO
 open System.Text
@@ -270,6 +275,75 @@ module Runtime =
                             ClipboardPasted(Result.Ok(clipboardPaste ()))
                         with ex ->
                             ClipboardPasted(Result.Error ex.Message)
+
+                    queue.Enqueue msg)
+                |> ignore
+            | ScanPlugins ->
+                Task.Run(fun () ->
+                    let msg =
+                        try
+                            let pluginsRoot = Path.Combine(ConfigIO.directory (), "plugins")
+                            let apiDll = Path.Combine(AppContext.BaseDirectory, "Fedit.PluginApi.dll")
+                            // MVP: enable map is empty — discovered plugins
+                            // default to enabled. Per-plugin disable lives in
+                            // a future config field.
+                            let registry = Plugins.scanAndLoad pluginsRoot apiDll Map.empty log
+                            PluginsScanned(Result.Ok registry)
+                        with ex ->
+                            PluginsScanned(Result.Error ex.Message)
+
+                    queue.Enqueue msg)
+                |> ignore
+            | InstallPluginFromSource source ->
+                Task.Run(fun () ->
+                    let pluginsRoot = Path.Combine(ConfigIO.directory (), "plugins")
+
+                    let msg =
+                        try
+                            let name = Plugins.install pluginsRoot source
+                            PluginInstalled(name, Result.Ok())
+                        with ex ->
+                            PluginInstalled("?", Result.Error ex.Message)
+
+                    queue.Enqueue msg)
+                |> ignore
+            | RemovePluginDir name ->
+                Task.Run(fun () ->
+                    let pluginsRoot = Path.Combine(ConfigIO.directory (), "plugins")
+
+                    let msg =
+                        try
+                            Plugins.uninstall pluginsRoot name
+                            PluginRemoved(name, Result.Ok())
+                        with ex ->
+                            PluginRemoved(name, Result.Error ex.Message)
+
+                    queue.Enqueue msg)
+                |> ignore
+            | BuildPlugin pluginPath ->
+                Task.Run(fun () ->
+                    let apiDll = Path.Combine(AppContext.BaseDirectory, "Fedit.PluginApi.dll")
+                    let name = Path.GetFileName pluginPath
+
+                    let msg =
+                        try
+                            let manifestPath = Path.Combine(pluginPath, "plugin.json")
+
+                            match Plugins.tryParseManifest manifestPath with
+                            | Result.Error e -> PluginBuildFinished(name, Result.Error e)
+                            | Result.Ok manifest ->
+                                let loaded =
+                                    { Manifest = manifest
+                                      Path = pluginPath
+                                      Status = Disabled
+                                      Commands = []
+                                      Keybindings = [] }
+
+                                match Plugins.build apiDll loaded with
+                                | Result.Ok _ -> PluginBuildFinished(name, Result.Ok())
+                                | Result.Error e -> PluginBuildFinished(name, Result.Error e)
+                        with ex ->
+                            PluginBuildFinished(name, Result.Error ex.Message)
 
                     queue.Enqueue msg)
                 |> ignore

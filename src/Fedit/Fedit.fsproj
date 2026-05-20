@@ -26,6 +26,9 @@
     <PackageReference Include="FSharp.Core" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Fedit.PluginApi\Fedit.PluginApi.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Include="Primitives.fs" />
     <Compile Include="PieceTable.fs" />
     <Compile Include="Buffer.fs" />
@@ -34,6 +37,7 @@
     <Compile Include="Color.fs" />
     <Compile Include="Themes.fs" />
     <Compile Include="Commands.fs" />
+    <Compile Include="Plugins.fs" />
     <Compile Include="Model.fs" />
     <Compile Include="Prompt.fs" />
     <Compile Include="Editor.fs" />

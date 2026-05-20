@@ -1,0 +1,10 @@
+{
+  "name": "wordcount",
+  "version": "0.1.0",
+  "apiVersion": "1",
+  "description": "Adds :wc to count words in the active buffer.",
+  "author": "fedit maintainers",
+  "homepage": "https://github.com/HelgeSverre/fedit",
+  "entryAssembly": "wordcount.dll",
+  "entryType": "Wordcount.Plugin"
+}

@@ -85,6 +85,7 @@ type Model =
       Notification: Notification option
       Config: Config
       UserThemes: Theme list
+      Plugins: PluginRegistry
       QuitArmed: bool
       ShouldQuit: bool }
 
@@ -99,6 +100,10 @@ type Msg =
     | ClipboardPasted of Result<string, string>
     | SearchCompleted of bufferId: int * query: string * matches: int list
     | WorkspaceChangedExternally
+    | PluginsScanned of Result<PluginRegistry, string>
+    | PluginInstalled of name: string * Result<unit, string>
+    | PluginRemoved of name: string * Result<unit, string>
+    | PluginBuildFinished of name: string * Result<unit, string>
 
 type Effect =
     | ScanWorkspace of string
@@ -108,3 +113,7 @@ type Effect =
     | ClipboardCopy of string
     | ClipboardPaste
     | RunSearch of bufferId: int * query: string * haystack: string
+    | ScanPlugins
+    | InstallPluginFromSource of source: PluginSource
+    | RemovePluginDir of name: string
+    | BuildPlugin of pluginPath: string

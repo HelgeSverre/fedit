@@ -130,13 +130,21 @@ module Editor =
               Detail = detail
               Kind = PathItem })
 
+    /// Synthesize the plugin-command tuples for `Commands.allSpecs`. Each
+    /// tuple is `(name, summary, source-plugin-name)`.
+    let private pluginCmdTuples (model: Model) =
+        model.Plugins.Commands
+        |> Map.toList
+        |> List.map (fun (name, binding) -> name, binding.Spec.Summary, binding.Source)
+
     let private commandCompletions model query =
         let buffersForCompletion =
             model.Editors.Buffers
             |> Map.toList
             |> List.map (fun (id, buffer) -> id, buffer.Name, buffer.FilePath)
 
-        Commands.completions
+        Commands.completionsWith
+            (Commands.allSpecs (pluginCmdTuples model))
             { RootPath = model.Workspace.RootPath
               Files = workspaceFiles model.Workspace
               Recent = model.Config.Recent
@@ -154,11 +162,13 @@ module Editor =
             let trimmed = argument.TrimStart()
             trimmed.Length > 0 && Char.IsDigit trimmed[0]
 
+        let allCommandSpecs = Commands.allSpecs (pluginCmdTuples model)
+
         let completions, parsed =
             match mode with
             | FilePicker -> filePickerCompletions model prompt.Text, Empty
             | Command when isNumericGoto -> [], Commands.parseGoto argument
-            | Command -> commandCompletions model argument, Commands.parse argument
+            | Command -> commandCompletions model argument, Commands.parseWith allCommandSpecs argument
             | Buffers -> buffersCompletions model argument, Empty
             | Search -> [], Empty
 
@@ -347,7 +357,91 @@ module Editor =
                         ActiveBufferId = ids[nextIndex] } }
             |> notify (Some(Notification.info $"Buffer {nextIndex + 1}/{ids.Length}"))
 
-    let private executeCommand command model =
+    /// Build a read-only snapshot of the world for a plugin command. The
+    /// plugin sees text, cursor, file path, all open buffers, and the
+    /// workspace root — never any mutable handle into the host's model.
+    let private toPluginContext (model: Model) : Fedit.PluginApi.PluginContext =
+        let toView (id: int) (buffer: BufferState) : Fedit.PluginApi.BufferView =
+            { Id = id
+              Name = buffer.Name
+              FilePath = buffer.FilePath
+              Text = Buffer.text buffer
+              Cursor =
+                { Line = buffer.Cursor.Line + 1 // surface 1-based
+                  Column = buffer.Cursor.Column + 1 }
+              Selection = None }
+
+        let active = model.Editors.ActiveBufferId
+        let activeBuffer = model.Editors.Buffers[active]
+
+        { ActiveBuffer = toView active activeBuffer
+          AllBuffers = model.Editors.Buffers |> Map.toList |> List.map (fun (id, b) -> toView id b)
+          Workspace = { RootPath = model.Workspace.RootPath } }
+
+    /// Translate a plugin's `PluginAction list` return into core model
+    /// updates + effects. Each action is applied in declaration order;
+    /// `RunCommand` recursively dispatches via `executeCommand`.
+    let rec private applyPluginActions
+        (actions: Fedit.PluginApi.PluginAction list)
+        (model: Model)
+        : Model * Effect list =
+        let mutable current = model
+        let effects = ResizeArray<Effect>()
+
+        for action in actions do
+            match action with
+            | Fedit.PluginApi.Notify(severity, message) ->
+                let notif =
+                    match severity with
+                    | Fedit.PluginApi.Info -> Notification.info message
+                    | Fedit.PluginApi.Warning -> Notification.warning message
+                    | Fedit.PluginApi.Error -> Notification.error message
+
+                current <- notify (Some notif) current
+            | Fedit.PluginApi.InsertText text -> current <- updateActiveBuffer (Buffer.insertText text) current
+            | Fedit.PluginApi.ReplaceSelection text ->
+                // No bespoke `replaceSelection` in Buffer; compose the two
+                // primitives so undo collapses them naturally.
+                let buffer = activeBufferState current
+
+                let transform =
+                    if buffer.Selection.IsSome then
+                        Buffer.deleteSelection >> Buffer.insertText text
+                    else
+                        Buffer.insertText text
+
+                current <- updateActiveBuffer transform current
+            | Fedit.PluginApi.MoveCursor pos ->
+                // Plugin API is 1-based to mirror the UI's `Ln N` indicator.
+                let target =
+                    { Line = max 0 (pos.Line - 1)
+                      Column = max 0 (pos.Column - 1) }
+
+                current <-
+                    updateActiveBuffer
+                        (fun buffer ->
+                            let idx = Buffer.positionToIndex target buffer
+                            Buffer.moveToOffset idx buffer)
+                        current
+            | Fedit.PluginApi.OpenFile path ->
+                let absolutePath = resolvePath current.Workspace.RootPath path
+                effects.Add(LoadFile absolutePath)
+            | Fedit.PluginApi.SaveActiveBuffer ->
+                let nextModel, fx = saveActiveBuffer None current
+                current <- nextModel
+                effects.AddRange fx
+            | Fedit.PluginApi.RunCommand name ->
+                match Commands.parse name with
+                | Ready cmd ->
+                    let nextModel, fx = executeCommand cmd current
+                    current <- nextModel
+                    effects.AddRange fx
+                | _ -> current <- notify (Some(Notification.error $"Plugin RunCommand: invalid '{name}'")) current
+            | Fedit.PluginApi.SetClipboard text -> effects.Add(ClipboardCopy text)
+
+        current, List.ofSeq effects
+
+    and private executeCommand command model =
         match command with
         | Open path ->
             let absolutePath = resolvePath model.Workspace.RootPath path
@@ -452,6 +546,88 @@ module Editor =
 
             { moved with Focus = Editor }, []
 
+        | Plugin("list", _) ->
+            // Render plugin status into the dock via notification (multiline
+            // joined with newlines — View renders \n correctly in the dock).
+            let lines =
+                model.Plugins.Loaded
+                |> Map.toList
+                |> List.map (fun (_, plugin) ->
+                    let status =
+                        match plugin.Status with
+                        | Loaded -> $"ok ({plugin.Commands.Length} cmd, {plugin.Keybindings.Length} key)"
+                        | Disabled -> "disabled"
+                        | Failed reason -> $"FAIL: {reason}"
+
+                    sprintf "%-24s %s" plugin.Manifest.Name status)
+
+            let body =
+                if lines.IsEmpty then
+                    "(no plugins installed — ~/.config/fedit/plugins/)"
+                else
+                    String.concat "\n" lines
+
+            notify (Some(Notification.info body)) model, []
+
+        | Plugin("install", arg) ->
+            let source =
+                if
+                    arg.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                    || arg.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                    || arg.StartsWith("git@", StringComparison.OrdinalIgnoreCase)
+                then
+                    GitSource arg
+                elif arg.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) then
+                    ZipSource arg
+                else
+                    FolderSource arg
+
+            notify (Some(Notification.info $"Installing {arg}…")) model, [ InstallPluginFromSource source ]
+
+        | Plugin("remove", name) -> notify (Some(Notification.info $"Removing {name}…")) model, [ RemovePluginDir name ]
+
+        | Plugin("enable", _name) ->
+            // MVP: enable/disable persistence deferred. ScanPlugins reloads
+            // the directory; if the plugin is on disk it comes back enabled.
+            notify (Some(Notification.info "Enable/disable persistence is deferred to v2; scanning.")) model,
+            [ ScanPlugins ]
+
+        | Plugin("disable", _name) ->
+            notify (Some(Notification.info "Enable/disable persistence is deferred to v2; scanning.")) model,
+            [ ScanPlugins ]
+
+        | Plugin("reload", _) -> notify (Some(Notification.info "Reloading plugins…")) model, [ ScanPlugins ]
+
+        | Plugin("validate", path) ->
+            let manifestPath = Path.Combine(path, "plugin.json")
+
+            let report =
+                if not (File.Exists manifestPath) then
+                    Notification.error $"No plugin.json found in {path}."
+                else
+                    match Plugins.tryParseManifest manifestPath with
+                    | Result.Ok manifest ->
+                        Notification.info
+                            $"OK: {manifest.Name} {manifest.Version} (apiVersion {manifest.ApiVersion}); entryType={manifest.EntryType}"
+                    | Result.Error reason -> Notification.error reason
+
+            notify (Some report) model, []
+
+        | Plugin(verb, _) -> notify (Some(Notification.error $"Unhandled plugin verb '{verb}'.")) model, []
+
+        | PluginInvoke(source, name, _argument) ->
+            match model.Plugins.Commands.TryFind name with
+            | Some binding when binding.Source = source ->
+                try
+                    let ctx = toPluginContext model
+                    let actions = binding.Spec.Run ctx
+                    applyPluginActions actions model
+                with ex ->
+                    notify (Some(Notification.error $"Plugin '{source}' threw: {ex.Message}")) model, []
+            | Some _ ->
+                notify (Some(Notification.error $"Plugin '{name}' is not provided by '{source}' anymore.")) model, []
+            | None -> notify (Some(Notification.error $"Plugin command '{name}' missing.")) model, []
+
     let private moveSearchMatch delta model =
         let prompt = model.Prompt
 
@@ -531,60 +707,93 @@ module Editor =
             []
         | _ -> model, []
 
-    let private runEditor key model =
-        let hasSelection = (activeBufferState model).Selection.IsSome
-
-        let editTransform editFn =
-            if hasSelection then
-                Buffer.deleteSelection >> editFn
-            else
-                editFn
-
-        // Cursor motion that drops any existing selection.
-        let move transform =
-            updateActiveBuffer (Buffer.clearSelection >> transform) model, []
-
-        // Shifted motion that extends the selection through the new cursor.
-        let extend transform =
-            updateActiveBuffer (Buffer.extendSelectionToCursor >> transform) model, []
-
-        // Page Up/Down both use the same viewport-aware jump distance.
-        let pageJump direction =
-            let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
-            let jump = max 1 (viewportHeight - model.Config.PageOverlap)
-            move (direction jump)
-
+    /// Map an editor KeyInput to a plugin-API KeyChord. Plain ASCII
+    /// characters are intentionally NOT mapped — those are text input and
+    /// shouldn't trigger plugin commands.
+    let private toKeyChord (key: KeyInput) : Fedit.PluginApi.KeyChord option =
         match key with
-        | Character value ->
-            updateActiveBuffer (editTransform (Buffer.insertText (string value)) >> Buffer.clearSelection) model, []
-        | Enter -> updateActiveBuffer (editTransform Buffer.insertNewline >> Buffer.clearSelection) model, []
-        | Backspace when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
-        | Backspace -> updateActiveBuffer Buffer.backspace model, []
-        | Delete when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
-        | Delete -> updateActiveBuffer Buffer.deleteForward model, []
-        | Left -> move Buffer.moveLeft
-        | Right -> move Buffer.moveRight
-        | Up -> move Buffer.moveUp
-        | Down -> move Buffer.moveDown
-        | Home -> move Buffer.moveHome
-        | End -> move Buffer.moveEnd
-        | ShiftLeft -> extend Buffer.moveLeft
-        | ShiftRight -> extend Buffer.moveRight
-        | ShiftUp -> extend Buffer.moveUp
-        | ShiftDown -> extend Buffer.moveDown
-        | ShiftHome -> extend Buffer.moveHome
-        | ShiftEnd -> extend Buffer.moveEnd
-        | PageUp -> pageJump Buffer.movePageUp
-        | PageDown -> pageJump Buffer.movePageDown
-        | Tab -> move (Buffer.indent model.Config.TabWidth)
-        | ShiftTab -> move (Buffer.unindent model.Config.TabWidth)
-        | AltLeft -> move Buffer.moveLeftWord
-        | AltRight -> move (Buffer.moveRightWord model.Config.WordMotion)
-        | CtrlBackspace when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
-        | CtrlBackspace -> updateActiveBuffer Buffer.backspaceWord model, []
-        | CtrlDelete when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
-        | CtrlDelete -> updateActiveBuffer (Buffer.deleteForwardWord model.Config.WordMotion) model, []
-        | _ -> model, []
+        | KeyInput.Ctrl c -> Some(Fedit.PluginApi.KeyChord.Ctrl c)
+        | _ -> None
+
+    let private runEditor key model =
+        // Check plugin keybindings before falling through to the default
+        // editor behavior. First-match wins; if the bound command is a
+        // plugin command we dispatch its handler, otherwise fall back to
+        // built-in command parsing (so plugins can bind chords to
+        // built-ins like `:write`).
+        let pluginDispatch =
+            match toKeyChord key with
+            | None -> None
+            | Some chord ->
+                model.Plugins.Keybindings
+                |> List.tryFind (fun (c, _) -> c = chord)
+                |> Option.map snd
+
+        match pluginDispatch with
+        | Some commandName ->
+            match model.Plugins.Commands.TryFind commandName with
+            | Some binding -> executeCommand (PluginInvoke(binding.Source, commandName, "")) model
+            | None ->
+                match Commands.parse commandName with
+                | Ready cmd -> executeCommand cmd model
+                | _ ->
+                    notify (Some(Notification.error $"Plugin binding refers to unknown command '{commandName}'.")) model,
+                    []
+        | None ->
+
+            let hasSelection = (activeBufferState model).Selection.IsSome
+
+            let editTransform editFn =
+                if hasSelection then
+                    Buffer.deleteSelection >> editFn
+                else
+                    editFn
+
+            // Cursor motion that drops any existing selection.
+            let move transform =
+                updateActiveBuffer (Buffer.clearSelection >> transform) model, []
+
+            // Shifted motion that extends the selection through the new cursor.
+            let extend transform =
+                updateActiveBuffer (Buffer.extendSelectionToCursor >> transform) model, []
+
+            // Page Up/Down both use the same viewport-aware jump distance.
+            let pageJump direction =
+                let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
+                let jump = max 1 (viewportHeight - model.Config.PageOverlap)
+                move (direction jump)
+
+            match key with
+            | Character value ->
+                updateActiveBuffer (editTransform (Buffer.insertText (string value)) >> Buffer.clearSelection) model, []
+            | Enter -> updateActiveBuffer (editTransform Buffer.insertNewline >> Buffer.clearSelection) model, []
+            | Backspace when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
+            | Backspace -> updateActiveBuffer Buffer.backspace model, []
+            | Delete when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
+            | Delete -> updateActiveBuffer Buffer.deleteForward model, []
+            | Left -> move Buffer.moveLeft
+            | Right -> move Buffer.moveRight
+            | Up -> move Buffer.moveUp
+            | Down -> move Buffer.moveDown
+            | Home -> move Buffer.moveHome
+            | End -> move Buffer.moveEnd
+            | ShiftLeft -> extend Buffer.moveLeft
+            | ShiftRight -> extend Buffer.moveRight
+            | ShiftUp -> extend Buffer.moveUp
+            | ShiftDown -> extend Buffer.moveDown
+            | ShiftHome -> extend Buffer.moveHome
+            | ShiftEnd -> extend Buffer.moveEnd
+            | PageUp -> pageJump Buffer.movePageUp
+            | PageDown -> pageJump Buffer.movePageDown
+            | Tab -> move (Buffer.indent model.Config.TabWidth)
+            | ShiftTab -> move (Buffer.unindent model.Config.TabWidth)
+            | AltLeft -> move Buffer.moveLeftWord
+            | AltRight -> move (Buffer.moveRightWord model.Config.WordMotion)
+            | CtrlBackspace when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
+            | CtrlBackspace -> updateActiveBuffer Buffer.backspaceWord model, []
+            | CtrlDelete when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
+            | CtrlDelete -> updateActiveBuffer (Buffer.deleteForwardWord model.Config.WordMotion) model, []
+            | _ -> model, []
 
     let private cycleCompletion delta model =
         let prompt = model.Prompt
@@ -717,9 +926,10 @@ module Editor =
           Notification = Some(Notification.info "Ctrl+P prompt  Ctrl+B tree  Ctrl+S save  Ctrl+Q quit")
           Config = config
           UserThemes = userThemes
+          Plugins = PluginRegistry.empty
           QuitArmed = false
           ShouldQuit = false },
-        [ ScanWorkspace rootPath ]
+        [ ScanWorkspace rootPath; ScanPlugins ]
 
     let private normalizeNewlines (text: string) =
         if text.Contains "\r\n" then
@@ -839,6 +1049,31 @@ module Editor =
                 updateActiveBuffer (transform >> Buffer.clearSelection) model, []
             | Result.Ok _ -> model, []
             | Result.Error message -> notify (Some(Notification.warning $"Paste failed: {message}")) model, []
+        | PluginsScanned(Result.Ok registry) ->
+            // Conflict warnings surface as a notification; absent conflicts
+            // leave any existing notification (startup hint) intact.
+            let conflictNotice =
+                match registry.Conflicts with
+                | [] -> model.Notification
+                | xs -> Some(Notification.warning (String.concat "; " xs))
+
+            { model with
+                Plugins = registry
+                Notification = conflictNotice },
+            []
+        | PluginsScanned(Result.Error message) ->
+            notify (Some(Notification.error $"Plugin scan failed: {message}")) model, []
+        | PluginInstalled(name, Result.Ok()) ->
+            notify (Some(Notification.info $"Installed plugin '{name}'")) model, [ ScanPlugins ]
+        | PluginInstalled(_, Result.Error message) ->
+            notify (Some(Notification.error $"Install failed: {message}")) model, []
+        | PluginRemoved(name, Result.Ok()) ->
+            notify (Some(Notification.info $"Removed plugin '{name}'")) model, [ ScanPlugins ]
+        | PluginRemoved(name, Result.Error message) ->
+            notify (Some(Notification.error $"Remove '{name}' failed: {message}")) model, []
+        | PluginBuildFinished(name, Result.Ok()) -> notify (Some(Notification.info $"Built '{name}'")) model, []
+        | PluginBuildFinished(name, Result.Error message) ->
+            notify (Some(Notification.error $"Build '{name}' failed: {message}")) model, []
         | KeyPressed key ->
             let model =
                 if key = Ctrl 'q' then

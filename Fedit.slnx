@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Fedit/Fedit.fsproj" />
+    <Project Path="src/Fedit.PluginApi/Fedit.PluginApi.fsproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Fedit.Tests/Fedit.Tests.fsproj" />

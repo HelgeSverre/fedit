@@ -1,0 +1,10 @@
+{
+  "name": "todo-next",
+  "version": "0.1.0",
+  "apiVersion": "1",
+  "description": "Jumps the cursor to the next `TODO:` in the active buffer (wraps).",
+  "author": "fedit maintainers",
+  "homepage": "https://github.com/HelgeSverre/fedit",
+  "entryAssembly": "todo-next.dll",
+  "entryType": "TodoNext.Plugin"
+}

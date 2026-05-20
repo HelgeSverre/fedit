@@ -1,0 +1,10 @@
+{
+  "name": "todo-count",
+  "version": "0.1.0",
+  "apiVersion": "1",
+  "description": "Counts `TODO:` markers across the workspace.",
+  "author": "fedit maintainers",
+  "homepage": "https://github.com/HelgeSverre/fedit",
+  "entryAssembly": "todo-count.dll",
+  "entryType": "TodoCount.Plugin"
+}

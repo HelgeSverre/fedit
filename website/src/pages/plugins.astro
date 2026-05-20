@@ -1,0 +1,606 @@
+---
+import Site from "../layouts/Site.astro";
+import TuiFrame from "../components/TuiFrame.astro";
+
+const actions = [
+  {
+    name: "Notify",
+    arg: "Severity * string",
+    use: "Report a result; no side effect on the buffer.",
+  },
+  {
+    name: "InsertText",
+    arg: "string",
+    use: "Add text at the cursor — timestamps, UUIDs, snippets.",
+  },
+  {
+    name: "ReplaceSelection",
+    arg: "string",
+    use: "Replace the current selection (insert if none).",
+  },
+  { name: "MoveCursor", arg: "{ Line; Column }", use: "Jump the cursor (1-based)." },
+  { name: "OpenFile", arg: "string", use: "Open a file relative to the workspace root." },
+  { name: "SaveActiveBuffer", arg: "—", use: "Trigger the same save path as :write." },
+  { name: "RunCommand", arg: "string", use: "Chain into a built-in or another plugin by name." },
+  { name: "SetClipboard", arg: "string", use: "Copy text to the system clipboard." },
+];
+
+const examples = [
+  {
+    name: "wordcount",
+    command: ":wc",
+    blurb: "Count words in the active buffer.",
+    uses: "Notify",
+    why: "Smallest possible plugin — twelve lines of source.",
+  },
+  {
+    name: "journal",
+    command: ":journal",
+    blurb: "Insert a [YYYY-MM-DD HH:MM] stamp at the cursor.",
+    uses: "InsertText + Notify",
+    why: "Side effects on the buffer, plus a confirmation in the dock.",
+  },
+  {
+    name: "todo-count",
+    command: ":todocount",
+    blurb: "Walk the workspace, count lines containing TODO:.",
+    uses: "Notify",
+    why: "Reads Workspace.RootPath; aggregates filesystem state.",
+  },
+  {
+    name: "todo-list",
+    command: ":todolist",
+    blurb: "List every TODO: as path:line: text in the dock (max 50).",
+    uses: "Notify (multi-line)",
+    why: "Multi-line notifications render as a scrollable dock panel.",
+  },
+  {
+    name: "todo-next",
+    command: ":todonext",
+    blurb: "Jump cursor to the next TODO: in the active buffer; wraps.",
+    uses: "MoveCursor + Notify + Ctrl+T",
+    why: "Reads cursor position, moves it, and registers a keybinding.",
+  },
+];
+
+const verbs = [
+  { v: "list", arg: "", desc: "Show plugins with status (ok / disabled / FAIL)." },
+  { v: "install", arg: "<url-or-path>", desc: "Folder, git URL, or .zip — auto-detected." },
+  { v: "remove", arg: "<name>", desc: "Delete the plugin folder and rescan." },
+  { v: "reload", arg: "", desc: "Rescan disk; rebuilds anything stale." },
+  {
+    v: "validate",
+    arg: "<path>",
+    desc: "Dry-run: parse the manifest, report what would register.",
+  },
+];
+---
+
+<Site
+  title="plugins"
+  description="Extend fedit with F# plugins. Five-minute quickstart, the five PluginAction types you can return, and five reference implementations under examples/."
+  image="/og/plugins.png"
+>
+  <!-- =============================================================== -->
+  <!-- HERO                                                            -->
+  <!-- =============================================================== -->
+  <section class="section hero">
+    <div class="container">
+      <div class="hero-grid">
+        <div>
+          <p class="eyebrow">plugin api · v1</p>
+          <h1>Extend the editor in F#.</h1>
+          <p class="lede">
+            Plugins register <span class="accent-word">commands</span> and
+            <span class="accent-word">keybindings</span>. They live in
+            <code>~/.config/fedit/plugins/</code>, build lazily on startup, and run inline against a
+            read-only snapshot of the workspace. No JSON, no schema, no IPC — just an F# function.
+          </p>
+          <p class="hero-actions">
+            <a class="cta-primary" href="#quickstart">Quick start</a>
+            <a
+              class="cta-secondary"
+              href="https://github.com/HelgeSverre/fedit/tree/main/examples"
+              target="_blank"
+              rel="noopener">Browse examples</a
+            >
+          </p>
+        </div>
+        <TuiFrame label="examples/wordcount/Plugin.fs">
+          <Fragment
+            set:html={`<span class="muted">namespace</span> Wordcount
+
+<span class="muted">open</span> Fedit.PluginApi
+
+<span class="muted">module</span> Plugin =
+    <span class="muted">let</span> register (host: IPluginHost) =
+        host.RegisterCommand
+            { Name = <span class="accent">"wc"</span>
+              Usage = <span class="accent">"wc"</span>
+              Summary = <span class="accent">"Count words in the active buffer."</span>
+              Run = <span class="muted">fun</span> ctx -&gt;
+                  <span class="muted">let</span> n =
+                      ctx.ActiveBuffer.Text.Split(
+                          [| <span class="accent">' '</span>; <span class="accent">'\\t'</span>; <span class="accent">'\\n'</span>; <span class="accent">'\\r'</span> |],
+                          StringSplitOptions.RemoveEmptyEntries)
+                      |&gt; Array.length
+                  [ Notify(Info, <span class="accent">$"{n} words"</span>) ] }`}
+          />
+        </TuiFrame>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- TRUST CALLOUT                                                   -->
+  <!-- =============================================================== -->
+  <section class="section section--alt callout">
+    <div class="container">
+      <p>
+        <strong>Trust model:</strong> plugins are full .NET code with no sandbox. They can read any file,
+        open any socket, and run any process. Treat installation like installing a shell tool — only run
+        plugins from sources you trust.
+      </p>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- QUICK START                                                     -->
+  <!-- =============================================================== -->
+  <section id="quickstart" class="section">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h2>quick start</h2>
+        <p class="section__lede">
+          From zero to running plugin in three commands and three keystrokes.
+        </p>
+      </div>
+
+      <ol class="steps">
+        <li>
+          <span class="step-num">01</span>
+          <div>
+            <h3>Install one of the bundled examples</h3>
+            <pre
+              class="block"><span class="dim">$</span> mkdir -p ~/.config/fedit/plugins
+<span class="dim">$</span> cp -R examples/wordcount ~/.config/fedit/plugins/
+<span class="dim">$</span> ./fedit .</pre>
+            <p class="muted-p">
+              The first <code>./fedit .</code> after a plugin lands will build it via
+              <code>dotnet build -c Release</code> on the spot. Subsequent launches use the cached DLL.
+            </p>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">02</span>
+          <div>
+            <h3>Open the prompt and reload</h3>
+            <p>
+              Inside fedit, press <kbd>Ctrl+P</kbd> to open the prompt, then type <code
+                >plugin reload</code
+              >. The dock confirms which plugins loaded — and which failed and why.
+            </p>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">03</span>
+          <div>
+            <h3>Run your plugin's command</h3>
+            <p>
+              Type <code>wc</code> and hit <kbd>Enter</kbd>. The active buffer's word count appears
+              in the notification dock.
+            </p>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- LIFECYCLE                                                       -->
+  <!-- =============================================================== -->
+  <section class="section section--alt">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h2>lifecycle</h2>
+        <p class="section__lede">
+          What happens between <code>./fedit .</code> and your <code>register</code> function getting
+          called. Triggered manually via <code>:plugin reload</code>.
+        </p>
+      </div>
+
+      <TuiFrame label="plugin lifecycle">
+        <Fragment
+          set:html={`  on fedit startup
+        │
+        ▼
+  <span class="accent">scan</span> ~/.config/fedit/plugins/        <span class="dim">Plugins.discover</span>
+        │
+        ▼
+  for each &lt;name&gt;/ with plugin.json    <span class="dim">Plugins.tryParseManifest</span>
+        │
+        ▼
+  is bin/Release/net10.0/&lt;dll&gt;         <span class="dim">Plugins.isBuildStale</span>
+   missing or older than any .fs?
+        │
+        ▼ (yes)
+  generate plugin.generated.fsproj     <span class="dim">Plugins.ensureFsproj</span>
+  <span class="accent">dotnet build -c Release</span>              <span class="dim">Plugins.runDotnetBuild</span>
+        │
+        ▼
+  load DLL in isolated ALC             <span class="dim">AssemblyLoadContext</span>
+  reflect entryType.register           <span class="dim">Plugins.resolveRegister</span>
+  call <span class="accent">register(collector)</span>             <span class="dim">collector : IPluginHost</span>
+        │
+        ▼
+  merge into the global registry       <span class="dim">PluginRegistry on Model</span>`}
+        />
+      </TuiFrame>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- ACTIONS                                                         -->
+  <!-- =============================================================== -->
+  <section class="section">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h2>actions</h2>
+        <p class="section__lede">
+          A plugin's <code>Run</code> function returns a list of these. The host applies them in order
+          — pick the right one for the effect you want.
+        </p>
+      </div>
+
+      <dl class="action-grid">
+        {
+          actions.map((a) => (
+            <div class="action">
+              <dt>
+                <code class="action-name">{a.name}</code> <span class="action-arg">{a.arg}</span>
+              </dt>
+              <dd>{a.use}</dd>
+            </div>
+          ))
+        }
+      </dl>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- EXAMPLES                                                        -->
+  <!-- =============================================================== -->
+  <section class="section section--alt">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h2>five reference plugins</h2>
+        <p class="section__lede">
+          Each demonstrates a different combination of actions. Source under
+          <code>examples/</code> — copy any folder to <code>~/.config/fedit/plugins/</code> and they'll
+          build on the next launch.
+        </p>
+      </div>
+
+      <div class="example-grid">
+        {
+          examples.map((ex) => (
+            <article class="example">
+              <header>
+                <span class="example-cmd">{ex.command}</span>
+                <span class="example-name">{ex.name}</span>
+              </header>
+              <p class="example-blurb">{ex.blurb}</p>
+              <footer>
+                <span class="example-tag">uses {ex.uses}</span>
+                <p class="example-why">{ex.why}</p>
+              </footer>
+            </article>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- :plugin VERBS                                                   -->
+  <!-- =============================================================== -->
+  <section class="section">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h2>:plugin commands</h2>
+        <p class="section__lede">
+          One built-in command with verb dispatch. Tab completion suggests verbs first, then
+          arguments.
+        </p>
+      </div>
+
+      <dl class="dl-grid verbs">
+        {
+          verbs.map((v) => (
+            <>
+              <dt>
+                <code>
+                  :plugin {v.v}
+                  {v.arg ? ` ${v.arg}` : ""}
+                </code>
+              </dt>
+              <dd>{v.desc}</dd>
+            </>
+          ))
+        }
+      </dl>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- NEXT STEPS                                                      -->
+  <!-- =============================================================== -->
+  <section class="section section--alt">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h2>where next</h2>
+      </div>
+
+      <ul class="next-list">
+        <li>
+          <strong>Full author guide</strong> — every type, every action, conflict policy, debugging tips.
+          <a href="https://github.com/HelgeSverre/fedit/blob/main/docs/plugins.md"
+            >docs/plugins.md</a
+          >.
+        </li>
+        <li>
+          <strong>The five examples</strong> — copy, modify, learn.
+          <a href="https://github.com/HelgeSverre/fedit/tree/main/examples"
+            >github.com/HelgeSverre/fedit/tree/main/examples</a
+          >.
+        </li>
+        <li>
+          <strong>The PluginApi source</strong> — two short files, no magic.
+          <a href="https://github.com/HelgeSverre/fedit/tree/main/src/Fedit.PluginApi"
+            >src/Fedit.PluginApi</a
+          >.
+        </li>
+        <li>
+          <strong>Naming convention</strong> — public plugins prefix with
+          <code>fedit-plugin-</code> on GitHub so they're easy to find.
+        </li>
+      </ul>
+    </div>
+  </section>
+</Site>
+
+<style>
+  /* ----------------- hero ----------------- */
+  .hero {
+    padding-top: var(--space-6);
+    padding-bottom: var(--space-5);
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-5);
+    align-items: center;
+  }
+  @media (max-width: 800px) {
+    .hero-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .eyebrow {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 var(--space-2);
+  }
+  .lede {
+    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-size: clamp(16px, 2.1vw, 18px);
+    line-height: 1.55;
+    max-width: 52ch;
+    color: var(--fg);
+  }
+  .accent-word {
+    color: var(--accent);
+  }
+  .hero-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-top: var(--space-4);
+  }
+
+  /* ----------------- callout ----------------- */
+  .callout {
+    padding: var(--space-4) 0;
+  }
+  .callout p {
+    color: var(--fg);
+    border-left: 3px solid var(--accent);
+    padding-left: var(--space-3);
+    margin: 0;
+    max-width: 75ch;
+    font-size: 14px;
+  }
+  .callout strong {
+    color: var(--accent);
+  }
+
+  /* ----------------- quickstart steps ----------------- */
+  .steps {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: var(--space-4);
+  }
+  .steps li {
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    gap: var(--space-3);
+    align-items: flex-start;
+  }
+  .step-num {
+    font-family: "Departure Mono", monospace;
+    font-size: 28px;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .steps h3 {
+    margin: 0 0 var(--space-2);
+    color: var(--fg);
+    text-transform: none;
+    font-size: 16px;
+  }
+  .steps p {
+    color: var(--fg-muted);
+    max-width: 65ch;
+    margin: var(--space-2) 0 0;
+    font-size: 13px;
+  }
+  pre.block {
+    max-width: 720px;
+  }
+
+  /* ----------------- actions grid ----------------- */
+  .action-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--space-2);
+    margin: 0;
+  }
+  .action {
+    padding: var(--space-3);
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    transition: border-color var(--t-base) var(--ease);
+  }
+  .action:hover {
+    border-color: var(--accent-soft);
+  }
+  .action dt {
+    margin: 0 0 var(--space-1);
+  }
+  .action-name {
+    color: var(--accent);
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 14px;
+  }
+  .action-arg {
+    color: var(--fg-subtle);
+    font-size: 11px;
+    margin-left: var(--space-1);
+  }
+  .action dd {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+
+  /* ----------------- example cards ----------------- */
+  .example-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--space-2);
+  }
+  .example {
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    transition: border-color var(--t-base) var(--ease);
+  }
+  .example:hover {
+    border-color: var(--accent);
+  }
+  .example header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .example-cmd {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 14px;
+    color: var(--accent);
+  }
+  .example-name {
+    font-family: "Departure Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--fg-subtle);
+  }
+  .example-blurb {
+    font-size: 13px;
+    color: var(--fg);
+    margin: 0;
+    line-height: 1.5;
+  }
+  .example footer {
+    margin-top: auto;
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .example-tag {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+  .example-why {
+    font-size: 12px;
+    color: var(--fg-muted);
+    margin: 0;
+    line-height: 1.45;
+  }
+
+  /* ----------------- verbs list ----------------- */
+  .verbs dt {
+    font-family: "JetBrains Mono", monospace;
+  }
+
+  /* ----------------- next list ----------------- */
+  .next-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: var(--space-2);
+    max-width: 75ch;
+  }
+  .next-list li {
+    padding: var(--space-2) var(--space-3);
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    color: var(--fg-muted);
+    font-size: 13px;
+    transition: border-color var(--t-base) var(--ease);
+  }
+  .next-list li:hover {
+    border-color: var(--accent-soft);
+  }
+  .next-list strong {
+    color: var(--fg);
+  }
+
+  /* ----------------- prose helpers ----------------- */
+  .muted-p {
+    color: var(--fg-muted);
+    max-width: 65ch;
+    margin: var(--space-2) 0 0;
+    font-size: 13px;
+  }
+</style>

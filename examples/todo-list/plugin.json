@@ -1,0 +1,10 @@
+{
+  "name": "todo-list",
+  "version": "0.1.0",
+  "apiVersion": "1",
+  "description": "Lists `TODO:` markers in the workspace with file:line context.",
+  "author": "fedit maintainers",
+  "homepage": "https://github.com/HelgeSverre/fedit",
+  "entryAssembly": "todo-list.dll",
+  "entryType": "TodoList.Plugin"
+}
