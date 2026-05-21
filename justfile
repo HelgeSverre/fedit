@@ -97,6 +97,72 @@ uninstall dest="%LOCALAPPDATA%\\Programs\\fedit":
     if exist "{{dest}}\fedit.exe" del /Q "{{dest}}\fedit.exe"
     @echo Removed {{dest}}\fedit.exe
 
+# Build the tree-sitter-fsharp shared library for the host machine.
+# Sources are pre-generated in vendor/tree-sitter-fsharp/fsharp/src/, so no
+# `tree-sitter generate` step is needed.
+[group('build')]
+build-grammar:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    src="vendor/tree-sitter-fsharp/fsharp/src"
+    case "$(uname -s)/$(uname -m)" in
+        Darwin/arm64)  rid="osx-arm64";   out="libtree-sitter-fsharp.dylib" ;;
+        Darwin/x86_64) rid="osx-x64";     out="libtree-sitter-fsharp.dylib" ;;
+        Linux/x86_64)  rid="linux-x64";   out="libtree-sitter-fsharp.so" ;;
+        Linux/aarch64) rid="linux-arm64"; out="libtree-sitter-fsharp.so" ;;
+        *) echo "Unknown host: $(uname -s)/$(uname -m)" >&2; exit 1 ;;
+    esac
+    dest="src/Fedit/runtimes/$rid/native"
+    mkdir -p "$dest"
+    extra=""
+    [ -f "$src/scanner.c" ] && extra="$src/scanner.c"
+    clang -O2 -shared -fPIC -I "$src" -o "$dest/$out" "$src/parser.c" $extra
+    echo "Built $dest/$out"
+
+# Cross-build the F# grammar for every shipped RID. Requires zig (brew install zig).
+[group('build')]
+build-grammar-osx-arm64:
+    mkdir -p src/Fedit/runtimes/osx-arm64/native
+    clang -O2 -shared -fPIC -target arm64-apple-macos11 \
+        -I vendor/tree-sitter-fsharp/fsharp/src \
+        -o src/Fedit/runtimes/osx-arm64/native/libtree-sitter-fsharp.dylib \
+        vendor/tree-sitter-fsharp/fsharp/src/parser.c vendor/tree-sitter-fsharp/fsharp/src/scanner.c
+
+[group('build')]
+build-grammar-osx-x64:
+    mkdir -p src/Fedit/runtimes/osx-x64/native
+    clang -O2 -shared -fPIC -target x86_64-apple-macos10.15 \
+        -I vendor/tree-sitter-fsharp/fsharp/src \
+        -o src/Fedit/runtimes/osx-x64/native/libtree-sitter-fsharp.dylib \
+        vendor/tree-sitter-fsharp/fsharp/src/parser.c vendor/tree-sitter-fsharp/fsharp/src/scanner.c
+
+[group('build')]
+build-grammar-linux-x64:
+    mkdir -p src/Fedit/runtimes/linux-x64/native
+    zig cc -O2 -shared -fPIC -target x86_64-linux-gnu \
+        -I vendor/tree-sitter-fsharp/fsharp/src \
+        -o src/Fedit/runtimes/linux-x64/native/libtree-sitter-fsharp.so \
+        vendor/tree-sitter-fsharp/fsharp/src/parser.c vendor/tree-sitter-fsharp/fsharp/src/scanner.c
+
+[group('build')]
+build-grammar-linux-arm64:
+    mkdir -p src/Fedit/runtimes/linux-arm64/native
+    zig cc -O2 -shared -fPIC -target aarch64-linux-gnu \
+        -I vendor/tree-sitter-fsharp/fsharp/src \
+        -o src/Fedit/runtimes/linux-arm64/native/libtree-sitter-fsharp.so \
+        vendor/tree-sitter-fsharp/fsharp/src/parser.c vendor/tree-sitter-fsharp/fsharp/src/scanner.c
+
+[group('build')]
+build-grammar-win-x64:
+    mkdir -p src/Fedit/runtimes/win-x64/native
+    zig cc -O2 -shared -target x86_64-windows-gnu \
+        -I vendor/tree-sitter-fsharp/fsharp/src \
+        -o src/Fedit/runtimes/win-x64/native/tree-sitter-fsharp.dll \
+        vendor/tree-sitter-fsharp/fsharp/src/parser.c vendor/tree-sitter-fsharp/fsharp/src/scanner.c
+
+[group('build')]
+build-grammars-all: build-grammar-osx-arm64 build-grammar-osx-x64 build-grammar-linux-x64 build-grammar-linux-arm64 build-grammar-win-x64
+
 # Cut a release: tag and push. CI publishes binaries + updates the homebrew formula.
 # Usage: just release 0.1.0
 [group('release')]
