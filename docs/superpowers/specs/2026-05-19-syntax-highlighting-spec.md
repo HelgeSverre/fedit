@@ -145,13 +145,13 @@ User theme JSON (`~/.config/fedit/themes/*.json`) gains an optional `syntax` blo
 
 ```json
 {
-  "name": "ocean",
-  "accent": "#1F6FEB",
-  "syntax": {
-    "keyword": "#FF8FB1",
-    "string": "#73D49C",
-    "comment": "#8A8F98"
-  }
+    "name": "ocean",
+    "accent": "#1F6FEB",
+    "syntax": {
+        "keyword": "#FF8FB1",
+        "string": "#73D49C",
+        "comment": "#8A8F98"
+    }
 }
 ```
 
@@ -192,13 +192,13 @@ Called on `FileOpened`. Buffers without a path (the initial `scratch`) get no la
 
 ### Lifecycle
 
-| Event                        | Action                                                                                                                              |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Startup (`Runtime.run`)      | `HighlightRegistry.tryCreate()`. Stash on `Model.HighlightRegistry`. Log + warn if `None`.                                          |
-| Buffer opened (`FileOpened`) | Detect language. If supported and registry exists, run `Highlight.parse`; insert `HighlightState` into `Model.HighlightStates`.     |
-| Buffer mutated               | Reparse from scratch via `Highlight.parse`; previous state's `Tree` (and `Parser` if recreated) are disposed before the swap.       |
-| Buffer closed                | Dispose `Parser` + `Tree`; remove entry from map.                                                                                   |
-| App shutdown                 | Dispose every `HighlightState`, then dispose the registry. Languages/queries leak (cheap; OS reclaims).                             |
+| Event                        | Action                                                                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Startup (`Runtime.run`)      | `HighlightRegistry.tryCreate()`. Stash on `Model.HighlightRegistry`. Log + warn if `None`.                                      |
+| Buffer opened (`FileOpened`) | Detect language. If supported and registry exists, run `Highlight.parse`; insert `HighlightState` into `Model.HighlightStates`. |
+| Buffer mutated               | Reparse from scratch via `Highlight.parse`; previous state's `Tree` (and `Parser` if recreated) are disposed before the swap.   |
+| Buffer closed                | Dispose `Parser` + `Tree`; remove entry from map.                                                                               |
+| App shutdown                 | Dispose every `HighlightState`, then dispose the registry. Languages/queries leak (cheap; OS reclaims).                         |
 
 ### Failure modes
 

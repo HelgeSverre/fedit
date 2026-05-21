@@ -144,6 +144,33 @@ Remove a previously installed binary:
 just uninstall
 ```
 
+## Syntax highlighting
+
+`fedit` highlights F# source files (`.fs`, `.fsi`, `.fsx`) using
+[tree-sitter](https://tree-sitter.github.io/tree-sitter/) and the
+[ionide/tree-sitter-fsharp](https://github.com/ionide/tree-sitter-fsharp)
+grammar. F# is the only language for the MVP; the architecture is set
+up for more.
+
+Toggle from the command bar:
+
+- `:syntax on` — enable
+- `:syntax off` — disable
+- `:syntax toggle` — flip
+
+The choice persists to `~/.config/fedit/config.json` under
+`syntaxHighlighting`. Themes carry 16 capture-to-color mappings under
+each theme record (and an optional `syntax` block in user-theme JSON);
+see [docs/syntax-highlighting.md](docs/syntax-highlighting.md) for the
+capture map and palette tuning.
+
+Contributors: the native grammar lives in
+`vendor/tree-sitter-fsharp/` as a git submodule. Run `git submodule
+update --init` after cloning, then `just build-grammar` for the host
+RID or `just build-grammars-all` for all five. The compiled `.dylib` /
+`.so` / `.dll` files are not tracked — CI builds the matching RID on
+each matrix leg.
+
 ## Plugins
 
 `fedit` supports third-party plugins written in F#. Plugins register

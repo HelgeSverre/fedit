@@ -90,26 +90,28 @@ module Config =
           SyntaxHighlightingEnabled = true }
 
 type Model =
-    { Workspace: WorkspaceState
-      Editors: EditorsState
-      Prompt: PromptState
-      Panels: PanelsState
-      Focus: FocusTarget
-      Terminal: Size
-      Notification: Notification option
-      Config: Config
-      UserThemes: Theme list
-      Plugins: PluginRegistry
-      /// Process-wide tree-sitter registry. `None` if the native
-      /// `libtree-sitter-fsharp.*` failed to load at startup; in that
-      /// case `HighlightStates` stays empty and the renderer skips the
-      /// color overlay.
-      HighlightRegistry: HighlightRegistry option
-      /// Per-buffer parse state, keyed by `BufferState.Id`. Owned: the
-      /// runtime disposes every value on shutdown.
-      HighlightStates: Map<int, HighlightState>
-      QuitArmed: bool
-      ShouldQuit: bool }
+    {
+        Workspace: WorkspaceState
+        Editors: EditorsState
+        Prompt: PromptState
+        Panels: PanelsState
+        Focus: FocusTarget
+        Terminal: Size
+        Notification: Notification option
+        Config: Config
+        UserThemes: Theme list
+        Plugins: PluginRegistry
+        /// Process-wide tree-sitter registry. `None` if the native
+        /// `libtree-sitter-fsharp.*` failed to load at startup; in that
+        /// case `HighlightStates` stays empty and the renderer skips the
+        /// color overlay.
+        HighlightRegistry: HighlightRegistry option
+        /// Per-buffer parse state, keyed by `BufferState.Id`. Owned: the
+        /// runtime disposes every value on shutdown.
+        HighlightStates: Map<int, HighlightState>
+        QuitArmed: bool
+        ShouldQuit: bool
+    }
 
 type Msg =
     | KeyPressed of KeyInput
