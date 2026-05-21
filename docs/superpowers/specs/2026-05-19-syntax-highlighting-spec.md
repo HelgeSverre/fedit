@@ -1,7 +1,7 @@
 # Syntax Highlighting Design Spec
 
-**Status:** Draft
-**Date:** 2026-05-19
+**Status:** Draft (revised 2026-05-21 to track code drift)
+**Date:** 2026-05-19 (revised 2026-05-21)
 **Scope:** MVP syntax highlighting for fedit, F# only, via `TreeSitter.DotNet` + `ionide/tree-sitter-fsharp`.
 
 ## Goal
@@ -23,13 +23,14 @@ Render F# source files with token-level coloring (keywords, strings, comments, i
 
 - **`TreeSitter.DotNet` 1.3.0+** (MIT, NuGet), wrapping `libtree-sitter` v0.26.3.
 - Verified: incremental `Tree.Edit`, `Parser.Parse(source, oldTree)`, queries with `QueryCursor.SetRange`, RID coverage for osx-arm64/x64, linux-x64/arm64, win-x64.
+- Targets `net10.0` to match the rest of the project (fedit moved off net9 in 2026-04).
 - Risks (see verification doc): bus factor 1, issue #11 heap corruption under heavy batch parsing (not our use case), no source-link symbols. Mitigations baked into this plan.
 
 ### Grammar
 
 - **`ionide/tree-sitter-fsharp` v0.3.0** (MIT, actively maintained as of 2026-04-27).
 - Vendored as a git submodule at `vendor/tree-sitter-fsharp/`.
-- Built per-RID by a justfile recipe (`just build-grammars` / `just build-grammar-<rid>`).
+- Built per-RID by a justfile recipe (`just build-grammar` for host, `just build-grammar-<rid>` per target).
 - `highlights.scm` copied from the grammar's `queries/` directory into `src/Fedit/Resources/queries/fsharp/highlights.scm`. Embedded as a project resource so the published binary doesn't depend on the working directory.
 
 ### Native binary layout
@@ -49,7 +50,7 @@ After `dotnet publish -r <rid>`, an MSBuild target deletes the 30 bundled gramma
 
 ### State model
 
-A `HighlightState` lives on each `BufferState`:
+`HighlightState` lives on `Model`, keyed by buffer id — **not** on `BufferState`. The original draft put it on `BufferState`, but that would force `Highlight.fs` to compile before `Buffer.fs` (because the record would carry `TreeSitter.Parser`/`Tree`). The current source order has `Buffer.fs` near the top, and pushing TreeSitter types into the buffer record would also force every test that touches a `BufferState` to take a transitive dependency on the native library. Keeping highlight state outside the buffer leaves `Buffer.fs` and `BufferState` as pure data, and lets `Highlight.fs` slot in next to the other rendering-adjacent modules (after `Themes.fs`).
 
 ```fsharp
 type HighlightCapture =
@@ -72,26 +73,27 @@ type HighlightCapture =
 
 type HighlightSpan =
     { Capture: HighlightCapture
-      StartByte: int       // .NET char index (TreeSitter.DotNet uses char-indexed UTF-16)
+      StartByte: int       // .NET char index (TreeSitter.DotNet uses UTF-16 char indices)
       EndByte: int }
 
 type HighlightState =
-    { Language: string option           // "fsharp" | None
-      Tree: TreeSitter.Tree option       // owned; disposed when replaced
-      Spans: HighlightSpan array }       // last computed; sorted by StartByte
+    { Language: string
+      Parser: TreeSitter.Parser         // owned; disposed when state is replaced or dropped
+      Tree: TreeSitter.Tree option      // owned; disposed when replaced
+      Spans: HighlightSpan array }      // last computed; sorted by StartByte
 ```
 
-`HighlightState.Default = { Language = None; Tree = None; Spans = [||] }` for non-highlighted buffers.
+`Model.HighlightStates : Map<int, HighlightState>` (key = `BufferState.Id`). Buffers without a recognised language have no entry; lookups return `None` and rendering falls back to plain text.
 
 ### Singleton language/query registry
 
-A `HighlightRegistry` module holds:
+A `HighlightRegistry` type holds:
 
 - `Language` per language name (constructed once, never disposed during app life)
 - `Query` per language name (constructed once, never disposed)
-- `Parser` per buffer — NOT shared, one parser per `BufferState`
+- `Parser` per buffer — NOT shared; created in `Highlight.parse` and stored on the per-buffer `HighlightState`
 
-The registry is initialized at startup. If the F# native library is not findable, `HighlightRegistry.tryGetLanguage "fsharp"` returns `None` and all F# buffers fall back to unhighlighted rendering with a one-time warning notification.
+The registry is initialized at startup by `Runtime.run` and stashed on `Model.HighlightRegistry : HighlightRegistry option`. If the F# native library is not findable, `HighlightRegistry.tryCreate` returns `None`; F# buffers fall back to unhighlighted rendering and a one-time warning notification surfaces at startup.
 
 ### Edit handling
 
@@ -101,36 +103,59 @@ The registry is initialized at startup. If the F# native library is not findable
 
 ### Rendering integration
 
-`Screen.fs` / `Renderer.fs` already converts model state to a grid of styled cells. Add a `Highlight.styleFor` lookup that, given a buffer and a (line, column) cell coordinate, returns an optional foreground color to overlay on the existing cell style.
+The per-cell renderer is `View.fs`'s `Layout.renderEditor` — that's where rows from the active buffer are written into `Screen.Cells` with their `Style` (foreground `Color`, background `Color`, bold, inverted). `Renderer.fs` only does the ANSI diff/emit pass over an already-built `Screen`, so the highlight overlay belongs in `Layout.renderEditor`, not `Renderer.fs`.
 
-The lookup uses binary search on the sorted span array to find the span containing the cell's char index. O(log n) per cell; cheap on a single viewport.
+`Highlight.spanAt spans charIndex` does a binary search over the sorted span array. The render loop already knows each row's start char index (`lineStarts[lineIndex]`); for each visible column it computes `lineStart + col` and looks up the span. When a span is present and `model.Config.SyntaxHighlightingEnabled`, the cell's foreground is set to `Highlight.colorFor theme span.Capture`. Selection and search-highlight overlays continue to win over syntax color (they overwrite the cell afterwards, as today).
 
 ### Theme integration
 
-`Theme` record gains 16 new fields (one per `HighlightCapture` case) of type `int` (ANSI color index, matching existing theme fields):
+`Theme` (in `src/Fedit/Themes.fs`) gains 16 new fields of type `Color` (the existing `Default | Indexed | Rgb` DU from `Color.fs`):
 
 ```fsharp
 type Theme =
-    { // ...existing fields
-      SyntaxKeyword: int
-      SyntaxKeywordControl: int
-      SyntaxKeywordOperator: int
-      SyntaxString: int
-      SyntaxStringSpecial: int
-      SyntaxNumber: int
-      SyntaxComment: int
-      SyntaxFunction: int
-      SyntaxFunctionCall: int
-      SyntaxType: int
-      SyntaxConstructor: int
-      SyntaxVariable: int
-      SyntaxParameter: int
-      SyntaxOperator: int
-      SyntaxPunctuation: int
-      SyntaxAttribute: int }
+    { Name: string
+      Description: string
+      Accent: Color
+      StatusBg: Color
+      SelectedBg: Color
+      CurrentLine: Color
+      StatusFg: Color
+      // Syntax palette — one Color per HighlightCapture case.
+      SyntaxKeyword: Color
+      SyntaxKeywordControl: Color
+      SyntaxKeywordOperator: Color
+      SyntaxString: Color
+      SyntaxStringSpecial: Color
+      SyntaxNumber: Color
+      SyntaxComment: Color
+      SyntaxFunction: Color
+      SyntaxFunctionCall: Color
+      SyntaxType: Color
+      SyntaxConstructor: Color
+      SyntaxVariable: Color
+      SyntaxParameter: Color
+      SyntaxOperator: Color
+      SyntaxPunctuation: Color
+      SyntaxAttribute: Color }
 ```
 
-Bundled themes get tasteful defaults. User theme JSON gains optional `syntax` block; missing fields fall back to bundled defaults from the same base palette.
+Bundled themes pick `Color.indexed N` defaults from the ANSI 256 cube that fit each palette. `Color.Default` is a valid value meaning "no override — keep the surface foreground"; a theme that wants e.g. `Variable` not to take any syntax color can set it to `Default`.
+
+User theme JSON (`~/.config/fedit/themes/*.json`) gains an optional `syntax` block:
+
+```json
+{
+  "name": "ocean",
+  "accent": "#1F6FEB",
+  "syntax": {
+    "keyword": "#FF8FB1",
+    "string": "#73D49C",
+    "comment": "#8A8F98"
+  }
+}
+```
+
+Each missing syntax field falls back to the corresponding `Themes.defaultTheme` value, so a user theme can override `accent`+`statusBg` without redefining all 16 syntax colors.
 
 ### Capture-name resolution
 
@@ -158,40 +183,42 @@ Unknown captures resolve to `None` (no styling).
 let detectLanguage (path: string option) : string option =
     path
     |> Option.bind (fun p ->
-        match Path.GetExtension(p).ToLowerInvariant() with
+        match (Path.GetExtension p).ToLowerInvariant() with
         | ".fs" | ".fsi" | ".fsx" -> Some "fsharp"
         | _ -> None)
 ```
 
-Called on buffer open. Buffers without a path (`scratch`) get no language and no highlighting.
+Called on `FileOpened`. Buffers without a path (the initial `scratch`) get no language and no highlighting.
 
 ### Lifecycle
 
-| Event                        | Action                                                                                                             |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Startup                      | Register F# language + load `highlights.scm` from embedded resource.                                               |
-| Buffer opened (`FileOpened`) | Detect language. If supported, create `Parser`, parse contents, run query, store spans in `BufferState.Highlight`. |
-| Buffer edit (text change)    | Reparse from scratch; rebuild spans.                                                                               |
-| Buffer closed                | Dispose `Parser` and `Tree`.                                                                                       |
-| App shutdown                 | Dispose `Parser`/`Tree` for each buffer. Languages/queries leak (cheap; OS reclaims).                              |
+| Event                        | Action                                                                                                                              |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Startup (`Runtime.run`)      | `HighlightRegistry.tryCreate()`. Stash on `Model.HighlightRegistry`. Log + warn if `None`.                                          |
+| Buffer opened (`FileOpened`) | Detect language. If supported and registry exists, run `Highlight.parse`; insert `HighlightState` into `Model.HighlightStates`.     |
+| Buffer mutated               | Reparse from scratch via `Highlight.parse`; previous state's `Tree` (and `Parser` if recreated) are disposed before the swap.       |
+| Buffer closed                | Dispose `Parser` + `Tree`; remove entry from map.                                                                                   |
+| App shutdown                 | Dispose every `HighlightState`, then dispose the registry. Languages/queries leak (cheap; OS reclaims).                             |
 
 ### Failure modes
 
-- Native F# library missing → `Highlight.tryInit "fsharp"` returns `None`; one-time warning notification; buffers render without highlighting.
-- Parse returns null → keep previous spans; log to `--log` if active.
-- Query construction fails (bad `.scm`) → log; buffer keeps empty spans.
+- Native F# library missing → `HighlightRegistry.tryCreate` returns `None`; one-time warning notification at startup; buffers render without highlighting.
+- Parse returns null → keep previous spans, log to `--log` if active.
+- Query construction fails (bad `.scm`) → log; registry treats language as unavailable.
 
 ### Configuration
 
-A new boolean field on the model:
+`Config` (the record in `src/Fedit/Model.fs`, owned by `Config.defaults` / `ConfigIO.load` / `ConfigIO.save`) gains:
 
 ```fsharp
-type Model =
-    { // ...existing
+type Config =
+    { // ...existing fields
       SyntaxHighlightingEnabled: bool }
 ```
 
-Default `true`. Add a new command:
+`Config.defaults` sets it to `true`. `ConfigIO.load` reads the optional `"syntaxHighlighting"` boolean (defaults to `true` when absent or malformed). `ConfigIO.save` writes it back alongside the existing keys.
+
+A new built-in command:
 
 ```
 syntax on
@@ -199,7 +226,7 @@ syntax off
 syntax toggle
 ```
 
-Persisted to `~/.config/fedit/config.json` alongside theme and recent.
+…flips `model.Config.SyntaxHighlightingEnabled` and emits `Effect.SaveConfig model.Config` (the effect already carries the whole `Config`).
 
 ### Performance budgets
 
@@ -212,7 +239,7 @@ If Phase 1 reparse exceeds 16 ms (one frame at 60 fps) on a reasonable-sized fil
 
 ### Testing strategy
 
-- **Unit:** capture-name → `HighlightCapture` resolution, language detection, span-overlap math.
+- **Unit:** capture-name → `HighlightCapture` resolution, language detection, span-overlap math (`spanAt`).
 - **Integration:** load F# grammar from native lib in repo, parse a fixture `.fs` file, assert specific spans (keyword at byte X, string at byte Y).
 - **Per-RID CI smoke:** matrix job on osx-arm64, osx-x64, linux-x64, linux-arm64, win-x64. Builds, loads F# grammar, parses, queries, asserts one keyword span. Catches missing/broken native libs.
 
@@ -221,4 +248,4 @@ If Phase 1 reparse exceeds 16 ms (one frame at 60 fps) on a reasonable-sized fil
 - Phase 2 incremental parse triggers a `Buffer.fs` refactor to emit edit records. Worth doing inside this plan or after MVP ships?
 - Caching strategy beyond MVP: per-viewport span cache vs. full-tree span array. Phase 1 stores full-tree; revisit when 100k-line files appear.
 - Multi-language support: when we add C# / Markdown / JSON, do we extend `HighlightRegistry` with one entry per language, or unify with the plugin API and let plugins register grammars?
-- Selection / search highlights overlaying syntax highlights — composition order needs care.
+- Selection / search highlights overlaying syntax highlights — composition order needs care. Today the spec keeps selection/search winning over syntax (they overwrite the cell after the syntax pass).
