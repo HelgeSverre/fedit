@@ -222,6 +222,39 @@ module Layout =
                     (pad contentWidth (crop buffer.ViewportLeft contentWidth rows[lineIndex]))
                     screen
 
+                // Syntax overlay — replace each cell's foreground with the
+                // span's themed color where one exists. Runs before
+                // selection / search so those overlays continue to win,
+                // matching the design spec.
+                if model.Config.SyntaxHighlightingEnabled then
+                    match Map.tryFind buffer.Id model.HighlightStates with
+                    | Some highlight when highlight.Spans.Length > 0 ->
+                        let lineStart = lineStarts[lineIndex]
+                        let lineLen = rows[lineIndex].Length
+                        let visibleStart = buffer.ViewportLeft
+                        let visibleEnd = min lineLen (buffer.ViewportLeft + contentWidth)
+
+                        for col in visibleStart .. visibleEnd - 1 do
+                            match Highlight.spanAt highlight.Spans (lineStart + col) with
+                            | Some span ->
+                                let fg = Highlight.colorFor theme span.Capture
+
+                                if fg <> Color.Default then
+                                    let displayCol = col - buffer.ViewportLeft
+                                    let cellX = x + gutterWidth + displayCol
+
+                                    if cellX < x + width then
+                                        let existing = screen.Cells[row, cellX]
+
+                                        Screen.setCell
+                                            cellX
+                                            row
+                                            { existing.Style with Foreground = fg }
+                                            existing.Glyph
+                                            screen
+                            | None -> ()
+                    | _ -> ()
+
                 match Buffer.selectionRange buffer with
                 | Some(selStart, selEnd) when selEnd > selStart ->
                     let lineStart = lineStarts[lineIndex]
