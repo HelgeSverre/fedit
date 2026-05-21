@@ -186,3 +186,83 @@ let ``Ctrl+B again while focused on sidebar hides it and returns to editor`` () 
     let hidden, _ = Editor.update (KeyPressed(Ctrl 'b')) inSidebar
     hidden.Panels.SidebarVisible |> should equal false
     hidden.Focus |> should equal Editor
+
+// ─────────────────────────────────────────────────────────────────────
+// Buffer-switching chords
+// ─────────────────────────────────────────────────────────────────────
+
+/// Add a second empty buffer (id = 2) to a fresh model and return both
+/// the new model and the sorted id list. Mirrors how FileOpened wires
+/// in a new buffer without dragging in the LoadFile effect.
+let private withTwoBuffers () =
+    let model = initModel ()
+    let second = Buffer.createEmpty 2
+
+    let withBoth =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers = model.Editors.Buffers |> Map.add second.Id second
+                    NextBufferId = 3 } }
+
+    withBoth
+
+[<Fact>]
+let ``Ctrl+PageDown cycles to the next buffer`` () =
+    let model = withTwoBuffers ()
+    model.Editors.ActiveBufferId |> should equal 1
+    let next, _ = Editor.update (KeyPressed CtrlPageDown) model
+    next.Editors.ActiveBufferId |> should equal 2
+
+[<Fact>]
+let ``Ctrl+PageUp cycles to the previous buffer`` () =
+    let model = withTwoBuffers ()
+    // Start on buffer 2 so PageUp moves back to 1.
+    let onSecond =
+        { model with
+            Editors =
+                { model.Editors with
+                    ActiveBufferId = 2 } }
+
+    let next, _ = Editor.update (KeyPressed CtrlPageUp) onSecond
+    next.Editors.ActiveBufferId |> should equal 1
+
+[<Fact>]
+let ``Ctrl+PageDown wraps around at the end`` () =
+    let model = withTwoBuffers ()
+
+    let onSecond =
+        { model with
+            Editors =
+                { model.Editors with
+                    ActiveBufferId = 2 } }
+
+    let next, _ = Editor.update (KeyPressed CtrlPageDown) onSecond
+    next.Editors.ActiveBufferId |> should equal 1
+
+[<Fact>]
+let ``Ctrl+1 jumps to the first buffer by index`` () =
+    let model = withTwoBuffers ()
+
+    let onSecond =
+        { model with
+            Editors =
+                { model.Editors with
+                    ActiveBufferId = 2 } }
+
+    let next, _ = Editor.update (KeyPressed(CtrlDigit 1)) onSecond
+    next.Editors.ActiveBufferId |> should equal 1
+
+[<Fact>]
+let ``Ctrl+2 jumps to the second buffer by index`` () =
+    let model = withTwoBuffers ()
+    let next, _ = Editor.update (KeyPressed(CtrlDigit 2)) model
+    next.Editors.ActiveBufferId |> should equal 2
+
+[<Fact>]
+let ``Ctrl+N where N exceeds buffer count is a silent no-op`` () =
+    let model = withTwoBuffers ()
+    let next, _ = Editor.update (KeyPressed(CtrlDigit 5)) model
+    next.Editors.ActiveBufferId |> should equal model.Editors.ActiveBufferId
+    // No notification surfaced — out-of-range presses don't bark.
+    next.Notification |> should equal (None: Notification option)

@@ -45,6 +45,12 @@ module Input =
             | ConsoleKey.Z -> Some(Ctrl 'z')
             | ConsoleKey.Backspace -> Some CtrlBackspace
             | ConsoleKey.Delete -> Some CtrlDelete
+            | ConsoleKey.PageUp -> Some CtrlPageUp
+            | ConsoleKey.PageDown -> Some CtrlPageDown
+            // ConsoleKey.D0..D9 form a contiguous range; subtract D0
+            // to recover the digit value. macOS Terminal.app may not
+            // produce these — see docs/wip-keybinds.md.
+            | k when k >= ConsoleKey.D0 && k <= ConsoleKey.D9 -> Some(CtrlDigit(int k - int ConsoleKey.D0))
             | _ -> None
         else
             match keyInfo.Key with

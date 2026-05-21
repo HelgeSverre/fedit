@@ -43,6 +43,10 @@ type KeyInput =
     | AltDown
     | CtrlBackspace
     | CtrlDelete
+    | CtrlPageUp
+    | CtrlPageDown
+    /// Ctrl + a digit row key (0..9). Used for buffer jumps.
+    | CtrlDigit of int
     | ShiftLeft
     | ShiftRight
     | ShiftUp

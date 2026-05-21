@@ -359,6 +359,22 @@ module Editor =
                         ActiveBufferId = ids[nextIndex] } }
             |> notify (Some(Notification.info $"Buffer {nextIndex + 1}/{ids.Length}"))
 
+    /// Jump directly to the buffer at the given 1-based index (sorted by ID,
+    /// matching `switchBuffer`'s ordering). Out-of-range presses are a
+    /// silent no-op — pressing Ctrl+5 with only 3 buffers open shouldn't
+    /// surprise the user with a notification.
+    let private jumpToBuffer index model =
+        let ids = model.Editors.Buffers |> Map.keys |> Seq.toList |> List.sort
+
+        match List.tryItem (index - 1) ids with
+        | Some id ->
+            { model with
+                Editors =
+                    { model.Editors with
+                        ActiveBufferId = id } }
+            |> notify (Some(Notification.info $"Buffer {index}/{ids.Length}"))
+        | None -> model
+
     /// Build a read-only snapshot of the world for a plugin command. The
     /// plugin sees text, cursor, file path, all open buffers, and the
     /// workspace root — never any mutable handle into the host's model.
@@ -1190,6 +1206,9 @@ module Editor =
                             Notification = Some(Notification.info $"Cut {text.Length} char(s)") },
                     [ ClipboardCopy text ]
             | Ctrl 'v' -> { model with Notification = None }, [ ClipboardPaste ]
+            | CtrlPageDown -> executeCommand NextBuffer { model with Notification = None }
+            | CtrlPageUp -> executeCommand PreviousBuffer { model with Notification = None }
+            | CtrlDigit n when n >= 1 && n <= 9 -> jumpToBuffer n { model with Notification = None }, []
             | _ ->
                 match model.Focus with
                 | Sidebar -> runSidebar key { model with Notification = None }
