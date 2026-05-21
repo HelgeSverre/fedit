@@ -24,6 +24,7 @@
     <Compile Include="CliTests.fs" />
     <Compile Include="CompletionsTests.fs" />
     <Compile Include="StatusTests.fs" />
+    <Compile Include="HighlightTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

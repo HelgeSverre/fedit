@@ -24,6 +24,7 @@
          invocations (e.g. binary smoke tests via `dotnet run`). Version
          pinned in Directory.Packages.props. -->
     <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="TreeSitter.DotNet" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Fedit.PluginApi\Fedit.PluginApi.fsproj" />
