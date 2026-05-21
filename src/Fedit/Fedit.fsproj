@@ -30,6 +30,16 @@
     <ProjectReference Include="..\Fedit.PluginApi\Fedit.PluginApi.fsproj" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Resources/queries/fsharp/highlights.scm">
+      <LogicalName>fedit.queries.fsharp.highlights.scm</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="runtimes/**/*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
     <Compile Include="Primitives.fs" />
     <Compile Include="PieceTable.fs" />
     <Compile Include="Buffer.fs" />
