@@ -47,6 +47,7 @@
     <Compile Include="Screen.fs" />
     <Compile Include="Color.fs" />
     <Compile Include="Themes.fs" />
+    <Compile Include="Highlight.fs" />
     <Compile Include="Commands.fs" />
     <Compile Include="Plugins.fs" />
     <Compile Include="Model.fs" />

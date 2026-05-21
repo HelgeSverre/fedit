@@ -41,4 +41,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Fedit\Fedit.fsproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="Fixtures/*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>

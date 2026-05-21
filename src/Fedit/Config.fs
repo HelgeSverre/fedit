@@ -174,6 +174,24 @@ module ConfigIO =
                         let description =
                             getStringProp root "description" |> Option.defaultValue $"User theme '{name}'"
 
+                        // Optional `syntax` block — each field falls back to the
+                        // bundled-default theme's value so a user can override
+                        // only the chrome colors without redefining all 16.
+                        let syntaxRoot =
+                            match root.TryGetProperty "syntax" with
+                            | true, e when e.ValueKind = System.Text.Json.JsonValueKind.Object -> Some e
+                            | _ -> None
+
+                        let pickSyntax (field: string) (fallback: Color) =
+                            match syntaxRoot with
+                            | Some o ->
+                                match getColorProp o field with
+                                | Some c -> c
+                                | None -> fallback
+                            | None -> fallback
+
+                        let d = Themes.defaultTheme
+
                         match
                             getColorProp root "accent",
                             getColorProp root "statusFg",
@@ -189,7 +207,23 @@ module ConfigIO =
                                   StatusFg = sf
                                   StatusBg = sb
                                   SelectedBg = seb
-                                  CurrentLine = cl }
+                                  CurrentLine = cl
+                                  SyntaxKeyword = pickSyntax "keyword" d.SyntaxKeyword
+                                  SyntaxKeywordControl = pickSyntax "keywordControl" d.SyntaxKeywordControl
+                                  SyntaxKeywordOperator = pickSyntax "keywordOperator" d.SyntaxKeywordOperator
+                                  SyntaxString = pickSyntax "string" d.SyntaxString
+                                  SyntaxStringSpecial = pickSyntax "stringSpecial" d.SyntaxStringSpecial
+                                  SyntaxNumber = pickSyntax "number" d.SyntaxNumber
+                                  SyntaxComment = pickSyntax "comment" d.SyntaxComment
+                                  SyntaxFunction = pickSyntax "function" d.SyntaxFunction
+                                  SyntaxFunctionCall = pickSyntax "functionCall" d.SyntaxFunctionCall
+                                  SyntaxType = pickSyntax "type" d.SyntaxType
+                                  SyntaxConstructor = pickSyntax "constructor" d.SyntaxConstructor
+                                  SyntaxVariable = pickSyntax "variable" d.SyntaxVariable
+                                  SyntaxParameter = pickSyntax "parameter" d.SyntaxParameter
+                                  SyntaxOperator = pickSyntax "operator" d.SyntaxOperator
+                                  SyntaxPunctuation = pickSyntax "punctuation" d.SyntaxPunctuation
+                                  SyntaxAttribute = pickSyntax "attribute" d.SyntaxAttribute }
                                 :: themes
                         | _ ->
                             errors <-
