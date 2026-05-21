@@ -39,10 +39,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+            lib: src/Fedit/runtimes/linux-x64/native/libtree-sitter-fsharp.so
+          - os: macos-latest
+            rid: osx-arm64
+            lib: src/Fedit/runtimes/osx-arm64/native/libtree-sitter-fsharp.dylib
+          - os: windows-latest
+            rid: win-x64
+            lib: src/Fedit/runtimes/win-x64/native/tree-sitter-fsharp.dll
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: true
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
@@ -52,6 +63,19 @@ jobs:
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', '**/Directory.Packages.props', 'global.json') }}
           restore-keys: |
             ${{ runner.os }}-nuget-
+      # Build the F# tree-sitter grammar for this matrix leg. The
+      # binaries aren't tracked in git (~11MB each); zig acts as a
+      # uniform C compiler across all three runners.
+      - uses: mlugg/setup-zig@v1
+      - name: Build tree-sitter-fsharp ($${{ matrix.rid }})
+        shell: bash
+        run: |
+          mkdir -p "$(dirname "${{ matrix.lib }}")"
+          zig cc -O2 -shared -fPIC \
+            -I vendor/tree-sitter-fsharp/fsharp/src \
+            -o "${{ matrix.lib }}" \
+            vendor/tree-sitter-fsharp/fsharp/src/parser.c \
+            vendor/tree-sitter-fsharp/fsharp/src/scanner.c
       - name: Build
         run: dotnet build Fedit.slnx --nologo
       - name: Test
