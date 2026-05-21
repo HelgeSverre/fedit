@@ -1,0 +1,3 @@
+[submodule "vendor/tree-sitter-fsharp"]
+	path = vendor/tree-sitter-fsharp
+	url = https://github.com/ionide/tree-sitter-fsharp.git
