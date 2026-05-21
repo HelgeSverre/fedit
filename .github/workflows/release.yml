@@ -41,10 +41,36 @@ jobs:
             ext: zip
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: true
 
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
+
+      # Build the F# tree-sitter grammar for the matrix's RID. Zig
+      # acts as a uniform cross-compiler so we don't need per-OS
+      # toolchain conditionals. The publish target's <None Include>
+      # picks up the resulting native on the next dotnet publish step.
+      - uses: mlugg/setup-zig@v1
+      - name: Build tree-sitter-fsharp for ${{ matrix.rid }}
+        shell: bash
+        run: |
+          case "${{ matrix.rid }}" in
+            osx-arm64)   target="aarch64-macos";      out="libtree-sitter-fsharp.dylib" ;;
+            osx-x64)     target="x86_64-macos";       out="libtree-sitter-fsharp.dylib" ;;
+            linux-x64)   target="x86_64-linux-gnu";   out="libtree-sitter-fsharp.so" ;;
+            linux-arm64) target="aarch64-linux-gnu";  out="libtree-sitter-fsharp.so" ;;
+            win-x64)     target="x86_64-windows-gnu"; out="tree-sitter-fsharp.dll" ;;
+            *) echo "Unknown RID: ${{ matrix.rid }}" >&2; exit 1 ;;
+          esac
+          dest="src/Fedit/runtimes/${{ matrix.rid }}/native"
+          mkdir -p "$dest"
+          zig cc -O2 -shared -fPIC -target "$target" \
+            -I vendor/tree-sitter-fsharp/fsharp/src \
+            -o "$dest/$out" \
+            vendor/tree-sitter-fsharp/fsharp/src/parser.c \
+            vendor/tree-sitter-fsharp/fsharp/src/scanner.c
 
       - name: dotnet publish
         run: dotnet publish src/Fedit/Fedit.fsproj -c Release -r ${{ matrix.rid }} -o dist/${{ matrix.rid }} --nologo

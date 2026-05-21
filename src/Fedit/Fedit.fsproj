@@ -35,10 +35,48 @@
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
+    <!-- Keep the F# grammar OUT of the single-file bundle. .NET's
+         self-extract flattens natives into a tmpdir, breaking
+         TreeSitter.DotNet's `runtimes/<rid>/native/<lib>` lookup
+         (it resolves via AppContext.BaseDirectory + subdirs).
+         Shipping the dylib next to the binary keeps the path stable. -->
     <None Include="runtimes/**/*.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </None>
   </ItemGroup>
+
+  <!-- Trim the 25+ bundled tree-sitter grammars we don't ship.
+       TreeSitter.DotNet's NuGet package places them at the publish
+       root (RelativePath = `libtree-sitter-<lang>.<ext>` with no
+       `runtimes/` prefix); our F# grammar lives under
+       `runtimes/<rid>/native/...` so the root-level filter spares it.
+       The core `libtree-sitter.<ext>` has no language suffix and
+       stays. -->
+  <Target Name="TrimUnusedTreeSitterGrammars" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <_BundledGrammars
+        Include="@(ResolvedFileToPublish)"
+        Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(ResolvedFileToPublish.RelativePath)', '^(lib)?tree-sitter-[a-z][a-z0-9_-]+\.(so|dylib|dll)$'))" />
+      <_KeepGrammars
+        Include="@(_BundledGrammars)"
+        Condition="'%(Filename)' == 'libtree-sitter-fsharp' or '%(Filename)' == 'tree-sitter-fsharp'" />
+      <_DropGrammars Include="@(_BundledGrammars)" Exclude="@(_KeepGrammars)" />
+      <ResolvedFileToPublish Remove="@(_DropGrammars)" />
+
+      <!-- Drop our own `runtimes/<rid>/native/` cross-builds that
+           don't match the active RuntimeIdentifier — the local
+           `<None Include="runtimes/**/*.*">` pulls every RID into
+           every publish output. Only the matching RID's native is
+           actually needed (and the matching one is already bundled
+           into the single-file binary when SelfContained is on). -->
+      <_OtherRidNatives
+        Include="@(ResolvedFileToPublish)"
+        Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(ResolvedFileToPublish.RelativePath)', '^runtimes[\\/][^\\/]+[\\/]native[\\/](lib)?tree-sitter-fsharp\.(so|dylib|dll)$')) and !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes$([System.IO.Path]::DirectorySeparatorChar)$(RuntimeIdentifier)$([System.IO.Path]::DirectorySeparatorChar)'))" />
+      <ResolvedFileToPublish Remove="@(_OtherRidNatives)" />
+    </ItemGroup>
+    <Message Text="Trimmed @(_DropGrammars->Count()) bundled tree-sitter grammars (kept libtree-sitter core + fsharp)." Importance="high" />
+  </Target>
   <ItemGroup>
     <Compile Include="Primitives.fs" />
     <Compile Include="PieceTable.fs" />
