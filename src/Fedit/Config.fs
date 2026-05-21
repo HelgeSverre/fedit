@@ -118,6 +118,12 @@ module ConfigIO =
                 let statusFormat =
                     getStringProp root "statusFormat" |> Option.defaultValue defaults.StatusFormat
 
+                let syntaxHighlightingEnabled =
+                    match root.TryGetProperty "syntaxHighlighting" with
+                    | true, e when e.ValueKind = System.Text.Json.JsonValueKind.False -> false
+                    | true, e when e.ValueKind = System.Text.Json.JsonValueKind.True -> true
+                    | _ -> defaults.SyntaxHighlightingEnabled
+
                 let config =
                     { Theme = theme
                       Recent = recent
@@ -130,7 +136,8 @@ module ConfigIO =
                       TreePageJump = treePageJump
                       TabWidth = tabWidth
                       Icons = icons
-                      StatusFormat = statusFormat }
+                      StatusFormat = statusFormat
+                      SyntaxHighlightingEnabled = syntaxHighlightingEnabled }
 
                 config, None
             else
@@ -280,6 +287,7 @@ module ConfigIO =
         root["tabWidth"] <- System.Text.Json.Nodes.JsonValue.Create config.TabWidth
         root["icons"] <- System.Text.Json.Nodes.JsonValue.Create iconsStr
         root["statusFormat"] <- System.Text.Json.Nodes.JsonValue.Create config.StatusFormat
+        root["syntaxHighlighting"] <- System.Text.Json.Nodes.JsonValue.Create config.SyntaxHighlightingEnabled
 
         let options = System.Text.Json.JsonSerializerOptions(WriteIndented = true)
         let json = root.ToJsonString options

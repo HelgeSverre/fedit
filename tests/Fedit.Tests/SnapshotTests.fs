@@ -15,7 +15,7 @@ open Xunit
 let private size width height = { Width = width; Height = height }
 
 let private baseModel terminal =
-    let model, _ = Editor.init "/root" terminal (Config.defaults Themes.defaultTheme) []
+    let model, _ = Editor.init "/root" terminal (Config.defaults Themes.defaultTheme) [] None
 
     model
 

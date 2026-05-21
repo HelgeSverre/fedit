@@ -36,8 +36,25 @@ module Editor =
     let activeBufferState model =
         model.Editors.Buffers[model.Editors.ActiveBufferId]
 
+    /// Recompute the highlight state for `buffer` whenever its text
+    /// might have changed. Idempotent on read-only transforms — a no-op
+    /// reparse is cheap and avoids us having to thread an "is mutating"
+    /// flag through every cursor / viewport helper. Returns the
+    /// possibly-updated `HighlightStates` map.
+    let private reparseHighlight (model: Model) (buffer: BufferState) : Map<int, HighlightState> =
+        if not model.Config.SyntaxHighlightingEnabled then
+            model.HighlightStates
+        else
+            match model.HighlightRegistry, Map.tryFind buffer.Id model.HighlightStates with
+            | Some registry, Some existing ->
+                match Highlight.parse registry existing.Language (Buffer.text buffer) (Some existing) with
+                | Some next -> Map.add buffer.Id next model.HighlightStates
+                | None -> Map.remove buffer.Id model.HighlightStates
+            | _ -> model.HighlightStates
+
     let private updateActiveBuffer transform model =
-        let transformed = activeBufferState model |> transform
+        let original = activeBufferState model
+        let transformed = original |> transform
 
         let sidebarOffset =
             if model.Panels.SidebarVisible then
@@ -51,10 +68,21 @@ module Editor =
         let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
         let updated = transformed |> Buffer.ensureViewport viewportHeight viewportWidth
 
+        // EditTick bumps only on text-mutating transforms (Buffer.fs
+        // owns this). Cursor / viewport / selection moves leave it
+        // alone, so we skip the reparse — keeps non-edit interactions
+        // free of tree-sitter cost.
+        let nextStates =
+            if updated.EditTick <> original.EditTick then
+                reparseHighlight model updated
+            else
+                model.HighlightStates
+
         { model with
             Editors =
                 { model.Editors with
-                    Buffers = model.Editors.Buffers |> Map.add updated.Id updated } }
+                    Buffers = model.Editors.Buffers |> Map.add updated.Id updated }
+            HighlightStates = nextStates }
 
     let private workspaceFiles (workspace: WorkspaceState) =
         let rec collect (node: FileNode) =
@@ -945,7 +973,7 @@ module Editor =
                 | Empty -> closePrompt model, []
         | _ -> model, []
 
-    let init rootPath size config userThemes =
+    let init rootPath size config userThemes (highlightRegistry: HighlightRegistry option) =
         { Workspace = Workspace.create rootPath
           Editors = initialEditors
           Prompt = emptyPrompt
@@ -956,6 +984,8 @@ module Editor =
           Config = config
           UserThemes = userThemes
           Plugins = PluginRegistry.empty
+          HighlightRegistry = highlightRegistry
+          HighlightStates = Map.empty
           QuitArmed = false
           ShouldQuit = false },
         [ ScanWorkspace rootPath; ScanPlugins ]
@@ -993,6 +1023,21 @@ module Editor =
 
                 let nextConfig = { model.Config with Recent = recent }
 
+                // Seed highlight state for the newly opened buffer if its
+                // extension matches a supported grammar and the registry
+                // loaded successfully. Failures stay silent — the renderer
+                // simply skips the overlay when no state exists.
+                let nextHighlight =
+                    if not model.Config.SyntaxHighlightingEnabled then
+                        model.HighlightStates
+                    else
+                        match Highlight.detectLanguage (Some path), model.HighlightRegistry with
+                        | Some lang, Some registry ->
+                            match Highlight.parse registry lang normalized None with
+                            | Some state -> Map.add buffer.Id state model.HighlightStates
+                            | None -> model.HighlightStates
+                        | _ -> model.HighlightStates
+
                 // Recent is persisted at quit, not per file-open: avoids save
                 // churn under the FS watcher and rapid open sequences. Phase
                 // 14.2.
@@ -1005,6 +1050,7 @@ module Editor =
                     Workspace = Workspace.selectPath path model.Workspace
                     Focus = Editor
                     Config = nextConfig
+                    HighlightStates = nextHighlight
                     Notification = Some(Notification.info $"Opened {buffer.Name}") },
                 []
             | Result.Error message -> notify (Some(Notification.error $"Failed to open {path}: {message}")) model, []

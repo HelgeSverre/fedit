@@ -9,7 +9,7 @@ open FsUnit.Xunit
 /// resolve against.
 let private freshModel () =
     let model, _ =
-        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) []
+        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) [] None
 
     model
 

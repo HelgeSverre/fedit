@@ -358,8 +358,14 @@ module Runtime =
         let userThemes, themeErrors = ConfigIO.loadUserThemes ()
         let config, configError = ConfigIO.load userThemes
 
+        let highlightRegistry = HighlightRegistry.tryCreate ()
+
+        match highlightRegistry with
+        | None -> log "highlight: failed to load tree-sitter — F# files will render plain"
+        | Some _ -> log "highlight: loaded tree-sitter F# grammar"
+
         let initialModel, startupEffects =
-            Editor.init rootPath (consoleSize ()) config userThemes
+            Editor.init rootPath (consoleSize ()) config userThemes highlightRegistry
 
         // Replace the default welcome notification with a warning if any
         // startup loaders failed. Otherwise leave the welcome in place.
@@ -475,5 +481,19 @@ module Runtime =
                 cts.Dispose())
 
             watcher |> Option.iter (fun w -> w.Dispose())
+
+            // Dispose per-buffer highlight parsers/trees, then the
+            // registry that owns the compiled queries. Languages
+            // themselves are not disposed — they wrap loaded dylibs
+            // which the OS reclaims on exit.
+            model.HighlightStates |> Map.iter (fun _ s -> Highlight.dispose s)
+
+            highlightRegistry
+            |> Option.iter (fun r ->
+                try
+                    (r :> IDisposable).Dispose()
+                with _ ->
+                    ())
+
             Renderer.leave writer
             logWriter |> Option.iter (fun w -> w.Dispose())

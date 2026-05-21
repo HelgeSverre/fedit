@@ -64,6 +64,11 @@ type Config =
         /// `[CURRENT_FILE:full]`. `<EXPAND>` absorbs remaining width.
         /// Unknown tokens render literally so typos are visible.
         StatusFormat: string
+        /// Toggle syntax highlighting on/off. Persisted to config.json
+        /// under `syntaxHighlighting`. Defaults to true; flipping to
+        /// false drops all per-buffer parse state and bypasses the
+        /// renderer's color-overlay pass.
+        SyntaxHighlightingEnabled: bool
     }
 
 [<RequireQualifiedAccess>]
@@ -81,7 +86,8 @@ module Config =
           TabWidth = 4
           Icons = IconsOff
           StatusFormat =
-            "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]" }
+            "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]"
+          SyntaxHighlightingEnabled = true }
 
 type Model =
     { Workspace: WorkspaceState
@@ -94,6 +100,14 @@ type Model =
       Config: Config
       UserThemes: Theme list
       Plugins: PluginRegistry
+      /// Process-wide tree-sitter registry. `None` if the native
+      /// `libtree-sitter-fsharp.*` failed to load at startup; in that
+      /// case `HighlightStates` stays empty and the renderer skips the
+      /// color overlay.
+      HighlightRegistry: HighlightRegistry option
+      /// Per-buffer parse state, keyed by `BufferState.Id`. Owned: the
+      /// runtime disposes every value on shutdown.
+      HighlightStates: Map<int, HighlightState>
       QuitArmed: bool
       ShouldQuit: bool }
 
