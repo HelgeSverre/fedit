@@ -64,6 +64,18 @@ Pass a file or directory path as the first argument. If no path is provided, `fe
 
 - `--log <path>`: Append a UTC-timestamped trace of every `Msg` and `Effect` to `<path>`. Useful for debugging without polluting the TUI.
 
+### Subcommands
+
+`fedit` also exposes non-interactive subcommands for plugin management and shell-completion installation:
+
+- `fedit plugins install <path-or-url-or-zip>`: Install a plugin from a local folder, a git URL, or a `.zip`. Wraps the same code path as in-editor `:plugin install`.
+- `fedit plugins remove <name>`: Uninstall a plugin by its `plugin.json` name.
+- `fedit plugins list [--build] [--names]`: Manifest-only listing by default; `--build` compiles + loads each plugin (slower, mirrors `:plugin list`); `--names` prints one name per line for shell-completion scripts.
+- `fedit plugins validate <path>`: Parse a `plugin.json` and report whether it's a valid manifest.
+- `fedit completions <zsh|bash|fish> [--install]`: Generate a shell-completion script. Without `--install`, prints to stdout. With `--install`, writes to the shell's standard fpath / XDG / `~/.config/fish/completions` location and prints next-step instructions.
+
+`fedit plugin <verb>` (singular) is a hidden alias for `fedit plugins <verb>` so muscle memory from the in-editor `:plugin` verb keeps working.
+
 ## Justfile Recipes
 
 List available recipes:
@@ -162,6 +174,8 @@ Global shortcuts:
 - `Ctrl+Q`: Quit (prompts once if buffers are dirty; press again to discard).
 - `Ctrl+Z`: Undo.
 - `Ctrl+Y`: Redo.
+- `Ctrl+PageDown` / `Ctrl+PageUp`: Cycle to the next / previous open buffer.
+- `Ctrl+1`…`Ctrl+9`: Jump to the open buffer at sorted index 1..9 (silent no-op if out of range).
 
 Editor keys:
 
@@ -180,7 +194,7 @@ Find keys (after `Ctrl+F`):
 
 - Type to extend the query; matches highlight live and the cursor jumps to the first hit.
 - `Enter` or `Down` advances to the next match; `Up` goes to the previous.
-- `Backspace` shortens the query; on an empty query it closes the prompt.
+- `Backspace` shortens the query (no-op once empty).
 - `Escape` closes the prompt and clears the highlights.
 
 File tree keys:
@@ -196,11 +210,12 @@ File tree keys:
 Prompt keys (any mode):
 
 - Type to extend the query; the dock panel shows matching items or live feedback for the active mode.
-- `Up` / `Down` (and `Tab` / `Shift+Tab`) move the highlight through the completion list. The viewport scrolls so the selected item stays visible. In Search mode `Up` / `Down` cycle through matches instead.
+- `Up` / `Down` (and `Shift+Tab`) move the highlight through the completion list. The viewport scrolls so the selected item stays visible. In Search mode `Up` / `Down` cycle through matches instead.
+- `Tab` autofills the prompt with the highlighted completion's text — `:o<Tab>` becomes `:open`, ready for arguments. No-op when the completion list is empty.
 - `Alt+Up` / `Alt+Down` walk through recent prompt history (up to 20 entries).
 - `Enter` runs the parsed command, applies the highlighted completion, opens the selected file/buffer, or advances to the next search match — depending on the mode.
-- `Left`, `Right`, `Home`, `End`, `Backspace`, and `Delete` edit the input. Backspace through the prefix character flips the mode (e.g. `/foo` → backspace → empty FilePicker); backspace on empty closes the prompt.
-- `Escape` closes the prompt without running anything; in Search mode it also clears the match highlights.
+- `Left`, `Right`, `Home`, `End`, `Backspace`, and `Delete` edit the input. Backspace through the prefix character flips the mode (e.g. `/foo` → backspace → empty FilePicker); backspace at the start of an empty prompt is a no-op (use `Escape` to close).
+- `Escape` is the sole way to close the prompt; in Search mode it also clears the match highlights.
 
 Prompt modes — type the prefix to switch modes inside the prompt, or use the dedicated chord to open in that mode directly:
 
@@ -217,15 +232,15 @@ Named commands (typed after `:`):
 - `write`: Save the active buffer.
 - `writeas <path>`: Save the active buffer to another path.
 - `quit`: Exit the editor.
-- `sidebar`: Toggle the sidebar visibility.
-- `tree`: Focus the file tree.
-- `editor`: Focus the editor.
+- `config`: Open `~/.config/fedit/config.json` in a buffer; creates it from the running config on first call.
 - `reload`: Reload the workspace tree.
-- `next`: Activate the next open buffer.
-- `prev`: Activate the previous open buffer.
+- `next` / `prev`: Cycle buffers (also bound to `Ctrl+PageDown` / `Ctrl+PageUp`).
 - `theme <name>`: Switch the accent color. Tab through `green` (default), `blue`, `orange`, `cyan`, `teal`, `yellow`, or `red`; the UI live-previews each highlight as you cycle. The choice persists to `~/.config/fedit/config.json` and is restored on next launch.
 - `recent <path>`: Pick a recently opened file. Tab to cycle through the last 20 files; the list persists in the same config file.
 - `buffers <id-or-name>`: Switch to an open buffer by numeric id or name. Completion shows `{id} {name}` with the file path as detail.
+- `plugin <verb> [arg]`: In-editor plugin manager. See `docs/plugins.md` for the verbs.
+
+A few keyboard-first verbs (`sidebar`, `tree`, `editor`) still parse if typed, but are hidden from the completion menu since `Ctrl+B` / `Ctrl+E` cover the same ground more richly.
 
 ## Configuration
 
@@ -244,8 +259,32 @@ Named commands (typed after `:`):
 | `treePageJump`    | int      | `10`      | 1–500                        | Entries jumped on `PageUp` / `PageDown` in the file-tree sidebar.                                                                                                     |
 | `tabWidth`        | int      | `4`       | 1–16                         | Spaces inserted by `Tab` and removed by `Shift+Tab`.                                                                                                                  |
 | `icons`           | string   | `off`     | `off` or `nerd`              | File-tree icon style. `nerd` swaps in Nerd Font PUA glyphs (requires a Nerd Font in your terminal); `off` keeps the ASCII `[+] / [-] / 4-space` markers.              |
+| `statusFormat`    | string   | see below | —                            | Status bar layout template. Tokens like `[MODE]`, `[LINE]`, `[BUFFER]` resolve against the model; `<EXPAND>` is a flex spacer that absorbs leftover width.            |
 
 Changes take effect on next launch. Out-of-range values clamp to the nearest valid bound rather than failing.
+
+#### `statusFormat` grammar
+
+The default format is:
+
+```
+[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]
+```
+
+Tokens are case-insensitive. Unknown tokens render literally so typos are visible (e.g. `[xyx]` stays as `[xyx]`). Multiple `<EXPAND>` placeholders share leftover width; odd remainder distributes left-to-right.
+
+| Token                  | Resolves to                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `[MODE]`               | Focus label (`EDIT` / `CMD` / `FILE` / `FIND` / `BUF` / `TREE`).                           |
+| `[CURRENT_FILE]`       | Filename only (e.g. `README.md`); `[scratch]` for unsaved buffers.                         |
+| `[CURRENT_FILE:short]` | Path with `$HOME` tildified (e.g. `~/code/fedit/README.md`).                               |
+| `[CURRENT_FILE:full]`  | Absolute path.                                                                             |
+| `[DIRTY]`              | ` [+]` when the buffer is dirty (with leading space so it disappears cleanly), else empty. |
+| `[LINE]` / `[COLUMN]`  | 1-based cursor position.                                                                   |
+| `[LINE_ENDING]`        | `LF` or `CRLF`.                                                                            |
+| `[BUFFER]`             | Sorted index / count (e.g. `2/5`).                                                         |
+| `[NOTIFICATION]`       | Active notification message, or empty.                                                     |
+| `<EXPAND>`             | Flex spacer; multiple expand placeholders split remaining columns evenly.                  |
 
 ### User themes
 
@@ -267,7 +306,7 @@ Color fields accept either a hex string (`#RGB` or `#RRGGBB`) or a named color (
 
 ## How It Works
 
-The project is an executable defined by `src/Fedit/Fedit.fsproj`, with sources split across 18 `.fs` files under `namespace Fedit` (see `<Compile Include="…">` entries in the fsproj for the canonical order). `Program.fs` is the entry-point shell; the actual logic lives in `Primitives.fs` → `PieceTable.fs` → `Buffer.fs` → `Workspace.fs` → `Screen.fs` → `Color.fs` → `Themes.fs` → `Commands.fs` → `Model.fs` → `Prompt.fs` → `Editor.fs` → `Renderer.fs` → `Input.fs` → `View.fs` → `Config.fs` → `Runtime.fs` → `Cli.fs`. The test project lives in `tests/Fedit.Tests/` and the `Fedit.slnx` solution at the repo root ties both together. Startup reads the first non-flag command-line argument as the workspace root. If no argument is provided, it uses the current directory.
+The project is an executable defined by `src/Fedit/Fedit.fsproj`. The bulk of the codebase sits under `namespace Fedit` (see `<Compile Include="…">` in the fsproj for the canonical order): `Primitives.fs` → `PieceTable.fs` → `Buffer.fs` → `Workspace.fs` → `Screen.fs` → `Color.fs` → `Themes.fs` → `Commands.fs` → `Plugins.fs` → `Model.fs` → `Config.fs` → `Prompt.fs` → `Editor.fs` → `Status.fs` → `Renderer.fs` → `Input.fs` → `View.fs` → `Runtime.fs` → `Program.fs`. The CLI surface lives under `namespace Fedit.Cli` per .NET convention: the parser at `Cli.fs` (`Fedit.Cli.Parser`) and the subcommand handlers under `Cli/Commands/{Plugins,Completions}.fs`. The test project lives in `tests/Fedit.Tests/` and the `Fedit.slnx` solution at the repo root ties both together. Startup reads the first non-flag command-line argument as the workspace root. If no argument is provided, it uses the current directory.
 
 At runtime, `fedit` scans the workspace into a tree model and skips `.DS_Store`, `.git`, `.dotnet`, `bin`, and `obj`. A `FileSystemWatcher` is installed on the same workspace root so external edits, creations, deletions, and renames trigger a debounced rescan (300ms) without `Ctrl+R`. The UI keeps a model containing the workspace tree, open buffers, focus target, terminal size, notifications, and panel state.
 
@@ -275,7 +314,7 @@ Text buffers are stored with a piece table. The original file contents stay in o
 
 Files are read as UTF-8. The line ending of the loaded file (`LF` or `CRLF`) is detected and reused on save; the buffer always works in `\n` form internally. Saving writes UTF-8 without a byte-order mark.
 
-The UI is split into a sidebar (file tree), an editor pane with a line-number gutter, a status line, a single-line prompt row at the bottom, and a dock panel that's hidden when the prompt is inactive. The dock appears automatically when the prompt is active — showing completions for file/command/buffer modes and a match counter or jump hint for search and goto. The status line reports the current focus (`TREE`/`EDIT`, or one of `FILE`/`CMD`/`FIND`/`BUF` when the prompt is open), active file path, dirty marker, cursor position with total line count (`Ln 12/238`), the line-ending style (`LF` or `CRLF`), the count of open buffers, and the most recent notification.
+The UI is split into a sidebar (file tree), an editor pane with a line-number gutter, a status line, a single-line prompt row at the bottom, and a dock panel that's hidden when the prompt is inactive. The dock appears automatically when the prompt is active — showing completions for file/command/buffer modes and a match counter or jump hint for search and goto. The status line is template-driven via `statusFormat` in config (see Configuration); the default layout puts the focus mode on the left, the current notification floating in the middle, and line/column / encoding / buffer-index pinned to the right edge.
 
 Themes are pure accent palettes — the dock title, status bar, selection highlight, and current-line gutter all swap together while the grayscale chrome stays constant across themes. The chosen theme, the most recent 20 opened files, and the runtime tunables described in [Configuration](#configuration) all live in `~/.config/fedit/config.json` and are restored on the next launch; the default theme is `green` (phosphor green, the brand accent).
 
