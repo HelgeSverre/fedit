@@ -195,3 +195,45 @@ let ``hidden commands are omitted from helpLines`` () =
     lines |> List.exists (fun l -> l.StartsWith("sidebar")) |> should equal false
     lines |> List.exists (fun l -> l.StartsWith("editor")) |> should equal false
     lines |> List.exists (fun l -> l.StartsWith("tree")) |> should equal false
+
+[<Fact>]
+let ``parses 'syntax toggle' as Ready (Syntax "toggle")`` () =
+    match Commands.parse "syntax toggle" with
+    | ParsedCommand.Ready(Command.Syntax "toggle") -> ()
+    | other -> failwithf "expected Ready (Syntax toggle), got %A" other
+
+[<Fact>]
+let ``parses 'syntax on' and 'syntax off'`` () =
+    match Commands.parse "syntax on" with
+    | ParsedCommand.Ready(Command.Syntax "on") -> ()
+    | other -> failwithf "expected Ready (Syntax on), got %A" other
+
+    match Commands.parse "syntax off" with
+    | ParsedCommand.Ready(Command.Syntax "off") -> ()
+    | other -> failwithf "expected Ready (Syntax off), got %A" other
+
+[<Fact>]
+let ``'syntax' with no argument is Pending`` () =
+    match Commands.parse "syntax" with
+    | ParsedCommand.Pending _ -> ()
+    | other -> failwithf "expected Pending, got %A" other
+
+[<Fact>]
+let ``unknown 'syntax' verb is Invalid`` () =
+    match Commands.parse "syntax wat" with
+    | ParsedCommand.Invalid _ -> ()
+    | other -> failwithf "expected Invalid, got %A" other
+
+[<Fact>]
+let ``syntax completions suggest on/off/toggle`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = []
+          Recent = []
+          Buffers = []
+          Themes = Themes.all
+          CompletionLimit = 8 }
+
+    let comps = Commands.completions ctx "syntax "
+    let labels = comps |> List.map (fun c -> c.Label)
+    labels |> List.sort |> should equal [ "off"; "on"; "toggle" ]

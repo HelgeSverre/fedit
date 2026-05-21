@@ -36,6 +36,9 @@ type Command =
     /// `PluginCommand.Name` the plugin registered. `argument` is any text
     /// after the command name on the prompt.
     | PluginInvoke of source: string * commandName: string * argument: string
+    /// `:syntax on|off|toggle` — flips Config.SyntaxHighlightingEnabled
+    /// and persists. Other verbs surface as Invalid at the prompt.
+    | Syntax of verb: string
 
 type ParsedCommand =
     | Empty
@@ -186,6 +189,20 @@ module Commands =
                           | _ -> ByName trimmed
 
                       Ready(SwitchBuffer bufferRef) }
+          { Name = "syntax"
+            Usage = "syntax <on|off|toggle>"
+            Summary = "Toggle syntax highlighting."
+            Hidden = false
+            Constructor =
+              fun argument ->
+                  let trimmed = argument.Trim().ToLowerInvariant()
+
+                  match trimmed with
+                  | "" -> Pending "Specify on, off, or toggle."
+                  | "on"
+                  | "off"
+                  | "toggle" -> Ready(Syntax trimmed)
+                  | other -> Invalid $"Unknown syntax verb '{other}'." }
           { Name = "plugin"
             Usage = "plugin <list|enable|disable|install|remove|reload|validate> [arg]"
             Summary = "Manage installed plugins."
@@ -378,6 +395,14 @@ module Commands =
                         { Label = verb
                           ApplyText = $"plugin {verb}"
                           Detail = "plugin manager verb"
+                          Kind = Command })
+                | "syntax" ->
+                    [ "on"; "off"; "toggle" ]
+                    |> List.filter (fun verb -> verb.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
+                    |> List.map (fun verb ->
+                        { Label = verb
+                          ApplyText = $"syntax {verb}"
+                          Detail = "syntax highlighting toggle"
                           Kind = Command })
                 | _ -> []
 

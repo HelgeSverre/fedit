@@ -606,6 +606,58 @@ module Editor =
 
             { moved with Focus = Editor }, []
 
+        | Syntax verb ->
+            let newValue =
+                match verb with
+                | "on" -> true
+                | "off" -> false
+                | "toggle" -> not model.Config.SyntaxHighlightingEnabled
+                | _ -> model.Config.SyntaxHighlightingEnabled
+
+            let nextConfig =
+                { model.Config with
+                    SyntaxHighlightingEnabled = newValue }
+
+            // Turning on: seed states for any open buffer whose
+            // extension matches a supported grammar. Turning off:
+            // dispose existing parsers/trees and drop the map so the
+            // renderer stops overlaying.
+            let nextStates =
+                if newValue then
+                    match model.HighlightRegistry with
+                    | None -> Map.empty
+                    | Some registry ->
+                        // Dispose any stale entries first so we don't leak
+                        // parsers across the off→on transition.
+                        model.HighlightStates |> Map.iter (fun _ s -> Highlight.dispose s)
+
+                        model.Editors.Buffers
+                        |> Map.fold
+                            (fun acc id buffer ->
+                                match Highlight.detectLanguage buffer.FilePath with
+                                | None -> acc
+                                | Some lang ->
+                                    match Highlight.parse registry lang (Buffer.text buffer) None with
+                                    | Some s -> Map.add id s acc
+                                    | None -> acc)
+                            Map.empty
+                else
+                    model.HighlightStates |> Map.iter (fun _ s -> Highlight.dispose s)
+                    Map.empty
+
+            let updated =
+                { model with
+                    Config = nextConfig
+                    HighlightStates = nextStates }
+
+            let note =
+                if newValue then
+                    "Syntax highlighting on."
+                else
+                    "Syntax highlighting off."
+
+            updated |> notify (Some(Notification.info note)), [ SaveConfig nextConfig ]
+
         | Plugin("list", _) ->
             // Render plugin status into the dock via notification (multiline
             // joined with newlines — View renders \n correctly in the dock).
