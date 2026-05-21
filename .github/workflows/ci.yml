@@ -58,7 +58,7 @@ jobs:
         run: dotnet test Fedit.slnx --nologo --verbosity normal --collect:"XPlat Code Coverage" --results-directory TestResults
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: TestResults/**/coverage.cobertura.xml
