@@ -37,15 +37,15 @@ module Layout =
             match ext with
             | "fs"
             | "fsi"
-            | "fsx" -> ""
-            | "md" -> ""
-            | "json" -> ""
-            | "toml" -> ""
+            | "fsx" -> ""
+            | "md" -> ""
+            | "json" -> ""
+            | "toml" -> ""
             | "yaml"
-            | "yml" -> ""
-            | "sh" -> ""
-            | "txt" -> ""
-            | _ -> ""
+            | "yml" -> ""
+            | "sh" -> ""
+            | "txt" -> ""
+            | _ -> ""
 
         $"{glyph} "
 
