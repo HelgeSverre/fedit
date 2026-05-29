@@ -76,9 +76,6 @@ module Layout =
     let private effectiveTheme model =
         previewTheme model |> Option.defaultValue model.Config.Theme
 
-    // Status bar rendering moved to `Status.render`, driven by the
-    // `Config.StatusFormat` template. See `Status.fs`.
-
     let dockPanel model =
         let prompt = model.Prompt
 
