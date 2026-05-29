@@ -52,7 +52,7 @@ jobs:
       # acts as a uniform cross-compiler so we don't need per-OS
       # toolchain conditionals. The publish target's <None Include>
       # picks up the resulting native on the next dotnet publish step.
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
       - name: Build tree-sitter-fsharp for ${{ matrix.rid }}
         shell: bash
         run: |

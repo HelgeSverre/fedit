@@ -65,7 +65,7 @@ jobs:
             ${{ runner.os }}-nuget-
       # Build all native grammars for this matrix leg. Binaries aren't
       # tracked in git; zig acts as a uniform C compiler across runners.
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
       - name: Build grammars (${{ matrix.rid }})
         shell: bash
         run: |
