@@ -20,40 +20,6 @@ type FocusTarget =
     | Editor
     | Prompt
 
-type KeyInput =
-    | Character of char
-    | Enter
-    | Escape
-    | Backspace
-    | Delete
-    | Tab
-    | ShiftTab
-    | Left
-    | Right
-    | Up
-    | Down
-    | Home
-    | End
-    | PageUp
-    | PageDown
-    | Ctrl of char
-    | AltLeft
-    | AltRight
-    | AltUp
-    | AltDown
-    | CtrlBackspace
-    | CtrlDelete
-    | CtrlPageUp
-    | CtrlPageDown
-    /// Ctrl + a digit row key (0..9). Used for buffer jumps.
-    | CtrlDigit of int
-    | ShiftLeft
-    | ShiftRight
-    | ShiftUp
-    | ShiftDown
-    | ShiftHome
-    | ShiftEnd
-
 type IconMode =
     /// Default — ASCII `[+] / [-] / 4-space` markers.
     | IconsOff

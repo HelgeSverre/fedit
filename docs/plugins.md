@@ -225,8 +225,15 @@ type IPluginHost =
   registry's `Conflicts` field.
 - Plugin keybindings only fire when the editor pane has focus (not in
   the prompt or sidebar) for MVP.
-- Plugin keybindings can shadow built-in editor keys (e.g. take over
-  `Ctrl+S`). Use sparingly and document the intent in your README.
+- **The user keymap takes precedence over plugin keybindings.** A chord
+  bound by the built-in defaults or the user's `~/.config/fedit/keybinds`
+  file resolves first; a plugin's `RegisterKeybinding` only fires when no
+  keymap binding claims that chord. A plugin can therefore no longer shadow
+  a built-in or user key. To bind a plugin command yourself, add a line to
+  the keybinds file with the `run-plugin:<source>/<name> [arg]` action — e.g.
+  `editor ctrl+k ctrl+w = run-plugin:wordcount/wc` — which wins over both the
+  plugin's own chord and any built-in. See the
+  [Keybindings section of the README](../README.md#keybindings).
 
 ## Five reference plugins
 

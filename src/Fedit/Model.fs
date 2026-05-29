@@ -131,10 +131,23 @@ type Model =
         HighlightStates: Map<int, HighlightState>
         QuitArmed: bool
         ShouldQuit: bool
+        /// Effective keymap: `Keymap.defaults` overlaid by the user's
+        /// `~/.config/fedit/keybinds` file. Carries defaults from `init` so the
+        /// editor is fully functional before the async `LoadKeybinds` lands.
+        Keymap: Keymap
+        /// In-flight multi-key sequence: the chords accumulated so far and the
+        /// deadline (UTC unix ms) after which the engine abandons the sequence.
+        /// `None` when no sequence is pending. Rendered in the status bar.
+        /// Phase 2: only ever set by the (currently dormant) sequence engine;
+        /// no built-in sequence is bound until the keymap lands, so in practice
+        /// this stays `None` on the shipped key set.
+        PendingPrefix: (Chord list * int64) option
     }
 
 type Msg =
-    | KeyPressed of KeyInput
+    | KeyPressed of Chord
+    /// The pending multi-key sequence prefix timed out; clear it.
+    | SequenceTimedOut
     | Resize of Size
     /// Mouse wheel scrolled by N ticks (signed; negative = up). An ambient
     /// input event like `Resize` — handled in `update`, not a keystroke, so
@@ -152,6 +165,9 @@ type Msg =
     | PluginInstalled of name: string * Result<unit, string>
     | PluginRemoved of name: string * Result<unit, string>
     | PluginBuildFinished of name: string * Result<unit, string>
+    /// The user keybinds file was (re)loaded: the effective keymap plus any
+    /// parse/conflict errors to surface as a notification.
+    | KeybindsLoaded of Keymap * string list
 
 type Effect =
     | ScanWorkspace of string
@@ -165,3 +181,4 @@ type Effect =
     | InstallPluginFromSource of source: PluginSource
     | RemovePluginDir of name: string
     | BuildPlugin of pluginPath: string
+    | LoadKeybinds

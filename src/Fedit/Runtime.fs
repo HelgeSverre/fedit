@@ -347,6 +347,11 @@ module Runtime =
 
                     queue.Enqueue msg)
                 |> ignore
+            | LoadKeybinds ->
+                Task.Run(fun () ->
+                    let keymap, errors = KeymapIO.load ()
+                    queue.Enqueue(KeybindsLoaded(keymap, errors)))
+                |> ignore
 
         let dispatch model msg =
             log $"msg: {msg}"
@@ -447,6 +452,12 @@ module Runtime =
                     needsRender <- true
                 | _ -> ()
 
+                match model.PendingPrefix with
+                | Some(_, deadline) when DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() > deadline ->
+                    model <- dispatch model SequenceTimedOut
+                    needsRender <- true
+                | _ -> ()
+
                 if needsRender then
                     let frame = Layout.render model
                     Renderer.render writer previousFrame frame
@@ -498,8 +509,8 @@ module Runtime =
                         needsRender <- true
                     | None ->
                         match Input.tryMap keyInfo with
-                        | Some key ->
-                            model <- dispatch model (KeyPressed key)
+                        | Some chord ->
+                            model <- dispatch model (KeyPressed chord)
                             needsRender <- true
                         | None -> ()
                 else
