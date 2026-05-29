@@ -1,0 +1,11 @@
+{
+  "name": "cyan",
+  "description": "Cool cyan accent",
+  "accent": 81,
+  "statusFg": 15,
+  "statusBg": 24,
+  "selectedBg": 31,
+  "currentLine": 153,
+  "hex": "#5FD7FF",
+  "note": "ANSI 81 maps to #5FD7FF in 256-color terminals."
+}

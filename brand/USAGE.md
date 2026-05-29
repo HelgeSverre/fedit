@@ -16,7 +16,7 @@ The brand is `caret + Departure Mono + phosphor green`. If you reach for a secon
 | `palette.fs`      | F# module                                          | TUI rendering inside the editor                 |
 | `typography.md`   | Departure Mono (brand) + JetBrains Mono (code/CLI) | Reference when writing CSS or help output       |
 | `voice.md`        | Five voice rules                                   | Reference when writing copy                     |
-| `themes/`         | Editor color themes (green default, blue, orange)  | User-selectable inside fedit                    |
+| `themes/`         | Editor color themes                                | User-selectable inside fedit                    |
 | `USAGE.md`        | This file                                          | Onboarding contributors                         |
 
 ## Symbol Usage
@@ -65,7 +65,7 @@ Notable: commit messages are brand surface. `add search command` not `✨ feat: 
 
 ## Editor Themes
 
-`themes/` documents the brand-canonical theme set. Implementation lives in `src/Fedit/Themes.fs`. Seven themes ship: `green` (brand default), `blue`, `orange`, `cyan`, `teal`, `yellow`, `red`. Purple and magenta are banned per the brand.
+`themes/` documents the brand-canonical theme set. Implementation lives in `src/Fedit/Themes.fs`. Ten themes ship: `green` (brand default), `blue`, `orange`, `cyan`, `teal`, `yellow`, `red`, `graphite`, `evergreen`, `mono-amber`. Purple and magenta are banned per the brand.
 
 Users switch themes via the command bar (`Ctrl+P` then `theme <name>`). The choice persists to `~/.config/fedit/config.json`.
 

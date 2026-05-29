@@ -1,0 +1,11 @@
+{
+  "name": "teal",
+  "description": "Cyan-green hybrid",
+  "accent": 80,
+  "statusFg": 15,
+  "statusBg": 23,
+  "selectedBg": 30,
+  "currentLine": 159,
+  "hex": "#5FD7D7",
+  "note": "ANSI 80 maps to #5FD7D7 in 256-color terminals."
+}

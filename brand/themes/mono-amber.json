@@ -1,0 +1,11 @@
+{
+  "name": "mono-amber",
+  "description": "Deep amber phosphor",
+  "accent": 214,
+  "statusFg": 0,
+  "statusBg": 58,
+  "selectedBg": 94,
+  "currentLine": 136,
+  "hex": "#FFAF00",
+  "note": "ANSI 214 maps to #FFAF00 in 256-color terminals; status text uses black for contrast."
+}

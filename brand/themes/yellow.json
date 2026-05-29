@@ -1,0 +1,11 @@
+{
+  "name": "yellow",
+  "description": "Warm yellow (dark text)",
+  "accent": 220,
+  "statusFg": 0,
+  "statusBg": 100,
+  "selectedBg": 178,
+  "currentLine": 229,
+  "hex": "#FFD700",
+  "note": "ANSI 220 maps to #FFD700 in 256-color terminals; status text uses black for contrast."
+}

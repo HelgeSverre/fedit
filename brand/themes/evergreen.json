@@ -1,0 +1,11 @@
+{
+  "name": "evergreen",
+  "description": "Soft forest green",
+  "accent": 143,
+  "statusFg": 15,
+  "statusBg": 23,
+  "selectedBg": 65,
+  "currentLine": 101,
+  "hex": "#A7C080",
+  "note": "ANSI 143 maps to #AFAF5F in 256-color terminals; truecolor terminals use the softer #A7C080 accent."
+}

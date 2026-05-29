@@ -151,7 +151,36 @@ module Themes =
             SelectedBg = Color.firebrick
             CurrentLine = Color.salmon }
 
-    let all = [ green; blue; orange; cyan; teal; yellow; red ]
+    let graphite =
+        { green with
+            Name = "graphite"
+            Description = "Blue-grey high readability"
+            Accent = Color.ofHex "#8CB4FF"
+            StatusBg = Color.ofHex "#1F2937"
+            SelectedBg = Color.ofHex "#374151"
+            CurrentLine = Color.ofHex "#4B5563" }
+
+    let evergreen =
+        { green with
+            Name = "evergreen"
+            Description = "Soft forest green"
+            Accent = Color.ofHex "#A7C080"
+            StatusBg = Color.ofHex "#3A4A3F"
+            SelectedBg = Color.ofHex "#4F5F4A"
+            CurrentLine = Color.ofHex "#5F6F55" }
+
+    let monoAmber =
+        { green with
+            Name = "mono-amber"
+            Description = "Deep amber phosphor"
+            Accent = Color.ofHex "#FFAF00"
+            StatusBg = Color.ofHex "#5F3B00"
+            SelectedBg = Color.ofHex "#875F00"
+            CurrentLine = Color.ofHex "#AF8700"
+            StatusFg = Color.black }
+
+    let all =
+        [ green; blue; orange; cyan; teal; yellow; red; graphite; evergreen; monoAmber ]
 
     let defaultTheme = green
 

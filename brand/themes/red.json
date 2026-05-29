@@ -1,0 +1,11 @@
+{
+  "name": "red",
+  "description": "Crimson accent",
+  "accent": 203,
+  "statusFg": 15,
+  "statusBg": 88,
+  "selectedBg": 124,
+  "currentLine": 217,
+  "hex": "#FF5F5F",
+  "note": "ANSI 203 maps to #FF5F5F in 256-color terminals."
+}

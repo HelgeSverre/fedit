@@ -1,0 +1,11 @@
+{
+  "name": "graphite",
+  "description": "Blue-grey high readability",
+  "accent": 111,
+  "statusFg": 15,
+  "statusBg": 236,
+  "selectedBg": 240,
+  "currentLine": 242,
+  "hex": "#8CB4FF",
+  "note": "ANSI 111 maps to #87AFFF in 256-color terminals; truecolor terminals use the softer #8CB4FF accent."
+}
