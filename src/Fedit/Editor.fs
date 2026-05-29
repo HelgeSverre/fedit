@@ -1067,21 +1067,8 @@ module Editor =
                 else
                     editFn
 
-            // Cursor motion that drops any existing selection.
-            let move transform =
-                updateActiveBuffer (Buffer.clearSelection >> transform) model, []
-
-            // Shifted motion that extends the selection through the new cursor.
-            let extend transform =
-                updateActiveBuffer (Buffer.extendSelectionToCursor >> transform) model, []
-
-            // Page Up/Down both use the same viewport-aware jump distance.
-            let pageJump direction =
-                let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
-                let jump = max 1 (viewportHeight - model.Config.PageOverlap)
-                move (direction jump)
-
             match key with
+            // text fast-path — literal input, not keymap actions
             | Character value ->
                 updateActiveBuffer (editTransform (Buffer.insertText (string value)) >> Buffer.clearSelection) model, []
             | Enter -> updateActiveBuffer (editTransform Buffer.insertNewline >> Buffer.clearSelection) model, []
@@ -1089,28 +1076,27 @@ module Editor =
             | Backspace -> updateActiveBuffer Buffer.backspace model, []
             | Delete when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
             | Delete -> updateActiveBuffer Buffer.deleteForward model, []
-            | Left -> move Buffer.moveLeft
-            | Right -> move Buffer.moveRight
-            | Up -> move Buffer.moveUp
-            | Down -> move Buffer.moveDown
-            | Home -> move Buffer.moveHome
-            | End -> move Buffer.moveEnd
-            | ShiftLeft -> extend Buffer.moveLeft
-            | ShiftRight -> extend Buffer.moveRight
-            | ShiftUp -> extend Buffer.moveUp
-            | ShiftDown -> extend Buffer.moveDown
-            | ShiftHome -> extend Buffer.moveHome
-            | ShiftEnd -> extend Buffer.moveEnd
-            | PageUp -> pageJump Buffer.movePageUp
-            | PageDown -> pageJump Buffer.movePageDown
-            | Tab -> move (Buffer.indent model.Config.TabWidth)
-            | ShiftTab -> move (Buffer.unindent model.Config.TabWidth)
-            | AltLeft -> move Buffer.moveLeftWord
-            | AltRight -> move (Buffer.moveRightWord model.Config.WordMotion)
-            | CtrlBackspace when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
-            | CtrlBackspace -> updateActiveBuffer Buffer.backspaceWord model, []
-            | CtrlDelete when hasSelection -> updateActiveBuffer Buffer.deleteSelection model, []
-            | CtrlDelete -> updateActiveBuffer (Buffer.deleteForwardWord model.Config.WordMotion) model, []
+            // motions / edits — delegated to the unified interpreter
+            | Left -> runAction MoveLeft model
+            | Right -> runAction MoveRight model
+            | Up -> runAction MoveUp model
+            | Down -> runAction MoveDown model
+            | Home -> runAction MoveHome model
+            | End -> runAction MoveEnd model
+            | ShiftLeft -> runAction ExtendLeft model
+            | ShiftRight -> runAction ExtendRight model
+            | ShiftUp -> runAction ExtendUp model
+            | ShiftDown -> runAction ExtendDown model
+            | ShiftHome -> runAction ExtendHome model
+            | ShiftEnd -> runAction ExtendEnd model
+            | PageUp -> runAction MovePageUp model
+            | PageDown -> runAction MovePageDown model
+            | Tab -> runAction Indent model
+            | ShiftTab -> runAction Unindent model
+            | AltLeft -> runAction MoveWordLeft model
+            | AltRight -> runAction MoveWordRight model
+            | CtrlBackspace -> runAction DeleteWordBack model
+            | CtrlDelete -> runAction DeleteWordForward model
             | _ -> model, []
 
     let private cycleCompletion delta model =
