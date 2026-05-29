@@ -96,6 +96,34 @@ let ``parseShell accepts zsh bash fish (case-insensitive)`` () =
     | Ok Completions.Fish -> ()
     | other -> failwithf "Fish: %A" other
 
+    match Completions.parseShell "pwsh" with
+    | Ok Completions.Pwsh -> ()
+    | other -> failwithf "pwsh: %A" other
+
+    match Completions.parseShell "PowerShell" with
+    | Ok Completions.Pwsh -> ()
+    | other -> failwithf "PowerShell: %A" other
+
+    match Completions.parseShell "nu" with
+    | Ok Completions.Nushell -> ()
+    | other -> failwithf "nu: %A" other
+
+    match Completions.parseShell "elvish" with
+    | Ok Completions.Elvish -> ()
+    | other -> failwithf "elvish: %A" other
+
+    match Completions.parseShell "xonsh" with
+    | Ok Completions.Xonsh -> ()
+    | other -> failwithf "xonsh: %A" other
+
+    match Completions.parseShell "yash" with
+    | Ok Completions.Yash -> ()
+    | other -> failwithf "yash: %A" other
+
+    match Completions.parseShell "murex" with
+    | Ok Completions.Murex -> ()
+    | other -> failwithf "murex: %A" other
+
 [<Fact>]
 let ``parseShell rejects unknown shell with a message`` () =
     match Completions.parseShell "tcsh" with
@@ -181,9 +209,11 @@ let ``bash emits literal choice list for Choices kind`` () =
     s |> should haveSubstring expected
 
 [<Fact>]
-let ``bash dispatches hidden aliases to the canonical handler`` () =
+let ``bash normalizes hidden aliases to the canonical path`` () =
+    // The transition table maps the singular `plugin` to the canonical
+    // `plugins` path so deeper dispatch is alias-agnostic.
     let s = Completions.emit Completions.Bash root
-    s |> should haveSubstring "plugins|plugin)"
+    s |> should haveSubstring "\"|plugin\") path=\"plugins\""
 
 // ─────────────────────────────────────────────────────────────────────
 // Fish
@@ -223,6 +253,164 @@ let ``fish uses __fish_complete_directories for DirectoryPath`` () =
     s |> should haveSubstring "(__fish_complete_directories)"
 
 // ─────────────────────────────────────────────────────────────────────
+// PowerShell
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``pwsh registers a native argument completer`` () =
+    let s = Completions.emit Completions.Pwsh root
+
+    s
+    |> should haveSubstring "Register-ArgumentCompleter -Native -CommandName fedit"
+
+[<Fact>]
+let ``pwsh transition table normalizes hidden aliases`` () =
+    let s = Completions.emit Completions.Pwsh root
+    s |> should haveSubstring "'|plugins' = 'plugins'"
+    s |> should haveSubstring "'|plugin' = 'plugins'"
+
+[<Fact>]
+let ``pwsh invokes the binary for DynamicCommand`` () =
+    let s = Completions.emit Completions.Pwsh root
+    s |> should haveSubstring "& fedit plugins list --names 2>$null"
+
+[<Fact>]
+let ``pwsh emits CompletionResult entries for Choices kind`` () =
+    let s = Completions.emit Completions.Pwsh root
+    s |> should haveSubstring "[CompletionResult]::new('zsh', 'zsh'"
+
+[<Fact>]
+let ``pwsh defers to filename completion for FilePath`` () =
+    let s = Completions.emit Completions.Pwsh root
+    s |> should haveSubstring "CompleteFilename($wordToComplete)"
+
+// ─────────────────────────────────────────────────────────────────────
+// Nushell
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``nu emits an extern per command including the root`` () =
+    let s = Completions.emit Completions.Nushell root
+    s |> should haveSubstring "export extern \"fedit\" ["
+    s |> should haveSubstring "export extern \"fedit completions\" ["
+    s |> should haveSubstring "export extern \"fedit plugins install\" ["
+
+[<Fact>]
+let ``nu emits aliased externs for hidden aliases`` () =
+    // The singular `plugin` gets its own extern tree so it completes too.
+    let s = Completions.emit Completions.Nushell root
+    s |> should haveSubstring "export extern \"fedit plugin install\" ["
+
+[<Fact>]
+let ``nu defines a lines-based completer for DynamicCommand`` () =
+    let s = Completions.emit Completions.Nushell root
+    s |> should haveSubstring "^fedit plugins list --names | lines"
+
+[<Fact>]
+let ``nu defines a list completer for Choices kind`` () =
+    let s = Completions.emit Completions.Nushell root
+    s |> should haveSubstring "[zsh bash fish]"
+
+// ─────────────────────────────────────────────────────────────────────
+// Elvish
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``elvish registers an arg-completer for fedit`` () =
+    let s = Completions.emit Completions.Elvish root
+    s |> should haveSubstring "set edit:completion:arg-completer[fedit] = {|@args|"
+
+[<Fact>]
+let ``elvish transition map normalizes hidden aliases`` () =
+    let s = Completions.emit Completions.Elvish root
+    s |> should haveSubstring "&'|plugin'='plugins'"
+
+[<Fact>]
+let ``elvish expands flag lists via all (not map explosion)`` () =
+    // Regression guard: `$@map[key]` explodes the whole map; `all` indexes first.
+    let s = Completions.emit Completions.Elvish root
+    s |> should haveSubstring "all $fedit-flags[$path]"
+
+[<Fact>]
+let ``elvish slurps and splits DynamicCommand output`` () =
+    let s = Completions.emit Completions.Elvish root
+
+    s
+    |> should haveSubstring "str:split \"\\n\" (fedit plugins list --names 2>/dev/null | slurp)"
+
+// ─────────────────────────────────────────────────────────────────────
+// Xonsh
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``xonsh registers a contextual completer for fedit`` () =
+    let s = Completions.emit Completions.Xonsh root
+    s |> should haveSubstring "@contextual_command_completer_for('fedit')"
+
+    s
+    |> should haveSubstring "add_one_completer('fedit', _fedit_completer, 'start')"
+
+[<Fact>]
+let ``xonsh transition table normalizes hidden aliases`` () =
+    let s = Completions.emit Completions.Xonsh root
+    s |> should haveSubstring "'|plugin': 'plugins'"
+
+[<Fact>]
+let ``xonsh shells out via subprocess for DynamicCommand`` () =
+    let s = Completions.emit Completions.Xonsh root
+    s |> should haveSubstring "subprocess.run(kind[len('dynamic:'):].split()"
+    s |> should haveSubstring "'dynamic:fedit plugins list --names'"
+
+// ─────────────────────────────────────────────────────────────────────
+// Yash
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``yash defines a completion/fedit function`` () =
+    let s = Completions.emit Completions.Yash root
+    s |> should haveSubstring "function completion/fedit {"
+
+[<Fact>]
+let ``yash walks all WORDS via -le (target word is separate)`` () =
+    // Regression guard: yash's $WORDS excludes the target word, so the
+    // walk bound must be -le, not -lt, or the last word is never matched.
+    let s = Completions.emit Completions.Yash root
+    s |> should haveSubstring "while [ \"$i\" -le \"${WORDS[#]}\" ]"
+
+[<Fact>]
+let ``yash transition arm normalizes hidden aliases`` () =
+    let s = Completions.emit Completions.Yash root
+    s |> should haveSubstring "('|plugins'|'|plugin') path='plugins'"
+
+[<Fact>]
+let ``yash uses complete -d for directory and a subshell for DynamicCommand`` () =
+    let s = Completions.emit Completions.Yash root
+    s |> should haveSubstring "complete -d"
+
+    s
+    |> should haveSubstring "complete -- $(fedit plugins list --names 2>/dev/null)"
+
+// ─────────────────────────────────────────────────────────────────────
+// Murex
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``murex emits a single autocomplete set schema`` () =
+    let s = Completions.emit Completions.Murex root
+    s |> should haveSubstring "autocomplete set fedit %[{ \"Flags\":"
+
+[<Fact>]
+let ``murex nests hidden aliases under FlagValues`` () =
+    let s = Completions.emit Completions.Murex root
+    s |> should haveSubstring "\"plugin\":"
+
+[<Fact>]
+let ``murex marks file positionals and dynamic completers`` () =
+    let s = Completions.emit Completions.Murex root
+    s |> should haveSubstring "\"IncFiles\": true"
+    s |> should haveSubstring "\"Dynamic\": \"^fedit plugins list --names\""
+
+// ─────────────────────────────────────────────────────────────────────
 // installPath
 // ─────────────────────────────────────────────────────────────────────
 
@@ -240,3 +428,33 @@ let ``installPath puts bash under XDG bash-completion`` () =
 let ``installPath puts fish under ~/.config/fish/completions`` () =
     Completions.installPath Completions.Fish
     |> should haveSubstring "/.config/fish/completions/fedit.fish"
+
+[<Fact>]
+let ``installPath puts pwsh under ~/.config/powershell/completions`` () =
+    Completions.installPath Completions.Pwsh
+    |> should haveSubstring "/.config/powershell/completions/fedit.ps1"
+
+[<Fact>]
+let ``installPath puts nu under ~/.config/nushell/completions`` () =
+    Completions.installPath Completions.Nushell
+    |> should haveSubstring "/.config/nushell/completions/fedit.nu"
+
+[<Fact>]
+let ``installPath puts elvish under ~/.config/elvish/lib`` () =
+    Completions.installPath Completions.Elvish
+    |> should haveSubstring "/.config/elvish/lib/fedit-completions.elv"
+
+[<Fact>]
+let ``installPath puts xonsh under ~/.config/xonsh/completions`` () =
+    Completions.installPath Completions.Xonsh
+    |> should haveSubstring "/.config/xonsh/completions/fedit.xsh"
+
+[<Fact>]
+let ``installPath puts yash on the loadpath as completion/fedit`` () =
+    Completions.installPath Completions.Yash
+    |> should haveSubstring "/.local/share/yash/completion/fedit"
+
+[<Fact>]
+let ``installPath puts murex under ~/.config/fedit/completions`` () =
+    Completions.installPath Completions.Murex
+    |> should haveSubstring "/.config/fedit/completions/fedit.mx"
