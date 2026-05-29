@@ -26,6 +26,11 @@ class Fedit < Formula
 
   def install
     bin.install "fedit"
+    generate_completions_from_executable(
+      bin/"fedit", "completions",
+      shell_parameter_format: :none,
+      shells:                 [:bash, :zsh, :fish]
+    )
     doc_files = Dir["README.*", "readme.*", "LICENSE", "LICENSE.*", "CHANGELOG.*"]
     leftover = Dir["*"] - doc_files
     pkgshare.install(*leftover) unless leftover.empty?
@@ -33,7 +38,8 @@ class Fedit < Formula
 
   test do
     # fedit is a TUI; we can't run it interactively under `brew test`.
-    # Verify the binary installed and is executable.
+    # Verify the binary installed and emits a completion script.
     assert_predicate bin/"fedit", :executable?
+    assert_match "_fedit", shell_output("#{bin}/fedit completions bash")
   end
 end
