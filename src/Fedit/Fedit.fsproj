@@ -146,6 +146,7 @@
   </Target>
   <ItemGroup>
     <Compile Include="Primitives.fs" />
+    <Compile Include="Keys.fs" />
     <Compile Include="PieceTable.fs" />
     <Compile Include="Buffer.fs" />
     <Compile Include="Workspace.fs" />

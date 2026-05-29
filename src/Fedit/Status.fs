@@ -147,6 +147,10 @@ module Status =
         // cleanly when the buffer is clean.
         | "dirty", _ -> if buffer.Dirty then " [+]" else ""
         | "notification", _ -> model.Notification |> Option.map (fun n -> n.Message) |> Option.defaultValue ""
+        | "pending", _ ->
+            match model.PendingPrefix with
+            | Some(chords, _) -> Chord.renderStroke chords + " …"
+            | None -> ""
         | _ ->
             // Surface typos by rendering the token literally.
             match modifier with

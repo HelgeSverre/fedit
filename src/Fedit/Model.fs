@@ -131,10 +131,19 @@ type Model =
         HighlightStates: Map<int, HighlightState>
         QuitArmed: bool
         ShouldQuit: bool
+        /// In-flight multi-key sequence: the chords accumulated so far and the
+        /// deadline (UTC unix ms) after which the engine abandons the sequence.
+        /// `None` when no sequence is pending. Rendered in the status bar.
+        /// Phase 2: only ever set by the (currently dormant) sequence engine;
+        /// no built-in sequence is bound until the keymap lands, so in practice
+        /// this stays `None` on the shipped key set.
+        PendingPrefix: (Chord list * int64) option
     }
 
 type Msg =
-    | KeyPressed of KeyInput
+    | KeyPressed of Chord
+    /// The pending multi-key sequence prefix timed out; clear it.
+    | SequenceTimedOut
     | Resize of Size
     /// Mouse wheel scrolled by N ticks (signed; negative = up). An ambient
     /// input event like `Resize` — handled in `update`, not a keystroke, so

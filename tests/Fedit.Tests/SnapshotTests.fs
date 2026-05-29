@@ -43,7 +43,14 @@ let ``cold start with no buffer opens to the scratch view`` () =
 [<Fact>]
 let ``Ctrl+P opens prompt in Command mode and status shows CMD`` () =
     let model = baseModel (size 30 6)
-    let next, _ = Editor.update (KeyPressed(Ctrl 'p')) model
+
+    let next, _ =
+        Editor.update
+            (KeyPressed
+                { Mods = Set.ofList [ Ctrl ]
+                  Key = Key.Char 'p' })
+            model
+
     let actual = renderOf next
     Assert.Contains("CMD", actual)
     // The visible prompt prefix is the real ':' character now (no glue).
@@ -52,14 +59,28 @@ let ``Ctrl+P opens prompt in Command mode and status shows CMD`` () =
 [<Fact>]
 let ``Ctrl+O opens prompt in FilePicker mode`` () =
     let model = baseModel (size 30 6)
-    let next, _ = Editor.update (KeyPressed(Ctrl 'o')) model
+
+    let next, _ =
+        Editor.update
+            (KeyPressed
+                { Mods = Set.ofList [ Ctrl ]
+                  Key = Key.Char 'o' })
+            model
+
     let actual = renderOf next
     Assert.Contains("FILE", actual)
 
 [<Fact>]
 let ``Ctrl+F opens prompt with / prefix and FIND label`` () =
     let model = baseModel (size 30 6)
-    let next, _ = Editor.update (KeyPressed(Ctrl 'f')) model
+
+    let next, _ =
+        Editor.update
+            (KeyPressed
+                { Mods = Set.ofList [ Ctrl ]
+                  Key = Key.Char 'f' })
+            model
+
     let actual = renderOf next
     Assert.Contains("FIND", actual)
     Assert.Contains("/", actual)
@@ -74,7 +95,13 @@ let ``Ctrl+B with hidden sidebar shows and focuses it`` () =
                 { base'.Panels with
                     SidebarVisible = false } }
 
-    let next, _ = Editor.update (KeyPressed(Ctrl 'b')) hidden
+    let next, _ =
+        Editor.update
+            (KeyPressed
+                { Mods = Set.ofList [ Ctrl ]
+                  Key = Key.Char 'b' })
+            hidden
+
     let actual = renderOf next
     Assert.Contains("TREE", actual)
     // The vertical separator should now be the Unicode glyph, not '|'
@@ -83,7 +110,10 @@ let ``Ctrl+B with hidden sidebar shows and focuses it`` () =
 [<Fact>]
 let ``typing a character into the editor inserts it and marks dirty`` () =
     let model = baseModel (size 30 6)
-    let next, _ = Editor.update (KeyPressed(Character 'a')) model
+
+    let next, _ =
+        Editor.update (KeyPressed { Mods = Set.empty; Key = Key.Char 'a' }) model
+
     let actual = renderOf next
     Assert.Contains("a", actual)
     Assert.Contains("[+]", actual)

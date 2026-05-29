@@ -311,7 +311,13 @@ let private captureCtxFor (buffer: BufferState) =
                     ActiveBufferId = buffer.Id }
             Plugins = registry }
 
-    let _ = Editor.update (KeyPressed(Ctrl 'j')) modelWithBuffer
+    let _ =
+        Editor.update
+            (KeyPressed
+                { Mods = Set.ofList [ Ctrl ]
+                  Key = Key.Char 'j' })
+            modelWithBuffer
+
     captured.Value
 
 [<Fact>]
