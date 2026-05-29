@@ -29,6 +29,15 @@ module Editor =
           ActiveBufferId = 1
           NextBufferId = 2 }
 
+    /// Collapse CRLF and lone-CR sequences to LF and report the original
+    /// dominant ending. The document invariant is LF-only; the returned
+    /// newline feeds the buffer's save-time preference. Used by every path
+    /// where external text enters a buffer (file open, paste, plugin text).
+    let private normalizeNewlines (text: string) =
+        let newline = if text.Contains "\r\n" then "\r\n" else "\n"
+        let normalized = text.Replace("\r\n", "\n").Replace("\r", "\n")
+        normalized, newline
+
     let private notify notification model =
         { model with
             Notification = notification }
@@ -444,10 +453,13 @@ module Editor =
                     | Fedit.PluginApi.Error -> Notification.error message
 
                 current <- notify (Some notif) current
-            | Fedit.PluginApi.InsertText text -> current <- updateActiveBuffer (Buffer.insertText text) current
+            | Fedit.PluginApi.InsertText text ->
+                let text = fst (normalizeNewlines text)
+                current <- updateActiveBuffer (Buffer.insertText text) current
             | Fedit.PluginApi.ReplaceSelection text ->
                 // No bespoke `replaceSelection` in Buffer; compose the two
                 // primitives so undo collapses them naturally.
+                let text = fst (normalizeNewlines text)
                 let buffer = activeBufferState current
 
                 let transform =
@@ -1042,12 +1054,6 @@ module Editor =
           ShouldQuit = false },
         [ ScanWorkspace rootPath; ScanPlugins ]
 
-    let private normalizeNewlines (text: string) =
-        if text.Contains "\r\n" then
-            text.Replace("\r\n", "\n"), "\r\n"
-        else
-            text, "\n"
-
     let update msg model =
         match msg with
         | Resize size -> { model with Terminal = size } |> updateActiveBuffer id, []
@@ -1165,6 +1171,7 @@ module Editor =
         | ClipboardPasted result ->
             match result with
             | Result.Ok pastedText when pastedText.Length > 0 ->
+                let pastedText = fst (normalizeNewlines pastedText)
                 let buffer = activeBufferState model
 
                 let transform =

@@ -266,3 +266,36 @@ let ``Ctrl+N where N exceeds buffer count is a silent no-op`` () =
     next.Editors.ActiveBufferId |> should equal model.Editors.ActiveBufferId
     // No notification surfaced — out-of-range presses don't bark.
     next.Notification |> should equal (None: Notification option)
+
+// ─────────────────────────────────────────────────────────────────────
+// Newline normalization — the document invariant is LF-only; the buffer's
+// Newline field remembers the original ending for round-tripping on save.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``FileOpened with CRLF normalizes to LF and remembers CRLF preference`` () =
+    let model = initModel ()
+    let next, _ = Editor.update (FileOpened("/x.txt", Result.Ok "a\r\nb\r\n")) model
+    let buffer = next.Editors.Buffers[next.Editors.ActiveBufferId]
+    (Buffer.text buffer).Contains "\r" |> should equal false
+    Buffer.line 0 buffer |> should equal "a"
+    Buffer.line 1 buffer |> should equal "b"
+    buffer.Newline |> should equal "\r\n"
+
+[<Fact>]
+let ``FileOpened with lone CR normalizes to LF and saves as LF`` () =
+    let model = initModel ()
+    let next, _ = Editor.update (FileOpened("/x.txt", Result.Ok "a\rb\r")) model
+    let buffer = next.Editors.Buffers[next.Editors.ActiveBufferId]
+    (Buffer.text buffer).Contains "\r" |> should equal false
+    Buffer.line 0 buffer |> should equal "a"
+    Buffer.line 1 buffer |> should equal "b"
+    buffer.Newline |> should equal "\n"
+
+[<Fact>]
+let ``ClipboardPasted strips CRLF before inserting`` () =
+    let model = initModel ()
+    let next, _ = Editor.update (ClipboardPasted(Result.Ok "a\r\nb")) model
+    let buffer = next.Editors.Buffers[next.Editors.ActiveBufferId]
+    (Buffer.text buffer).Contains "\r" |> should equal false
+    Buffer.text buffer |> should equal "a\nb"
