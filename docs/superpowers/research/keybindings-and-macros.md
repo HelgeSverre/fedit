@@ -547,11 +547,11 @@ None` unbinds and suppresses fallback to the `Global` binding.
 Some bindings aren't a constant action; they depend on the model. The
 canonical case is today's three-state `Ctrl+B` (`Editor.fs:1269-1287`):
 
-| State                        | `Ctrl+B` does       | transition |
-| ---------------------------- | ------------------- | ---------- |
-| sidebar hidden               | reveal + focus it   | 1 → 3      |
-| visible, editor-focused      | focus it (no close) | 2 → 3      |
-| visible, sidebar-focused     | hide + focus editor | 3 → 1      |
+| State                    | `Ctrl+B` does       | transition |
+| ------------------------ | ------------------- | ---------- |
+| sidebar hidden           | reveal + focus it   | 1 → 3      |
+| visible, editor-focused  | focus it (no close) | 2 → 3      |
+| visible, sidebar-focused | hide + focus editor | 3 → 1      |
 
 A naive `stroke → action` map can't express this, because the action is a
 _function of the model_, not a constant. Three ways the design handles it,
@@ -633,7 +633,7 @@ model is in the right state, else do the other thing."
 `When` tree in the flat line file — it would be unreadable. Instead:
 
 - **The line file binds strokes → _named_ actions** (`editor ctrl+b =
-  reveal-or-focus-sidebar`). Always one line, never a conditional.
+reveal-or-focus-sidebar`). Always one line, never a conditional.
 - **Composite/conditional logic is authored in the F# DSL defaults (or a
   plugin)** with `When`/`Chain`, type-checked, and _surfaced as a named
   action_.

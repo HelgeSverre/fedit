@@ -50,11 +50,11 @@ This is the safest first pass and makes tab-cycling more legible.
 
 Use a three-cell segmented swatch:
 
-| Cell | Color |
-| --- | --- |
-| 1 | `Accent` |
-| 2 | `SelectionBg` |
-| 3 | `StatusBg` |
+| Cell | Color         |
+| ---- | ------------- |
+| 1    | `Accent`      |
+| 2    | `SelectionBg` |
+| 3    | `StatusBg`    |
 
 Rendered as:
 

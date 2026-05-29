@@ -371,7 +371,7 @@ This per-context split is the **chosen default** (decision §11.1). `Ctrl+B`
 is global today (fires before focus routing), so to preserve "works from the
 prompt too," the `editor`-context entry is also registered under `Prompt`.
 (The equivalent single `Global` smart action below is kept only to show the
-two are interchangeable — it is *not* the default we ship:)
+two are interchangeable — it is _not_ the default we ship:)
 
 ```fsharp
 chord [Ctrl] (Char 'b') ==> When(SidebarFocused,

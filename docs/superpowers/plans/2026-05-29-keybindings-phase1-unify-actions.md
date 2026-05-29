@@ -20,12 +20,12 @@ Two deliberate, documented refinements of spec §2.1 / §6.8, made to keep the
 1. **`Chord`/`KeyStroke` are NOT introduced yet.** `KeyInput` stays. The
    dispatch sites map `KeyInput -> Action` directly. The `Chord` key model is
    Phase 2.
-2. **`executeCommand` is only *partially* collapsed.** Command verbs whose
+2. **`executeCommand` is only _partially_ collapsed.** Command verbs whose
    behavior is byte-identical to a chord action delegate to `runAction`
    (Task 7). Verbs that historically diverge from their chord cousin
    (`:editor`/`FocusEditor`) or are prompt-only (`open`, `theme`, `recent`,
    `buffers`, `syntax`, `plugin`, `goto`, `config`) **stay in
-   `executeCommand`**. `runAction` delegates *to* `executeCommand` for the
+   `executeCommand`**. `runAction` delegates _to_ `executeCommand` for the
    prompt-only verbs it names (`SetTheme`, `Goto`, `OpenConfig`, `RunPlugin`).
    The full collapse lands in Phase 3 alongside the keymap, where divergences
    are reconciled on purpose. (Direction is cycle-free: see Task 7.)
@@ -38,12 +38,12 @@ are added to the `Action` DU now (so the type is stable) but are **no-ops** in
 
 ## File structure
 
-| File | Change | Responsibility |
-| --- | --- | --- |
-| `src/Fedit/Actions.fs` | **create** | The `Cond` and `Action` DUs. Pure data, no `Model` reference. |
-| `src/Fedit/Fedit.fsproj` | modify | Add `<Compile Include="Actions.fs" />` immediately after `Commands.fs`. |
-| `src/Fedit/Editor.fs` | modify | Add `moveCursor`/`extendCursor` helpers; add `runAction`/`evalCond` to the `executeCommand` recursive group; rewrite the global `Ctrl` handler, `runEditor`, `runSidebar`, and the unifiable `executeCommand` arms to call `runAction`. |
-| `tests/Fedit.Tests/UpdateTests.fs` | modify | Add characterization tests (motions, edits, sidebar nav, clipboard effects) + direct `runAction` tests (`Chain`/`When`/primitives). |
+| File                               | Change     | Responsibility                                                                                                                                                                                                                          |
+| ---------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/Fedit/Actions.fs`             | **create** | The `Cond` and `Action` DUs. Pure data, no `Model` reference.                                                                                                                                                                           |
+| `src/Fedit/Fedit.fsproj`           | modify     | Add `<Compile Include="Actions.fs" />` immediately after `Commands.fs`.                                                                                                                                                                 |
+| `src/Fedit/Editor.fs`              | modify     | Add `moveCursor`/`extendCursor` helpers; add `runAction`/`evalCond` to the `executeCommand` recursive group; rewrite the global `Ctrl` handler, `runEditor`, `runSidebar`, and the unifiable `executeCommand` arms to call `runAction`. |
+| `tests/Fedit.Tests/UpdateTests.fs` | modify     | Add characterization tests (motions, edits, sidebar nav, clipboard effects) + direct `runAction` tests (`Chain`/`When`/primitives).                                                                                                     |
 
 No other files change. `Primitives.fs`, `Model.fs`, `Input.fs`, `Runtime.fs`,
 `Commands.fs` are untouched in Phase 1.
@@ -61,6 +61,7 @@ Lock in current behavior with tests **before** refactoring. These pass against
 today's code; they are the regression net that proves "no behavior change."
 
 **Files:**
+
 - Test: `tests/Fedit.Tests/UpdateTests.fs` (append)
 
 - [ ] **Step 1: Establish the green baseline**
@@ -187,6 +188,7 @@ git commit -m "test(editor): characterization net for key dispatch before action
 ## Task 2: Add the Action vocabulary (`Actions.fs`)
 
 **Files:**
+
 - Create: `src/Fedit/Actions.fs`
 - Modify: `src/Fedit/Fedit.fsproj`
 
@@ -273,6 +275,7 @@ existing inline handlers. **No callers are rewritten yet** — this task only
 adds new code, so the suite stays green throughout.
 
 **Files:**
+
 - Modify: `src/Fedit/Editor.fs`
 - Test: `tests/Fedit.Tests/UpdateTests.fs`
 
@@ -531,6 +534,7 @@ call `runAction`, preserving the existing `Notification`/`QuitArmed`
 pre-processing. The two-stage `Ctrl+Q` stays bespoke (it owns `QuitArmed`).
 
 **Files:**
+
 - Modify: `src/Fedit/Editor.fs` (the `| KeyPressed key ->` branch, ~lines 1219-1330)
 
 - [ ] **Step 1: Rewrite the chord arms**
@@ -576,6 +580,7 @@ just as today):
 ```
 
 Notes on parity (do not skip — these are the subtle ones):
+
 - `Ctrl+E` now routes to `FocusEditor`, which clears the workspace search — the
   same as the old inline `Ctrl+E` arm (`Editor.fs:1288-1293`).
 - `Ctrl+B`'s `HideSidebar` clears the workspace search, matching the old hide
@@ -606,6 +611,7 @@ Keep the plugin-chord pre-check and the text fast-path (`Character`/`Enter`/
 `Backspace`/`Delete`) inline; replace the motion/edit arms with `runAction`.
 
 **Files:**
+
 - Modify: `src/Fedit/Editor.fs` (`runEditor`, ~lines 839-917)
 
 - [ ] **Step 1: Replace the default-behavior match in `runEditor`**
@@ -677,6 +683,7 @@ inline; replace navigation arms with `runAction`; route `Escape` to
 `FocusEditor` (identical transition).
 
 **Files:**
+
 - Modify: `src/Fedit/Editor.fs` (`runSidebar`, lines 770-829)
 
 - [ ] **Step 1: Rewrite `runSidebar`**
@@ -732,6 +739,7 @@ delegate to `runAction`, so there is a single body. Divergent/prompt-only verbs
 stay as-is (see Scope note).
 
 **Files:**
+
 - Modify: `src/Fedit/Actions.fs` (add `Action.ofCommand`)
 - Modify: `src/Fedit/Editor.fs` (`executeCommand` arms)
 
@@ -806,11 +814,12 @@ their bodies are the canonical ones `runAction` delegates to.
 - [ ] **Step 3: Confirm there is no delegation cycle**
 
 Verify by inspection (no command goes both directions):
+
 - `runAction` → `executeCommand`: `SetTheme`→`Theme`, `Goto`→`Command.Goto`,
   `OpenConfig`→`OpenConfig`, `RunPlugin`→`PluginInvoke`.
 - `executeCommand` → `runAction`: `Write`/`WriteAs`/`Quit`/`NextBuffer`/
   `PreviousBuffer`/`ReloadWorkspace`/`ToggleSidebar`/`FocusTree`.
-No verb appears on both lists, so the recursion terminates.
+  No verb appears on both lists, so the recursion terminates.
 
 - [ ] **Step 4: Build and run the full suite**
 

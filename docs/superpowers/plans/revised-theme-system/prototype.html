@@ -65,10 +65,11 @@
         line-height: 1.5;
       }
 
-      main {
-        width: min(1480px, calc(100vw - 32px));
-        margin: 0 auto;
-        padding: 32px 0 48px;
+      .app-shell {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
       }
 
       h1,
@@ -93,18 +94,22 @@
         max-width: 78ch;
       }
 
-      .layout {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 360px;
-        gap: 20px;
-        align-items: start;
-        margin-top: 24px;
+      .workspace {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
       }
 
-      .preview-column {
-        display: grid;
-        gap: 14px;
+      .editor-stage {
+        flex: 1 1 auto;
         min-width: 0;
+        min-height: 0;
+        display: flex;
+        justify-content: center;
+        align-items: stretch;
+        padding: 20px;
+        overflow: auto;
+        background: #222;
       }
 
       .panel {
@@ -148,46 +153,53 @@
         color: var(--fedit-accent-fg);
       }
 
-      .preview-actions {
-        overflow: hidden;
-      }
-
-      .toolbar {
+      .top-nav {
+        flex: 0 0 auto;
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
         align-items: center;
+        justify-content: space-between;
         padding: 10px 12px;
-        border-top: 1px solid var(--page-border);
+        border-bottom: 1px solid var(--page-border);
         background: #0a0a0b;
       }
 
-      .toolbar__group {
+      .nav-group {
         display: inline-flex;
+        flex-wrap: wrap;
         gap: 6px;
         align-items: center;
         padding-right: 10px;
         border-right: 1px solid var(--page-border);
       }
 
-      .toolbar__group:last-child {
+      .nav-group:last-child {
         border-right: none;
       }
 
-      .toolbar__label {
+      .nav-label {
         color: var(--page-muted);
         font-size: 12px;
       }
 
-      .toolbar button {
+      .top-nav button {
         padding: 4px 7px;
         font-size: 12px;
+      }
+
+      .editor-preview {
+        width: 100%;
+        min-height: 0;
+        display: flex;
       }
 
       .tui {
         display: grid;
         grid-template-columns: 240px 1fr;
-        height: 620px;
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 0;
         background: var(--fedit-editor-bg);
         overflow: hidden;
         border-radius: 0 0 6px 6px;
@@ -195,6 +207,22 @@
 
       .tui.is-sidebar-hidden {
         grid-template-columns: 1fr;
+      }
+
+      .tui.is-sidebar-right {
+        grid-template-columns: 1fr 240px;
+      }
+
+      .tui.is-sidebar-right .sidebar {
+        grid-column: 2;
+        grid-row: 1;
+        border-right: none;
+        border-left: 1px solid var(--fedit-sidebar-border-fg);
+      }
+
+      .tui.is-sidebar-right .editor-shell {
+        grid-column: 1;
+        grid-row: 1;
       }
 
       .sidebar {
@@ -383,6 +411,18 @@
         padding: 2px 10px;
       }
 
+      .prompt__input {
+        min-width: 24ch;
+        outline: none;
+        color: var(--fedit-prompt-fg);
+      }
+
+      .prompt__input:focus {
+        text-decoration: underline;
+        text-decoration-color: var(--fedit-dock-title-fg);
+        text-underline-offset: 3px;
+      }
+
       .is-hidden {
         display: none;
       }
@@ -396,42 +436,44 @@
         background: var(--fedit-editor-selection-bg);
       }
 
-      .controls {
+      .color-sidebar {
+        flex: 0 0 380px;
+        min-height: 0;
+        overflow: auto;
+        border-left: 1px solid var(--page-border);
+        background: #0d0d0f;
+      }
+
+      .color-sidebar__section {
         padding: 12px;
+        border-bottom: 1px solid var(--page-border);
       }
 
-      .control {
-        margin-bottom: 12px;
+      .color-sidebar__title {
+        margin: 0 0 12px;
+        font-size: 14px;
+        color: var(--page-fg);
       }
 
-      .control label {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        color: var(--page-muted);
-        font-size: 12px;
-      }
-
-      .control input {
-        width: 112px;
+      .token-search {
+        width: 100%;
         border: 1px solid var(--page-border);
         border-radius: 4px;
         background: #09090a;
         color: var(--page-fg);
         font: inherit;
-        padding: 4px;
+        padding: 8px;
       }
 
-      .tokens {
+      .color-list {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        grid-template-columns: 1fr;
         gap: 8px;
-        margin-top: 16px;
       }
 
-      .token {
-        display: flex;
+      .color-row {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) 96px;
         align-items: center;
         gap: 8px;
         border: 1px solid var(--page-border);
@@ -440,16 +482,43 @@
         color: var(--page-muted);
       }
 
-      .token__chip {
+      .color-row__chip {
         width: 18px;
         height: 18px;
         border: 1px solid var(--page-border);
         background: var(--token-color);
       }
 
+      .color-row code {
+        overflow-wrap: anywhere;
+      }
+
+      .color-row input {
+        width: 96px;
+        border: 1px solid var(--page-border);
+        border-radius: 4px;
+        background: #09090a;
+        color: var(--page-fg);
+        font: inherit;
+        padding: 4px;
+      }
+
       @media (max-width: 1080px) {
-        .layout {
-          grid-template-columns: 1fr;
+        .workspace {
+          flex-direction: column;
+          overflow: auto;
+        }
+
+        .editor-stage {
+          flex: 0 0 auto;
+          overflow: visible;
+        }
+
+        .color-sidebar {
+          flex: 0 0 auto;
+          max-height: 520px;
+          border-left: none;
+          border-top: 1px solid var(--page-border);
         }
 
         .tui {
@@ -463,74 +532,59 @@
     </style>
   </head>
   <body>
-    <main>
-      <h1>fedit revised theme system prototype</h1>
-      <p>
-        Every visible editor element below is styled through a canonical CSS variable. Use the
-        presets or edit the light previewer values directly.
-      </p>
+    <div class="app-shell">
+      <nav class="top-nav" aria-label="Prototype controls">
+        <div class="nav-group">
+          <span class="nav-label">theme</span>
+          <template x-for="theme in themes" :key="theme.name">
+            <button
+              type="button"
+              :aria-pressed="activeTheme.name === theme.name"
+              @click="applyTheme(theme)"
+              x-text="theme.name"
+            ></button>
+          </template>
+        </div>
+        <div class="nav-group">
+          <span class="nav-label">tree</span>
+          <button type="button" :aria-pressed="sidebarVisible" @click="sidebarVisible = !sidebarVisible">
+            sidebar
+          </button>
+          <button type="button" :aria-pressed="sidebarDock === 'right'" @click="toggleSidebarDock()">
+            dock <span x-text="sidebarDock"></span>
+          </button>
+          <button type="button" :aria-pressed="srcExpanded" @click="srcExpanded = !srcExpanded">
+            src
+          </button>
+          <button type="button" :aria-pressed="testsExpanded" @click="testsExpanded = !testsExpanded">
+            tests
+          </button>
+        </div>
+        <div class="nav-group">
+          <span class="nav-label">glyphs</span>
+          <button type="button" :aria-pressed="nerdFonts" @click="nerdFonts = !nerdFonts">
+            nerd fonts
+          </button>
+        </div>
+        <div class="nav-group">
+          <span class="nav-label">command bar</span>
+          <button type="button" :aria-pressed="commandBarOpen" @click="commandBarOpen = !commandBarOpen">
+            open
+          </button>
+          <button type="button" @click="prevCommandState()">prev</button>
+          <button type="button" @click="nextCommandState()">next</button>
+          <button type="button" @click="cycleCompletion(-1)">up</button>
+          <button type="button" @click="cycleCompletion(1)">down</button>
+        </div>
+      </nav>
 
-      <div class="layout">
-        <div class="preview-column">
-          <section class="panel preview-actions">
-            <header class="panel__head">
-              <div>
-                <strong>preview actions</strong>
-                <div class="panel__kicker" x-text="`active theme: ${activeTheme.name} · command state: ${currentCommandState().title}`"></div>
-              </div>
-              <div class="theme-buttons">
-                <template x-for="theme in themes" :key="theme.name">
-                  <button
-                    type="button"
-                    :aria-pressed="activeTheme.name === theme.name"
-                    @click="applyTheme(theme)"
-                    x-text="theme.name"
-                  ></button>
-                </template>
-              </div>
-            </header>
-
-            <div class="toolbar" aria-label="Prototype controls">
-              <div class="toolbar__group">
-                <span class="toolbar__label">tree</span>
-                <button type="button" :aria-pressed="sidebarVisible" @click="sidebarVisible = !sidebarVisible">
-                  sidebar
-                </button>
-                <button type="button" :aria-pressed="srcExpanded" @click="srcExpanded = !srcExpanded">
-                  src
-                </button>
-                <button type="button" :aria-pressed="testsExpanded" @click="testsExpanded = !testsExpanded">
-                  tests
-                </button>
-              </div>
-              <div class="toolbar__group">
-                <span class="toolbar__label">glyphs</span>
-                <button type="button" :aria-pressed="nerdFonts" @click="nerdFonts = !nerdFonts">
-                  nerd fonts
-                </button>
-              </div>
-              <div class="toolbar__group">
-                <span class="toolbar__label">command bar</span>
-                <button type="button" :aria-pressed="commandBarOpen" @click="commandBarOpen = !commandBarOpen">
-                  open
-                </button>
-                <button type="button" @click="prevCommandState()">prev</button>
-                <button type="button" @click="nextCommandState()">next</button>
-                <button type="button" @click="cycleCompletion(-1)">up</button>
-                <button type="button" @click="cycleCompletion(1)">down</button>
-              </div>
-            </div>
-          </section>
-
+      <div class="workspace">
+        <main class="editor-stage">
           <section class="panel editor-preview">
-            <header class="panel__head">
-              <div>
-                <strong>editor surface</strong>
-                <div class="panel__kicker">the bordered area below is the simulated fedit UI</div>
-              </div>
-            </header>
-
-            <div class="tui" :class="{ 'is-sidebar-hidden': !sidebarVisible }">
+            <div
+              class="tui"
+              :class="{ 'is-sidebar-hidden': !sidebarVisible, 'is-sidebar-right': sidebarVisible && sidebarDock === 'right' }"
+            >
             <aside class="sidebar" x-show="sidebarVisible">
               <template x-for="entry in visibleTreeEntries()" :key="entry.id">
                 <div class="sidebar-row" :class="{ 'is-selected': entry.selected }">
@@ -698,36 +752,44 @@
 
               <div class="prompt" x-show="commandBarOpen">
                 <span class="prompt__mode" x-text="currentCommandState().promptMode"></span>
-                <span x-text="currentCommandState().promptText"></span><span class="prompt__cursor">&nbsp;</span>
+                <span
+                  class="prompt__input"
+                  contenteditable="true"
+                  spellcheck="false"
+                  x-text="promptText"
+                  @input="promptText = $el.textContent"
+                ></span><span class="prompt__cursor">&nbsp;</span>
               </div>
             </section>
             </div>
           </section>
-        </div>
+        </main>
 
-        <aside class="panel controls">
-          <h2>Light previewer</h2>
-          <template x-for="token in editableTokens" :key="token">
-            <div class="control">
-              <label>
-                <span x-text="token"></span>
-                <input type="color" :value="activeTheme.vars[token]" @input="setVar(token, $event.target.value)" />
-              </label>
+        <aside class="color-sidebar">
+          <section class="color-sidebar__section">
+            <h2 class="color-sidebar__title">Color values</h2>
+            <input
+              class="token-search"
+              type="search"
+              placeholder="filter colors"
+              x-model="colorFilter"
+            />
+          </section>
+
+          <section class="color-sidebar__section">
+            <div class="color-list">
+              <template x-for="token in filteredTokens()" :key="token">
+                <label class="color-row">
+                  <span class="color-row__chip" :style="`--token-color:${computedToken(token)}`"></span>
+                  <code x-text="token"></code>
+                  <input type="color" :value="computedToken(token)" @input="setVar(token, $event.target.value)" />
+                </label>
+              </template>
             </div>
-          </template>
+          </section>
         </aside>
       </div>
-
-      <h2>Canonical UI names</h2>
-      <div class="tokens">
-        <template x-for="token in allTokens" :key="token">
-          <div class="token">
-            <span class="token__chip" :style="`--token-color:${computedToken(token)}`"></span>
-            <code x-text="token"></code>
-          </div>
-        </template>
-      </div>
-    </main>
+    </div>
 
     <script>
       function themeDemo() {
@@ -963,26 +1025,15 @@
             vars: { ...themes[2].vars }
           },
           sidebarVisible: true,
+          sidebarDock: "left",
           srcExpanded: true,
           testsExpanded: false,
           nerdFonts: false,
           commandBarOpen: true,
           commandIndex: 0,
           selectedCompletion: 2,
-          editableTokens: [
-            "--fedit-accent-fg",
-            "--fedit-editor-selection-fg",
-            "--fedit-editor-selection-bg",
-            "--fedit-gutter-active-fg",
-            "--fedit-gutter-active-bg",
-            "--fedit-editor-line-active-bg",
-            "--fedit-status-fg",
-            "--fedit-status-bg",
-            "--fedit-prompt-fg",
-            "--fedit-prompt-bg",
-            "--fedit-dock-selected-fg",
-            "--fedit-dock-selected-bg"
-          ],
+          colorFilter: "",
+          promptText: commandStates[0].promptText,
           allTokens: [
             "--fedit-accent-fg",
             "--fedit-editor-fg",
@@ -1066,10 +1117,15 @@
           nextCommandState() {
             this.commandIndex = (this.commandIndex + 1) % this.commandStates.length;
             this.selectedCompletion = Math.min(2, this.currentCommandState().items.length - 1);
+            this.promptText = this.currentCommandState().promptText;
           },
           prevCommandState() {
             this.commandIndex = (this.commandIndex - 1 + this.commandStates.length) % this.commandStates.length;
             this.selectedCompletion = Math.min(2, this.currentCommandState().items.length - 1);
+            this.promptText = this.currentCommandState().promptText;
+          },
+          toggleSidebarDock() {
+            this.sidebarDock = this.sidebarDock === "left" ? "right" : "left";
           },
           cycleCompletion(delta) {
             const count = this.currentCommandState().items.length;
@@ -1095,6 +1151,11 @@
           setVar(token, value) {
             this.activeTheme.vars[token] = value;
             document.documentElement.style.setProperty(token, value);
+          },
+          filteredTokens() {
+            const query = this.colorFilter.trim().toLowerCase();
+            if (!query) return this.allTokens;
+            return this.allTokens.filter((token) => token.toLowerCase().includes(query));
           },
           computedToken(token) {
             return getComputedStyle(document.documentElement).getPropertyValue(token).trim();
