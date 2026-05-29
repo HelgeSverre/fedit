@@ -316,6 +316,15 @@ This is the MVP. Concretely deferred to v2:
   for `<path>`).
 - **API v2** — when `apiVersion` ticks, v1 plugins keep working via
   the host shipping `Fedit.PluginApi.v1.dll` alongside the new one.
+- **Configurable keybindings (in design)** — a forthcoming user keymap
+  (`~/.config/fedit/keybinds`) will let users bind any stroke — including
+  `Ctrl+Shift`, F-keys, and multi-key sequences — to plugin commands,
+  independent of the v1 `KeyChord`. Two changes will affect plugins: the user
+  keymap resolves **before** plugin-registered chords (so a user can always
+  reclaim a chord a plugin grabbed), and the expanded key decoder will make
+  the currently-dormant `Alt`/`CtrlShift`/`F` `KeyChord` variants actually
+  fire. `RegisterKeybinding` and `KeyChord` themselves stay unchanged. See
+  [the keybindings spec §6.7](superpowers/specs/2026-05-29-keybindings-spec.md#67-plugin-system--pluginapi-boundary).
 
 If your use case hits one of these walls, open an issue at
 [github.com/HelgeSverre/fedit](https://github.com/HelgeSverre/fedit) —

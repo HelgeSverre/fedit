@@ -1,0 +1,1106 @@
+<!doctype html>
+<html lang="en" x-data="themeDemo()">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>fedit revised theme system prototype</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --page-bg: #09090a;
+        --page-fg: #e8e8e8;
+        --page-muted: #a0a0a0;
+        --page-border: #2c2c2f;
+        --font-ui: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+        --fedit-accent-fg: #00b86b;
+        --fedit-editor-fg: #d7d7d7;
+        --fedit-editor-bg: #0b0b0d;
+        --fedit-editor-line-active-fg: var(--fedit-editor-fg);
+        --fedit-editor-line-active-bg: #151515;
+        --fedit-editor-selection-fg: #0b0b0d;
+        --fedit-editor-selection-bg: #00af5f;
+
+        --fedit-gutter-fg: #626872;
+        --fedit-gutter-bg: var(--fedit-editor-bg);
+        --fedit-gutter-active-fg: var(--fedit-accent-fg);
+        --fedit-gutter-active-bg: #123323;
+
+        --fedit-sidebar-fg: #d7d7d7;
+        --fedit-sidebar-bg: #0f1011;
+        --fedit-sidebar-border-fg: #3a3a3a;
+        --fedit-sidebar-selected-fg: #0b0b0d;
+        --fedit-sidebar-selected-bg: #00af5f;
+
+        --fedit-status-fg: #ffffff;
+        --fedit-status-bg: #005f00;
+        --fedit-prompt-fg: #ffffd7;
+        --fedit-prompt-bg: #3a3a3a;
+
+        --fedit-dock-fg: #b9b9b9;
+        --fedit-dock-bg: #151515;
+        --fedit-dock-title-fg: var(--fedit-accent-fg);
+        --fedit-dock-border-fg: #3a3a3a;
+        --fedit-dock-selected-fg: #0b0b0d;
+        --fedit-dock-selected-bg: #00af5f;
+
+        --fedit-completion-theme-swatch-border: #0b0b0d;
+        --fedit-syntax-keyword-fg: #af87ff;
+        --fedit-syntax-string-fg: #87d787;
+        --fedit-syntax-comment-fg: #808080;
+        --fedit-syntax-function-fg: #87d7ff;
+        --fedit-syntax-type-fg: #ffd787;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--page-bg);
+        color: var(--page-fg);
+        font-family: var(--font-ui);
+        line-height: 1.5;
+      }
+
+      main {
+        width: min(1480px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 32px 0 48px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 24px;
+        color: var(--page-fg);
+      }
+
+      h2 {
+        font-size: 16px;
+        margin: 28px 0 12px;
+      }
+
+      p {
+        color: var(--page-muted);
+        max-width: 78ch;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        gap: 20px;
+        align-items: start;
+        margin-top: 24px;
+      }
+
+      .preview-column {
+        display: grid;
+        gap: 14px;
+        min-width: 0;
+      }
+
+      .panel {
+        border: 1px solid var(--page-border);
+        border-radius: 6px;
+        background: #0d0d0f;
+      }
+
+      .panel__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--page-border);
+      }
+
+      .panel__kicker {
+        color: var(--page-muted);
+        font-size: 12px;
+      }
+
+      .theme-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      button {
+        border: 1px solid var(--page-border);
+        background: #141416;
+        color: var(--page-fg);
+        border-radius: 4px;
+        padding: 6px 8px;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      button[aria-pressed="true"] {
+        border-color: var(--fedit-accent-fg);
+        color: var(--fedit-accent-fg);
+      }
+
+      .preview-actions {
+        overflow: hidden;
+      }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 12px;
+        border-top: 1px solid var(--page-border);
+        background: #0a0a0b;
+      }
+
+      .toolbar__group {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        padding-right: 10px;
+        border-right: 1px solid var(--page-border);
+      }
+
+      .toolbar__group:last-child {
+        border-right: none;
+      }
+
+      .toolbar__label {
+        color: var(--page-muted);
+        font-size: 12px;
+      }
+
+      .toolbar button {
+        padding: 4px 7px;
+        font-size: 12px;
+      }
+
+      .tui {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+        height: 620px;
+        background: var(--fedit-editor-bg);
+        overflow: hidden;
+        border-radius: 0 0 6px 6px;
+      }
+
+      .tui.is-sidebar-hidden {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        color: var(--fedit-sidebar-fg);
+        background: var(--fedit-sidebar-bg);
+        border-right: 1px solid var(--fedit-sidebar-border-fg);
+        padding: 10px 0;
+      }
+
+      .sidebar-row {
+        display: grid;
+        grid-template-columns: 34px minmax(0, 1fr);
+        gap: 6px;
+        padding: 2px 12px;
+        white-space: nowrap;
+      }
+
+      .sidebar-row.is-selected {
+        color: var(--fedit-sidebar-selected-fg);
+        background: var(--fedit-sidebar-selected-bg);
+      }
+
+      .editor-shell {
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) auto auto auto;
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .editor-shell.is-command-closed {
+        grid-template-rows: minmax(0, 1fr) auto;
+      }
+
+      .editor {
+        color: var(--fedit-editor-fg);
+        background: var(--fedit-editor-bg);
+        padding: 10px 0;
+        overflow: auto;
+        min-height: 0;
+        scrollbar-color: var(--fedit-gutter-fg) var(--fedit-editor-bg);
+      }
+
+      .editor::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+
+      .editor::-webkit-scrollbar-thumb {
+        background: var(--fedit-gutter-fg);
+      }
+
+      .editor::-webkit-scrollbar-track {
+        background: var(--fedit-editor-bg);
+      }
+
+      .line {
+        display: grid;
+        grid-template-columns: 54px 1fr;
+        min-height: 24px;
+        min-width: 860px;
+      }
+
+      .line__gutter {
+        color: var(--fedit-gutter-fg);
+        background: var(--fedit-gutter-bg);
+        padding-right: 10px;
+        text-align: right;
+      }
+
+      .line__code {
+        color: var(--fedit-editor-fg);
+        background: var(--fedit-editor-bg);
+        padding-left: 10px;
+        white-space: pre;
+      }
+
+      .line.is-active .line__gutter {
+        color: var(--fedit-gutter-active-fg);
+        background: var(--fedit-gutter-active-bg);
+      }
+
+      .line.is-active .line__code {
+        color: var(--fedit-editor-line-active-fg);
+        background: var(--fedit-editor-line-active-bg);
+      }
+
+      .selection {
+        color: var(--fedit-editor-selection-fg);
+        background: var(--fedit-editor-selection-bg);
+      }
+
+      .syn-keyword {
+        color: var(--fedit-syntax-keyword-fg);
+      }
+
+      .syn-string {
+        color: var(--fedit-syntax-string-fg);
+      }
+
+      .syn-comment {
+        color: var(--fedit-syntax-comment-fg);
+      }
+
+      .syn-function {
+        color: var(--fedit-syntax-function-fg);
+      }
+
+      .syn-type {
+        color: var(--fedit-syntax-type-fg);
+      }
+
+      .status {
+        color: var(--fedit-status-fg);
+        background: var(--fedit-status-bg);
+        padding: 2px 10px;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .dock {
+        color: var(--fedit-dock-fg);
+        background: var(--fedit-dock-bg);
+        border-top: 1px solid var(--fedit-dock-border-fg);
+      }
+
+      .dock-title {
+        color: var(--fedit-dock-title-fg);
+        padding: 2px 10px;
+      }
+
+      .completion {
+        display: grid;
+        grid-template-columns: 16px minmax(90px, auto) minmax(0, 1fr) 46px;
+        gap: 8px;
+        padding: 2px 10px;
+        align-items: center;
+        cursor: pointer;
+      }
+
+      .completion.is-selected {
+        color: var(--fedit-dock-selected-fg);
+        background: var(--fedit-dock-selected-bg);
+      }
+
+      .completion__label {
+        white-space: nowrap;
+      }
+
+      .completion__detail {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .completion__badge {
+        justify-self: end;
+        min-width: 34px;
+        color: var(--fedit-dock-title-fg);
+        text-align: right;
+        font-size: 11px;
+      }
+
+      .theme-swatch {
+        justify-self: end;
+        display: grid;
+        grid-template-columns: repeat(3, 10px);
+        height: 12px;
+        border: 1px solid var(--fedit-completion-theme-swatch-border);
+      }
+
+      .theme-swatch span:nth-child(1) {
+        background: var(--swatch-accent);
+      }
+
+      .theme-swatch span:nth-child(2) {
+        background: var(--swatch-selection);
+      }
+
+      .theme-swatch span:nth-child(3) {
+        background: var(--swatch-status);
+      }
+
+      .prompt {
+        color: var(--fedit-prompt-fg);
+        background: var(--fedit-prompt-bg);
+        padding: 2px 10px;
+      }
+
+      .is-hidden {
+        display: none;
+      }
+
+      .prompt__mode {
+        color: var(--fedit-dock-title-fg);
+      }
+
+      .prompt__cursor {
+        color: var(--fedit-editor-selection-fg);
+        background: var(--fedit-editor-selection-bg);
+      }
+
+      .controls {
+        padding: 12px;
+      }
+
+      .control {
+        margin-bottom: 12px;
+      }
+
+      .control label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--page-muted);
+        font-size: 12px;
+      }
+
+      .control input {
+        width: 112px;
+        border: 1px solid var(--page-border);
+        border-radius: 4px;
+        background: #09090a;
+        color: var(--page-fg);
+        font: inherit;
+        padding: 4px;
+      }
+
+      .tokens {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      .token {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--page-border);
+        border-radius: 4px;
+        padding: 8px;
+        color: var(--page-muted);
+      }
+
+      .token__chip {
+        width: 18px;
+        height: 18px;
+        border: 1px solid var(--page-border);
+        background: var(--token-color);
+      }
+
+      @media (max-width: 1080px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .tui {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>fedit revised theme system prototype</h1>
+      <p>
+        Every visible editor element below is styled through a canonical CSS variable. Use the
+        presets or edit the light previewer values directly.
+      </p>
+
+      <div class="layout">
+        <div class="preview-column">
+          <section class="panel preview-actions">
+            <header class="panel__head">
+              <div>
+                <strong>preview actions</strong>
+                <div class="panel__kicker" x-text="`active theme: ${activeTheme.name} · command state: ${currentCommandState().title}`"></div>
+              </div>
+              <div class="theme-buttons">
+                <template x-for="theme in themes" :key="theme.name">
+                  <button
+                    type="button"
+                    :aria-pressed="activeTheme.name === theme.name"
+                    @click="applyTheme(theme)"
+                    x-text="theme.name"
+                  ></button>
+                </template>
+              </div>
+            </header>
+
+            <div class="toolbar" aria-label="Prototype controls">
+              <div class="toolbar__group">
+                <span class="toolbar__label">tree</span>
+                <button type="button" :aria-pressed="sidebarVisible" @click="sidebarVisible = !sidebarVisible">
+                  sidebar
+                </button>
+                <button type="button" :aria-pressed="srcExpanded" @click="srcExpanded = !srcExpanded">
+                  src
+                </button>
+                <button type="button" :aria-pressed="testsExpanded" @click="testsExpanded = !testsExpanded">
+                  tests
+                </button>
+              </div>
+              <div class="toolbar__group">
+                <span class="toolbar__label">glyphs</span>
+                <button type="button" :aria-pressed="nerdFonts" @click="nerdFonts = !nerdFonts">
+                  nerd fonts
+                </button>
+              </div>
+              <div class="toolbar__group">
+                <span class="toolbar__label">command bar</span>
+                <button type="button" :aria-pressed="commandBarOpen" @click="commandBarOpen = !commandBarOpen">
+                  open
+                </button>
+                <button type="button" @click="prevCommandState()">prev</button>
+                <button type="button" @click="nextCommandState()">next</button>
+                <button type="button" @click="cycleCompletion(-1)">up</button>
+                <button type="button" @click="cycleCompletion(1)">down</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel editor-preview">
+            <header class="panel__head">
+              <div>
+                <strong>editor surface</strong>
+                <div class="panel__kicker">the bordered area below is the simulated fedit UI</div>
+              </div>
+            </header>
+
+            <div class="tui" :class="{ 'is-sidebar-hidden': !sidebarVisible }">
+            <aside class="sidebar" x-show="sidebarVisible">
+              <template x-for="entry in visibleTreeEntries()" :key="entry.id">
+                <div class="sidebar-row" :class="{ 'is-selected': entry.selected }">
+                  <span x-text="treeMarker(entry)"></span>
+                  <span :style="`padding-left:${entry.depth * 14}px`" x-text="entry.name"></span>
+                </div>
+              </template>
+            </aside>
+
+            <section class="editor-shell" :class="{ 'is-command-closed': !commandBarOpen }">
+              <div class="editor">
+                <div class="line">
+                  <span class="line__gutter">151</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> red =</span>
+                </div>
+                <div class="line is-active">
+                  <span class="line__gutter">152</span>
+                  <span class="line__code">    { green <span class="syn-keyword">with</span> <span class="selection">Name = "mono-amber"</span> }</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">153</span>
+                  <span class="line__code">      Description = <span class="syn-string">"Deep amber phosphor"</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">154</span>
+                  <span class="line__code">      Accent = <span class="syn-function">Color.ofHex</span> <span class="syn-string">"#FFAF00"</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">155</span>
+                  <span class="line__code"><span class="syn-comment">// gutter.activeBg and line.activeBg are separate slots</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">156</span>
+                  <span class="line__code"><span class="syn-keyword">type</span> <span class="syn-type">Theme</span> = SurfaceTheme</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">157</span>
+                  <span class="line__code">      StatusFg = Color.black</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">158</span>
+                  <span class="line__code">      SelectionFg = Color.black</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">159</span>
+                  <span class="line__code">      SelectionBg = Color.ofHex <span class="syn-string">"#875F00"</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">160</span>
+                  <span class="line__code">      GutterActiveFg = Color.ofHex <span class="syn-string">"#FFAF00"</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">161</span>
+                  <span class="line__code">      GutterActiveBg = Color.ofHex <span class="syn-string">"#3A2A10"</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">162</span>
+                  <span class="line__code">      LineActiveBg = Color.ofHex <span class="syn-string">"#201A10"</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">163</span>
+                  <span class="line__code">      PromptBg = Color.ofHex <span class="syn-string">"#2A2114"</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">164</span>
+                  <span class="line__code">      DockSelectedBg = Color.ofHex <span class="syn-string">"#875F00"</span> }</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">165</span>
+                  <span class="line__code"></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">166</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> all = [ green; blue; orange; cyan; teal; yellow; red; graphite; evergreen; monoAmber ]</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">167</span>
+                  <span class="line__code"></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">168</span>
+                  <span class="line__code"><span class="syn-comment">// Horizontal overflow intentionally previews editor-style side scrolling.</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">169</span>
+                  <span class="line__code">      VeryLongThemePreviewLine = <span class="syn-string">"status.fg selection.bg gutter.active.bg line.active.bg prompt.bg dock.selected.bg completion.theme.swatch.border"</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">170</span>
+                  <span class="line__code"></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">171</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> tryFind name = all |> List.tryFind (<span class="syn-keyword">fun</span> theme -> theme.Name = name)</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">172</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> defaultTheme = green</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">173</span>
+                  <span class="line__code"></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">174</span>
+                  <span class="line__code"><span class="syn-comment">// Prototype rows below exist so the editor pane can scroll independently.</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">175</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> renderSelection theme = theme.SelectionFg, theme.SelectionBg</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">176</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> renderGutter theme = theme.GutterActiveFg, theme.GutterActiveBg</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">177</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> renderPrompt theme = theme.PromptFg, theme.PromptBg</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">178</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> renderDock theme = theme.DockFg, theme.DockBg, theme.DockSelectedBg</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">179</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> renderThemeSwatch theme = theme.Accent, theme.SelectionBg, theme.StatusBg</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">180</span>
+                  <span class="line__code"><span class="syn-comment">// End of scroll sample.</span></span>
+                </div>
+              </div>
+
+              <div class="status">
+                <span x-text="`${commandBarOpen ? currentCommandState().statusMode : 'EDIT'}  src/Fedit/Themes.fs`"></span>
+                <span x-text="sidebarVisible ? '152:18  LF  1/3  TREE' : '152:18  LF  1/3'"></span>
+              </div>
+
+              <div class="dock" x-show="commandBarOpen">
+                <div class="dock-title" x-text="dockTitle()"></div>
+                <template x-for="(item, index) in currentCommandState().items" :key="`${currentCommandState().name}-${item.label}`">
+                  <div
+                    class="completion"
+                    :class="{ 'is-selected': index === selectedCompletion }"
+                    @click="selectCompletion(index)"
+                  >
+                    <span x-text="index === selectedCompletion ? '>' : ''"></span>
+                    <span class="completion__label" x-text="item.label"></span>
+                    <span class="completion__detail" x-text="item.detail"></span>
+                    <template x-if="item.theme">
+                      <span
+                        class="theme-swatch"
+                        :style="`--swatch-accent:${item.theme.vars['--fedit-accent-fg']};--swatch-selection:${item.theme.vars['--fedit-editor-selection-bg']};--swatch-status:${item.theme.vars['--fedit-status-bg']};`"
+                        aria-hidden="true"
+                      >
+                        <span></span><span></span><span></span>
+                      </span>
+                    </template>
+                    <template x-if="!item.theme">
+                      <span class="completion__badge" x-text="item.badge || ''"></span>
+                    </template>
+                  </div>
+                </template>
+              </div>
+
+              <div class="prompt" x-show="commandBarOpen">
+                <span class="prompt__mode" x-text="currentCommandState().promptMode"></span>
+                <span x-text="currentCommandState().promptText"></span><span class="prompt__cursor">&nbsp;</span>
+              </div>
+            </section>
+            </div>
+          </section>
+        </div>
+
+        <aside class="panel controls">
+          <h2>Light previewer</h2>
+          <template x-for="token in editableTokens" :key="token">
+            <div class="control">
+              <label>
+                <span x-text="token"></span>
+                <input type="color" :value="activeTheme.vars[token]" @input="setVar(token, $event.target.value)" />
+              </label>
+            </div>
+          </template>
+        </aside>
+      </div>
+
+      <h2>Canonical UI names</h2>
+      <div class="tokens">
+        <template x-for="token in allTokens" :key="token">
+          <div class="token">
+            <span class="token__chip" :style="`--token-color:${computedToken(token)}`"></span>
+            <code x-text="token"></code>
+          </div>
+        </template>
+      </div>
+    </main>
+
+    <script>
+      function themeDemo() {
+        const base = {
+          "--fedit-editor-fg": "#d7d7d7",
+          "--fedit-editor-bg": "#0b0b0d",
+          "--fedit-editor-line-active-fg": "#d7d7d7",
+          "--fedit-editor-line-active-bg": "#151515",
+          "--fedit-gutter-fg": "#626872",
+          "--fedit-gutter-bg": "#0b0b0d",
+          "--fedit-sidebar-fg": "#d7d7d7",
+          "--fedit-sidebar-bg": "#0f1011",
+          "--fedit-sidebar-border-fg": "#3a3a3a",
+          "--fedit-dock-border-fg": "#3a3a3a",
+          "--fedit-syntax-keyword-fg": "#87afff",
+          "--fedit-syntax-string-fg": "#87d787",
+          "--fedit-syntax-comment-fg": "#808080",
+          "--fedit-syntax-function-fg": "#afd7ff",
+          "--fedit-syntax-type-fg": "#ffd787"
+        };
+
+        const themes = [
+          {
+            name: "graphite",
+            description: "Blue-grey high readability",
+            vars: {
+              ...base,
+              "--fedit-accent-fg": "#8cb4ff",
+              "--fedit-editor-selection-fg": "#0b0b0d",
+              "--fedit-editor-selection-bg": "#374151",
+              "--fedit-gutter-active-fg": "#8cb4ff",
+              "--fedit-gutter-active-bg": "#1f2937",
+              "--fedit-sidebar-selected-fg": "#ffffff",
+              "--fedit-sidebar-selected-bg": "#374151",
+              "--fedit-status-fg": "#ffffff",
+              "--fedit-status-bg": "#1f2937",
+              "--fedit-prompt-fg": "#e8eefc",
+              "--fedit-prompt-bg": "#161d29",
+              "--fedit-dock-fg": "#c8d0dc",
+              "--fedit-dock-bg": "#11151c",
+              "--fedit-dock-title-fg": "#8cb4ff",
+              "--fedit-dock-selected-fg": "#ffffff",
+              "--fedit-dock-selected-bg": "#374151",
+              "--fedit-completion-theme-swatch-border": "#0b0b0d"
+            }
+          },
+          {
+            name: "evergreen",
+            description: "Soft forest green",
+            vars: {
+              ...base,
+              "--fedit-accent-fg": "#a7c080",
+              "--fedit-editor-selection-fg": "#0b0b0d",
+              "--fedit-editor-selection-bg": "#4f5f4a",
+              "--fedit-gutter-active-fg": "#a7c080",
+              "--fedit-gutter-active-bg": "#253127",
+              "--fedit-sidebar-selected-fg": "#ffffff",
+              "--fedit-sidebar-selected-bg": "#4f5f4a",
+              "--fedit-status-fg": "#ffffff",
+              "--fedit-status-bg": "#3a4a3f",
+              "--fedit-prompt-fg": "#eef6df",
+              "--fedit-prompt-bg": "#1d241f",
+              "--fedit-dock-fg": "#cbd7c1",
+              "--fedit-dock-bg": "#111511",
+              "--fedit-dock-title-fg": "#a7c080",
+              "--fedit-dock-selected-fg": "#ffffff",
+              "--fedit-dock-selected-bg": "#4f5f4a",
+              "--fedit-completion-theme-swatch-border": "#0b0b0d"
+            }
+          },
+          {
+            name: "mono-amber",
+            description: "Deep amber phosphor",
+            vars: {
+              ...base,
+              "--fedit-accent-fg": "#ffaf00",
+              "--fedit-editor-line-active-bg": "#201a10",
+              "--fedit-editor-selection-fg": "#0b0b0d",
+              "--fedit-editor-selection-bg": "#875f00",
+              "--fedit-gutter-active-fg": "#ffaf00",
+              "--fedit-gutter-active-bg": "#3a2a10",
+              "--fedit-sidebar-selected-fg": "#0b0b0d",
+              "--fedit-sidebar-selected-bg": "#875f00",
+              "--fedit-status-fg": "#0b0b0d",
+              "--fedit-status-bg": "#5f3b00",
+              "--fedit-prompt-fg": "#fff4d6",
+              "--fedit-prompt-bg": "#2a2114",
+              "--fedit-dock-fg": "#b9b9b9",
+              "--fedit-dock-bg": "#151515",
+              "--fedit-dock-title-fg": "#ffaf00",
+              "--fedit-dock-selected-fg": "#0b0b0d",
+              "--fedit-dock-selected-bg": "#875f00",
+              "--fedit-completion-theme-swatch-border": "#0b0b0d"
+            }
+          }
+        ];
+
+        const commandStates = [
+          {
+            name: "themes",
+            title: "Themes",
+            statusMode: "CMD",
+            promptMode: ":",
+            promptText: "theme mono-amber",
+            items: themes.map((theme) => ({
+              label: theme.name,
+              detail: theme.description,
+              theme
+            }))
+          },
+          {
+            name: "files",
+            title: "Files",
+            statusMode: "FILE",
+            promptMode: "",
+            promptText: "src/Fedit/",
+            items: [
+              { label: "Themes.fs", detail: "src/Fedit/Themes.fs", badge: "fs" },
+              { label: "View.fs", detail: "src/Fedit/View.fs", badge: "fs" },
+              { label: "Config.fs", detail: "src/Fedit/Config.fs", badge: "fs" },
+              { label: "Highlight.fs", detail: "src/Fedit/Highlight.fs", badge: "fs" }
+            ]
+          },
+          {
+            name: "search",
+            title: "Find",
+            statusMode: "FIND",
+            promptMode: "/",
+            promptText: "theme",
+            items: [
+              { label: "match 1/5", detail: "line 152: Name = \"mono-amber\"", badge: "1/5" },
+              { label: "match 2/5", detail: "line 154: Accent = Color.ofHex", badge: "2/5" },
+              { label: "match 3/5", detail: "line 155: gutter.activeBg", badge: "3/5" }
+            ]
+          },
+          {
+            name: "buffers",
+            title: "Buffers",
+            statusMode: "BUF",
+            promptMode: "@",
+            promptText: "themes",
+            items: [
+              { label: "1 Themes.fs", detail: "src/Fedit/Themes.fs", badge: "open" },
+              { label: "2 README.md", detail: "docs/superpowers/plans/revised-theme-system", badge: "doc" },
+              { label: "3 prototype.html", detail: "docs/superpowers/plans/revised-theme-system", badge: "html" }
+            ]
+          },
+          {
+            name: "commands",
+            title: "Commands",
+            statusMode: "CMD",
+            promptMode: ":",
+            promptText: "plugin ",
+            items: [
+              { label: "plugin list", detail: "Show loaded plugins and command counts.", badge: "cmd" },
+              { label: "plugin reload", detail: "Reload plugin manifests and assemblies.", badge: "cmd" },
+              { label: "plugin validate", detail: "Validate a plugin.json manifest.", badge: "cmd" }
+            ]
+          },
+          {
+            name: "command-empty",
+            title: "Commands",
+            statusMode: "CMD",
+            promptMode: ":",
+            promptText: "",
+            items: [
+              { label: "open <path>", detail: "Open a workspace file.", badge: "cmd" },
+              { label: "write", detail: "Save the active buffer.", badge: "cmd" },
+              { label: "theme <name>", detail: "Switch theme with live preview.", badge: "cmd" },
+              { label: "config", detail: "Open ~/.config/fedit/config.json.", badge: "cmd" }
+            ]
+          },
+          {
+            name: "command-pending",
+            title: "Commands",
+            statusMode: "CMD",
+            promptMode: ":",
+            promptText: "theme ",
+            items: [
+              { label: "Theme name required.", detail: "Tab through the theme list or keep typing.", badge: "pending" }
+            ]
+          },
+          {
+            name: "command-invalid",
+            title: "Commands",
+            statusMode: "CMD",
+            promptMode: ":",
+            promptText: "thene mono",
+            items: [
+              { label: "Unknown command 'thene'.", detail: "Closest command is theme <name>.", badge: "invalid" }
+            ]
+          },
+          {
+            name: "goto",
+            title: "Goto",
+            statusMode: "CMD",
+            promptMode: ":",
+            promptText: "152:18",
+            items: [
+              { label: "Jump to line 152, column 18.", detail: "Press Enter to move the cursor.", badge: "ready" }
+            ]
+          },
+          {
+            name: "recent",
+            title: "Recent",
+            statusMode: "FILE",
+            promptMode: "",
+            promptText: "theme",
+            items: [
+              { label: "docs/superpowers/plans/revised-theme-system/README.md", detail: "recent", badge: "md" },
+              { label: "docs/superpowers/plans/revised-theme-system/prototype.html", detail: "recent", badge: "html" },
+              { label: "brand/themes/mono-amber.json", detail: "recent", badge: "json" }
+            ]
+          },
+          {
+            name: "search-empty",
+            title: "Find",
+            statusMode: "FIND",
+            promptMode: "/",
+            promptText: "purple",
+            items: [
+              { label: "no matches", detail: "Search stays open; keep typing or Escape.", badge: "0/0" }
+            ]
+          }
+        ];
+
+        return {
+          themes,
+          commandStates,
+          activeTheme: {
+            name: themes[2].name,
+            description: themes[2].description,
+            vars: { ...themes[2].vars }
+          },
+          sidebarVisible: true,
+          srcExpanded: true,
+          testsExpanded: false,
+          nerdFonts: false,
+          commandBarOpen: true,
+          commandIndex: 0,
+          selectedCompletion: 2,
+          editableTokens: [
+            "--fedit-accent-fg",
+            "--fedit-editor-selection-fg",
+            "--fedit-editor-selection-bg",
+            "--fedit-gutter-active-fg",
+            "--fedit-gutter-active-bg",
+            "--fedit-editor-line-active-bg",
+            "--fedit-status-fg",
+            "--fedit-status-bg",
+            "--fedit-prompt-fg",
+            "--fedit-prompt-bg",
+            "--fedit-dock-selected-fg",
+            "--fedit-dock-selected-bg"
+          ],
+          allTokens: [
+            "--fedit-accent-fg",
+            "--fedit-editor-fg",
+            "--fedit-editor-bg",
+            "--fedit-editor-line-active-fg",
+            "--fedit-editor-line-active-bg",
+            "--fedit-editor-selection-fg",
+            "--fedit-editor-selection-bg",
+            "--fedit-gutter-fg",
+            "--fedit-gutter-bg",
+            "--fedit-gutter-active-fg",
+            "--fedit-gutter-active-bg",
+            "--fedit-sidebar-fg",
+            "--fedit-sidebar-bg",
+            "--fedit-sidebar-border-fg",
+            "--fedit-sidebar-selected-fg",
+            "--fedit-sidebar-selected-bg",
+            "--fedit-status-fg",
+            "--fedit-status-bg",
+            "--fedit-prompt-fg",
+            "--fedit-prompt-bg",
+            "--fedit-dock-fg",
+            "--fedit-dock-bg",
+            "--fedit-dock-title-fg",
+            "--fedit-dock-border-fg",
+            "--fedit-dock-selected-fg",
+            "--fedit-dock-selected-bg",
+            "--fedit-completion-theme-swatch-border",
+            "--fedit-syntax-keyword-fg",
+            "--fedit-syntax-string-fg",
+            "--fedit-syntax-comment-fg",
+            "--fedit-syntax-function-fg",
+            "--fedit-syntax-type-fg"
+          ],
+          init() {
+            this.applyTheme(this.activeTheme);
+          },
+          visibleTreeEntries() {
+            const entries = [
+              { id: "src", name: "src", depth: 0, directory: true, expanded: this.srcExpanded },
+            ];
+
+            if (this.srcExpanded) {
+              entries.push(
+                { id: "fedit", name: "Fedit.fs", depth: 1, directory: false },
+                { id: "themes", name: "Themes.fs", depth: 1, directory: false, selected: true },
+                { id: "view", name: "View.fs", depth: 1, directory: false },
+                { id: "config", name: "Config.fs", depth: 1, directory: false }
+              );
+            }
+
+            entries.push({ id: "tests", name: "tests", depth: 0, directory: true, expanded: this.testsExpanded });
+
+            if (this.testsExpanded) {
+              entries.push(
+                { id: "theme-tests", name: "ThemeTests.fs", depth: 1, directory: false },
+                { id: "view-tests", name: "ViewTests.fs", depth: 1, directory: false }
+              );
+            }
+
+            return entries;
+          },
+          treeMarker(entry) {
+            if (this.nerdFonts) {
+              if (entry.directory) return entry.expanded ? "" : "";
+              if (entry.name.endsWith(".fs")) return "";
+              if (entry.name.endsWith(".html")) return "";
+              return "";
+            }
+
+            if (entry.directory) return entry.expanded ? "[-]" : "[+]";
+            return "";
+          },
+          currentCommandState() {
+            return this.commandStates[this.commandIndex];
+          },
+          dockTitle() {
+            const state = this.currentCommandState();
+            return ` ${state.title} (${this.selectedCompletion + 1}/${state.items.length}) `;
+          },
+          nextCommandState() {
+            this.commandIndex = (this.commandIndex + 1) % this.commandStates.length;
+            this.selectedCompletion = Math.min(2, this.currentCommandState().items.length - 1);
+          },
+          prevCommandState() {
+            this.commandIndex = (this.commandIndex - 1 + this.commandStates.length) % this.commandStates.length;
+            this.selectedCompletion = Math.min(2, this.currentCommandState().items.length - 1);
+          },
+          cycleCompletion(delta) {
+            const count = this.currentCommandState().items.length;
+            this.selectedCompletion = (this.selectedCompletion + delta + count) % count;
+          },
+          selectCompletion(index) {
+            this.selectedCompletion = index;
+            const item = this.currentCommandState().items[index];
+            if (item && item.theme) {
+              this.applyTheme(item.theme);
+            }
+          },
+          applyTheme(theme) {
+            this.activeTheme = {
+              name: theme.name,
+              description: theme.description,
+              vars: { ...theme.vars }
+            };
+            for (const [key, value] of Object.entries(this.activeTheme.vars)) {
+              document.documentElement.style.setProperty(key, value);
+            }
+          },
+          setVar(token, value) {
+            this.activeTheme.vars[token] = value;
+            document.documentElement.style.setProperty(token, value);
+          },
+          computedToken(token) {
+            return getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+          }
+        };
+      }
+    </script>
+  </body>
+</html>

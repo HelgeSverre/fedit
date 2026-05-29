@@ -1,0 +1,43 @@
+{
+  "name": "mono-amber",
+  "description": "Deep amber phosphor using the minimal revised theme schema",
+  "accent": "#FFAF00",
+  "status": {
+    "fg": "#0B0B0D",
+    "bg": "#5F3B00"
+  },
+  "selection": {
+    "fg": "#0B0B0D",
+    "bg": "#875F00"
+  },
+  "gutter": {
+    "fg": "#626872",
+    "bg": "default",
+    "activeFg": "#FFAF00",
+    "activeBg": "#3A2A10"
+  },
+  "line": {
+    "fg": "default",
+    "bg": "default",
+    "activeFg": "default",
+    "activeBg": "#201A10"
+  },
+  "prompt": {
+    "fg": "#FFF4D6",
+    "bg": "#2A2114"
+  },
+  "dock": {
+    "fg": "#B9B9B9",
+    "bg": "#151515",
+    "titleFg": "#FFAF00",
+    "selectedFg": "#0B0B0D",
+    "selectedBg": "#875F00"
+  },
+  "syntax": {
+    "keyword": "#87AFFF",
+    "string": "#87D787",
+    "comment": "#808080",
+    "function": "#AFD7FF",
+    "type": "#FFD787"
+  }
+}
