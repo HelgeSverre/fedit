@@ -96,6 +96,8 @@ let ``backspaceSearch shortens the buffer`` () =
         |> Workspace.backspaceSearch
 
     ws.SearchBuffer |> should equal ""
+    // Selection is intentionally preserved when the buffer clears (cursor stays at last match).
+    ws.SelectedPath |> should equal (Some "/root/a.fs")
 
 [<Fact>]
 let ``clearSearch resets the buffer`` () =
@@ -106,3 +108,5 @@ let ``clearSearch resets the buffer`` () =
         |> Workspace.clearSearch
 
     ws.SearchBuffer |> should equal ""
+    // Selection is intentionally preserved on clear (cursor stays at last match).
+    ws.SelectedPath |> should equal (Some "/root/a.fs")
