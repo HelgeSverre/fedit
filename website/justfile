@@ -38,15 +38,18 @@ preview: deps-if-needed
 check: deps-if-needed lint
     bun run check
 
-# Format website source with prettier (astro/ts/css/md/json/mjs)
+# Format website source: oxfmt for ts/tsx/css/md/mjs/json, prettier for astro
 [group('format')]
 format: deps-if-needed
-    bun x prettier --write "**/*.{astro,ts,tsx,css,md,mjs,json}"
+    bun x oxfmt "**/*.{ts,tsx,css,md,mjs,json}"
+    bun x prettier --write "**/*.astro"
 
-# Check formatting (fails if anything would change)
+# Lint with oxlint and check formatting with oxfmt + prettier
 [group('format')]
 lint: deps-if-needed
-    bun x prettier --check "**/*.{astro,ts,tsx,css,md,mjs,json}"
+    bun x oxlint .
+    bun x oxfmt --check "**/*.{ts,tsx,css,md,mjs,json}"
+    bun x prettier --check "**/*.astro"
 
 # Remove build artifacts
 [group('build')]

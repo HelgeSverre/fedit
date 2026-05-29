@@ -185,9 +185,8 @@ const verbs = [
         </p>
       </div>
       <div class="hero-pair">
-        <TuiFrame label="examples/wordcount/Plugin.fs">
-          <Fragment
-            set:html={`<span class="muted">module</span> Plugin =
+        <TuiFrame label="examples/wordcount/Plugin.fs"><Fragment
+          set:html={`<span class="muted">module</span> Plugin =
     <span class="muted">let</span> register (host: IPluginHost) =
         host.RegisterCommand
             { Name = <span class="accent">"wc"</span>
@@ -196,20 +195,17 @@ const verbs = [
               Run = <span class="muted">fun</span> ctx -&gt;
                   <span class="muted">let</span> n = ctx.ActiveBuffer.Text.Split(...).Length
                   [ Notify(Info, <span class="accent">$"{n} words"</span>) ] }`}
-          />
-        </TuiFrame>
+        /></TuiFrame>
         <div class="hero-arrow" aria-hidden="true">↓</div>
-        <TuiFrame label="fedit . — :wc">
-          <Fragment
-            set:html={`<span class="dim">┌─ src/Main.fs ──────────────────────────────────────┐</span>
+        <TuiFrame label="fedit . — :wc"><Fragment
+          set:html={`<span class="dim">┌─ src/Main.fs ──────────────────────────────────────┐</span>
 <span class="dim">│</span>   1  <span class="muted">module</span> Main                                    <span class="dim">│</span>
 <span class="dim">│</span>   2                                                  <span class="dim">│</span>
 <span class="dim">│</span>   3  <span class="muted">let</span> main argv = printfn <span class="accent">"hello, world"</span>    <span class="dim">│</span>
 <span class="dim">├────────────────────────────────────────────────────┤</span>
 <span class="dim">│</span> <span class="accent">^</span> <span class="muted">src/Main.fs · Ln 1 · 247 words</span>                <span class="dim">│</span>
 <span class="dim">└────────────────────────────────────────────────────┘</span>`}
-          />
-        </TuiFrame>
+        /></TuiFrame>
       </div>
     </div>
   </section>
@@ -262,10 +258,11 @@ const verbs = [
           <span class="step-num">01</span>
           <div>
             <h3>Drop a plugin into the plugins directory</h3>
-            <pre
-              class="block"><span class="dim">$</span> mkdir -p ~/.config/fedit/plugins
+            <pre class="block"
+              ><span class="dim">$</span> mkdir -p ~/.config/fedit/plugins
 <span class="dim">$</span> cp -R examples/wordcount ~/.config/fedit/plugins/
-<span class="dim">$</span> ./fedit .</pre>
+<span class="dim">$</span> ./fedit .</pre
+            >
             <p class="step-note">
               On launch the host scans this directory, compiles anything stale via
               <code>dotnet build -c Release</code>, and caches the resulting DLL alongside the
@@ -311,9 +308,8 @@ const verbs = [
       </div>
 
       <div class="anatomy">
-        <TuiFrame label="examples/wordcount/Plugin.fs">
-          <Fragment
-            set:html={`<span class="muted">namespace</span> Wordcount                          <span class="badge">1</span>
+        <TuiFrame label="examples/wordcount/Plugin.fs"><Fragment
+          set:html={`<span class="muted">namespace</span> Wordcount                          <span class="badge">1</span>
 
 <span class="muted">open</span> Fedit.PluginApi                            <span class="badge">2</span>
 
@@ -326,8 +322,7 @@ const verbs = [
               Run = <span class="muted">fun</span> ctx -&gt;                       <span class="badge">6</span>
                   <span class="muted">let</span> n = ctx.ActiveBuffer.Text.Split(...).Length
                   [ Notify(Info, <span class="accent">$"{n} words"</span>) ] }    <span class="badge">7</span>`}
-          />
-        </TuiFrame>
+        /></TuiFrame>
 
         <ol class="anatomy-notes">
           <li>
@@ -569,60 +564,70 @@ const verbs = [
     padding-top: var(--space-6);
     padding-bottom: var(--space-5);
   }
+
   .hero-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 50% 50%;
     gap: var(--space-5);
     align-items: start;
   }
+
   @media (max-width: 900px) {
     .hero-grid {
       grid-template-columns: 1fr;
     }
   }
+
   .eyebrow {
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-jetbrains-mono);
     font-size: 11px;
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--accent);
     margin: 0 0 var(--space-2);
   }
+
   .hero h1 {
     margin-bottom: var(--space-3);
   }
+
   .lede {
-    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: clamp(16px, 2.1vw, 18px);
     line-height: 1.55;
     max-width: 52ch;
     color: var(--fg);
     margin: 0 0 var(--space-2);
   }
+
   .meta {
     color: var(--fg-muted);
     font-size: 13px;
     margin: 0 0 var(--space-4);
     max-width: 52ch;
   }
+
   .accent-word {
     color: var(--accent);
   }
+
   .hero-actions {
     display: flex;
     gap: var(--space-2);
     flex-wrap: wrap;
     margin: 0;
   }
+
   .hero-pair {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
     align-items: stretch;
   }
+
   .hero-arrow {
     color: var(--accent);
-    font-family: "Departure Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: 20px;
     text-align: center;
     line-height: 1;
@@ -638,25 +643,29 @@ const verbs = [
     padding: var(--space-3) 0;
     background: var(--surface-2);
   }
+
   .stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: var(--space-3);
     margin: 0;
   }
+
   .stats div {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
   }
+
   .stats dt {
-    font-family: "Departure Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: clamp(28px, 4vw, 40px);
     color: var(--accent);
     line-height: 1;
     margin: 0;
   }
+
   .stats dd {
     margin: 0;
     color: var(--fg-muted);
@@ -671,6 +680,7 @@ const verbs = [
     padding: var(--space-4) 0;
     border-top: none;
   }
+
   .callout p {
     color: var(--fg);
     border-left: 3px solid var(--accent);
@@ -680,6 +690,7 @@ const verbs = [
     font-size: 14px;
     line-height: 1.6;
   }
+
   .callout strong {
     color: var(--accent);
   }
@@ -694,24 +705,28 @@ const verbs = [
     display: grid;
     gap: var(--space-4);
   }
+
   .steps li {
     display: grid;
     grid-template-columns: 64px 1fr;
     gap: var(--space-3);
     align-items: flex-start;
   }
+
   .step-num {
-    font-family: "Departure Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: 28px;
     color: var(--accent);
     line-height: 1;
   }
+
   .steps h3 {
     margin: 0 0 var(--space-2);
     color: var(--fg);
     text-transform: none;
     font-size: 16px;
   }
+
   .steps p,
   .step-note {
     color: var(--fg-muted);
@@ -720,6 +735,7 @@ const verbs = [
     font-size: 13px;
     line-height: 1.55;
   }
+
   pre.block {
     max-width: 720px;
   }
@@ -733,11 +749,13 @@ const verbs = [
     gap: var(--space-4);
     align-items: start;
   }
+
   @media (max-width: 900px) {
     .anatomy {
       grid-template-columns: 1fr;
     }
   }
+
   /* The numbered badge that sits inline with the code. */
   :global(.tui .badge) {
     display: inline-block;
@@ -747,13 +765,14 @@ const verbs = [
     text-align: center;
     background: var(--accent);
     color: var(--accent-fg);
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-jetbrains-mono);
     font-size: 10px;
     font-weight: 700;
     border-radius: 50%;
     margin-left: var(--space-2);
     vertical-align: 1px;
   }
+
   .anatomy-notes {
     list-style: none;
     padding: 0;
@@ -763,6 +782,7 @@ const verbs = [
     gap: var(--space-3);
     counter-reset: anno;
   }
+
   .anatomy-notes li {
     display: grid;
     grid-template-columns: 24px 1fr;
@@ -771,9 +791,11 @@ const verbs = [
     padding: var(--space-2) 0;
     border-bottom: 1px solid var(--border);
   }
+
   .anatomy-notes li:last-child {
     border-bottom: none;
   }
+
   .anatomy-notes .num {
     display: inline-flex;
     align-items: center;
@@ -782,17 +804,19 @@ const verbs = [
     height: 20px;
     background: var(--accent);
     color: var(--accent-fg);
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-jetbrains-mono);
     font-size: 11px;
     font-weight: 700;
     border-radius: 50%;
     margin-top: 1px;
   }
+
   .anatomy-notes div {
     color: var(--fg-muted);
     font-size: 13px;
     line-height: 1.55;
   }
+
   .anatomy-notes strong {
     color: var(--fg);
     font-weight: 500;
@@ -810,16 +834,19 @@ const verbs = [
     gap: var(--space-2);
     position: relative;
   }
+
   @media (max-width: 800px) {
     .pipeline {
       grid-template-columns: 1fr 1fr;
     }
   }
+
   @media (max-width: 500px) {
     .pipeline {
       grid-template-columns: 1fr;
     }
   }
+
   .pipeline li {
     background: var(--surface-deep);
     border: 1px solid var(--border);
@@ -830,20 +857,24 @@ const verbs = [
     gap: var(--space-2);
     transition: border-color var(--t-base) var(--ease);
   }
+
   .pipeline li:hover {
     border-color: var(--accent-soft);
   }
+
   .pipeline header {
     display: flex;
     align-items: baseline;
     gap: var(--space-2);
   }
+
   .pipeline-step {
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-jetbrains-mono);
     font-size: 11px;
     color: var(--accent);
     letter-spacing: 0.08em;
   }
+
   .pipeline h3 {
     margin: 0;
     color: var(--fg);
@@ -851,6 +882,7 @@ const verbs = [
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
+
   .pipeline-ref {
     font-size: 11px;
     color: var(--fg-subtle);
@@ -858,6 +890,7 @@ const verbs = [
     border: none;
     padding: 0;
   }
+
   .pipeline p {
     margin: 0;
     color: var(--fg-muted);
@@ -873,6 +906,7 @@ const verbs = [
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: var(--space-2);
   }
+
   .action {
     background: var(--surface-deep);
     border: 1px solid var(--border);
@@ -883,15 +917,18 @@ const verbs = [
     gap: var(--space-2);
     transition: border-color var(--t-base) var(--ease);
   }
+
   .action:hover {
     border-color: var(--accent-soft);
   }
+
   .action header {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: var(--space-2);
   }
+
   .action-name {
     background: transparent;
     border: none;
@@ -899,17 +936,20 @@ const verbs = [
     color: var(--accent);
     font-size: 14px;
   }
+
   .action-arg {
     color: var(--fg-subtle);
     font-size: 11px;
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-jetbrains-mono);
   }
+
   .action-use {
     color: var(--fg-muted);
     font-size: 12.5px;
     line-height: 1.55;
     margin: 0;
   }
+
   .action-sample {
     margin: 0;
     background: var(--surface-2);
@@ -928,6 +968,7 @@ const verbs = [
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: var(--space-2);
   }
+
   .example {
     background: var(--surface-deep);
     border: 1px solid var(--border);
@@ -938,15 +979,18 @@ const verbs = [
     gap: var(--space-2);
     transition: border-color var(--t-base) var(--ease);
   }
+
   .example:hover {
     border-color: var(--accent);
   }
+
   .example header {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: var(--space-2);
   }
+
   .example-cmd {
     background: transparent;
     border: none;
@@ -954,19 +998,22 @@ const verbs = [
     font-size: 15px;
     color: var(--accent);
   }
+
   .example-name {
-    font-family: "Departure Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: 11px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--fg-subtle);
   }
+
   .example-blurb {
     margin: 0;
     color: var(--fg);
     font-size: 13px;
     line-height: 1.5;
   }
+
   .example-preview {
     margin: 0;
     background: var(--surface-2);
@@ -978,6 +1025,7 @@ const verbs = [
     overflow-x: auto;
     flex-grow: 1;
   }
+
   .example footer {
     display: flex;
     align-items: center;
@@ -986,19 +1034,22 @@ const verbs = [
     padding-top: var(--space-2);
     border-top: 1px solid var(--border);
   }
+
   .example-tag {
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-jetbrains-mono);
     font-size: 10px;
     color: var(--accent);
     letter-spacing: 0.04em;
   }
+
   .example-link {
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-jetbrains-mono);
     font-size: 11px;
     color: var(--fg-muted);
     text-decoration: none;
     transition: color var(--t-base) var(--ease);
   }
+
   .example-link:hover {
     color: var(--accent);
   }
@@ -1012,6 +1063,7 @@ const verbs = [
     gap: var(--space-2);
     margin: 0;
   }
+
   .verb {
     padding: var(--space-3);
     background: var(--surface-deep);
@@ -1019,12 +1071,15 @@ const verbs = [
     border-radius: 2px;
     transition: border-color var(--t-base) var(--ease);
   }
+
   .verb:hover {
     border-color: var(--accent-soft);
   }
+
   .verb dt {
     margin: 0 0 var(--space-1);
   }
+
   .verb dt code {
     background: transparent;
     border: none;
@@ -1032,6 +1087,7 @@ const verbs = [
     color: var(--accent);
     font-size: 13px;
   }
+
   .verb dd {
     margin: 0;
     color: var(--fg-muted);
@@ -1047,6 +1103,7 @@ const verbs = [
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: var(--space-3);
   }
+
   .finale-card {
     display: flex;
     flex-direction: column;
@@ -1061,10 +1118,12 @@ const verbs = [
       border-color var(--t-base) var(--ease),
       transform var(--t-fast) var(--ease);
   }
+
   .finale-card:hover {
     border-color: var(--accent);
     transform: translateY(-2px);
   }
+
   .finale-card h3 {
     margin: 0;
     color: var(--fg);
@@ -1072,6 +1131,7 @@ const verbs = [
     text-transform: none;
     letter-spacing: -0.01em;
   }
+
   .finale-card p {
     margin: 0;
     color: var(--fg-muted);
@@ -1079,9 +1139,10 @@ const verbs = [
     line-height: 1.55;
     flex-grow: 1;
   }
+
   .finale-link {
     color: var(--accent);
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-jetbrains-mono);
     font-size: 12px;
     margin-top: auto;
   }

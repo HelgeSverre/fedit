@@ -5,27 +5,29 @@
     "": {
       "name": "fedit-website",
       "dependencies": {
-        "@astrojs/compiler-rs": "latest",
-        "astro": "latest",
-        "astro-inspect-clip": "latest",
+        "@astrojs/compiler-rs": "^0.2.1",
+        "astro": "^6.4.2",
+        "astro-inspect-clip": "^1.0.4",
       },
       "devDependencies": {
-        "@astrojs/check": "latest",
-        "@astrojs/sitemap": "latest",
-        "@fontsource/jetbrains-mono": "latest",
-        "@proj-airi/font-departure-mono": "latest",
-        "@resvg/resvg-js": "latest",
-        "oxfmt": "latest",
-        "oxlint": "latest",
-        "satori": "latest",
-        "typescript": "latest",
+        "@astrojs/check": "^0.9.9",
+        "@astrojs/sitemap": "^3.7.3",
+        "@fontsource/jetbrains-mono": "^5.2.8",
+        "@proj-airi/font-departure-mono": "^0.10.2",
+        "@resvg/resvg-js": "^2.6.2",
+        "oxfmt": "^0.52.0",
+        "oxlint": "^1.67.0",
+        "prettier": "^3.8.3",
+        "prettier-plugin-astro": "^0.14.1",
+        "satori": "^0.26.0",
+        "typescript": "^6.0.3",
       },
     },
   },
   "packages": {
     "@astrojs/check": ["@astrojs/check@0.9.9", "", { "dependencies": { "@astrojs/language-server": "^2.16.7", "chokidar": "^4.0.3", "kleur": "^4.1.5", "yargs": "^17.7.2" }, "peerDependencies": { "typescript": "^5.0.0 || ^6.0.0" }, "bin": { "astro-check": "bin/astro-check.js" } }, "sha512-A5UW8uIuErLWEoRQvzgXpO1gTjUFtK8r7nU2Z7GewAMxUb7bPvpk11qaKKgxqXlHJWlAvaaxy+Xg28A6bmQ1Tg=="],
 
-    "@astrojs/compiler": ["@astrojs/compiler@4.0.0", "", {}, "sha512-eouss7G8ygdZqHuke033VMcVw5HTZUu+PXd/h06DGDUg/jt5btPYPqh66ENWw/mU78rBrf/oeC4oqoBwMtDMNA=="],
+    "@astrojs/compiler": ["@astrojs/compiler@2.13.1", "", {}, "sha512-f3FN83d2G/v32ipNClRKgYv30onQlMZX1vCeZMjPsMMPl1mDpmbl0+N5BYo4S/ofzqJyS5hvwacEo0CCVDn/Qg=="],
 
     "@astrojs/compiler-binding": ["@astrojs/compiler-binding@0.2.1", "", { "optionalDependencies": { "@astrojs/compiler-binding-darwin-arm64": "0.2.1", "@astrojs/compiler-binding-darwin-x64": "0.2.1", "@astrojs/compiler-binding-linux-arm64-gnu": "0.2.1", "@astrojs/compiler-binding-linux-arm64-musl": "0.2.1", "@astrojs/compiler-binding-linux-x64-gnu": "0.2.1", "@astrojs/compiler-binding-linux-x64-musl": "0.2.1", "@astrojs/compiler-binding-wasm32-wasi": "0.2.1", "@astrojs/compiler-binding-win32-arm64-msvc": "0.2.1", "@astrojs/compiler-binding-win32-x64-msvc": "0.2.1" } }, "sha512-KkGifC48eylyWndrbTGkCoc9ojAFWrHQvV1YON06rtEDSroC6U2hWFu2vWGgkZuT0hJpWFKqeelLvpJZeUbCMQ=="],
 
@@ -1007,19 +1009,17 @@
 
     "zwitch": ["zwitch@2.0.4", "", {}, "sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A=="],
 
-    "@astrojs/language-server/@astrojs/compiler": ["@astrojs/compiler@2.13.1", "", {}, "sha512-f3FN83d2G/v32ipNClRKgYv30onQlMZX1vCeZMjPsMMPl1mDpmbl0+N5BYo4S/ofzqJyS5hvwacEo0CCVDn/Qg=="],
-
     "@vscode/emmet-helper/jsonc-parser": ["jsonc-parser@2.3.1", "", {}, "sha512-H8jvkz1O50L3dMZCsLqiuB2tA7muqbSg1AtGEkN0leAqGjsUzDJir3Zwr02BhqdcITPg3ei3mZ+HjMocAknhhg=="],
 
     "anymatch/picomatch": ["picomatch@2.3.2", "", {}, "sha512-V7+vQEJ06Z+c5tSye8S+nHUfI51xoXIXjHQ99cQtKUkQqqO1kO/KCJUfZXuB47h/YBlDhah2H3hdUGXn8ie0oA=="],
+
+    "astro/@astrojs/compiler": ["@astrojs/compiler@4.0.0", "", {}, "sha512-eouss7G8ygdZqHuke033VMcVw5HTZUu+PXd/h06DGDUg/jt5btPYPqh66ENWw/mU78rBrf/oeC4oqoBwMtDMNA=="],
 
     "csso/css-tree": ["css-tree@2.2.1", "", { "dependencies": { "mdn-data": "2.0.28", "source-map-js": "^1.0.1" } }, "sha512-OA0mILzGc1kCOCSJerOeqDxDQ4HOh+G8NbOJFOTgOCzpw7fCBubk0fEyxp8AgOL/jvLgYA/uV0cMbe43ElF1JA=="],
 
     "dom-serializer/entities": ["entities@4.5.0", "", {}, "sha512-V0hjH4dGPh9Ao5p0MoRY6BVqtwCjhz6vI5LT8AJ55H+4g9/4vbHx1I54fS0XuclLhDHArPQCiMjDxjaL8fPxhw=="],
 
     "is-inside-container/is-docker": ["is-docker@3.0.0", "", { "bin": { "is-docker": "cli.js" } }, "sha512-eljcgEDlEns/7AXFosB5K/2nCM4P7FQPkGc/DWLy5rmFEWvZayGrik1d9/QIY5nJ4f9YsVvBkA6kJpHn9rISdQ=="],
-
-    "prettier-plugin-astro/@astrojs/compiler": ["@astrojs/compiler@2.13.1", "", {}, "sha512-f3FN83d2G/v32ipNClRKgYv30onQlMZX1vCeZMjPsMMPl1mDpmbl0+N5BYo4S/ofzqJyS5hvwacEo0CCVDn/Qg=="],
 
     "rollup/@types/estree": ["@types/estree@1.0.8", "", {}, "sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w=="],
 

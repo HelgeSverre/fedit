@@ -69,7 +69,7 @@ const dontList = [
 
 <Site
   title="brand"
-  description="The fedit brand: caret mark, Departure Mono + JetBrains Mono, phosphor green accent, seven editor themes, voice rules."
+  description="The fedit brand: caret mark, Departure Mono + JetBrains Mono, phosphor green accent, ten editor themes, voice rules."
   image="/og/brand.png"
 >
   <!-- ============================================================ -->
@@ -247,12 +247,13 @@ const dontList = [
         <div class="type-sample jb">
           <p class="jb-lg">Opens a workspace, shows a file tree, edits files, saves to disk.</p>
           <p class="jb-base">
-            Multi-buffer, undo/redo, find, command palette, system clipboard. Seven color themes.
+            Multi-buffer, undo/redo, find, command palette, system clipboard. Ten color themes.
             Persists the last 20 opened files and your theme across sessions.
           </p>
-          <pre
-            class="block jb-code"><span class="dim">$</span> fedit src/Main.fs
-<span class="muted">opened</span> <span class="accent">src/Main.fs</span> <span class="muted">· 312 lines</span></pre>
+          <pre class="jb-code"
+            ><span class="dim">$</span> fedit src/Main.fs
+<span class="muted">opened</span> <span class="accent">src/Main.fs</span> <span class="muted">· 312 lines</span></pre
+          >
         </div>
         <footer>
           <code>jetbrains.com/lp/mono</code>
@@ -334,7 +335,7 @@ const dontList = [
       <div class="section__head">
         <h2>themes</h2>
         <p class="section__lede">
-          Seven user-selectable accent palettes. Each shares the same neutral chrome; only five
+          Ten user-selectable accent palettes. Each shares the same neutral chrome; only five
           slots swap (dock title, status bar, selection highlight, current-line gutter, cursor).
           Spec in <code>brand/themes/*.json</code>, implementation in <code
             >src/Fedit/Themes.fs</code
@@ -358,7 +359,7 @@ const dontList = [
     margin-bottom: 24px;
   }
   .brand-hero .eyebrow {
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-jetbrains-mono);
     font-size: 11px;
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -366,7 +367,7 @@ const dontList = [
     margin: 0 0 20px;
   }
   .brand-lede {
-    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: clamp(18px, 2.5vw, 22px);
     line-height: 1.45;
     max-width: 48ch;
@@ -430,7 +431,7 @@ const dontList = [
     border-radius: 4px;
   }
   .lockup-word {
-    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: 56px;
     letter-spacing: -0.03em;
     line-height: 1;
@@ -467,7 +468,7 @@ const dontList = [
     margin-bottom: 6px;
   }
   .swatch-name {
-    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: 12px;
     color: var(--fg);
   }
@@ -480,7 +481,7 @@ const dontList = [
     color: var(--fg-subtle);
   }
   .token-grid dt {
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-jetbrains-mono);
   }
   .token-grid dt code {
     font-size: 12px;
@@ -508,7 +509,7 @@ const dontList = [
     border-bottom: 1px solid var(--border);
   }
   .type-name {
-    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: 18px;
     letter-spacing: -0.01em;
     color: var(--fg);
@@ -523,7 +524,7 @@ const dontList = [
     margin: 0;
   }
   .type-sample.dep p {
-    font-family: "Departure Mono", monospace;
+    font-family: var(--font-departure-mono);
     color: var(--fg);
   }
   .dep-4xl {
@@ -544,7 +545,7 @@ const dontList = [
   }
 
   .type-sample.jb p {
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-jetbrains-mono);
   }
   .jb-lg {
     font-size: 18px;
@@ -602,13 +603,13 @@ const dontList = [
     border-color: var(--accent-soft);
   }
   .voice-num {
-    font-family: "Departure Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: 28px;
     color: var(--accent);
     line-height: 1;
   }
   .voice-rule {
-    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: 18px;
     color: var(--fg);
     margin: 0 0 12px;

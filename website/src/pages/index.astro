@@ -2,6 +2,7 @@
 import Site from "../layouts/Site.astro";
 import Symbol from "../components/Symbol.astro";
 import CaretRise from "../components/mascots/CaretRise.astro";
+import CodeBlock from "../components/CodeBlock.astro";
 
 const features = [
   {
@@ -27,7 +28,7 @@ const features = [
     desc: "external changes trigger a debounced 300ms rescan; no need to press Ctrl+R",
   },
   {
-    name: "seven themes",
+    name: "ten themes",
     desc: "swap accent palette live; persists to ~/.config/fedit/config.json",
   },
   { name: "UTF-8", desc: "reads any line-ending style, preserves it on save, no BOM written" },
@@ -42,7 +43,7 @@ const cards = [
   {
     href: "/themes",
     title: "themes",
-    blurb: "Seven accent palettes. Switch live from the command bar.",
+    blurb: "Ten accent palettes. Switch live from the command bar.",
   },
   {
     href: "/how",
@@ -59,7 +60,7 @@ const cards = [
 
 <Site
   title="fedit — edit files in the terminal"
-  description="A small terminal text editor written in F#. Workspace tree, multi-buffer, piece-table buffers, find, command palette, system clipboard, seven color themes."
+  description="A small terminal text editor written in F#. Workspace tree, multi-buffer, piece-table buffers, find, command palette, system clipboard, ten color themes."
   image="/og/index.png"
   titleOverride
 >
@@ -86,7 +87,9 @@ const cards = [
               rel="noopener">View on GitHub</a
             >
           </p>
-          <p class="caveat">macOS &amp; Linux via Homebrew. Windows binary on GitHub Releases.</p>
+          <p class="caveat"
+            >For macOS &amp; Linux via Homebrew. Windows binary on GitHub Releases.</p
+          >
         </div>
         <div class="hero-mascot">
           <CaretRise />
@@ -124,7 +127,7 @@ const cards = [
       <div class="section__head"><h2>install</h2></div>
 
       <h3>homebrew <span class="muted">(macOS &amp; Linux)</span></h3>
-      <pre class="block"><span class="dim">$</span> brew install helgesverre/tap/fedit</pre>
+      <CodeBlock><span class="dim">$</span> brew install helgesverre/tap/fedit</CodeBlock>
       <p class="muted-p">
         Auto-detects your OS and CPU (arm64 / x64). Updates land via <code>brew upgrade fedit</code
         >.
@@ -139,10 +142,11 @@ const cards = [
 
       <h3>from source</h3>
       <pre
-        class="block"><span class="dim">$</span> git clone https://github.com/HelgeSverre/fedit
+        ><span class="dim">$</span> git clone https://github.com/HelgeSverre/fedit
 <span class="dim">$</span> cd fedit
 <span class="dim">$</span> just install
-<span class="dim">$</span> fedit .</pre>
+<span class="dim">$</span> fedit .</pre
+      >
       <p class="muted-p">
         The <code>just install</code> recipe publishes a self-contained single-file binary to <code
           >~/.local/bin</code
@@ -154,16 +158,18 @@ const cards = [
 
       <h3>run without installing</h3>
       <pre
-        class="block"><span class="dim">$</span> ./fedit .                              <span class="comment"># shell shim, pins local .dotnet</span>
+        ><span class="dim">$</span> ./fedit .                              <span class="comment"># shell shim, pins local .dotnet</span>
 <span class="dim">$</span> dotnet run --project src/Fedit/Fedit.fsproj -- .
-<span class="dim">$</span> just run .                             <span class="comment"># or via the recipe</span></pre>
+<span class="dim">$</span> just run .                             <span class="comment"># or via the recipe</span></pre
+      >
 
       <h3>dev loop</h3>
       <pre
-        class="block"><span class="dim">$</span> just dev .         <span class="comment"># dotnet watch, re-launches on source changes</span>
+        ><span class="dim">$</span> just dev .         <span class="comment"># dotnet watch, re-launches on source changes</span>
 <span class="dim">$</span> just check         <span class="comment"># lint + build + test, the pre-commit gate</span>
 <span class="dim">$</span> just test          <span class="comment"># xUnit + FsCheck</span>
-<span class="dim">$</span> just format        <span class="comment"># fantomas + prettier</span></pre>
+<span class="dim">$</span> just format        <span class="comment"># fantomas + prettier</span></pre
+      >
 
       <h3>flags</h3>
       <dl class="dl-grid">
@@ -229,7 +235,7 @@ const cards = [
     line-height: 1;
   }
   .hero-lede {
-    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: clamp(20px, 3.2vw, 26px);
     line-height: 1.35;
     color: var(--fg);
@@ -268,7 +274,7 @@ const cards = [
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: 16px;
     letter-spacing: -0.01em;
     padding: 14px 22px;
@@ -320,7 +326,7 @@ const cards = [
     border: none;
   }
   .feature h3 {
-    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: 14px;
     color: var(--fg);
     text-transform: none;
@@ -332,10 +338,6 @@ const cards = [
     font-size: 13px;
     margin-top: var(--space-1);
     line-height: 1.55;
-  }
-
-  .block {
-    max-width: 720px;
   }
 
   /* ----- read next cards ----- */
@@ -362,7 +364,7 @@ const cards = [
     transform: translateY(-1px);
   }
   .card h3 {
-    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: 18px;
     margin: 0 0 var(--space-1);
     color: var(--fg);

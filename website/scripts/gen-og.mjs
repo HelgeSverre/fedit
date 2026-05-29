@@ -6,7 +6,7 @@
 //
 // Run with `bun scripts/gen-og.mjs` or `just og`.
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import satori from "satori";
@@ -39,7 +39,10 @@ const fonts = [
   {
     name: "Departure Mono",
     data: await readFile(
-      join(root, "node_modules/@proj-airi/font-departure-mono/dist/files/DepartureMono-Regular.otf")
+      join(
+        root,
+        "node_modules/@proj-airi/font-departure-mono/dist/files/DepartureMono-Regular.otf",
+      ),
     ),
     weight: 400,
     style: "normal",
@@ -49,8 +52,8 @@ const fonts = [
     data: await readFile(
       join(
         root,
-        "node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff"
-      )
+        "node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff",
+      ),
     ),
     weight: 400,
     style: "normal",
@@ -60,8 +63,8 @@ const fonts = [
     data: await readFile(
       join(
         root,
-        "node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff"
-      )
+        "node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff",
+      ),
     ),
     weight: 500,
     style: "normal",
@@ -135,7 +138,7 @@ const Caret = ({ size = 220, stroke = ACCENT, strokeWidth = 22 }) =>
       strokeLinecap: "square",
       strokeLinejoin: "miter",
       fill: "none",
-    })
+    }),
   );
 
 const ThemeStrip = () =>
@@ -157,8 +160,8 @@ const ThemeStrip = () =>
           background: hex,
           borderRadius: 2,
         },
-      })
-    )
+      }),
+    ),
   );
 
 // 8px-rule "tape" mark in the corner: subtle accent rectangle.
@@ -206,7 +209,7 @@ const Card = (page) =>
           marginTop: 36,
         },
       },
-      page.eyebrow
+      page.eyebrow,
     ),
     // middle row: caret + title block
     h(
@@ -241,7 +244,7 @@ const Card = (page) =>
               color: FG,
             },
           },
-          page.title
+          page.title,
         ),
         h(
           "div",
@@ -256,10 +259,10 @@ const Card = (page) =>
               maxWidth: 760,
             },
           },
-          page.lede
+          page.lede,
         ),
-        page.swatches ? ThemeStrip() : null
-      )
+        page.swatches ? ThemeStrip() : null,
+      ),
     ),
     // bottom row: hairline + footer
     h(
@@ -271,7 +274,13 @@ const Card = (page) =>
         },
       },
       h("div", {
-        style: { display: "flex", width: "100%", height: 1, background: BORDER, marginBottom: 20 },
+        style: {
+          display: "flex",
+          width: "100%",
+          height: 1,
+          background: BORDER,
+          marginBottom: 20,
+        },
       }),
       h(
         "div",
@@ -284,9 +293,9 @@ const Card = (page) =>
           },
         },
         h("div", { style: { display: "flex" } }, "github.com/HelgeSverre/fedit"),
-        h("div", { style: { display: "flex", color: ACCENT } }, "^")
-      )
-    )
+        h("div", { style: { display: "flex", color: ACCENT } }, "^"),
+      ),
+    ),
   );
 
 // ─── render ────────────────────────────────────────────────────────────────

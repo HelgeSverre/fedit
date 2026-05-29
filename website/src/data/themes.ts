@@ -27,4 +27,7 @@ export const themes: Theme[] = [
   { name: "teal", description: "Cyan-green hybrid", hex: "#5FD7D7", ansi256: 80 },
   { name: "yellow", description: "Warm yellow (dark text)", hex: "#FFD700", ansi256: 220 },
   { name: "red", description: "Crimson accent", hex: "#FF5F5F", ansi256: 203 },
+  { name: "graphite", description: "Blue-grey high readability", hex: "#8CB4FF", ansi256: 111 },
+  { name: "evergreen", description: "Soft forest green", hex: "#A7C080", ansi256: 143 },
+  { name: "mono-amber", description: "Deep amber phosphor", hex: "#FFAF00", ansi256: 214 },
 ];

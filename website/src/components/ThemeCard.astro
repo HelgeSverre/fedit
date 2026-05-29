@@ -12,14 +12,15 @@ const { theme } = Astro.props;
     <span class="name">{theme.name}</span>
     {theme.isDefault && <span class="label">default</span>}
   </header>
-  <pre
-    class="mini-tui"><span class="dim">┌─ src ─────────┬─ Main.fs ──┐</span>
+  <pre class="mini-tui"
+    ><span class="dim">┌─ src ─────────┬─ Main.fs ──┐</span>
 <span class="dim">│</span> ▾ src         <span class="dim">│</span>   1 module     <span class="dim">│</span>
 <span class="dim">│</span>   Buffer.fs   <span class="dim">│</span>   2 open …     <span class="dim">│</span>
 <span class="dim">│</span>   Main.fs     <span class="dim">│</span>   3            <span class="dim">│</span>
 <span class="dim">├───────────────┴────────────┤</span>
 <span class="dim">│</span> <span class="accent">^</span> <span class="muted">Ln 1 · LF · 1 buf</span>     <span class="dim">│</span>
-<span class="dim">└────────────────────────────┘</span></pre>
+<span class="dim">└────────────────────────────┘</span></pre
+  >
   <footer>
     <span>{theme.description}</span>
     <code>{theme.hex} · ansi {theme.ansi256}</code>
@@ -46,7 +47,7 @@ const { theme } = Astro.props;
     outline-offset: 2px;
   }
   header {
-    font-family: "Departure Mono", "JetBrains Mono", monospace;
+    font-family: var(--font-departure-mono);
     font-size: 14px;
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
@@ -82,6 +83,7 @@ const { theme } = Astro.props;
     font-size: 10px;
     padding: 12px;
     line-height: 1.45;
+    overflow: hidden;
   }
   pre.mini-tui .accent {
     color: var(--accent);
