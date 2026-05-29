@@ -16,13 +16,15 @@ const { code, lang = "sh", highlight = false, class: extraClass } = Astro.props;
     <div class:list={["codeblock-wrap", extraClass]}>
       <Code
         code={code}
-        lang={lang}
+        lang={lang as Parameters<typeof Code>[0]["lang"]}
         themes={{ light: "github-light", dark: "github-dark" }}
         defaultColor={false}
       />
     </div>
   ) : (
-    <pre class:list={[extraClass]}><slot /></pre>
+    <pre class:list={[extraClass]}>
+      <slot />
+    </pre>
   )
 }
 

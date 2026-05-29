@@ -110,6 +110,18 @@ const pages = [
     title: "brand",
     lede: "The caret. Departure Mono + JetBrains Mono. Phosphor green. Seven themes. Voice rules.",
   },
+  {
+    slug: "plugins",
+    eyebrow: "fedit.dev / plugins",
+    title: "plugins",
+    lede: "Browse the plugin registry. Search, filter, and copy a one-line install command.",
+  },
+  {
+    slug: "developer",
+    eyebrow: "fedit.dev / developer",
+    title: "developer",
+    lede: "Build fedit plugins in F#. Quickstart, the eight PluginAction types, five reference implementations.",
+  },
 ];
 
 // ─── helpers ───────────────────────────────────────────────────────────────

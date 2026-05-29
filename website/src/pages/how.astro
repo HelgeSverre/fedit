@@ -28,8 +28,9 @@ import TuiFrame from "../components/TuiFrame.astro";
           <code>Renderer.render</code> writes that grid as ANSI escapes.
         </p>
 
-        <TuiFrame label="data flow"><Fragment
-          set:html={`                        +----------------------+
+        <TuiFrame label="data flow"
+          ><Fragment
+            set:html={`                        +----------------------+
                         |        Model         |
                         |  workspace . tree    |
                         |  buffers + cursors   |
@@ -62,7 +63,8 @@ import TuiFrame from "../components/TuiFrame.astro";
                             ^                       (main loop)
                             |
                        feeds back`}
-        /></TuiFrame>
+          /></TuiFrame
+        >
       </section>
 
       <section>

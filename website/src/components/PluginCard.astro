@@ -1,0 +1,159 @@
+---
+/**
+ * Catalog card for the /plugins page. This is an Alpine.js template body —
+ * it renders once per plugin inside a `<template x-for="p in filtered">`
+ * loop on plugins.astro. All dynamic values bind via `x-text` / `:class`
+ * against the `p` plugin object (see ../data/plugins.ts for the shape).
+ *
+ * The card is a button so the whole surface opens the detail panel; the
+ * structure mirrors ThemeCard.astro (header / body / footer with a hairline
+ * between each).
+ */
+---
+
+<button type="button" class="plugin-card" :class="{ bundled: p.bundled }" @click="open(p)">
+  <header>
+    <span class="dot" aria-hidden="true"></span>
+    <span class="name" x-text="p.name"></span>
+    <span class="label" x-show="p.bundled">bundled</span>
+    <code class="ver" x-text="'v' + p.version"></code>
+  </header>
+
+  <p class="desc" x-text="p.description"></p>
+
+  <div class="tags">
+    <template x-for="t in p.tags" :key="t">
+      <span class="tag" x-text="t"></span>
+    </template>
+  </div>
+
+  <footer>
+    <span class="author" x-text="p.author"></span>
+    <span class="stat">
+      <span class="stat-num" x-text="fmtDownloads(p.downloads)"></span> installs
+    </span>
+  </footer>
+</button>
+
+<style>
+  .plugin-card {
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    width: 100%;
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    cursor: pointer;
+    transition:
+      border-color var(--t-base) var(--ease),
+      transform var(--t-base) var(--ease);
+  }
+  .plugin-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+  .plugin-card:focus-visible {
+    border-color: var(--accent);
+  }
+
+  header {
+    font-family: var(--font-departure-mono);
+    font-size: 14px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  header .dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    background: var(--border-strong);
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .plugin-card.bundled header .dot {
+    background: var(--accent);
+  }
+  header .name {
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  header .label {
+    font-family: var(--font-jetbrains-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    background: color-mix(in oklch, var(--accent) 12%, transparent);
+    padding: 2px 6px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  header .ver {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 11px;
+    color: var(--fg-subtle);
+    flex-shrink: 0;
+  }
+
+  .desc {
+    margin: 0;
+    padding: 12px 14px;
+    color: var(--fg-muted);
+    font-size: 12.5px;
+    line-height: 1.55;
+    flex-grow: 1;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 14px 12px;
+  }
+  .tag {
+    font-family: var(--font-jetbrains-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--fg-subtle);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 1px 6px;
+  }
+
+  footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--fg-subtle);
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+  }
+  footer .author {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  footer .stat {
+    color: var(--fg-muted);
+    flex-shrink: 0;
+  }
+  footer .stat-num {
+    color: var(--fg);
+  }
+</style>
