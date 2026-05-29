@@ -427,7 +427,10 @@ let ``runAction Chain applies actions left to right`` () =
 [<Fact>]
 let ``runAction When picks the then-branch when the cond holds`` () =
     let model = initModel () // sidebar visible by default
-    let next, _ = Editor.runAction (When(SidebarVisible, FocusSidebar, Action.FocusEditor)) model
+
+    let next, _ =
+        Editor.runAction (When(SidebarVisible, FocusSidebar, Action.FocusEditor)) model
+
     next.Focus |> should equal Sidebar
 
 [<Fact>]
@@ -438,7 +441,9 @@ let ``runAction When picks the else-branch when the cond fails`` () =
                 { (initModel ()).Panels with
                     SidebarVisible = false } }
 
-    let next, _ = Editor.runAction (When(SidebarVisible, FocusSidebar, Action.FocusEditor)) model
+    let next, _ =
+        Editor.runAction (When(SidebarVisible, FocusSidebar, Action.FocusEditor)) model
+
     next.Focus |> should equal Editor
 
 [<Fact>]
@@ -449,3 +454,16 @@ let ``runAction HideSidebar clears the incremental search`` () =
     let hidden, _ = Editor.runAction HideSidebar searching
     hidden.Workspace.SearchBuffer |> should equal ""
     hidden.Panels.SidebarVisible |> should equal false
+
+[<Fact>]
+let ``Action.ofCommand maps write to Save and leaves theme unmapped`` () =
+    Action.ofCommand Command.Write |> should equal (Some Save)
+    Action.ofCommand (Command.Theme "x") |> should equal (None: Action option)
+
+[<Fact>]
+let ``Ctrl+E focuses the editor (FocusEditor action)`` () =
+    let model = initModel ()
+    let inSidebar, _ = Editor.update (KeyPressed(Ctrl 'b')) model
+    inSidebar.Focus |> should equal Sidebar
+    let focused, _ = Editor.update (KeyPressed(Ctrl 'e')) inSidebar
+    focused.Focus |> should equal Editor

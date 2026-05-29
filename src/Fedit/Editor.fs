@@ -536,8 +536,8 @@ module Editor =
                 |> notify (Some(Notification.info $"Activated {Path.GetFileName absolutePath}")),
                 []
             | None -> { model with Focus = Editor }, [ LoadFile absolutePath ]
-        | Write -> saveActiveBuffer None model
-        | WriteAs path -> saveActiveBuffer (Some path) model
+        | Write -> runAction Save model
+        | WriteAs path -> runAction (SaveAs path) model
         | Command.OpenConfig ->
             let configPath = ConfigIO.path ()
 
@@ -552,18 +552,15 @@ module Editor =
                     ()
 
             executeCommand (Open configPath) model
-        | Command.Quit -> { model with ShouldQuit = true }, [ SaveConfig model.Config ]
-        | Command.ToggleSidebar ->
-            { model with
-                Panels =
-                    { model.Panels with
-                        SidebarVisible = not model.Panels.SidebarVisible } },
-            []
-        | FocusTree -> { model with Focus = Sidebar }, []
+        | Command.Quit -> runAction Action.Quit model
+        | Command.ToggleSidebar -> runAction Action.ToggleSidebar model
+        | FocusTree -> runAction FocusSidebar model
+        // :editor focuses without clearing the sidebar search — a deliberate
+        // divergence from the Ctrl+E chord (which clears it). Preserved.
         | Command.FocusEditor -> { model with Focus = Editor }, []
-        | Command.ReloadWorkspace -> model, [ ScanWorkspace model.Workspace.RootPath ]
-        | Command.NextBuffer -> switchBuffer 1 model, []
-        | PreviousBuffer -> switchBuffer -1 model, []
+        | Command.ReloadWorkspace -> runAction Action.ReloadWorkspace model
+        | Command.NextBuffer -> runAction Action.NextBuffer model
+        | PreviousBuffer -> runAction PrevBuffer model
         | Theme name ->
             match Themes.tryFindIn model.UserThemes name with
             | Some theme ->
@@ -858,9 +855,21 @@ module Editor =
         | Save -> saveActiveBuffer None model
         | SaveAs path -> saveActiveBuffer (Some path) model
         | Quit -> { model with ShouldQuit = true }, [ SaveConfig model.Config ]
-        | OpenPalette -> openPrompt ":" { model with Workspace = Workspace.clearSearch model.Workspace }
-        | OpenFilePicker -> openPrompt "" { model with Workspace = Workspace.clearSearch model.Workspace }
-        | OpenSearch -> openPrompt "/" { model with Workspace = Workspace.clearSearch model.Workspace }
+        | OpenPalette ->
+            openPrompt
+                ":"
+                { model with
+                    Workspace = Workspace.clearSearch model.Workspace }
+        | OpenFilePicker ->
+            openPrompt
+                ""
+                { model with
+                    Workspace = Workspace.clearSearch model.Workspace }
+        | OpenSearch ->
+            openPrompt
+                "/"
+                { model with
+                    Workspace = Workspace.clearSearch model.Workspace }
         | NextBuffer -> switchBuffer 1 model, []
         | PrevBuffer -> switchBuffer -1 model, []
         | JumpToBuffer n -> jumpToBuffer n model, []
@@ -869,11 +878,15 @@ module Editor =
         // panel / focus primitives
         | RevealSidebar ->
             { model with
-                Panels = { model.Panels with SidebarVisible = true } },
+                Panels =
+                    { model.Panels with
+                        SidebarVisible = true } },
             []
         | HideSidebar ->
             { model with
-                Panels = { model.Panels with SidebarVisible = false }
+                Panels =
+                    { model.Panels with
+                        SidebarVisible = false }
                 Workspace = Workspace.clearSearch model.Workspace },
             []
         | ToggleSidebar ->
@@ -928,7 +941,8 @@ module Editor =
                 Workspace = Workspace.expandSelected (Workspace.clearSearch model.Workspace) },
             []
         | SidebarActivate ->
-            let workspace, sidebarAction = Workspace.activateSelected (Workspace.clearSearch model.Workspace)
+            let workspace, sidebarAction =
+                Workspace.activateSelected (Workspace.clearSearch model.Workspace)
 
             match sidebarAction with
             | SidebarOpenFile path -> { model with Workspace = workspace }, [ LoadFile path ]

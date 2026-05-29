@@ -84,3 +84,21 @@ type Action =
     // deferred — bind/parse-able later, but no-ops until macros/keymap land
     | RecordMacro of register: char
     | ReplayMacro of register: char * count: int
+
+[<RequireQualifiedAccess>]
+module Action =
+    /// Map the command verbs that have an exact chord-action equivalent.
+    /// `None` for prompt-only / divergent verbs, which executeCommand keeps.
+    /// RHS cases are qualified `Action.*` because Action and Command share
+    /// several case names.
+    let ofCommand (command: Command) : Action option =
+        match command with
+        | Command.Write -> Some Action.Save
+        | Command.WriteAs path -> Some(Action.SaveAs path)
+        | Command.Quit -> Some Action.Quit
+        | Command.NextBuffer -> Some Action.NextBuffer
+        | Command.PreviousBuffer -> Some Action.PrevBuffer
+        | Command.ReloadWorkspace -> Some Action.ReloadWorkspace
+        | Command.ToggleSidebar -> Some Action.ToggleSidebar
+        | Command.FocusTree -> Some Action.FocusSidebar
+        | _ -> None
