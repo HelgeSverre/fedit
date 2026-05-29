@@ -89,6 +89,11 @@ install dest="~/.local/bin":
     {{dotnet}} publish {{project}} -c Release -o bin/dist
     mkdir -p {{dest}}
     install -m 0755 bin/dist/fedit {{dest}}/fedit
+    # The F# tree-sitter grammar lives outside the single-file bundle and is
+    # resolved at AppContext.BaseDirectory/runtimes/<rid>/native/. Ship it next
+    # to the binary or syntax highlighting silently no-ops.
+    rm -rf {{dest}}/runtimes
+    cp -R bin/dist/runtimes {{dest}}/runtimes
     @echo "Installed fedit to {{dest}}/fedit"
     @echo "Ensure {{dest}} is on your PATH."
     @case "$(basename "${SHELL:-}")" in \
@@ -103,6 +108,8 @@ install dest="%LOCALAPPDATA%\\Programs\\fedit":
     dotnet publish {{project}} -c Release -r win-x64 -o bin\dist
     if not exist "{{dest}}" mkdir "{{dest}}"
     copy /Y bin\dist\fedit.exe "{{dest}}\fedit.exe"
+    if exist "{{dest}}\runtimes" rmdir /S /Q "{{dest}}\runtimes"
+    xcopy /E /I /Y bin\dist\runtimes "{{dest}}\runtimes"
     @echo Installed fedit to {{dest}}\fedit.exe
     @echo Ensure {{dest}} is on your PATH.
     @echo Shell completions are not generated for PowerShell yet.
