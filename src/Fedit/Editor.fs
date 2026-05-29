@@ -962,10 +962,9 @@ module Editor =
                         SearchPreview = Some { preview with Current = nextIdx } } }
         | _ -> model
 
-    let private withClearedSearch workspace = Workspace.clearSearch workspace
-
     let private runSidebar key model =
         match key with
+        // incremental-filter fast-path — literal input
         | Character c ->
             { model with
                 Workspace = Workspace.appendSearch c model.Workspace },
@@ -974,55 +973,17 @@ module Editor =
             { model with
                 Workspace = Workspace.backspaceSearch model.Workspace },
             []
-        | Up ->
-            { model with
-                Workspace = Workspace.moveSelection -1 (withClearedSearch model.Workspace) },
-            []
-        | Down ->
-            { model with
-                Workspace = Workspace.moveSelection 1 (withClearedSearch model.Workspace) },
-            []
-        | PageUp ->
-            { model with
-                Workspace = Workspace.moveSelection -model.Config.TreePageJump (withClearedSearch model.Workspace) },
-            []
-        | PageDown ->
-            { model with
-                Workspace = Workspace.moveSelection model.Config.TreePageJump (withClearedSearch model.Workspace) },
-            []
-        | Home ->
-            { model with
-                Workspace = Workspace.moveHome (withClearedSearch model.Workspace) },
-            []
-        | End ->
-            { model with
-                Workspace = Workspace.moveEnd (withClearedSearch model.Workspace) },
-            []
-        | Left ->
-            let cleared = withClearedSearch model.Workspace
-
-            let nextWorkspace =
-                match Workspace.tryCollapseSelected cleared with
-                | Some collapsed -> collapsed
-                | None -> Workspace.selectParent cleared
-
-            { model with Workspace = nextWorkspace }, []
-        | Right ->
-            { model with
-                Workspace = Workspace.expandSelected (withClearedSearch model.Workspace) },
-            []
-        | Enter ->
-            let workspace, action =
-                Workspace.activateSelected (withClearedSearch model.Workspace)
-
-            match action with
-            | SidebarOpenFile path -> { model with Workspace = workspace }, [ LoadFile path ]
-            | SidebarNoOp -> { model with Workspace = workspace }, []
-        | Escape ->
-            { model with
-                Workspace = withClearedSearch model.Workspace
-                Focus = Editor },
-            []
+        // navigation — delegated to the unified interpreter
+        | Up -> runAction SidebarUp model
+        | Down -> runAction SidebarDown model
+        | PageUp -> runAction SidebarPageUp model
+        | PageDown -> runAction SidebarPageDown model
+        | Home -> runAction SidebarTop model
+        | End -> runAction SidebarBottom model
+        | Left -> runAction SidebarCollapse model
+        | Right -> runAction SidebarExpand model
+        | Enter -> runAction SidebarActivate model
+        | Escape -> runAction Action.FocusEditor model
         | _ -> model, []
 
     /// Map an editor KeyInput to a plugin-API KeyChord. Plain ASCII
