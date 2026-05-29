@@ -492,8 +492,10 @@ $RECYCLE.BIN/
 *.DS_Store
 /.preview/
 
-# Tree-sitter grammars are built locally via `just build-grammar` (host RID)
-# or `just build-grammars-all` (cross-build). CI builds the matching RID
-# before tests. ~11MB each — see docs/syntax-highlighting.md.
-src/Fedit/runtimes/*/native/libtree-sitter-fsharp.*
-src/Fedit/runtimes/*/native/tree-sitter-fsharp.*
+# Helix editor project config (per-developer, like .vscode/ and .idea/)
+.helix/
+
+# Tree-sitter grammars (all languages) are built locally via `just build-grammar`
+# (host RID) or `just build-grammars-all` (cross-build). CI builds the matching
+# RID before tests. ~11MB each — see docs/syntax-highlighting.md.
+src/Fedit/runtimes/*/native/
