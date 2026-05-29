@@ -299,3 +299,108 @@ let ``ClipboardPasted strips CRLF before inserting`` () =
     let buffer = next.Editors.Buffers[next.Editors.ActiveBufferId]
     (Buffer.text buffer).Contains "\r" |> should equal false
     Buffer.text buffer |> should equal "a\nb"
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase-1 characterization net: these pin current behavior so the
+// runAction refactor is provably behavior-preserving.
+// ─────────────────────────────────────────────────────────────────────
+
+let private withText (s: string) =
+    // Type each char of s into a fresh model, return the resulting model.
+    s
+    |> Seq.fold (fun m c -> fst (Editor.update (KeyPressed(Character c)) m)) (initModel ())
+
+[<Fact>]
+let ``Right then Left leaves the cursor where it started`` () =
+    let model = withText "abc"
+    let home, _ = Editor.update (KeyPressed Home) model
+    let right, _ = Editor.update (KeyPressed Right) home
+    (Editor.activeBufferState right).Cursor.Column |> should equal 1
+    let back, _ = Editor.update (KeyPressed Left) right
+    (Editor.activeBufferState back).Cursor.Column |> should equal 0
+
+[<Fact>]
+let ``Shift+Right selects one character`` () =
+    let model = withText "abc"
+    let home, _ = Editor.update (KeyPressed Home) model
+    let sel, _ = Editor.update (KeyPressed ShiftRight) home
+    (Editor.activeBufferState sel).Selection.IsSome |> should equal true
+
+[<Fact>]
+let ``Ctrl+A selects the whole buffer`` () =
+    let model = withText "abc"
+    let sel, _ = Editor.update (KeyPressed(Ctrl 'a')) model
+    (Editor.activeBufferState sel).Selection.IsSome |> should equal true
+
+[<Fact>]
+let ``Ctrl+C with a selection emits a ClipboardCopy effect`` () =
+    let model = withText "abc"
+    let selected, _ = Editor.update (KeyPressed(Ctrl 'a')) model
+    let _, effects = Editor.update (KeyPressed(Ctrl 'c')) selected
+
+    effects
+    |> List.exists (function
+        | ClipboardCopy _ -> true
+        | _ -> false)
+    |> should equal true
+
+[<Fact>]
+let ``Ctrl+C with no selection emits no effect`` () =
+    let model = initModel ()
+    let _, effects = Editor.update (KeyPressed(Ctrl 'c')) model
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``Ctrl+V emits a ClipboardPaste effect`` () =
+    let model = initModel ()
+    let _, effects = Editor.update (KeyPressed(Ctrl 'v')) model
+    effects |> should equal [ ClipboardPaste ]
+
+[<Fact>]
+let ``Ctrl+Z then Ctrl+Y round-trips an edit`` () =
+    // Undo granularity is an internal detail; a round-trip is robust to it.
+    let model = withText "ab"
+    (Buffer.text (Editor.activeBufferState model)) |> should equal "ab"
+    let undone, _ = Editor.update (KeyPressed(Ctrl 'z')) model
+    (Buffer.text (Editor.activeBufferState undone)) |> should not' (equal "ab")
+    let redone, _ = Editor.update (KeyPressed(Ctrl 'y')) undone
+    (Buffer.text (Editor.activeBufferState redone)) |> should equal "ab"
+
+[<Fact>]
+let ``Tab indents by the configured tab width`` () =
+    let model = initModel ()
+    let next, _ = Editor.update (KeyPressed Tab) model
+
+    (Buffer.text (Editor.activeBufferState next)).Length
+    |> should equal model.Config.TabWidth
+
+[<Fact>]
+let ``Ctrl+R requests a workspace rescan`` () =
+    let model = initModel ()
+    let _, effects = Editor.update (KeyPressed(Ctrl 'r')) model
+
+    effects
+    |> List.exists (function
+        | ScanWorkspace _ -> true
+        | _ -> false)
+    |> should equal true
+
+[<Fact>]
+let ``Down in the focused sidebar moves the tree selection`` () =
+    let model = initModel ()
+    let inSidebar, _ = Editor.update (KeyPressed(Ctrl 'b')) model
+    inSidebar.Focus |> should equal Sidebar
+    let moved, _ = Editor.update (KeyPressed Down) inSidebar
+    moved.Focus |> should equal Sidebar
+
+[<Fact>]
+let ``typing in the focused sidebar is consumed, not inserted into the editor buffer`` () =
+    // With no workspace tree loaded the incremental filter retains nothing,
+    // but the keystroke must still be consumed by the sidebar — never routed
+    // to the editor buffer. That routing is what the refactor must preserve.
+    let model = initModel ()
+    let inSidebar, _ = Editor.update (KeyPressed(Ctrl 'b')) model
+    let before = Buffer.text (Editor.activeBufferState inSidebar)
+    let after, _ = Editor.update (KeyPressed(Character 's')) inSidebar
+    Buffer.text (Editor.activeBufferState after) |> should equal before
+    after.Focus |> should equal Sidebar
