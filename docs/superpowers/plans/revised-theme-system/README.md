@@ -6,7 +6,7 @@ Make fedit themes control the editor surfaces that users actually read: selected
 
 This is a planning artifact only. It does not change the runtime schema yet.
 
-The companion `prototype.html` is intentionally broader than a static theme swatch. It uses a flex app shell with a top control navbar, a padded full-size editor stage, and a searchable right-side color inspector. It exercises theme switching, collapsible file-tree rows, left/right sidebar docking, sidebar visibility, Nerd Font glyph toggling, editable command prompt text, command-bar open/closed state, command-bar mode cycling, completion selection, pending/invalid/empty command states, right-aligned theme swatches, and editor-style code-pane scrolling. Treat it as a lightweight future sandbox for editor-surface design decisions.
+The companion `prototype.html` is intentionally broader than a static theme swatch. It uses a flex app shell with a top control navbar, a padded full-size editor stage, and a searchable right-side color inspector. The prototype chrome uses OKLCH CSS tokens, a 12px-derived JetBrains Mono scale, antialiased body text, and an actual JetBrains Mono Nerd Font for icon preview. It exercises theme switching, collapsible file-tree rows, left/right/off sidebar docking, Nerd Font glyph toggling, editable command prompt text, explicit command-bar scenarios, completion selection, pending/invalid/empty command states, right-aligned theme swatches, square color inputs, and editor-style code-pane scrolling. Treat it as a lightweight future sandbox for editor-surface design decisions.
 
 ## Current behavior
 

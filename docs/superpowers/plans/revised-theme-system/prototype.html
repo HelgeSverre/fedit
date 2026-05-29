@@ -6,51 +6,65 @@
     <title>fedit revised theme system prototype</title>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
+      @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap");
+
+      @font-face {
+        font-family: "JetBrainsMono Nerd";
+        src: url("https://cdn.jsdelivr.net/gh/ryanoasis/nerd-fonts@v3.3.0/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFontMono-Regular.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+
       :root {
         color-scheme: dark;
-        --page-bg: #09090a;
-        --page-fg: #e8e8e8;
-        --page-muted: #a0a0a0;
-        --page-border: #2c2c2f;
-        --font-ui: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        --page-bg: oklch(8% 0 0);
+        --page-fg: oklch(92% 0 0);
+        --page-muted: oklch(67% 0 0);
+        --page-border: oklch(24% 0 0);
+        --font-size-base: 12px;
+        --line-height-base: 1.55;
+        --font-chrome: "JetBrains Mono", "JetBrainsMono Nerd", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        --font-editor: "JetBrainsMono Nerd", "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        --font-nerd: "JetBrainsMono Nerd", "JetBrains Mono", monospace;
 
-        --fedit-accent-fg: #00b86b;
-        --fedit-editor-fg: #d7d7d7;
-        --fedit-editor-bg: #0b0b0d;
+        --fedit-accent-fg: oklch(67% 0.19 155);
+        --fedit-editor-fg: oklch(86% 0 0);
+        --fedit-editor-bg: oklch(8% 0 0);
         --fedit-editor-line-active-fg: var(--fedit-editor-fg);
-        --fedit-editor-line-active-bg: #151515;
-        --fedit-editor-selection-fg: #0b0b0d;
-        --fedit-editor-selection-bg: #00af5f;
+        --fedit-editor-line-active-bg: oklch(16% 0 0);
+        --fedit-editor-selection-fg: oklch(8% 0 0);
+        --fedit-editor-selection-bg: oklch(63% 0.18 155);
 
-        --fedit-gutter-fg: #626872;
+        --fedit-gutter-fg: oklch(52% 0.02 260);
         --fedit-gutter-bg: var(--fedit-editor-bg);
         --fedit-gutter-active-fg: var(--fedit-accent-fg);
-        --fedit-gutter-active-bg: #123323;
+        --fedit-gutter-active-bg: oklch(22% 0.06 155);
 
-        --fedit-sidebar-fg: #d7d7d7;
-        --fedit-sidebar-bg: #0f1011;
-        --fedit-sidebar-border-fg: #3a3a3a;
-        --fedit-sidebar-selected-fg: #0b0b0d;
-        --fedit-sidebar-selected-bg: #00af5f;
+        --fedit-sidebar-fg: oklch(86% 0 0);
+        --fedit-sidebar-bg: oklch(12% 0 0);
+        --fedit-sidebar-border-fg: oklch(31% 0 0);
+        --fedit-sidebar-selected-fg: oklch(8% 0 0);
+        --fedit-sidebar-selected-bg: oklch(63% 0.18 155);
 
-        --fedit-status-fg: #ffffff;
-        --fedit-status-bg: #005f00;
-        --fedit-prompt-fg: #ffffd7;
-        --fedit-prompt-bg: #3a3a3a;
+        --fedit-status-fg: oklch(100% 0 0);
+        --fedit-status-bg: oklch(41% 0.12 145);
+        --fedit-prompt-fg: oklch(98% 0.05 100);
+        --fedit-prompt-bg: oklch(31% 0 0);
 
-        --fedit-dock-fg: #b9b9b9;
-        --fedit-dock-bg: #151515;
+        --fedit-dock-fg: oklch(77% 0 0);
+        --fedit-dock-bg: oklch(16% 0 0);
         --fedit-dock-title-fg: var(--fedit-accent-fg);
-        --fedit-dock-border-fg: #3a3a3a;
-        --fedit-dock-selected-fg: #0b0b0d;
-        --fedit-dock-selected-bg: #00af5f;
+        --fedit-dock-border-fg: oklch(31% 0 0);
+        --fedit-dock-selected-fg: oklch(8% 0 0);
+        --fedit-dock-selected-bg: oklch(63% 0.18 155);
 
-        --fedit-completion-theme-swatch-border: #0b0b0d;
-        --fedit-syntax-keyword-fg: #af87ff;
-        --fedit-syntax-string-fg: #87d787;
-        --fedit-syntax-comment-fg: #808080;
-        --fedit-syntax-function-fg: #87d7ff;
-        --fedit-syntax-type-fg: #ffd787;
+        --fedit-completion-theme-swatch-border: oklch(8% 0 0);
+        --fedit-syntax-keyword-fg: oklch(72% 0.16 295);
+        --fedit-syntax-string-fg: oklch(78% 0.12 145);
+        --fedit-syntax-comment-fg: oklch(60% 0 0);
+        --fedit-syntax-function-fg: oklch(80% 0.1 225);
+        --fedit-syntax-type-fg: oklch(86% 0.12 90);
       }
 
       * {
@@ -61,8 +75,12 @@
         margin: 0;
         background: var(--page-bg);
         color: var(--page-fg);
-        font-family: var(--font-ui);
-        line-height: 1.5;
+        font-family: var(--font-chrome);
+        font-size: var(--font-size-base);
+        line-height: var(--line-height-base);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: geometricPrecision;
       }
 
       .app-shell {
@@ -80,12 +98,12 @@
       }
 
       h1 {
-        font-size: 24px;
+        font-size: 2rem;
         color: var(--page-fg);
       }
 
       h2 {
-        font-size: 16px;
+        font-size: 1.333rem;
         margin: 28px 0 12px;
       }
 
@@ -109,13 +127,13 @@
         align-items: stretch;
         padding: 20px;
         overflow: auto;
-        background: #222;
+        background: oklch(26% 0 0);
       }
 
       .panel {
         border: 1px solid var(--page-border);
         border-radius: 6px;
-        background: #0d0d0f;
+        background: oklch(13% 0 0);
       }
 
       .panel__head {
@@ -129,7 +147,7 @@
 
       .panel__kicker {
         color: var(--page-muted);
-        font-size: 12px;
+        font-size: 1rem;
       }
 
       .theme-buttons {
@@ -140,7 +158,7 @@
 
       button {
         border: 1px solid var(--page-border);
-        background: #141416;
+        background: oklch(16% 0 0);
         color: var(--page-fg);
         border-radius: 4px;
         padding: 6px 8px;
@@ -162,7 +180,7 @@
         justify-content: space-between;
         padding: 10px 12px;
         border-bottom: 1px solid var(--page-border);
-        background: #0a0a0b;
+        background: oklch(10% 0 0);
       }
 
       .nav-group {
@@ -180,12 +198,12 @@
 
       .nav-label {
         color: var(--page-muted);
-        font-size: 12px;
+        font-size: 1rem;
       }
 
       .top-nav button {
         padding: 4px 7px;
-        font-size: 12px;
+        font-size: 1rem;
       }
 
       .editor-preview {
@@ -203,6 +221,7 @@
         background: var(--fedit-editor-bg);
         overflow: hidden;
         border-radius: 0 0 6px 6px;
+        font-family: var(--font-editor);
       }
 
       .tui.is-sidebar-hidden {
@@ -238,6 +257,10 @@
         gap: 6px;
         padding: 2px 12px;
         white-space: nowrap;
+      }
+
+      .sidebar-row span:first-child {
+        font-family: var(--font-nerd);
       }
 
       .sidebar-row.is-selected {
@@ -382,7 +405,7 @@
         min-width: 34px;
         color: var(--fedit-dock-title-fg);
         text-align: right;
-        font-size: 11px;
+        font-size: 0.917rem;
       }
 
       .theme-swatch {
@@ -441,7 +464,7 @@
         min-height: 0;
         overflow: auto;
         border-left: 1px solid var(--page-border);
-        background: #0d0d0f;
+        background: oklch(13% 0 0);
       }
 
       .color-sidebar__section {
@@ -451,7 +474,7 @@
 
       .color-sidebar__title {
         margin: 0 0 12px;
-        font-size: 14px;
+        font-size: 1rem;
         color: var(--page-fg);
       }
 
@@ -459,7 +482,7 @@
         width: 100%;
         border: 1px solid var(--page-border);
         border-radius: 4px;
-        background: #09090a;
+        background: oklch(8% 0 0);
         color: var(--page-fg);
         font: inherit;
         padding: 8px;
@@ -473,7 +496,7 @@
 
       .color-row {
         display: grid;
-        grid-template-columns: 18px minmax(0, 1fr) 96px;
+        grid-template-columns: 18px minmax(0, 1fr) 18px;
         align-items: center;
         gap: 8px;
         border: 1px solid var(--page-border);
@@ -494,13 +517,29 @@
       }
 
       .color-row input {
-        width: 96px;
+        width: 18px;
+        height: 18px;
         border: 1px solid var(--page-border);
-        border-radius: 4px;
-        background: #09090a;
+        border-radius: 3px;
+        background: oklch(8% 0 0);
         color: var(--page-fg);
         font: inherit;
-        padding: 4px;
+        padding: 0;
+        cursor: pointer;
+      }
+
+      .color-row input::-webkit-color-swatch-wrapper {
+        padding: 0;
+      }
+
+      .color-row input::-webkit-color-swatch {
+        border: 0;
+        border-radius: 2px;
+      }
+
+      .color-row input::-moz-color-swatch {
+        border: 0;
+        border-radius: 2px;
       }
 
       @media (max-width: 1080px) {
@@ -547,34 +586,41 @@
         </div>
         <div class="nav-group">
           <span class="nav-label">tree</span>
-          <button type="button" :aria-pressed="sidebarVisible" @click="sidebarVisible = !sidebarVisible">
-            sidebar
+          <button type="button" :aria-pressed="sidebarVisible && sidebarDock === 'left'" @click="setSidebarMode('left')">
+            sidebar: left
           </button>
-          <button type="button" :aria-pressed="sidebarDock === 'right'" @click="toggleSidebarDock()">
-            dock <span x-text="sidebarDock"></span>
+          <button type="button" :aria-pressed="sidebarVisible && sidebarDock === 'right'" @click="setSidebarMode('right')">
+            sidebar: right
+          </button>
+          <button type="button" :aria-pressed="!sidebarVisible" @click="setSidebarMode('off')">
+            sidebar: off
           </button>
           <button type="button" :aria-pressed="srcExpanded" @click="srcExpanded = !srcExpanded">
-            src
+            <span x-text="srcExpanded ? 'src: open' : 'src: closed'"></span>
           </button>
           <button type="button" :aria-pressed="testsExpanded" @click="testsExpanded = !testsExpanded">
-            tests
+            <span x-text="testsExpanded ? 'tests: open' : 'tests: closed'"></span>
           </button>
         </div>
         <div class="nav-group">
           <span class="nav-label">glyphs</span>
           <button type="button" :aria-pressed="nerdFonts" @click="nerdFonts = !nerdFonts">
-            nerd fonts
+            <span x-text="nerdFonts ? 'icons: nerd' : 'icons: ascii'"></span>
           </button>
         </div>
         <div class="nav-group">
           <span class="nav-label">command bar</span>
-          <button type="button" :aria-pressed="commandBarOpen" @click="commandBarOpen = !commandBarOpen">
-            open
+          <button type="button" :aria-pressed="!commandBarOpen" @click="commandBarOpen = false">
+            command: closed
           </button>
-          <button type="button" @click="prevCommandState()">prev</button>
-          <button type="button" @click="nextCommandState()">next</button>
-          <button type="button" @click="cycleCompletion(-1)">up</button>
-          <button type="button" @click="cycleCompletion(1)">down</button>
+          <template x-for="(state, index) in commandStates" :key="state.name">
+            <button
+              type="button"
+              :aria-pressed="commandBarOpen && commandIndex === index"
+              @click="setCommandState(index)"
+              x-text="`command: ${state.scenario}`"
+            ></button>
+          </template>
         </div>
       </nav>
 
@@ -890,6 +936,7 @@
         const commandStates = [
           {
             name: "themes",
+            scenario: "themes",
             title: "Themes",
             statusMode: "CMD",
             promptMode: ":",
@@ -902,6 +949,7 @@
           },
           {
             name: "files",
+            scenario: "files",
             title: "Files",
             statusMode: "FILE",
             promptMode: "",
@@ -915,6 +963,7 @@
           },
           {
             name: "search",
+            scenario: "find",
             title: "Find",
             statusMode: "FIND",
             promptMode: "/",
@@ -927,6 +976,7 @@
           },
           {
             name: "buffers",
+            scenario: "buffers",
             title: "Buffers",
             statusMode: "BUF",
             promptMode: "@",
@@ -939,6 +989,7 @@
           },
           {
             name: "commands",
+            scenario: "commands",
             title: "Commands",
             statusMode: "CMD",
             promptMode: ":",
@@ -951,6 +1002,7 @@
           },
           {
             name: "command-empty",
+            scenario: "empty",
             title: "Commands",
             statusMode: "CMD",
             promptMode: ":",
@@ -964,6 +1016,7 @@
           },
           {
             name: "command-pending",
+            scenario: "pending",
             title: "Commands",
             statusMode: "CMD",
             promptMode: ":",
@@ -974,6 +1027,7 @@
           },
           {
             name: "command-invalid",
+            scenario: "invalid",
             title: "Commands",
             statusMode: "CMD",
             promptMode: ":",
@@ -984,6 +1038,7 @@
           },
           {
             name: "goto",
+            scenario: "goto",
             title: "Goto",
             statusMode: "CMD",
             promptMode: ":",
@@ -994,6 +1049,7 @@
           },
           {
             name: "recent",
+            scenario: "recent",
             title: "Recent",
             statusMode: "FILE",
             promptMode: "",
@@ -1006,6 +1062,7 @@
           },
           {
             name: "search-empty",
+            scenario: "no matches",
             title: "Find",
             statusMode: "FIND",
             promptMode: "/",
@@ -1114,18 +1171,20 @@
             const state = this.currentCommandState();
             return ` ${state.title} (${this.selectedCompletion + 1}/${state.items.length}) `;
           },
-          nextCommandState() {
-            this.commandIndex = (this.commandIndex + 1) % this.commandStates.length;
+          setCommandState(index) {
+            this.commandBarOpen = true;
+            this.commandIndex = index;
             this.selectedCompletion = Math.min(2, this.currentCommandState().items.length - 1);
             this.promptText = this.currentCommandState().promptText;
           },
-          prevCommandState() {
-            this.commandIndex = (this.commandIndex - 1 + this.commandStates.length) % this.commandStates.length;
-            this.selectedCompletion = Math.min(2, this.currentCommandState().items.length - 1);
-            this.promptText = this.currentCommandState().promptText;
-          },
-          toggleSidebarDock() {
-            this.sidebarDock = this.sidebarDock === "left" ? "right" : "left";
+          setSidebarMode(mode) {
+            if (mode === "off") {
+              this.sidebarVisible = false;
+              return;
+            }
+
+            this.sidebarVisible = true;
+            this.sidebarDock = mode;
           },
           cycleCompletion(delta) {
             const count = this.currentCommandState().items.length;
