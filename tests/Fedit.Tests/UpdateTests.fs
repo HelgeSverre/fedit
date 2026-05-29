@@ -404,3 +404,48 @@ let ``typing in the focused sidebar is consumed, not inserted into the editor bu
     let after, _ = Editor.update (KeyPressed(Character 's')) inSidebar
     Buffer.text (Editor.activeBufferState after) |> should equal before
     after.Focus |> should equal Sidebar
+
+// ─────────────────────────────────────────────────────────────────────
+// runAction interpreter — combinators and a few primitives.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``runAction NoOp is identity`` () =
+    let model = initModel ()
+    let next, effects = Editor.runAction NoOp model
+    next |> should equal model
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``runAction Chain applies actions left to right`` () =
+    let model = initModel ()
+    // RevealSidebar then FocusSidebar: visible + focused.
+    let next, _ = Editor.runAction (Chain [ RevealSidebar; FocusSidebar ]) model
+    next.Panels.SidebarVisible |> should equal true
+    next.Focus |> should equal Sidebar
+
+[<Fact>]
+let ``runAction When picks the then-branch when the cond holds`` () =
+    let model = initModel () // sidebar visible by default
+    let next, _ = Editor.runAction (When(SidebarVisible, FocusSidebar, Action.FocusEditor)) model
+    next.Focus |> should equal Sidebar
+
+[<Fact>]
+let ``runAction When picks the else-branch when the cond fails`` () =
+    let model =
+        { initModel () with
+            Panels =
+                { (initModel ()).Panels with
+                    SidebarVisible = false } }
+
+    let next, _ = Editor.runAction (When(SidebarVisible, FocusSidebar, Action.FocusEditor)) model
+    next.Focus |> should equal Editor
+
+[<Fact>]
+let ``runAction HideSidebar clears the incremental search`` () =
+    let model = initModel ()
+    let inSidebar, _ = Editor.update (KeyPressed(Ctrl 'b')) model
+    let searching, _ = Editor.update (KeyPressed(Character 'x')) inSidebar
+    let hidden, _ = Editor.runAction HideSidebar searching
+    hidden.Workspace.SearchBuffer |> should equal ""
+    hidden.Panels.SidebarVisible |> should equal false

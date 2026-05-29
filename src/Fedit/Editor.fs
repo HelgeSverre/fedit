@@ -93,6 +93,15 @@ module Editor =
                     Buffers = model.Editors.Buffers |> Map.add updated.Id updated }
             HighlightStates = nextStates }
 
+    /// Cursor motion that drops any existing selection. Mirrors the
+    /// `move` closure that used to live inside runEditor.
+    let private moveCursor transform model =
+        updateActiveBuffer (Buffer.clearSelection >> transform) model, []
+
+    /// Shifted motion that extends the selection through the new cursor.
+    let private extendCursor transform model =
+        updateActiveBuffer (Buffer.extendSelectionToCursor >> transform) model, []
+
     let private workspaceFiles (workspace: WorkspaceState) =
         let rec collect (node: FileNode) =
             if node.IsDirectory then
@@ -748,6 +757,194 @@ module Editor =
             | Some _ ->
                 notify (Some(Notification.error $"Plugin '{name}' is not provided by '{source}' anymore.")) model, []
             | None -> notify (Some(Notification.error $"Plugin command '{name}' missing.")) model, []
+
+    and evalCond (cond: Cond) (model: Model) : bool =
+        match cond with
+        | SidebarVisible -> model.Panels.SidebarVisible
+        | SidebarFocused -> model.Focus = Sidebar
+        | EditorFocused -> model.Focus = Editor
+        | PromptActive -> model.Prompt.Active
+        | HasSelection -> (activeBufferState model).Selection.IsSome
+        | BufferDirty -> (activeBufferState model).Dirty
+        | Not c -> not (evalCond c model)
+        | AllOf cs -> cs |> List.forall (fun c -> evalCond c model)
+        | AnyOf cs -> cs |> List.exists (fun c -> evalCond c model)
+
+    /// The single dispatcher. Each arm is the transition lifted verbatim
+    /// from the handler that used to inline it. Public so tests and (later
+    /// phases) the keymap resolver can call it.
+    and runAction (action: Fedit.Action) (model: Model) : Model * Effect list =
+        match action with
+        // composition & control flow
+        | NoOp -> model, []
+        | Chain actions ->
+            actions
+            |> List.fold
+                (fun (m, fx) a ->
+                    let m', fx' = runAction a m
+                    m', fx @ fx')
+                (model, [])
+        | When(cond, thenDo, elseDo) -> runAction (if evalCond cond model then thenDo else elseDo) model
+
+        // motion / selection (verbatim from runEditor)
+        | MoveLeft -> moveCursor Buffer.moveLeft model
+        | MoveRight -> moveCursor Buffer.moveRight model
+        | MoveUp -> moveCursor Buffer.moveUp model
+        | MoveDown -> moveCursor Buffer.moveDown model
+        | MoveHome -> moveCursor Buffer.moveHome model
+        | MoveEnd -> moveCursor Buffer.moveEnd model
+        | MoveWordLeft -> moveCursor Buffer.moveLeftWord model
+        | MoveWordRight -> moveCursor (Buffer.moveRightWord model.Config.WordMotion) model
+        | MovePageUp ->
+            let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
+            let jump = max 1 (viewportHeight - model.Config.PageOverlap)
+            moveCursor (Buffer.movePageUp jump) model
+        | MovePageDown ->
+            let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
+            let jump = max 1 (viewportHeight - model.Config.PageOverlap)
+            moveCursor (Buffer.movePageDown jump) model
+        | ExtendLeft -> extendCursor Buffer.moveLeft model
+        | ExtendRight -> extendCursor Buffer.moveRight model
+        | ExtendUp -> extendCursor Buffer.moveUp model
+        | ExtendDown -> extendCursor Buffer.moveDown model
+        | ExtendHome -> extendCursor Buffer.moveHome model
+        | ExtendEnd -> extendCursor Buffer.moveEnd model
+        | SelectAll -> updateActiveBuffer Buffer.selectAll model, []
+
+        // editing (verbatim from runEditor + global handler)
+        | Indent -> moveCursor (Buffer.indent model.Config.TabWidth) model
+        | Unindent -> moveCursor (Buffer.unindent model.Config.TabWidth) model
+        | DeleteWordBack ->
+            let buffer = activeBufferState model
+
+            if buffer.Selection.IsSome then
+                updateActiveBuffer Buffer.deleteSelection model, []
+            else
+                updateActiveBuffer Buffer.backspaceWord model, []
+        | DeleteWordForward ->
+            let buffer = activeBufferState model
+
+            if buffer.Selection.IsSome then
+                updateActiveBuffer Buffer.deleteSelection model, []
+            else
+                updateActiveBuffer (Buffer.deleteForwardWord model.Config.WordMotion) model, []
+        | Undo -> updateActiveBuffer Buffer.undo model, []
+        | Redo -> updateActiveBuffer Buffer.redo model, []
+        | Copy ->
+            let buffer = activeBufferState model
+            let text = Buffer.selectionText buffer
+
+            if String.IsNullOrEmpty text then
+                model, []
+            else
+                { model with
+                    Notification = Some(Notification.info $"Copied {text.Length} char(s)") },
+                [ ClipboardCopy text ]
+        | Cut ->
+            let buffer = activeBufferState model
+            let text = Buffer.selectionText buffer
+
+            if String.IsNullOrEmpty text then
+                model, []
+            else
+                updateActiveBuffer
+                    Buffer.deleteSelection
+                    { model with
+                        Notification = Some(Notification.info $"Cut {text.Length} char(s)") },
+                [ ClipboardCopy text ]
+        | Paste -> model, [ ClipboardPaste ]
+
+        // command-group bodies (verbatim from global handler / executeCommand)
+        | Save -> saveActiveBuffer None model
+        | SaveAs path -> saveActiveBuffer (Some path) model
+        | Quit -> { model with ShouldQuit = true }, [ SaveConfig model.Config ]
+        | OpenPalette -> openPrompt ":" { model with Workspace = Workspace.clearSearch model.Workspace }
+        | OpenFilePicker -> openPrompt "" { model with Workspace = Workspace.clearSearch model.Workspace }
+        | OpenSearch -> openPrompt "/" { model with Workspace = Workspace.clearSearch model.Workspace }
+        | NextBuffer -> switchBuffer 1 model, []
+        | PrevBuffer -> switchBuffer -1 model, []
+        | JumpToBuffer n -> jumpToBuffer n model, []
+        | ReloadWorkspace -> model, [ ScanWorkspace model.Workspace.RootPath ]
+
+        // panel / focus primitives
+        | RevealSidebar ->
+            { model with
+                Panels = { model.Panels with SidebarVisible = true } },
+            []
+        | HideSidebar ->
+            { model with
+                Panels = { model.Panels with SidebarVisible = false }
+                Workspace = Workspace.clearSearch model.Workspace },
+            []
+        | ToggleSidebar ->
+            { model with
+                Panels =
+                    { model.Panels with
+                        SidebarVisible = not model.Panels.SidebarVisible } },
+            []
+        | FocusSidebar -> { model with Focus = Sidebar }, []
+        | FocusEditor ->
+            { model with
+                Focus = Editor
+                Workspace = Workspace.clearSearch model.Workspace },
+            []
+
+        // sidebar navigation (verbatim from runSidebar)
+        | SidebarUp ->
+            { model with
+                Workspace = Workspace.moveSelection -1 (Workspace.clearSearch model.Workspace) },
+            []
+        | SidebarDown ->
+            { model with
+                Workspace = Workspace.moveSelection 1 (Workspace.clearSearch model.Workspace) },
+            []
+        | SidebarPageUp ->
+            { model with
+                Workspace = Workspace.moveSelection -model.Config.TreePageJump (Workspace.clearSearch model.Workspace) },
+            []
+        | SidebarPageDown ->
+            { model with
+                Workspace = Workspace.moveSelection model.Config.TreePageJump (Workspace.clearSearch model.Workspace) },
+            []
+        | SidebarTop ->
+            { model with
+                Workspace = Workspace.moveHome (Workspace.clearSearch model.Workspace) },
+            []
+        | SidebarBottom ->
+            { model with
+                Workspace = Workspace.moveEnd (Workspace.clearSearch model.Workspace) },
+            []
+        | SidebarCollapse ->
+            let cleared = Workspace.clearSearch model.Workspace
+
+            let nextWorkspace =
+                match Workspace.tryCollapseSelected cleared with
+                | Some collapsed -> collapsed
+                | None -> Workspace.selectParent cleared
+
+            { model with Workspace = nextWorkspace }, []
+        | SidebarExpand ->
+            { model with
+                Workspace = Workspace.expandSelected (Workspace.clearSearch model.Workspace) },
+            []
+        | SidebarActivate ->
+            let workspace, sidebarAction = Workspace.activateSelected (Workspace.clearSearch model.Workspace)
+
+            match sidebarAction with
+            | SidebarOpenFile path -> { model with Workspace = workspace }, [ LoadFile path ]
+            | SidebarNoOp -> { model with Workspace = workspace }, []
+
+        // verbs whose canonical body stays in executeCommand (prompt-only).
+        // RHS cases are qualified Command.* because Action/Command share names.
+        | SetTheme name -> executeCommand (Command.Theme name) model
+        | Goto(line, col) -> executeCommand (Command.Goto(line, col)) model
+        | OpenConfig -> executeCommand Command.OpenConfig model
+        | RunPlugin(source, name, arg) -> executeCommand (Command.PluginInvoke(source, name, arg)) model
+
+        // deferred — later phases wire these; no-ops for now
+        | ReloadKeybinds -> model, []
+        | RecordMacro _ -> model, []
+        | ReplayMacro _ -> model, []
 
     let private moveSearchMatch delta model =
         let prompt = model.Prompt
