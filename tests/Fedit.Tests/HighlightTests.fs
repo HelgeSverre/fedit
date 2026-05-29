@@ -102,14 +102,14 @@ let ``registry loads language without throwing`` (lang: string) =
     Assert.True(reg.TryGetQuery(lang).IsSome, $"query for '{lang}' not loaded in registry")
 
 [<Theory>]
-[<InlineData("tsx",      "const x: string = 'hi'")>]
-[<InlineData("php",      "<?php $x = 42; // comment")>]
+[<InlineData("tsx", "const x: string = 'hi'")>]
+[<InlineData("php", "<?php $x = 42; // comment")>]
 [<InlineData("markdown", "# Heading\n\nsome text")>]
-[<InlineData("xml",      "<root attr=\"v\">text</root>")>]
-[<InlineData("dart",     "void main() { print('hi'); }")>]
-[<InlineData("just",     "build:\n    cargo build")>]
-[<InlineData("make",     "all:\n\techo hi")>]
-[<InlineData("astro",    "<h1>Hello</h1>")>]
+[<InlineData("xml", "<root attr=\"v\">text</root>")>]
+[<InlineData("dart", "void main() { print('hi'); }")>]
+[<InlineData("just", "build:\n    cargo build")>]
+[<InlineData("make", "all:\n\techo hi")>]
+[<InlineData("astro", "<h1>Hello</h1>")>]
 let ``parse produces non-empty spans for new languages`` (lang: string) (src: string) =
     let registry = HighlightRegistry.tryCreate ()
     Assert.True(registry.IsSome, "registry missing")

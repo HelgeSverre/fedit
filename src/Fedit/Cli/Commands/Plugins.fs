@@ -25,6 +25,7 @@ type private ListOpt =
     | ListHelp
     | ListBuild
     | ListNames
+    | ListPlain
 
 let private helpSpec =
     { Short = Some 'h'
@@ -78,6 +79,12 @@ let private listApp: CliApp<ListOpt> =
             Value = NoValue
             Description = "Print one plugin name per line (for shell completion)"
             Option = ListNames
+            Completion = NoHint }
+          { Short = None
+            Long = "plain"
+            Value = NoValue
+            Description = "Tab-separated name/version/status/path (for scripts)"
+            Option = ListPlain
             Completion = NoHint } ]
       Subcommands = [] }
 
@@ -176,6 +183,12 @@ let private wantsNames items =
         | Option(ListNames, _) -> true
         | _ -> false)
 
+let private wantsPlain items =
+    items
+    |> List.exists (function
+        | Option(ListPlain, _) -> true
+        | _ -> false)
+
 // ─────────────────────────────────────────────────────────────────────
 // Subcommand handlers
 // ─────────────────────────────────────────────────────────────────────
@@ -228,20 +241,34 @@ let private remove (argv: string[]) : int =
                 eprintfn "fedit plugins remove: %s" ex.Message
                 1
 
-let private formatManifestRow (plugin: LoadedPlugin) =
-    let status =
-        match plugin.Status with
-        | Loaded -> $"ok ({plugin.Commands.Length} cmd, {plugin.Keybindings.Length} key)"
-        | Disabled ->
-            let version = plugin.Manifest.Version
+/// Human-facing status cell — version (manifest mode) or live command
+/// counts (`--build`), or the failure reason.
+let private statusText (plugin: LoadedPlugin) =
+    match plugin.Status with
+    | Loaded -> $"ok ({plugin.Commands.Length} cmd, {plugin.Keybindings.Length} key)"
+    | Disabled ->
+        let version = plugin.Manifest.Version
 
-            if String.IsNullOrEmpty version then
-                "ok"
-            else
-                $"ok ({version})"
-        | Failed reason -> $"FAIL: {reason}"
+        if String.IsNullOrEmpty version then
+            "ok"
+        else
+            $"ok ({version})"
+    | Failed reason -> $"FAIL: {reason}"
 
-    sprintf "%-24s %-20s %s" plugin.Manifest.Name status plugin.Path
+/// Stable single-token status for `--plain` (machine consumers).
+let private statusToken (plugin: LoadedPlugin) =
+    match plugin.Status with
+    | Failed _ -> "fail"
+    | _ -> "ok"
+
+/// Abbreviate $HOME to `~` for human output.
+let private tildify (path: string) =
+    let home = Environment.GetFolderPath Environment.SpecialFolder.UserProfile
+
+    if not (String.IsNullOrEmpty home) && path.StartsWith home then
+        "~" + path.Substring home.Length
+    else
+        path
 
 let private list (argv: string[]) : int =
     match Parser.parse listApp.Options argv with
@@ -259,30 +286,40 @@ let private list (argv: string[]) : int =
                 // One name per line, no formatting, no header — the
                 // shape shell completion scripts consume. Silent when
                 // no plugins exist so completion shows nothing rather
-                // than a literal "(none)".
+                // than a literal "(none)". Never builds.
                 for plugin in Fedit.Plugins.discover root do
                     printfn "%s" plugin.Manifest.Name
 
                 0
             else
-                let rows =
+                let plugins =
                     if wantsBuild items then
                         // Full scan + build + load. Matches the in-editor
                         // `:plugin list` output exactly.
-                        let registry = Fedit.Plugins.scanAndLoad root (apiDllPath ()) Map.empty ignore
-
-                        registry.Loaded |> Map.toList |> List.map (snd >> formatManifestRow)
+                        Fedit.Plugins.scanAndLoad root (apiDllPath ()) Map.empty ignore
+                        |> fun registry -> registry.Loaded |> Map.toList |> List.map snd
                     else
                         // Manifest-only: no `dotnet build`.
-                        Fedit.Plugins.discover root |> List.map formatManifestRow
+                        Fedit.Plugins.discover root
 
-                if List.isEmpty rows then
-                    printfn "(no plugins installed — %s)" root
+                if wantsPlain items then
+                    // Tab-separated, no header, silent when empty — for grep/awk/cut.
+                    for p in plugins do
+                        printfn "%s\t%s\t%s\t%s" p.Manifest.Name p.Manifest.Version (statusToken p) p.Path
+
+                    0
                 else
-                    for row in rows do
-                        printfn "%s" row
+                    // Human default: print the install dir once (npm/pipx
+                    // style), then name + status per row.
+                    if List.isEmpty plugins then
+                        printfn "no plugins installed (%s)" (tildify root)
+                    else
+                        printfn "plugins in %s" (tildify root)
 
-                0
+                        for p in plugins do
+                            printfn "  %-24s %s" p.Manifest.Name (statusText p)
+
+                    0
         with ex ->
             eprintfn "fedit plugins list: %s" ex.Message
             1
