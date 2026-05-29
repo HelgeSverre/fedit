@@ -47,7 +47,7 @@ module Editor =
 
     /// Recompute the highlight state for `buffer` whenever its text
     /// might have changed. Idempotent on read-only transforms — a no-op
-    /// reparse is cheap and avoids us having to thread an "is mutating"
+    /// reparse is inexpensive and avoids us having to thread an "is mutating"
     /// flag through every cursor / viewport helper. Returns the
     /// possibly-updated `HighlightStates` map.
     let private reparseHighlight (model: Model) (buffer: BufferState) : Map<int, HighlightState> =
@@ -417,14 +417,22 @@ module Editor =
     /// workspace root — never any mutable handle into the host's model.
     let private toPluginContext (model: Model) : Fedit.PluginApi.PluginContext =
         let toView (id: int) (buffer: BufferState) : Fedit.PluginApi.BufferView =
+            let toPluginPos (pos: Position) : Fedit.PluginApi.CursorPosition =
+                { Line = pos.Line + 1 // surface 1-based
+                  Column = pos.Column + 1 }
+
+            let selection =
+                Buffer.selectionRange buffer
+                |> Option.map (fun (startIdx, endIdx) ->
+                    toPluginPos (Buffer.indexToPosition startIdx buffer),
+                    toPluginPos (Buffer.indexToPosition endIdx buffer))
+
             { Id = id
               Name = buffer.Name
               FilePath = buffer.FilePath
               Text = Buffer.text buffer
-              Cursor =
-                { Line = buffer.Cursor.Line + 1 // surface 1-based
-                  Column = buffer.Cursor.Column + 1 }
-              Selection = None }
+              Cursor = toPluginPos buffer.Cursor
+              Selection = selection }
 
         let active = model.Editors.ActiveBufferId
         let activeBuffer = model.Editors.Buffers[active]

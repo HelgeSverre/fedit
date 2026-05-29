@@ -272,3 +272,113 @@ let ``scanAndLoad builds and loads the wordcount example end-to-end`` () =
         Directory.Delete(pluginsRoot, recursive = true)
     with _ ->
         ()
+
+// ---------------------------------------------------------------------------
+// PluginContext snapshot: Selection field
+// ---------------------------------------------------------------------------
+
+/// Drives a synthetic plugin binding through `Editor.update` so it can capture
+/// the `PluginContext` the host hands to the plugin's `Run`. Uses Ctrl+J,
+/// which is not reserved by the top-level KeyPressed handler and so falls
+/// through to plugin keybinding dispatch in `runEditor`.
+let private captureCtxFor (buffer: BufferState) =
+    let model, _ =
+        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) [] None
+
+    let captured = ref None
+
+    let spec: Fedit.PluginApi.PluginCommand =
+        { Name = "probe"
+          Usage = ""
+          Summary = ""
+          Run =
+            fun ctx ->
+                captured.Value <- Some ctx
+                [] }
+
+    let binding: PluginCommandBinding = { Source = "probe-plugin"; Spec = spec }
+
+    let registry =
+        { PluginRegistry.empty with
+            Commands = Map.ofList [ "probe", binding ]
+            Keybindings = [ Fedit.PluginApi.KeyChord.Ctrl 'j', "probe" ] }
+
+    let modelWithBuffer =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers = model.Editors.Buffers |> Map.add buffer.Id buffer
+                    ActiveBufferId = buffer.Id }
+            Plugins = registry }
+
+    let _ = Editor.update (KeyPressed(Ctrl 'j')) modelWithBuffer
+    captured.Value
+
+[<Fact>]
+let ``toPluginContext leaves Selection None when the buffer has no selection`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"
+
+    match captureCtxFor buffer with
+    | Some ctx -> Assert.Equal(None, ctx.ActiveBuffer.Selection)
+    | None -> Assert.Fail "plugin Run was not invoked"
+
+[<Fact>]
+let ``toPluginContext surfaces forward selection as 1-based start->end`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"
+    // Anchor at offset 0, cursor at offset 5 (just past "hello"). Forward drag.
+    let withSel =
+        { buffer with
+            Selection = Some 0
+            Cursor = { Line = 0; Column = 5 } }
+
+    match captureCtxFor withSel with
+    | Some ctx ->
+        match ctx.ActiveBuffer.Selection with
+        | Some(startPos, endPos) ->
+            Assert.Equal(1, startPos.Line)
+            Assert.Equal(1, startPos.Column)
+            Assert.Equal(1, endPos.Line)
+            Assert.Equal(6, endPos.Column) // 1-based: column 5 + 1
+        | None -> Assert.Fail "expected Selection to be Some"
+    | None -> Assert.Fail "plugin Run was not invoked"
+
+[<Fact>]
+let ``toPluginContext orders selection start->end regardless of drag direction`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"
+    // Anchor at offset 5, cursor at offset 0. Reverse drag — caret is BEFORE
+    // the anchor. The plugin should still see (0, 5) in document order.
+    let withSel =
+        { buffer with
+            Selection = Some 5
+            Cursor = { Line = 0; Column = 0 } }
+
+    match captureCtxFor withSel with
+    | Some ctx ->
+        match ctx.ActiveBuffer.Selection with
+        | Some(startPos, endPos) ->
+            Assert.Equal(1, startPos.Column)
+            Assert.Equal(6, endPos.Column)
+        | None -> Assert.Fail "expected Selection to be Some"
+    | None -> Assert.Fail "plugin Run was not invoked"
+
+[<Fact>]
+let ``toPluginContext crosses line boundaries with 1-based line numbers`` () =
+    // Two lines: "ab\ncd" — offsets 0..4. Select from offset 1 ("b") through
+    // offset 4 (just past "d"), spanning the newline.
+    let buffer = Buffer.fromText 7 None "scratch" "ab\ncd" "\n"
+
+    let withSel =
+        { buffer with
+            Selection = Some 1
+            Cursor = { Line = 1; Column = 2 } }
+
+    match captureCtxFor withSel with
+    | Some ctx ->
+        match ctx.ActiveBuffer.Selection with
+        | Some(startPos, endPos) ->
+            Assert.Equal(1, startPos.Line)
+            Assert.Equal(2, startPos.Column)
+            Assert.Equal(2, endPos.Line)
+            Assert.Equal(3, endPos.Column)
+        | None -> Assert.Fail "expected Selection to be Some"
+    | None -> Assert.Fail "plugin Run was not invoked"

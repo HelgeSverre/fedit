@@ -241,7 +241,7 @@ let private formatManifestRow (plugin: LoadedPlugin) =
                 $"ok ({version})"
         | Failed reason -> $"FAIL: {reason}"
 
-    sprintf "%-24s %s" plugin.Manifest.Name status
+    sprintf "%-24s %-20s %s" plugin.Manifest.Name status plugin.Path
 
 let private list (argv: string[]) : int =
     match Parser.parse listApp.Options argv with
