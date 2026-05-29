@@ -347,6 +347,11 @@ module Runtime =
 
                     queue.Enqueue msg)
                 |> ignore
+            | LoadKeybinds ->
+                Task.Run(fun () ->
+                    let keymap, errors = KeymapIO.load ()
+                    queue.Enqueue(KeybindsLoaded(keymap, errors)))
+                |> ignore
 
         let dispatch model msg =
             log $"msg: {msg}"

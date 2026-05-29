@@ -207,7 +207,7 @@ Global shortcuts:
 Editor keys:
 
 - Arrow keys, `Home`, `End`, `PageUp`, and `PageDown` move the cursor.
-- `Alt+Left` / `Alt+Right` move the cursor by word.
+- `Alt+Left` / `Alt+Right` (or `Ctrl+Left` / `Ctrl+Right`) move the cursor by word.
 - `Ctrl+Backspace` / `Ctrl+Delete` delete the previous / next word.
 - `Shift+Arrow`, `Shift+Home`, `Shift+End` extend the text selection.
 - `Ctrl+A` selects the whole buffer.
@@ -267,8 +267,40 @@ Named commands (typed after `:`):
 - `recent <path>`: Pick a recently opened file. Tab to cycle through the last 20 files; the list persists in the same config file.
 - `buffers <id-or-name>`: Switch to an open buffer by numeric id or name. Completion shows `{id} {name}` with the file path as detail.
 - `plugin <verb> [arg]`: In-editor plugin manager. See `docs/plugins.md` for the verbs.
+- `keybind [reload | <stroke>]`: List the effective keybindings, reload the keybinds file (`keybind reload`), or show what a stroke resolves to in each context (`keybind ctrl+s`).
 
 A few keyboard-first verbs (`sidebar`, `tree`, `editor`) still parse if typed, but are hidden from the completion menu since `Ctrl+B` / `Ctrl+E` cover the same ground more richly.
+
+## Keybindings
+
+The defaults above are a compiled-in keymap. Override it with a plain-text file at
+`~/.config/fedit/keybinds`; the file is layered on top of the defaults, so you
+only list what you change. Reload it with `:keybind reload` (or just save the
+file through fedit). A malformed line is skipped and reported as a startup
+notification — the editor always boots.
+
+Each line is `[context] stroke[ stroke…] = action[:arg]`:
+
+```
+# Rebind save; the context defaults to "editor" when omitted.
+ctrl+s            = save
+# Contexts: global, editor, sidebar, prompt. Global fires in every focus.
+global  ctrl+r    = reload-workspace
+# A multi-key sequence (press in order; the status bar shows the pending prefix).
+editor  ctrl+k ctrl+s = save
+# Free a binding entirely with an empty right-hand side (does NOT fall through).
+global  ctrl+r    =
+# Actions can take a ":" argument.
+editor  f6        = set-theme:gruvbox
+# Bind a plugin command: run-plugin:<source>/<name> [plugin-arg]
+editor  ctrl+k ctrl+w = run-plugin:wordcount/wc selection
+```
+
+A stroke is a `+`-joined chord such as `ctrl+shift+p`, `alt+left`, `f6`, or
+`enter`; modifier aliases `cmd`/`super`, `opt`/`alt` are accepted. Precedence is
+**user keymap → plugin chords → text input**: a binding you set always beats a
+plugin's, and a context binding beats a `global` one. A copyable starter file
+lives at [`examples/keybinds`](examples/keybinds).
 
 ## Configuration
 

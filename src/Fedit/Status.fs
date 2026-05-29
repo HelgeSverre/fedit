@@ -112,14 +112,25 @@ module Status =
         | Buffers -> "BUF"
 
     let private focusText (model: Model) =
-        match model.Focus with
-        | Sidebar ->
-            if model.Workspace.SearchBuffer.Length > 0 then
-                $"TREE  find:{model.Workspace.SearchBuffer}"
-            else
-                "TREE"
-        | Editor -> "EDIT"
-        | Prompt -> promptModeLabel model.Prompt.Mode
+        // An in-flight multi-key sequence prefixes the mode label so it's
+        // visible without a custom StatusFormat (the [pending] token is the
+        // composable alternative).
+        let pending =
+            match model.PendingPrefix with
+            | Some(chords, _) -> Chord.renderStroke chords + "… "
+            | None -> ""
+
+        let label =
+            match model.Focus with
+            | Sidebar ->
+                if model.Workspace.SearchBuffer.Length > 0 then
+                    $"TREE  find:{model.Workspace.SearchBuffer}"
+                else
+                    "TREE"
+            | Editor -> "EDIT"
+            | Prompt -> promptModeLabel model.Prompt.Mode
+
+        pending + label
 
     let private bufferIndicator (model: Model) =
         let ids = model.Editors.Buffers |> Map.toList |> List.map fst |> List.sort

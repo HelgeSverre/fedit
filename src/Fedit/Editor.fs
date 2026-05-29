@@ -745,6 +745,57 @@ module Editor =
 
         | Plugin(verb, _) -> notify (Some(Notification.error $"Unhandled plugin verb '{verb}'.")) model, []
 
+        | Keybind argument ->
+            let ctxName =
+                function
+                | Context.Global -> "global"
+                | Context.Editor -> "editor"
+                | Context.Sidebar -> "sidebar"
+                | Context.Prompt -> "prompt"
+
+            match argument.Trim() with
+            | "" ->
+                // List every effective binding (context, stroke, action).
+                let lines =
+                    model.Keymap
+                    |> List.choose (fun b ->
+                        b.Action
+                        |> Option.map (fun a ->
+                            sprintf "%-8s %-18s %A" (ctxName b.Context) (Chord.renderStroke b.Stroke) a))
+
+                let body =
+                    if lines.IsEmpty then
+                        "(no keybindings)"
+                    else
+                        String.concat "\n" lines
+
+                notify (Some(Notification.info body)) model, []
+            | "reload" -> notify (Some(Notification.info "Reloading keybinds…")) model, [ LoadKeybinds ]
+            | strokeText ->
+                let chords =
+                    strokeText.Split([| ' '; '\t' |], StringSplitOptions.RemoveEmptyEntries)
+                    |> Array.toList
+                    |> List.map Chord.parse
+
+                if chords |> List.exists Option.isNone then
+                    notify (Some(Notification.error $"Unparseable stroke '{strokeText}'.")) model, []
+                else
+                    let stroke = chords |> List.choose id
+
+                    let lines =
+                        [ Context.Global; Context.Editor; Context.Sidebar; Context.Prompt ]
+                        |> List.map (fun ctx ->
+                            let outcome =
+                                match Keymap.resolve ctx stroke model.Keymap with
+                                | Bound a -> sprintf "%A" a
+                                | Unbound -> "(unbound)"
+                                | NotBound -> "—"
+
+                            sprintf "%-8s %s" (ctxName ctx) outcome)
+
+                    let body = Chord.renderStroke stroke + "\n" + String.concat "\n" lines
+                    notify (Some(Notification.info body)) model, []
+
         | PluginInvoke(source, name, _argument) ->
             match model.Plugins.Commands.TryFind name with
             | Some binding when binding.Source = source ->
@@ -958,8 +1009,8 @@ module Editor =
         | OpenConfig -> executeCommand Command.OpenConfig model
         | RunPlugin(source, name, arg) -> executeCommand (Command.PluginInvoke(source, name, arg)) model
 
-        // deferred — later phases wire these; no-ops for now
-        | ReloadKeybinds -> model, []
+        | ReloadKeybinds -> model, [ LoadKeybinds ]
+        // deferred — macros land in a later phase; no-ops for now
         | RecordMacro _ -> model, []
         | ReplayMacro _ -> model, []
 
@@ -992,17 +1043,20 @@ module Editor =
         { Mods = Set.ofList [ Shift ]
           Key = Named n } // shift+<named>
 
-    let private cnk n : Chord =
-        { Mods = Set.ofList [ Ctrl ]
-          Key = Named n } // ctrl+<named>
-
     let private ank n : Chord =
         { Mods = Set.ofList [ Alt ]
           Key = Named n } // alt+<named>
 
+    let private contextOf =
+        function
+        | FocusTarget.Editor -> Context.Editor
+        | FocusTarget.Sidebar -> Context.Sidebar
+        | FocusTarget.Prompt -> Context.Prompt
+
+    /// Sidebar fallthrough core: the incremental filter. All navigation is
+    /// keymap-driven (Context.Sidebar) and resolves before this is reached.
     let private runSidebar (chord: Chord) model =
         match chord with
-        // incremental-filter fast-path — literal input
         | { Mods = m; Key = Char c } when m.IsEmpty ->
             { model with
                 Workspace = Workspace.appendSearch c model.Workspace },
@@ -1011,89 +1065,55 @@ module Editor =
             { model with
                 Workspace = Workspace.backspaceSearch model.Workspace },
             []
-        // navigation — delegated to the unified interpreter
-        | c when c = nk Up -> runAction SidebarUp model
-        | c when c = nk Down -> runAction SidebarDown model
-        | c when c = nk PageUp -> runAction SidebarPageUp model
-        | c when c = nk PageDown -> runAction SidebarPageDown model
-        | c when c = nk Home -> runAction SidebarTop model
-        | c when c = nk End -> runAction SidebarBottom model
-        | c when c = nk Left -> runAction SidebarCollapse model
-        | c when c = nk Right -> runAction SidebarExpand model
-        | c when c = nk Enter -> runAction SidebarActivate model
-        | c when c = nk Escape -> runAction Action.FocusEditor model
         | _ -> model, []
 
+    /// Editor fallthrough core: literal text insertion. Motions/edits are
+    /// keymap-driven (Context.Editor / Context.Global) and resolve before this;
+    /// plugin chords are tried between the keymap and this core (spec §6.7.4).
     let private runEditor (chord: Chord) model =
-        // Check plugin keybindings before falling through to the default
-        // editor behavior. First-match wins; if the bound command is a
-        // plugin command we dispatch its handler, otherwise fall back to
-        // built-in command parsing (so plugins can bind chords to
-        // built-ins like `:write`).
-        let pluginDispatch =
-            match Chord.toKeyChord chord with
-            | None -> None
-            | Some kc ->
-                model.Plugins.Keybindings
-                |> List.tryFind (fun (c, _) -> c = kc)
-                |> Option.map snd
+        let hasSelection = (activeBufferState model).Selection.IsSome
 
-        match pluginDispatch with
-        | Some commandName ->
-            match model.Plugins.Commands.TryFind commandName with
-            | Some binding -> executeCommand (PluginInvoke(binding.Source, commandName, "")) model
-            | None ->
-                match Commands.parse commandName with
-                | Ready cmd -> executeCommand cmd model
-                | _ ->
-                    notify (Some(Notification.error $"Plugin binding refers to unknown command '{commandName}'.")) model,
-                    []
-        | None ->
+        let editTransform editFn =
+            if hasSelection then
+                Buffer.deleteSelection >> editFn
+            else
+                editFn
 
-            let hasSelection = (activeBufferState model).Selection.IsSome
+        match chord with
+        | { Mods = m; Key = Char value } when m.IsEmpty ->
+            updateActiveBuffer (editTransform (Buffer.insertText (string value)) >> Buffer.clearSelection) model, []
+        | { Mods = m; Key = Named Enter } when m.IsEmpty ->
+            updateActiveBuffer (editTransform Buffer.insertNewline >> Buffer.clearSelection) model, []
+        | { Mods = m; Key = Named Backspace } when m.IsEmpty && hasSelection ->
+            updateActiveBuffer Buffer.deleteSelection model, []
+        | { Mods = m; Key = Named Backspace } when m.IsEmpty -> updateActiveBuffer Buffer.backspace model, []
+        | { Mods = m; Key = Named Delete } when m.IsEmpty && hasSelection ->
+            updateActiveBuffer Buffer.deleteSelection model, []
+        | { Mods = m; Key = Named Delete } when m.IsEmpty -> updateActiveBuffer Buffer.deleteForward model, []
+        | _ -> model, []
 
-            let editTransform editFn =
-                if hasSelection then
-                    Buffer.deleteSelection >> editFn
-                else
-                    editFn
-
-            match chord with
-            // text fast-path — bare printable char with no Ctrl/Alt
-            | { Mods = m; Key = Char value } when m.IsEmpty ->
-                updateActiveBuffer (editTransform (Buffer.insertText (string value)) >> Buffer.clearSelection) model, []
-            | { Mods = m; Key = Named Enter } when m.IsEmpty ->
-                updateActiveBuffer (editTransform Buffer.insertNewline >> Buffer.clearSelection) model, []
-            | { Mods = m; Key = Named Backspace } when m.IsEmpty && hasSelection ->
-                updateActiveBuffer Buffer.deleteSelection model, []
-            | { Mods = m; Key = Named Backspace } when m.IsEmpty -> updateActiveBuffer Buffer.backspace model, []
-            | { Mods = m; Key = Named Delete } when m.IsEmpty && hasSelection ->
-                updateActiveBuffer Buffer.deleteSelection model, []
-            | { Mods = m; Key = Named Delete } when m.IsEmpty -> updateActiveBuffer Buffer.deleteForward model, []
-            // motions / edits — delegated to the unified interpreter
-            | c when c = nk Left -> runAction MoveLeft model
-            | c when c = nk Right -> runAction MoveRight model
-            | c when c = nk Up -> runAction MoveUp model
-            | c when c = nk Down -> runAction MoveDown model
-            | c when c = nk Home -> runAction MoveHome model
-            | c when c = nk End -> runAction MoveEnd model
-            | c when c = snk Left -> runAction ExtendLeft model
-            | c when c = snk Right -> runAction ExtendRight model
-            | c when c = snk Up -> runAction ExtendUp model
-            | c when c = snk Down -> runAction ExtendDown model
-            | c when c = snk Home -> runAction ExtendHome model
-            | c when c = snk End -> runAction ExtendEnd model
-            | c when c = nk PageUp -> runAction MovePageUp model
-            | c when c = nk PageDown -> runAction MovePageDown model
-            | c when c = nk Tab -> runAction Indent model
-            | c when c = snk Tab -> runAction Unindent model
-            | c when c = ank Left -> runAction MoveWordLeft model
-            | c when c = ank Right -> runAction MoveWordRight model
-            | c when c = cnk Left -> runAction MoveWordLeft model // wip #8: Linux-style Ctrl+← word motion
-            | c when c = cnk Right -> runAction MoveWordRight model // wip #8: Ctrl+→
-            | c when c = cnk Backspace -> runAction DeleteWordBack model
-            | c when c = cnk Delete -> runAction DeleteWordForward model
-            | _ -> model, []
+    /// Plugin keybinding lookup — consulted only after the keymap returns
+    /// NotBound, in editor focus (spec §6.7.4). Single chords only:
+    /// `Chord.toKeyChord` is `None` for sequences/Super/Named, so a pending
+    /// multi-chord prefix never reaches plugins. `None` here = no plugin bound.
+    let private dispatchViaPlugins (chord: Chord) model =
+        match Chord.toKeyChord chord with
+        | None -> None
+        | Some kc ->
+            model.Plugins.Keybindings
+            |> List.tryFind (fun (c, _) -> c = kc)
+            |> Option.map snd
+            |> Option.map (fun commandName ->
+                match model.Plugins.Commands.TryFind commandName with
+                | Some binding -> executeCommand (PluginInvoke(binding.Source, commandName, "")) model
+                | None ->
+                    match Commands.parse commandName with
+                    | Ready cmd -> executeCommand cmd model
+                    | _ ->
+                        notify
+                            (Some(Notification.error $"Plugin binding refers to unknown command '{commandName}'."))
+                            model,
+                        [])
 
     let private cycleCompletion delta model =
         let prompt = model.Prompt
@@ -1239,8 +1259,9 @@ module Editor =
           HighlightStates = Map.empty
           QuitArmed = false
           ShouldQuit = false
+          Keymap = Keymap.defaults
           PendingPrefix = None },
-        [ ScanWorkspace rootPath; ScanPlugins ]
+        [ ScanWorkspace rootPath; ScanPlugins; LoadKeybinds ]
 
     let update msg model =
         match msg with
@@ -1334,12 +1355,29 @@ module Editor =
                         else
                             $"Saved {Path.GetFileName path}"
 
+                    // Saving the keybinds file through fedit reloads it (the
+                    // implicit counterpart to `:keybind reload`).
+                    let reloadFx =
+                        try
+                            if
+                                String.Equals(
+                                    Path.GetFullPath path,
+                                    Path.GetFullPath(KeymapIO.path ()),
+                                    StringComparison.Ordinal
+                                )
+                            then
+                                [ LoadKeybinds ]
+                            else
+                                []
+                        with _ ->
+                            []
+
                     { model with
                         Editors =
                             { model.Editors with
                                 Buffers = model.Editors.Buffers |> Map.add bufferId updated }
                         Notification = Some(Notification.info note) },
-                    []
+                    reloadFx
             | Result.Error message -> notify (Some(Notification.error $"Failed to save {path}: {message}")) model, []
         | ConfigSaved result ->
             match result with
@@ -1417,6 +1455,12 @@ module Editor =
         | PluginBuildFinished(name, Result.Error message) ->
             notify (Some(Notification.error $"Build '{name}' failed: {message}")) model, []
         | SequenceTimedOut -> { model with PendingPrefix = None }, []
+        | KeybindsLoaded(keymap, errors) ->
+            let model = { model with Keymap = keymap }
+
+            match errors with
+            | [] -> model, []
+            | _ -> notify (Some(Notification.warning (String.concat "; " errors))) model, []
         | KeyPressed chord ->
             let model =
                 if chord = cc 'q' then
@@ -1424,83 +1468,79 @@ module Editor =
                 else
                     { model with QuitArmed = false }
 
-            // Sequence engine (Phase 2: dormant — `isPrefix` is always false
-            // because there is no keymap yet, so `step` always Fires).
-            let isPrefix (_: KeyStroke) = false
-
+            let ctx = contextOf model.Focus
             let pending = model.PendingPrefix |> Option.map fst |> Option.defaultValue []
 
-            match Sequence.step isPrefix pending chord with
-            | Sequence.Pending candidate ->
-                let deadline = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 1000L
+            let isPrefix (s: KeyStroke) =
+                Keymap.isSequencePrefix ctx s model.Keymap
 
-                { model with
-                    PendingPrefix = Some(candidate, deadline) },
-                []
-            | Sequence.Failed _ ->
-                { model with
-                    PendingPrefix = None
-                    Notification =
-                        Some(Notification.warning $"No binding for {Chord.renderStroke (pending @ [ chord ])}") },
-                []
-            | Sequence.Fire _ ->
-                let model = { model with PendingPrefix = None }
+            // Escape always cancels an in-flight prefix (spec §6.3).
+            if not (List.isEmpty pending) && chord = nk Escape then
+                { model with PendingPrefix = None }, []
+            else
+                match Sequence.step isPrefix pending chord with
+                | Sequence.Pending candidate ->
+                    let deadline = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 1000L
 
-                match chord with
-                | c when c = cc 'q' ->
-                    let hasDirty = model.Editors.Buffers |> Map.exists (fun _ buffer -> buffer.Dirty)
+                    { model with
+                        PendingPrefix = Some(candidate, deadline) },
+                    []
+                | stepResult ->
+                    // Fire (pending was empty → single chord) or Failed (a
+                    // completed or dead multi-chord candidate). Both resolve the
+                    // full candidate against the keymap; they differ only in the
+                    // NotBound fallthrough — a mid-sequence candidate must NOT
+                    // fall through to text insert.
+                    let candidate, wasSequence =
+                        match stepResult with
+                        | Sequence.Failed c -> c, true
+                        | _ -> [ chord ], false
 
-                    if model.QuitArmed || not hasDirty then
-                        { model with
-                            ShouldQuit = true
-                            QuitArmed = false
-                            Notification = None },
-                        [ SaveConfig model.Config ]
-                    else
-                        let dirtyCount =
-                            model.Editors.Buffers
-                            |> Map.toList
-                            |> List.filter (fun (_, b) -> b.Dirty)
-                            |> List.length
+                    let model = { model with PendingPrefix = None }
 
-                        { model with
-                            QuitArmed = true
-                            Notification =
-                                Some(
-                                    Notification.warning
-                                        $"Unsaved changes in {dirtyCount} buffer(s). Press Ctrl+Q again to discard."
-                                ) },
-                        []
-                | c when c = cc 'p' -> runAction OpenPalette { model with Notification = None }
-                | c when c = cc 'o' -> runAction OpenFilePicker { model with Notification = None } // wip #4: now reachable
-                | c when c = cc 'f' -> runAction OpenSearch { model with Notification = None }
-                | c when c = cc 'b' ->
-                    // Tri-state sidebar, expressed via the combinators (spec §6.5):
-                    //   hidden            → reveal + focus
-                    //   visible, !focused → focus
-                    //   visible, focused  → hide + focus editor
-                    runAction
-                        (When(
-                            SidebarVisible,
-                            When(SidebarFocused, Chain [ HideSidebar; Action.FocusEditor ], FocusSidebar),
-                            Chain [ RevealSidebar; FocusSidebar ]
-                        ))
-                        { model with Notification = None }
-                | c when c = cc 'e' -> runAction Action.FocusEditor { model with Notification = None }
-                | c when c = cc 's' -> runAction Save { model with Notification = None }
-                | c when c = cc 'r' -> runAction Action.ReloadWorkspace { model with Notification = None }
-                | c when c = cc 'z' -> runAction Undo { model with Notification = None }
-                | c when c = cc 'y' -> runAction Redo { model with Notification = None }
-                | c when c = cc 'a' -> runAction SelectAll { model with Notification = None }
-                | c when c = cc 'c' -> runAction Copy { model with Notification = None }
-                | c when c = cc 'x' -> runAction Cut { model with Notification = None }
-                | c when c = cc 'v' -> runAction Paste { model with Notification = None }
-                | c when c = cnk PageDown -> runAction Action.NextBuffer { model with Notification = None }
-                | c when c = cnk PageUp -> runAction PrevBuffer { model with Notification = None }
-                | { Mods = m; Key = Char d } when m = Set.ofList [ Ctrl ] && d >= '1' && d <= '9' ->
-                    runAction (JumpToBuffer(int d - int '0')) { model with Notification = None }
-                | _ ->
-                    match model.Focus with
-                    | Sidebar -> runSidebar chord { model with Notification = None }
-                    | Editor -> runEditor chord { model with Notification = None }
-                    | Prompt -> runPrompt chord { model with Notification = None }
+                    match candidate with
+                    // Ctrl+Q two-stage quit stays bespoke — it owns QuitArmed
+                    // and is deliberately absent from the keymap defaults.
+                    | [ c ] when c = cc 'q' ->
+                        let hasDirty = model.Editors.Buffers |> Map.exists (fun _ buffer -> buffer.Dirty)
+
+                        if model.QuitArmed || not hasDirty then
+                            { model with
+                                ShouldQuit = true
+                                QuitArmed = false
+                                Notification = None },
+                            [ SaveConfig model.Config ]
+                        else
+                            let dirtyCount =
+                                model.Editors.Buffers
+                                |> Map.toList
+                                |> List.filter (fun (_, b) -> b.Dirty)
+                                |> List.length
+
+                            { model with
+                                QuitArmed = true
+                                Notification =
+                                    Some(
+                                        Notification.warning
+                                            $"Unsaved changes in {dirtyCount} buffer(s). Press Ctrl+Q again to discard."
+                                    ) },
+                            []
+                    | _ ->
+                        let model = { model with Notification = None }
+
+                        match Keymap.resolve ctx candidate model.Keymap with
+                        | Bound action -> runAction action model
+                        | Unbound -> model, [] // explicitly freed: consume, do nothing
+                        | NotBound when wasSequence ->
+                            notify (Some(Notification.warning $"No binding for {Chord.renderStroke candidate}")) model,
+                            []
+                        | NotBound ->
+                            // single-chord fallthrough by focus: plugins (editor
+                            // only) → text/filter/prompt line-editing.
+                            match model.Focus with
+                            | Editor ->
+                                match dispatchViaPlugins chord model with
+                                | Some result -> result
+                                | None -> runEditor chord model
+                            | Sidebar -> runSidebar chord model
+                            | Prompt -> runPrompt chord model

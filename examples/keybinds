@@ -1,0 +1,29 @@
+# fedit keybinds — copy to ~/.config/fedit/keybinds and edit.
+#
+# Format:  [context] stroke[ stroke…] = action[:arg]
+# Contexts: global, editor, sidebar, prompt. Omitting the context defaults to
+#           "editor". A "global" binding fires in every focus.
+# Layered on top of the compiled-in defaults — list only what you change.
+# Reload with ":keybind reload" (or save this file through fedit).
+# Inspect with ":keybind" (list all) or ":keybind ctrl+s" (resolve a stroke).
+
+# Remap a single chord (context defaults to editor).
+ctrl+s            = save
+
+# A global binding fires regardless of focus.
+global  ctrl+r    = reload-workspace
+
+# Multi-key sequence: press the chords in order. The status bar shows the
+# pending prefix; Escape cancels it.
+editor  ctrl+k ctrl+s = save
+
+# Unbind a chord entirely — an empty right-hand side frees it. The key is
+# consumed (it does NOT fall through to text insertion).
+# global  ctrl+r  =
+
+# Actions that take an argument use a trailing ":arg".
+editor  f6        = set-theme:gruvbox
+
+# Bind a plugin command: run-plugin:<source>/<name> [plugin-arg].
+# The user keymap takes precedence over a plugin's own RegisterKeybinding.
+editor  ctrl+k ctrl+w = run-plugin:wordcount/wc selection

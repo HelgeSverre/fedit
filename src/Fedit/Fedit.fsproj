@@ -156,9 +156,11 @@
     <Compile Include="Highlight.fs" />
     <Compile Include="Commands.fs" />
     <Compile Include="Actions.fs" />
+    <Compile Include="Keymap.fs" />
     <Compile Include="Plugins.fs" />
     <Compile Include="Model.fs" />
     <Compile Include="Config.fs" />
+    <Compile Include="KeymapIO.fs" />
     <Compile Include="Prompt.fs" />
     <Compile Include="Editor.fs" />
     <Compile Include="Status.fs" />

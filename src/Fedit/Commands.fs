@@ -39,6 +39,9 @@ type Command =
     /// `:syntax on|off|toggle` — flips Config.SyntaxHighlightingEnabled
     /// and persists. Other verbs surface as Invalid at the prompt.
     | Syntax of verb: string
+    /// `:keybind [reload | <stroke>]` — list effective keybindings, reload the
+    /// user file, or show what a stroke resolves to in each context.
+    | Keybind of argument: string
 
 type ParsedCommand =
     | Empty
@@ -235,7 +238,12 @@ module Commands =
                           if needsArg.Contains verbLower && String.IsNullOrWhiteSpace rest then
                               Pending $"plugin {verbLower} requires an argument."
                           else
-                              Ready(Plugin(verbLower, rest)) } ]
+                              Ready(Plugin(verbLower, rest)) }
+          { Name = "keybind"
+            Usage = "keybind [reload | <stroke>]"
+            Summary = "List effective keybindings, reload the file, or show what a stroke is bound to."
+            Hidden = false
+            Constructor = fun argument -> Ready(Keybind(argument.Trim())) } ]
 
     /// Specs synthesized from currently-loaded plugin commands. Each tuple
     /// is `(commandName, summary, sourcePluginName)`. Plugin specs sit
