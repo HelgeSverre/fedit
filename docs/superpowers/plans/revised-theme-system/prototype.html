@@ -171,6 +171,16 @@
         color: var(--fedit-accent-fg);
       }
 
+      select {
+        width: 100%;
+        border: 1px solid var(--page-border);
+        border-radius: 4px;
+        background: oklch(8% 0 0);
+        color: var(--page-fg);
+        font: inherit;
+        padding: 7px 8px;
+      }
+
       .top-nav {
         flex: 0 0 auto;
         display: flex;
@@ -259,8 +269,17 @@
         white-space: nowrap;
       }
 
+      .sidebar-row.is-directory {
+        cursor: pointer;
+      }
+
       .sidebar-row span:first-child {
         font-family: var(--font-nerd);
+      }
+
+      .sidebar-row__name {
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .sidebar-row.is-selected {
@@ -478,6 +497,13 @@
         color: var(--page-fg);
       }
 
+      .theme-picker {
+        display: grid;
+        gap: 6px;
+        margin-bottom: 10px;
+        color: var(--page-muted);
+      }
+
       .token-search {
         width: 100%;
         border: 1px solid var(--page-border);
@@ -574,53 +600,31 @@
     <div class="app-shell">
       <nav class="top-nav" aria-label="Prototype controls">
         <div class="nav-group">
-          <span class="nav-label">theme</span>
-          <template x-for="theme in themes" :key="theme.name">
-            <button
-              type="button"
-              :aria-pressed="activeTheme.name === theme.name"
-              @click="applyTheme(theme)"
-              x-text="theme.name"
-            ></button>
-          </template>
-        </div>
-        <div class="nav-group">
-          <span class="nav-label">tree</span>
-          <button type="button" :aria-pressed="sidebarVisible && sidebarDock === 'left'" @click="setSidebarMode('left')">
-            sidebar: left
+          <button type="button" :aria-pressed="sidebarVisible" @click="sidebarVisible = !sidebarVisible">
+            <span x-text="sidebarVisible ? 'sidebar:on' : 'sidebar:off'"></span>
           </button>
-          <button type="button" :aria-pressed="sidebarVisible && sidebarDock === 'right'" @click="setSidebarMode('right')">
-            sidebar: right
-          </button>
-          <button type="button" :aria-pressed="!sidebarVisible" @click="setSidebarMode('off')">
-            sidebar: off
-          </button>
-          <button type="button" :aria-pressed="srcExpanded" @click="srcExpanded = !srcExpanded">
-            <span x-text="srcExpanded ? 'src: open' : 'src: closed'"></span>
-          </button>
-          <button type="button" :aria-pressed="testsExpanded" @click="testsExpanded = !testsExpanded">
-            <span x-text="testsExpanded ? 'tests: open' : 'tests: closed'"></span>
+          <button type="button" @click="toggleSidebarDock()">
+            <span x-text="`sidebar:${sidebarDock}`"></span>
           </button>
         </div>
         <div class="nav-group">
-          <span class="nav-label">glyphs</span>
           <button type="button" :aria-pressed="nerdFonts" @click="nerdFonts = !nerdFonts">
-            <span x-text="nerdFonts ? 'icons: nerd' : 'icons: ascii'"></span>
+            <span x-text="nerdFonts ? 'icons:nerd' : 'icons:ascii'"></span>
           </button>
         </div>
         <div class="nav-group">
-          <span class="nav-label">command bar</span>
           <button type="button" :aria-pressed="!commandBarOpen" @click="commandBarOpen = false">
-            command: closed
+            editor
           </button>
-          <template x-for="(state, index) in commandStates" :key="state.name">
+          <template x-for="(mode, index) in previewModes" :key="mode.label">
             <button
               type="button"
-              :aria-pressed="commandBarOpen && commandIndex === index"
-              @click="setCommandState(index)"
-              x-text="`command: ${state.scenario}`"
+              :aria-pressed="commandBarOpen && modeIndex === index"
+              @click="setPreviewMode(index)"
+              x-text="mode.label"
             ></button>
           </template>
+          <button type="button" @click="cyclePreviewVariant()" x-text="`variant: ${currentVariantLabel()}`"></button>
         </div>
       </nav>
 
@@ -633,9 +637,13 @@
             >
             <aside class="sidebar" x-show="sidebarVisible">
               <template x-for="entry in visibleTreeEntries()" :key="entry.id">
-                <div class="sidebar-row" :class="{ 'is-selected': entry.selected }">
+                <div
+                  class="sidebar-row"
+                  :class="{ 'is-selected': entry.selected, 'is-directory': entry.directory }"
+                  @click="entry.directory && toggleTreeEntry(entry)"
+                >
                   <span x-text="treeMarker(entry)"></span>
-                  <span :style="`padding-left:${entry.depth * 14}px`" x-text="entry.name"></span>
+                  <span class="sidebar-row__name" :style="`padding-left:${entry.depth * 14}px`" x-text="entry.name"></span>
                 </div>
               </template>
             </aside>
@@ -814,6 +822,18 @@
         <aside class="color-sidebar">
           <section class="color-sidebar__section">
             <h2 class="color-sidebar__title">Color values</h2>
+            <label class="theme-picker">
+              <span>theme</span>
+              <select x-effect="$el.value = activeTheme.name" @change="applyThemeByName($event.target.value)">
+                <template x-for="theme in themes" :key="theme.name">
+                  <option
+                    :value="theme.name"
+                    :selected="activeTheme.name === theme.name"
+                    x-text="`${theme.name} - ${theme.description}`"
+                  ></option>
+                </template>
+              </select>
+            </label>
             <input
               class="token-search"
               type="search"
@@ -857,80 +877,140 @@
           "--fedit-syntax-type-fg": "#ffd787"
         };
 
+        function makeTheme(theme) {
+          const selectedFg = theme.darkText ? "#0b0b0d" : "#ffffff";
+
+          return {
+            name: theme.name,
+            description: theme.description,
+            vars: {
+              ...base,
+              "--fedit-accent-fg": theme.accent,
+              "--fedit-editor-line-active-bg": theme.lineActiveBg || "#151515",
+              "--fedit-editor-selection-fg": selectedFg,
+              "--fedit-editor-selection-bg": theme.selectedBg,
+              "--fedit-gutter-active-fg": theme.currentLine || theme.accent,
+              "--fedit-gutter-active-bg": theme.gutterActiveBg || "#1f2937",
+              "--fedit-sidebar-selected-fg": selectedFg,
+              "--fedit-sidebar-selected-bg": theme.selectedBg,
+              "--fedit-status-fg": selectedFg,
+              "--fedit-status-bg": theme.statusBg,
+              "--fedit-prompt-fg": theme.promptFg || "#e8eefc",
+              "--fedit-prompt-bg": theme.promptBg || "#161d29",
+              "--fedit-dock-fg": theme.dockFg || "#c8d0dc",
+              "--fedit-dock-bg": theme.dockBg || "#11151c",
+              "--fedit-dock-title-fg": theme.accent,
+              "--fedit-dock-selected-fg": selectedFg,
+              "--fedit-dock-selected-bg": theme.selectedBg,
+              "--fedit-completion-theme-swatch-border": "#0b0b0d"
+            }
+          };
+        }
+
         const themes = [
-          {
+          makeTheme({
+            name: "green",
+            description: "Phosphor green - brand default",
+            accent: "#00b86b",
+            statusBg: "#005f00",
+            selectedBg: "#008700",
+            currentLine: "#00b86b",
+            gutterActiveBg: "#123323"
+          }),
+          makeTheme({
+            name: "blue",
+            description: "Electric blue - high contrast",
+            accent: "#1f6feb",
+            statusBg: "#00005f",
+            selectedBg: "#005faf",
+            currentLine: "#1f6feb",
+            gutterActiveBg: "#111d3a"
+          }),
+          makeTheme({
+            name: "orange",
+            description: "Burnt orange - warm, retro",
+            accent: "#d2691e",
+            statusBg: "#875f00",
+            selectedBg: "#af5f00",
+            currentLine: "#d7875f",
+            gutterActiveBg: "#342210"
+          }),
+          makeTheme({
+            name: "cyan",
+            description: "Cool cyan accent",
+            accent: "#5fd7ff",
+            statusBg: "#005f87",
+            selectedBg: "#0087af",
+            currentLine: "#afd7ff",
+            gutterActiveBg: "#12303a"
+          }),
+          makeTheme({
+            name: "teal",
+            description: "Cyan-green hybrid",
+            accent: "#5fd7d7",
+            statusBg: "#005f5f",
+            selectedBg: "#008787",
+            currentLine: "#afffff",
+            gutterActiveBg: "#123333"
+          }),
+          makeTheme({
+            name: "yellow",
+            description: "Warm yellow (dark text)",
+            accent: "#ffd700",
+            statusBg: "#878700",
+            selectedBg: "#d7af00",
+            currentLine: "#ffffaf",
+            gutterActiveBg: "#3a3510",
+            promptFg: "#fff7c2",
+            promptBg: "#2d2812",
+            darkText: true
+          }),
+          makeTheme({
+            name: "red",
+            description: "Crimson accent",
+            accent: "#ff5f5f",
+            statusBg: "#870000",
+            selectedBg: "#af0000",
+            currentLine: "#ffafaf",
+            gutterActiveBg: "#3a1515"
+          }),
+          makeTheme({
             name: "graphite",
             description: "Blue-grey high readability",
-            vars: {
-              ...base,
-              "--fedit-accent-fg": "#8cb4ff",
-              "--fedit-editor-selection-fg": "#0b0b0d",
-              "--fedit-editor-selection-bg": "#374151",
-              "--fedit-gutter-active-fg": "#8cb4ff",
-              "--fedit-gutter-active-bg": "#1f2937",
-              "--fedit-sidebar-selected-fg": "#ffffff",
-              "--fedit-sidebar-selected-bg": "#374151",
-              "--fedit-status-fg": "#ffffff",
-              "--fedit-status-bg": "#1f2937",
-              "--fedit-prompt-fg": "#e8eefc",
-              "--fedit-prompt-bg": "#161d29",
-              "--fedit-dock-fg": "#c8d0dc",
-              "--fedit-dock-bg": "#11151c",
-              "--fedit-dock-title-fg": "#8cb4ff",
-              "--fedit-dock-selected-fg": "#ffffff",
-              "--fedit-dock-selected-bg": "#374151",
-              "--fedit-completion-theme-swatch-border": "#0b0b0d"
-            }
-          },
-          {
+            accent: "#8cb4ff",
+            statusBg: "#1f2937",
+            selectedBg: "#374151",
+            currentLine: "#4b5563",
+            gutterActiveBg: "#1f2937"
+          }),
+          makeTheme({
             name: "evergreen",
             description: "Soft forest green",
-            vars: {
-              ...base,
-              "--fedit-accent-fg": "#a7c080",
-              "--fedit-editor-selection-fg": "#0b0b0d",
-              "--fedit-editor-selection-bg": "#4f5f4a",
-              "--fedit-gutter-active-fg": "#a7c080",
-              "--fedit-gutter-active-bg": "#253127",
-              "--fedit-sidebar-selected-fg": "#ffffff",
-              "--fedit-sidebar-selected-bg": "#4f5f4a",
-              "--fedit-status-fg": "#ffffff",
-              "--fedit-status-bg": "#3a4a3f",
-              "--fedit-prompt-fg": "#eef6df",
-              "--fedit-prompt-bg": "#1d241f",
-              "--fedit-dock-fg": "#cbd7c1",
-              "--fedit-dock-bg": "#111511",
-              "--fedit-dock-title-fg": "#a7c080",
-              "--fedit-dock-selected-fg": "#ffffff",
-              "--fedit-dock-selected-bg": "#4f5f4a",
-              "--fedit-completion-theme-swatch-border": "#0b0b0d"
-            }
-          },
-          {
+            accent: "#a7c080",
+            statusBg: "#3a4a3f",
+            selectedBg: "#4f5f4a",
+            currentLine: "#5f6f55",
+            gutterActiveBg: "#253127",
+            promptFg: "#eef6df",
+            promptBg: "#1d241f",
+            dockFg: "#cbd7c1",
+            dockBg: "#111511"
+          }),
+          makeTheme({
             name: "mono-amber",
             description: "Deep amber phosphor",
-            vars: {
-              ...base,
-              "--fedit-accent-fg": "#ffaf00",
-              "--fedit-editor-line-active-bg": "#201a10",
-              "--fedit-editor-selection-fg": "#0b0b0d",
-              "--fedit-editor-selection-bg": "#875f00",
-              "--fedit-gutter-active-fg": "#ffaf00",
-              "--fedit-gutter-active-bg": "#3a2a10",
-              "--fedit-sidebar-selected-fg": "#0b0b0d",
-              "--fedit-sidebar-selected-bg": "#875f00",
-              "--fedit-status-fg": "#0b0b0d",
-              "--fedit-status-bg": "#5f3b00",
-              "--fedit-prompt-fg": "#fff4d6",
-              "--fedit-prompt-bg": "#2a2114",
-              "--fedit-dock-fg": "#b9b9b9",
-              "--fedit-dock-bg": "#151515",
-              "--fedit-dock-title-fg": "#ffaf00",
-              "--fedit-dock-selected-fg": "#0b0b0d",
-              "--fedit-dock-selected-bg": "#875f00",
-              "--fedit-completion-theme-swatch-border": "#0b0b0d"
-            }
-          }
+            accent: "#ffaf00",
+            statusBg: "#5f3b00",
+            selectedBg: "#875f00",
+            currentLine: "#af8700",
+            lineActiveBg: "#201a10",
+            gutterActiveBg: "#3a2a10",
+            promptFg: "#fff4d6",
+            promptBg: "#2a2114",
+            dockFg: "#b9b9b9",
+            dockBg: "#151515",
+            darkText: true
+          })
         ];
 
         const commandStates = [
@@ -1073,22 +1153,32 @@
           }
         ];
 
+        const previewModes = [
+          { label: "themes", states: [0] },
+          { label: "files", states: [1, 9] },
+          { label: "find", states: [2, 10] },
+          { label: "buffers", states: [3] },
+          { label: "commands", states: [4, 5, 6, 7] },
+          { label: "goto", states: [8] }
+        ];
+
         return {
           themes,
           commandStates,
+          previewModes,
           activeTheme: {
-            name: themes[2].name,
-            description: themes[2].description,
-            vars: { ...themes[2].vars }
+            name: themes[9].name,
+            description: themes[9].description,
+            vars: { ...themes[9].vars }
           },
           sidebarVisible: true,
           sidebarDock: "left",
-          srcExpanded: true,
-          testsExpanded: false,
+          expandedFolders: ["src", "src-fedit", "src-cli", "docs", "docs-plans", "brand", "brand-themes", "website", "website-pages"],
           nerdFonts: false,
           commandBarOpen: true,
           commandIndex: 0,
-          selectedCompletion: 2,
+          modeIndex: 0,
+          selectedCompletion: 9,
           colorFilter: "",
           promptText: commandStates[0].promptText,
           allTokens: [
@@ -1125,39 +1215,139 @@
             "--fedit-syntax-function-fg",
             "--fedit-syntax-type-fg"
           ],
+          treeEntries: [
+            {
+              id: "src",
+              name: "src",
+              directory: true,
+              children: [
+                {
+                  id: "src-fedit",
+                  name: "Fedit",
+                  directory: true,
+                  children: [
+                    { id: "themes-fs", name: "Themes.fs", selected: true },
+                    { id: "view-fs", name: "View.fs" },
+                    { id: "editor-fs", name: "Editor.fs" },
+                    { id: "commands-fs", name: "Commands.fs" },
+                    { id: "prompt-fs", name: "Prompt.fs" },
+                    { id: "config-fs", name: "Config.fs" },
+                    { id: "color-fs", name: "Color.fs" },
+                    { id: "highlight-fs", name: "Highlight.fs" },
+                    { id: "program-fs", name: "Program.fs" }
+                  ]
+                },
+                {
+                  id: "src-cli",
+                  name: "Cli",
+                  directory: true,
+                  children: [
+                    { id: "cli-fs", name: "Cli.fs" },
+                    { id: "plugins-fs", name: "Commands/Plugins.fs" },
+                    { id: "completions-fs", name: "Commands/Completions.fs" }
+                  ]
+                },
+                {
+                  id: "src-plugin-api",
+                  name: "Fedit.PluginApi",
+                  directory: true,
+                  children: [
+                    { id: "plugin-types-fs", name: "Types.fs" },
+                    { id: "plugin-host-fs", name: "Host.fs" }
+                  ]
+                }
+              ]
+            },
+            {
+              id: "docs",
+              name: "docs",
+              directory: true,
+              children: [
+                { id: "docs-plugins", name: "plugins.md" },
+                { id: "docs-syntax", name: "syntax-highlighting.md" },
+                { id: "docs-keybinds", name: "wip-keybinds.md" },
+                {
+                  id: "docs-plans",
+                  name: "superpowers/plans",
+                  directory: true,
+                  children: [
+                    { id: "revised-readme", name: "revised-theme-system/README.md" },
+                    { id: "revised-prototype", name: "revised-theme-system/prototype.html" },
+                    { id: "theme-swatch-plan", name: "revised-theme-system/theme-completion-swatch-plan.md" }
+                  ]
+                }
+              ]
+            },
+            {
+              id: "brand",
+              name: "brand",
+              directory: true,
+              children: [
+                {
+                  id: "brand-themes",
+                  name: "themes",
+                  directory: true,
+                  children: [
+                    { id: "green-json", name: "green.json" },
+                    { id: "blue-json", name: "blue.json" },
+                    { id: "orange-json", name: "orange.json" },
+                    { id: "mono-amber-json", name: "mono-amber.json" }
+                  ]
+                },
+                { id: "brand-theme-readme", name: "themes/README.md" }
+              ]
+            },
+            {
+              id: "website",
+              name: "website",
+              directory: true,
+              children: [
+                {
+                  id: "website-pages",
+                  name: "src/pages",
+                  directory: true,
+                  children: [
+                    { id: "themes-astro", name: "themes.astro" },
+                    { id: "index-astro", name: "index.astro" },
+                    { id: "plugins-astro", name: "plugins.astro" }
+                  ]
+                }
+              ]
+            }
+          ],
           init() {
             this.applyTheme(this.activeTheme);
           },
           visibleTreeEntries() {
-            const entries = [
-              { id: "src", name: "src", depth: 0, directory: true, expanded: this.srcExpanded },
-            ];
+            const entries = [];
 
-            if (this.srcExpanded) {
-              entries.push(
-                { id: "fedit", name: "Fedit.fs", depth: 1, directory: false },
-                { id: "themes", name: "Themes.fs", depth: 1, directory: false, selected: true },
-                { id: "view", name: "View.fs", depth: 1, directory: false },
-                { id: "config", name: "Config.fs", depth: 1, directory: false }
-              );
-            }
+            const walk = (nodes, depth) => {
+              nodes.forEach((node) => {
+                const expanded = node.directory && this.expandedFolders.includes(node.id);
+                entries.push({ ...node, depth, expanded });
+                if (expanded) walk(node.children || [], depth + 1);
+              });
+            };
 
-            entries.push({ id: "tests", name: "tests", depth: 0, directory: true, expanded: this.testsExpanded });
-
-            if (this.testsExpanded) {
-              entries.push(
-                { id: "theme-tests", name: "ThemeTests.fs", depth: 1, directory: false },
-                { id: "view-tests", name: "ViewTests.fs", depth: 1, directory: false }
-              );
-            }
-
+            walk(this.treeEntries, 0);
             return entries;
+          },
+          toggleTreeEntry(entry) {
+            if (!entry.directory) return;
+            if (this.expandedFolders.includes(entry.id)) {
+              this.expandedFolders = this.expandedFolders.filter((id) => id !== entry.id);
+            } else {
+              this.expandedFolders = [...this.expandedFolders, entry.id];
+            }
           },
           treeMarker(entry) {
             if (this.nerdFonts) {
               if (entry.directory) return entry.expanded ? "" : "";
               if (entry.name.endsWith(".fs")) return "";
               if (entry.name.endsWith(".html")) return "";
+              if (entry.name.endsWith(".astro")) return "";
+              if (entry.name.endsWith(".json")) return "";
+              if (entry.name.endsWith(".md")) return "";
               return "";
             }
 
@@ -1171,20 +1361,31 @@
             const state = this.currentCommandState();
             return ` ${state.title} (${this.selectedCompletion + 1}/${state.items.length}) `;
           },
+          currentMode() {
+            return this.previewModes[this.modeIndex];
+          },
+          currentVariantLabel() {
+            const state = this.currentCommandState();
+            return state.scenario;
+          },
+          setPreviewMode(index) {
+            this.modeIndex = index;
+            this.setCommandState(this.currentMode().states[0]);
+          },
+          cyclePreviewVariant() {
+            const mode = this.currentMode();
+            const currentIndex = Math.max(0, mode.states.indexOf(this.commandIndex));
+            const nextIndex = (currentIndex + 1) % mode.states.length;
+            this.setCommandState(mode.states[nextIndex]);
+          },
           setCommandState(index) {
             this.commandBarOpen = true;
             this.commandIndex = index;
             this.selectedCompletion = Math.min(2, this.currentCommandState().items.length - 1);
             this.promptText = this.currentCommandState().promptText;
           },
-          setSidebarMode(mode) {
-            if (mode === "off") {
-              this.sidebarVisible = false;
-              return;
-            }
-
-            this.sidebarVisible = true;
-            this.sidebarDock = mode;
+          toggleSidebarDock() {
+            this.sidebarDock = this.sidebarDock === "left" ? "right" : "left";
           },
           cycleCompletion(delta) {
             const count = this.currentCommandState().items.length;
@@ -1206,6 +1407,10 @@
             for (const [key, value] of Object.entries(this.activeTheme.vars)) {
               document.documentElement.style.setProperty(key, value);
             }
+          },
+          applyThemeByName(name) {
+            const theme = this.themes.find((item) => item.name === name);
+            if (theme) this.applyTheme(theme);
           },
           setVar(token, value) {
             this.activeTheme.vars[token] = value;
