@@ -1445,80 +1445,33 @@ module Editor =
                                     $"Unsaved changes in {dirtyCount} buffer(s). Press Ctrl+Q again to discard."
                             ) },
                     []
-            | Ctrl 'p' ->
-                openPrompt
-                    ":"
-                    { model with
-                        Workspace = Workspace.clearSearch model.Workspace
-                        Notification = None }
-            | Ctrl 'o' ->
-                openPrompt
-                    ""
-                    { model with
-                        Workspace = Workspace.clearSearch model.Workspace
-                        Notification = None }
-            | Ctrl 'f' ->
-                openPrompt
-                    "/"
-                    { model with
-                        Workspace = Workspace.clearSearch model.Workspace
-                        Notification = None }
+            | Ctrl 'p' -> runAction OpenPalette { model with Notification = None }
+            | Ctrl 'o' -> runAction OpenFilePicker { model with Notification = None }
+            | Ctrl 'f' -> runAction OpenSearch { model with Notification = None }
             | Ctrl 'b' ->
-                // Zed-style three-state toggle: hidden → show+focus;
-                // visible-elsewhere → focus; visible-focused → hide+editor.
-                let panels = model.Panels
-                let cleared = { model with Notification = None }
-
-                if not panels.SidebarVisible then
-                    { cleared with
-                        Panels = { panels with SidebarVisible = true }
-                        Focus = Sidebar },
-                    []
-                elif cleared.Focus <> Sidebar then
-                    { cleared with Focus = Sidebar }, []
-                else
-                    { cleared with
-                        Panels = { panels with SidebarVisible = false }
-                        Focus = Editor
-                        Workspace = Workspace.clearSearch cleared.Workspace },
-                    []
-            | Ctrl 'e' ->
-                { model with
-                    Focus = Editor
-                    Workspace = Workspace.clearSearch model.Workspace
-                    Notification = None },
-                []
-            | Ctrl 's' -> saveActiveBuffer None { model with Notification = None }
-            | Ctrl 'r' -> { model with Notification = None }, [ ScanWorkspace model.Workspace.RootPath ]
-            | Ctrl 'z' -> updateActiveBuffer Buffer.undo { model with Notification = None }, []
-            | Ctrl 'y' -> updateActiveBuffer Buffer.redo { model with Notification = None }, []
-            | Ctrl 'a' -> updateActiveBuffer Buffer.selectAll { model with Notification = None }, []
-            | Ctrl 'c' ->
-                let buffer = activeBufferState model
-                let text = Buffer.selectionText buffer
-
-                if String.IsNullOrEmpty text then
-                    { model with Notification = None }, []
-                else
-                    { model with
-                        Notification = Some(Notification.info $"Copied {text.Length} char(s)") },
-                    [ ClipboardCopy text ]
-            | Ctrl 'x' ->
-                let buffer = activeBufferState model
-                let text = Buffer.selectionText buffer
-
-                if String.IsNullOrEmpty text then
-                    { model with Notification = None }, []
-                else
-                    updateActiveBuffer
-                        Buffer.deleteSelection
-                        { model with
-                            Notification = Some(Notification.info $"Cut {text.Length} char(s)") },
-                    [ ClipboardCopy text ]
-            | Ctrl 'v' -> { model with Notification = None }, [ ClipboardPaste ]
-            | CtrlPageDown -> executeCommand Command.NextBuffer { model with Notification = None }
-            | CtrlPageUp -> executeCommand PreviousBuffer { model with Notification = None }
-            | CtrlDigit n when n >= 1 && n <= 9 -> jumpToBuffer n { model with Notification = None }, []
+                // Tri-state sidebar, expressed via the combinators (spec §6.5):
+                //   hidden            → reveal + focus
+                //   visible, !focused → focus
+                //   visible, focused  → hide + focus editor
+                runAction
+                    (When(
+                        SidebarVisible,
+                        When(SidebarFocused, Chain [ HideSidebar; Action.FocusEditor ], FocusSidebar),
+                        Chain [ RevealSidebar; FocusSidebar ]
+                    ))
+                    { model with Notification = None }
+            | Ctrl 'e' -> runAction Action.FocusEditor { model with Notification = None }
+            | Ctrl 's' -> runAction Save { model with Notification = None }
+            | Ctrl 'r' -> runAction Action.ReloadWorkspace { model with Notification = None }
+            | Ctrl 'z' -> runAction Undo { model with Notification = None }
+            | Ctrl 'y' -> runAction Redo { model with Notification = None }
+            | Ctrl 'a' -> runAction SelectAll { model with Notification = None }
+            | Ctrl 'c' -> runAction Copy { model with Notification = None }
+            | Ctrl 'x' -> runAction Cut { model with Notification = None }
+            | Ctrl 'v' -> runAction Paste { model with Notification = None }
+            | CtrlPageDown -> runAction Action.NextBuffer { model with Notification = None }
+            | CtrlPageUp -> runAction PrevBuffer { model with Notification = None }
+            | CtrlDigit n when n >= 1 && n <= 9 -> runAction (JumpToBuffer n) { model with Notification = None }
             | _ ->
                 match model.Focus with
                 | Sidebar -> runSidebar key { model with Notification = None }
