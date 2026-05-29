@@ -70,3 +70,29 @@ module Input =
             | ConsoleKey.PageDown -> Some PageDown
             | _ when Char.IsControl keyInfo.KeyChar -> None
             | _ -> Some(Character keyInfo.KeyChar)
+
+    /// Decode an SGR mouse report body (`"[<Cb;Cx;Cy"` followed by `'M'`/`'m'`)
+    /// into a signed wheel-tick count: `Some -1` for wheel-up, `Some 1` for
+    /// wheel-down, `None` for clicks, drags, the horizontal wheel, or garbage.
+    /// Modifier bits (shift 4 / meta 8 / ctrl 16) are masked off.
+    let parseSgrMouse (sequence: string) : int option =
+        if
+            sequence.Length >= 4
+            && sequence.StartsWith("[<", StringComparison.Ordinal)
+            && (sequence.EndsWith("M", StringComparison.Ordinal)
+                || sequence.EndsWith("m", StringComparison.Ordinal))
+        then
+            let body = sequence.Substring(2, sequence.Length - 3)
+
+            match body.Split(';') with
+            | [| code; _; _ |] ->
+                match Int32.TryParse code with
+                | true, value ->
+                    match value &&& 0b1100_0011 with
+                    | 64 -> Some -1
+                    | 65 -> Some 1
+                    | _ -> None
+                | false, _ -> None
+            | _ -> None
+        else
+            None

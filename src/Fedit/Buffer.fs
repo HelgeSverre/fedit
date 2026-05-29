@@ -498,16 +498,24 @@ module Buffer =
             let withDoc = buffer |> withDocument nextDocument
             finalizeEdit buffer nextCursor withDoc
 
-    /// Slide the viewport just enough to keep `cursor` inside `[viewport,
-    /// viewport + span)`. Returns the current `viewport` unchanged if the
-    /// cursor is already visible; otherwise pulls the window along the
-    /// cursor by exactly the minimum.
-    let private slideViewport cursor viewport span =
-        if cursor < viewport then cursor
-        elif cursor >= viewport + span then cursor - span + 1
-        else viewport
+    /// Slide the viewport just enough to keep `cursor` at least `margin`
+    /// lines/columns inside `[viewport, viewport + span)` (vim/helix
+    /// `scrolloff`). Returns the current `viewport` unchanged if the cursor
+    /// is already within the margin band; otherwise pulls the window along
+    /// the cursor by exactly the minimum. `margin` is capped at half the
+    /// span so it can never invert the band; the caller's `clamp 0 maxTop`
+    /// relaxes it at the document edges.
+    let private slideViewport margin cursor viewport span =
+        let m = min (max 0 margin) ((span - 1) / 2)
 
-    let ensureViewport viewportHeight viewportWidth buffer =
+        if cursor < viewport + m then
+            cursor - m
+        elif cursor >= viewport + span - m then
+            cursor - span + 1 + m
+        else
+            viewport
+
+    let ensureViewport scrolloff viewportHeight viewportWidth buffer =
         let safeHeight = max 1 viewportHeight
         let safeWidth = max 1 viewportWidth
         let maxTop = max 0 (lineCount buffer - safeHeight)
@@ -515,11 +523,41 @@ module Buffer =
 
         let clamp lo hi value = value |> max lo |> min hi
 
+        // Vertical motion honours `scrolloff`; horizontal has no
+        // `sidescrolloff` concept, so its margin is 0.
         { buffer with
-            ViewportTop = slideViewport buffer.Cursor.Line buffer.ViewportTop safeHeight |> clamp 0 maxTop
+            ViewportTop =
+                slideViewport scrolloff buffer.Cursor.Line buffer.ViewportTop safeHeight
+                |> clamp 0 maxTop
             ViewportLeft =
-                slideViewport buffer.Cursor.Column buffer.ViewportLeft safeWidth
+                slideViewport 0 buffer.Cursor.Column buffer.ViewportLeft safeWidth
                 |> clamp 0 maxLeft }
+
+    /// Viewport-led scroll (mouse wheel). Moves `ViewportTop` by `delta`
+    /// (clamped to the document), then drags the cursor only as far as
+    /// needed to keep it `scrolloff` lines from the edge. The margin is
+    /// relaxed against whichever document edge the viewport is pinned to, so
+    /// scrolling up at the top (or down at the bottom) leaves the cursor put.
+    /// Designed so the subsequent `ensureViewport scrolloff …` is a fixed
+    /// point — the reconcile pass leaves this scroll intact.
+    let scrollViewport scrolloff viewportHeight delta (buffer: BufferState) =
+        let h = max 1 viewportHeight
+        let maxTop = max 0 (lineCount buffer - h)
+        let newTop = (buffer.ViewportTop + delta) |> max 0 |> min maxTop
+        let m = min (max 0 scrolloff) ((h - 1) / 2)
+        let lo = newTop + (if newTop > 0 then m else 0)
+        let hi = newTop + h - 1 - (if newTop < maxTop then m else 0)
+
+        let targetColumn =
+            buffer.PreferredColumn |> Option.defaultValue buffer.Cursor.Column
+
+        let newLine = buffer.Cursor.Line |> max lo |> min hi
+
+        { buffer with ViewportTop = newTop }
+        |> withCursor
+            { Line = newLine
+              Column = targetColumn }
+        |> withPreferredColumn (Some targetColumn)
 
     /// Mark a buffer as saved. If `expectedTick` matches the buffer's
     /// current `EditTick`, the write captured the latest content so

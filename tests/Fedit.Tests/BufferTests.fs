@@ -212,3 +212,91 @@ let ``findAll returns all positions of a needle`` () =
 let ``findAll empty needle returns no matches`` () =
     let buffer = Buffer.fromText 1 None "test" "hello" "\n"
     Buffer.findAll "" buffer |> should be Empty
+
+// --- Viewport: scrolloff margin (cursor-led) + viewport-led scroll (wheel) ---
+
+let private linesBuffer n =
+    let text = String.concat "\n" [ for i in 0 .. n - 1 -> sprintf "line%d" i ]
+    Buffer.fromText 1 None "test" text "\n"
+
+[<Fact>]
+let ``ensureViewport keeps scrolloff lines below the cursor`` () =
+    let buffer =
+        { linesBuffer 50 with
+            Cursor = { Line = 20; Column = 0 }
+            ViewportTop = 0 }
+
+    // height 10, scrolloff 3: cursor pinned 3 from the bottom -> top = 20 - 10 + 1 + 3
+    (Buffer.ensureViewport 3 10 80 buffer).ViewportTop |> should equal 14
+
+[<Fact>]
+let ``ensureViewport keeps scrolloff lines above the cursor`` () =
+    let buffer =
+        { linesBuffer 50 with
+            Cursor = { Line = 20; Column = 0 }
+            ViewportTop = 18 }
+
+    // cursor only 2 below top with scrolloff 3 -> slide up to keep the 3-line margin
+    (Buffer.ensureViewport 3 10 80 buffer).ViewportTop |> should equal 17
+
+[<Fact>]
+let ``ensureViewport relaxes the margin at the top of the file`` () =
+    let buffer =
+        { linesBuffer 50 with
+            Cursor = { Line = 1; Column = 0 }
+            ViewportTop = 0 }
+
+    // can't scroll above line 0, so the top margin is relaxed
+    (Buffer.ensureViewport 3 10 80 buffer).ViewportTop |> should equal 0
+
+[<Fact>]
+let ``scrollViewport moves the viewport down by delta`` () =
+    let buffer =
+        { linesBuffer 100 with
+            Cursor = { Line = 0; Column = 0 }
+            ViewportTop = 0 }
+
+    (Buffer.scrollViewport 5 10 3 buffer).ViewportTop |> should equal 3
+
+[<Fact>]
+let ``scrollViewport drags the cursor to honour scrolloff`` () =
+    let buffer =
+        { linesBuffer 100 with
+            Cursor = { Line = 1; Column = 0 }
+            ViewportTop = 0 }
+
+    // scroll down 5 (height 10, scrolloff 4) -> top 5, cursor dragged to top+4
+    let v = Buffer.scrollViewport 4 10 5 buffer
+    v.ViewportTop |> should equal 5
+    v.Cursor.Line |> should equal 9
+
+[<Fact>]
+let ``scrollViewport leaves the cursor on its line when it stays in band`` () =
+    let buffer =
+        { linesBuffer 100 with
+            Cursor = { Line = 7; Column = 0 }
+            ViewportTop = 0 }
+
+    let v = Buffer.scrollViewport 4 10 2 buffer
+    v.ViewportTop |> should equal 2
+    v.Cursor.Line |> should equal 7
+
+[<Fact>]
+let ``scrollViewport up at the top of the file is a no-op`` () =
+    let buffer =
+        { linesBuffer 100 with
+            Cursor = { Line = 0; Column = 0 }
+            ViewportTop = 0 }
+
+    let v = Buffer.scrollViewport 4 10 -3 buffer
+    v.ViewportTop |> should equal 0
+    v.Cursor.Line |> should equal 0
+
+[<Fact>]
+let ``scrollViewport clamps the viewport at the bottom of the document`` () =
+    let buffer =
+        { linesBuffer 100 with
+            Cursor = { Line = 90; Column = 0 }
+            ViewportTop = 88 }
+
+    (Buffer.scrollViewport 4 10 20 buffer).ViewportTop |> should equal 90

@@ -454,11 +454,54 @@ module Runtime =
                     needsRender <- false
 
                 if Console.KeyAvailable then
-                    match Console.ReadKey true |> Input.tryMap with
-                    | Some key ->
-                        model <- dispatch model (KeyPressed key)
+                    let keyInfo = Console.ReadKey true
+
+                    // SGR mouse reports arrive as ESC [ < Cb ; Cx ; Cy (M|m).
+                    // .NET's ReadKey decodes known key sequences (arrows, Fn)
+                    // itself, so a bare ESC trailed by more bytes is almost
+                    // always a mouse event — drain the CSI and parse it.
+                    let mouseTicks =
+                        if keyInfo.Key = ConsoleKey.Escape && Console.KeyAvailable then
+                            let c1 = Console.ReadKey true
+
+                            if c1.KeyChar = '[' && Console.KeyAvailable then
+                                let c2 = Console.ReadKey true
+
+                                if c2.KeyChar = '<' then
+                                    let sb = System.Text.StringBuilder("[<")
+                                    let mutable terminated = false
+                                    let mutable guard = 0
+
+                                    while not terminated && Console.KeyAvailable && guard < 32 do
+                                        let c = Console.ReadKey true
+                                        sb.Append c.KeyChar |> ignore
+
+                                        if c.KeyChar = 'M' || c.KeyChar = 'm' then
+                                            terminated <- true
+
+                                        guard <- guard + 1
+
+                                    if terminated then
+                                        Input.parseSgrMouse (sb.ToString())
+                                    else
+                                        None
+                                else
+                                    None
+                            else
+                                None
+                        else
+                            None
+
+                    match mouseTicks with
+                    | Some ticks ->
+                        model <- dispatch model (MouseScrolled ticks)
                         needsRender <- true
-                    | None -> ()
+                    | None ->
+                        match Input.tryMap keyInfo with
+                        | Some key ->
+                            model <- dispatch model (KeyPressed key)
+                            needsRender <- true
+                        | None -> ()
                 else
                     Thread.Sleep 16
         finally

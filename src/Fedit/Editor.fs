@@ -75,7 +75,10 @@ module Editor =
             max 1 (model.Terminal.Width - sidebarOffset - Buffer.gutterWidth transformed)
 
         let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
-        let updated = transformed |> Buffer.ensureViewport viewportHeight viewportWidth
+
+        let updated =
+            transformed
+            |> Buffer.ensureViewport model.Config.ScrollOff viewportHeight viewportWidth
 
         // EditTick bumps only on text-mutating transforms (Buffer.fs
         // owns this). Cursor / viewport / selection moves leave it
@@ -1223,6 +1226,26 @@ module Editor =
     let update msg model =
         match msg with
         | Resize size -> { model with Terminal = size } |> updateActiveBuffer id, []
+        | MouseScrolled ticks ->
+            // Ambient event, sibling of Resize — never enters the keybinding
+            // dispatch. `ScrollViewport` moves the view and drags the cursor
+            // only to honour scrolloff; `ScrollLine` keeps the legacy
+            // wheel-moves-cursor behaviour.
+            let delta = ticks * model.Config.MouseScrollLines
+
+            match model.Config.ScrollMode with
+            | ScrollViewport ->
+                let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
+
+                updateActiveBuffer (Buffer.scrollViewport model.Config.ScrollOff viewportHeight delta) model, []
+            | ScrollLine ->
+                let moveFn =
+                    if ticks < 0 then
+                        Buffer.movePageUp (abs delta)
+                    else
+                        Buffer.movePageDown (abs delta)
+
+                updateActiveBuffer (Buffer.clearSelection >> moveFn) model, []
         | WorkspaceLoaded result ->
             match result with
             | Result.Ok(tree, skipped) ->

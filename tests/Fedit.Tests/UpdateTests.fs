@@ -56,6 +56,48 @@ let ``Resize updates Terminal size on the model`` () =
     next.Terminal.Width |> should equal 120
     next.Terminal.Height |> should equal 40
 
+// --- Mouse wheel: viewport-led (default) vs line mode ---
+
+let private modelWithLines n =
+    let model = initModel ()
+    let text = String.concat "\n" [ for i in 0 .. n - 1 -> sprintf "line%d" i ]
+    let buf = Buffer.fromText 1 None "test" text "\n"
+
+    { model with
+        Editors =
+            { model.Editors with
+                Buffers = Map.ofList [ 1, buf ] } }
+
+let private activeBuffer (model: Model) =
+    model.Editors.Buffers[model.Editors.ActiveBufferId]
+
+[<Fact>]
+let ``MouseScrolled down in viewport mode moves the viewport`` () =
+    // default config: ScrollViewport, scrolloff 5, 3 lines/tick; height 24-8-2 = 14
+    let model = modelWithLines 100
+    let next, _ = Editor.update (MouseScrolled 1) model
+    (activeBuffer next).ViewportTop |> should equal 3
+
+[<Fact>]
+let ``MouseScrolled up at the top of the file is a no-op in viewport mode`` () =
+    let model = modelWithLines 100
+    let next, _ = Editor.update (MouseScrolled -1) model
+    (activeBuffer next).ViewportTop |> should equal 0
+    (activeBuffer next).Cursor.Line |> should equal 0
+
+[<Fact>]
+let ``MouseScrolled down in line mode moves the cursor`` () =
+    let baseModel = modelWithLines 100
+
+    let model =
+        { baseModel with
+            Config =
+                { baseModel.Config with
+                    ScrollMode = ScrollLine } }
+
+    let next, _ = Editor.update (MouseScrolled 1) model
+    (activeBuffer next).Cursor.Line |> should equal 3
+
 [<Fact>]
 let ``typing a character into the editor inserts it`` () =
     let model = initModel ()

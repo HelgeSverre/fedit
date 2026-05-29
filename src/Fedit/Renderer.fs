@@ -9,6 +9,12 @@ module Renderer =
     let private resetStyle = $"{escape}[0m"
     let private enterAlternateScreen = $"{escape}[?1049h"
     let private leaveAlternateScreen = $"{escape}[?1049l"
+    // SGR mouse reporting: ?1000h reports button presses + wheel, ?1006h
+    // switches to the unambiguous decimal (SGR) encoding. While enabled the
+    // terminal hands wheel/click events to fedit instead of its own
+    // scrollback/selection (Shift/Option bypasses, as in vim/helix).
+    let private enableMouse = $"{escape}[?1000h{escape}[?1006h"
+    let private disableMouse = $"{escape}[?1006l{escape}[?1000l"
     let private hideCursor = $"{escape}[?25l"
     let private showCursor = $"{escape}[?25h"
     let private clearScreen = $"{escape}[2J"
@@ -90,10 +96,10 @@ module Renderer =
         | _ -> append builder hideCursor
 
     let enter (writer: TextWriter) =
-        writer.Write($"{enterAlternateScreen}{hideCursor}{clearScreen}")
+        writer.Write($"{enterAlternateScreen}{enableMouse}{hideCursor}{clearScreen}")
 
     let leave (writer: TextWriter) =
-        writer.Write($"{resetStyle}{showCursor}{leaveAlternateScreen}")
+        writer.Write($"{resetStyle}{showCursor}{disableMouse}{leaveAlternateScreen}")
 
     /// Render `next` to the writer. If `previous` is `ValueSome` and has
     /// the same dimensions, only cells that differ are written. On size

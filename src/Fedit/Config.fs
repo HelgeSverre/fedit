@@ -124,6 +124,22 @@ module ConfigIO =
                     | true, e when e.ValueKind = System.Text.Json.JsonValueKind.True -> true
                     | _ -> defaults.SyntaxHighlightingEnabled
 
+                let scrollMode =
+                    match getStringProp root "scrollMode" with
+                    | Some "line" -> ScrollLine
+                    | Some "viewport" -> ScrollViewport
+                    | _ -> defaults.ScrollMode
+
+                let scrollOff =
+                    getIntProp root "scrollOff"
+                    |> Option.defaultValue defaults.ScrollOff
+                    |> clampInt 0 50
+
+                let mouseScrollLines =
+                    getIntProp root "mouseScrollLines"
+                    |> Option.defaultValue defaults.MouseScrollLines
+                    |> clampInt 1 20
+
                 let config =
                     { Theme = theme
                       Recent = recent
@@ -137,7 +153,10 @@ module ConfigIO =
                       TabWidth = tabWidth
                       Icons = icons
                       StatusFormat = statusFormat
-                      SyntaxHighlightingEnabled = syntaxHighlightingEnabled }
+                      SyntaxHighlightingEnabled = syntaxHighlightingEnabled
+                      ScrollMode = scrollMode
+                      ScrollOff = scrollOff
+                      MouseScrollLines = mouseScrollLines }
 
                 config, None
             else
@@ -275,6 +294,11 @@ module ConfigIO =
             | IconsOff -> "off"
             | IconsNerd -> "nerd"
 
+        let scrollModeStr =
+            match config.ScrollMode with
+            | ScrollLine -> "line"
+            | ScrollViewport -> "viewport"
+
         root["theme"] <- System.Text.Json.Nodes.JsonValue.Create config.Theme.Name
         root["recent"] <- recentArray
         root["completionLimit"] <- System.Text.Json.Nodes.JsonValue.Create config.CompletionLimit
@@ -288,6 +312,9 @@ module ConfigIO =
         root["icons"] <- System.Text.Json.Nodes.JsonValue.Create iconsStr
         root["statusFormat"] <- System.Text.Json.Nodes.JsonValue.Create config.StatusFormat
         root["syntaxHighlighting"] <- System.Text.Json.Nodes.JsonValue.Create config.SyntaxHighlightingEnabled
+        root["scrollMode"] <- System.Text.Json.Nodes.JsonValue.Create scrollModeStr
+        root["scrollOff"] <- System.Text.Json.Nodes.JsonValue.Create config.ScrollOff
+        root["mouseScrollLines"] <- System.Text.Json.Nodes.JsonValue.Create config.MouseScrollLines
 
         let options = System.Text.Json.JsonSerializerOptions(WriteIndented = true)
         let json = root.ToJsonString options

@@ -37,6 +37,13 @@ type PanelsState =
       SidebarWidth: int
       DockHeight: int }
 
+/// What the mouse wheel scrolls. See `Config.ScrollMode`.
+type ScrollMode =
+    /// Wheel moves the cursor line; the viewport follows (legacy behaviour).
+    | ScrollLine
+    /// Wheel moves the viewport; the cursor is dragged only to honour scrolloff.
+    | ScrollViewport
+
 type Config =
     {
         Theme: Theme
@@ -69,6 +76,16 @@ type Config =
         /// false drops all per-buffer parse state and bypasses the
         /// renderer's color-overlay pass.
         SyntaxHighlightingEnabled: bool
+        /// What the mouse wheel does. `ScrollViewport` (default) scrolls the
+        /// view and drags the cursor only to honour `ScrollOff`; `ScrollLine`
+        /// keeps the legacy behaviour where the wheel moves the cursor line.
+        ScrollMode: ScrollMode
+        /// Lines kept between the cursor and the top/bottom edge (vim/helix
+        /// `scrolloff`). Applies to all cursor movement. Default 5 (helix).
+        ScrollOff: int
+        /// Lines moved per mouse-wheel tick. Default 3 (matches nvim's
+        /// `mousescroll` ver:3).
+        MouseScrollLines: int
     }
 
 [<RequireQualifiedAccess>]
@@ -87,7 +104,10 @@ module Config =
           Icons = IconsOff
           StatusFormat =
             "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]"
-          SyntaxHighlightingEnabled = true }
+          SyntaxHighlightingEnabled = true
+          ScrollMode = ScrollViewport
+          ScrollOff = 5
+          MouseScrollLines = 3 }
 
 type Model =
     {
@@ -116,6 +136,10 @@ type Model =
 type Msg =
     | KeyPressed of KeyInput
     | Resize of Size
+    /// Mouse wheel scrolled by N ticks (signed; negative = up). An ambient
+    /// input event like `Resize` — handled in `update`, not a keystroke, so
+    /// it stays outside the keybinding / `Action` layer.
+    | MouseScrolled of int
     | WorkspaceLoaded of Result<FileNode * int, string>
     | FileOpened of path: string * Result<string, string>
     | BufferSaved of bufferId: int * path: string * revision: int * Result<unit, string>
