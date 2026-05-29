@@ -43,8 +43,79 @@ let ``detectLanguage maps F# extensions`` () =
     Assert.Equal(Some "fsharp", Highlight.detectLanguage (Some "foo.fs"))
     Assert.Equal(Some "fsharp", Highlight.detectLanguage (Some "Bar.FSI"))
     Assert.Equal(Some "fsharp", Highlight.detectLanguage (Some "script.fsx"))
-    Assert.Equal(None, Highlight.detectLanguage (Some "readme.md"))
     Assert.Equal(None, Highlight.detectLanguage None)
+
+[<Theory>]
+[<InlineData("foo.js", "javascript")>]
+[<InlineData("foo.mjs", "javascript")>]
+[<InlineData("foo.cjs", "javascript")>]
+[<InlineData("bar.ts", "typescript")>]
+[<InlineData("baz.py", "python")>]
+[<InlineData("data.json", "json")>]
+[<InlineData("Program.cs", "c-sharp")>]
+[<InlineData("main.go", "go")>]
+[<InlineData("lib.rs", "rust")>]
+[<InlineData("index.html", "html")>]
+[<InlineData("page.htm", "html")>]
+[<InlineData("styles.css", "css")>]
+[<InlineData("main.c", "c")>]
+[<InlineData("header.h", "c")>]
+[<InlineData("app.tsx", "tsx")>]
+[<InlineData("index.php", "php")>]
+[<InlineData("script.phtml", "php")>]
+let ``detectLanguage maps bundled language extensions`` (path: string) (expected: string) =
+    Assert.Equal(Some expected, Highlight.detectLanguage (Some path))
+
+[<Theory>]
+[<InlineData("readme.md", "markdown")>]
+[<InlineData("doc.mdx", "markdown")>]
+[<InlineData("notes.markdown", "markdown")>]
+[<InlineData("schema.xml", "xml")>]
+[<InlineData("icon.svg", "xml")>]
+[<InlineData("transform.xsl", "xml")>]
+[<InlineData("widget.dart", "dart")>]
+[<InlineData("Justfile", "just")>]
+[<InlineData("justfile", "just")>]
+[<InlineData("tasks.just", "just")>]
+[<InlineData("Makefile", "make")>]
+[<InlineData("makefile", "make")>]
+[<InlineData("GNUmakefile", "make")>]
+[<InlineData("rules.mk", "make")>]
+[<InlineData("index.astro", "astro")>]
+let ``detectLanguage maps vendored language extensions`` (path: string) (expected: string) =
+    Assert.Equal(Some expected, Highlight.detectLanguage (Some path))
+
+[<Theory>]
+[<InlineData("tsx")>]
+[<InlineData("php")>]
+[<InlineData("markdown")>]
+[<InlineData("xml")>]
+[<InlineData("dart")>]
+[<InlineData("just")>]
+[<InlineData("make")>]
+[<InlineData("astro")>]
+let ``registry loads language without throwing`` (lang: string) =
+    let registry = HighlightRegistry.tryCreate ()
+    Assert.True(registry.IsSome, "HighlightRegistry.tryCreate returned None")
+    let reg = registry.Value
+    Assert.True(reg.TryGetLanguage(lang).IsSome, $"language '{lang}' not loaded in registry")
+    Assert.True(reg.TryGetQuery(lang).IsSome, $"query for '{lang}' not loaded in registry")
+
+[<Theory>]
+[<InlineData("tsx",      "const x: string = 'hi'")>]
+[<InlineData("php",      "<?php $x = 42; // comment")>]
+[<InlineData("markdown", "# Heading\n\nsome text")>]
+[<InlineData("xml",      "<root attr=\"v\">text</root>")>]
+[<InlineData("dart",     "void main() { print('hi'); }")>]
+[<InlineData("just",     "build:\n    cargo build")>]
+[<InlineData("make",     "all:\n\techo hi")>]
+[<InlineData("astro",    "<h1>Hello</h1>")>]
+let ``parse produces non-empty spans for new languages`` (lang: string) (src: string) =
+    let registry = HighlightRegistry.tryCreate ()
+    Assert.True(registry.IsSome, "registry missing")
+    let state = Highlight.parse registry.Value lang src None
+    Assert.True(state.IsSome, $"parse returned None for '{lang}'")
+    Assert.True(state.Value.Spans.Length > 0, $"no spans produced for '{lang}'")
 
 [<Fact>]
 let ``spanAt returns covering span via binary search`` () =
@@ -95,6 +166,23 @@ let ``HighlightRegistry loads F# language and query`` () =
         use r = registry
         Assert.True((r.TryGetLanguage "fsharp").IsSome, "language fsharp not loaded")
         Assert.True((r.TryGetQuery "fsharp").IsSome, "query for fsharp not built")
+
+[<Fact>]
+[<Trait("Category", "Smoke")>]
+let ``HighlightRegistry loads bundled languages`` () =
+    match HighlightRegistry.tryCreate () with
+    | None -> Assert.Fail("registry failed to create")
+    | Some registry ->
+        use r = registry
+        // Verify at least a few bundled grammars loaded successfully.
+        // Not every grammar is guaranteed on every platform (e.g. win-x64
+        // may lag), so we assert on the ones most likely to be present.
+        Assert.True((r.TryGetLanguage "javascript").IsSome, "javascript not loaded")
+        Assert.True((r.TryGetQuery "javascript").IsSome, "javascript query not built")
+        Assert.True((r.TryGetLanguage "python").IsSome, "python not loaded")
+        Assert.True((r.TryGetQuery "python").IsSome, "python query not built")
+        Assert.True((r.TryGetLanguage "json").IsSome, "json not loaded")
+        Assert.True((r.TryGetQuery "json").IsSome, "json query not built")
 
 [<Fact>]
 [<Trait("Category", "Smoke")>]

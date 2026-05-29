@@ -63,21 +63,69 @@ jobs:
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', '**/Directory.Packages.props', 'global.json') }}
           restore-keys: |
             ${{ runner.os }}-nuget-
-      # Build the F# tree-sitter grammar for this matrix leg. The
-      # binaries aren't tracked in git (~11MB each); zig acts as a
-      # uniform C compiler across all three runners.
+      # Build all native grammars for this matrix leg. Binaries aren't
+      # tracked in git; zig acts as a uniform C compiler across runners.
       - uses: mlugg/setup-zig@v1
-      - name: Build tree-sitter-fsharp ($${{ matrix.rid }})
+      - name: Build grammars (${{ matrix.rid }})
         shell: bash
         run: |
-          mkdir -p "$(dirname "${{ matrix.lib }}")"
+          dest="$(dirname "${{ matrix.lib }}")"
+          mkdir -p "$dest"
+          case "${{ matrix.rid }}" in
+            win-x64)  ext=dll;   pfx="" ;;
+            linux-*)  ext=so;    pfx=lib ;;
+            *)        ext=dylib; pfx=lib ;;
+          esac
           zig cc -O2 -shared -fPIC \
             -I vendor/tree-sitter-fsharp/fsharp/src \
             -o "${{ matrix.lib }}" \
             vendor/tree-sitter-fsharp/fsharp/src/parser.c \
             vendor/tree-sitter-fsharp/fsharp/src/scanner.c
+          grammars=(
+            "markdown|vendor/tree-sitter-markdown/tree-sitter-markdown/src|parser.c scanner.c"
+            "xml|vendor/tree-sitter-xml/xml/src|parser.c scanner.c"
+            "dart|vendor/tree-sitter-dart/src|parser.c scanner.c"
+            "just|vendor/tree-sitter-just/src|parser.c scanner.c"
+            "make|vendor/tree-sitter-make/src|parser.c"
+            "astro|vendor/tree-sitter-astro/src|parser.c scanner.c"
+          )
+          for entry in "${grammars[@]}"; do
+            IFS='|' read -r name srcdir files <<< "$entry"
+            srcs=""
+            for f in $files; do [ -f "$srcdir/$f" ] && srcs="$srcs $srcdir/$f"; done
+            zig cc -O2 -UNDEBUG -shared -fPIC \
+              -I "$srcdir" -o "$dest/${pfx}tree-sitter-${name}.${ext}" $srcs
+            echo "$name OK"
+          done
       - name: Build
         run: dotnet build Fedit.slnx --nologo
+      # Generated completion scripts assert on the parser config but never
+      # run; pipe each through its shell's parser so emitter regressions
+      # fail here instead of in a user's shell.
+      - name: Verify completion scripts parse
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends zsh fish
+          gen() { dotnet run --project src/Fedit/Fedit.fsproj --no-build -- completions "$1"; }
+          gen bash > /tmp/fedit.bash && bash -n /tmp/fedit.bash && echo "bash OK"
+          gen zsh  > /tmp/_fedit     && zsh  -n /tmp/_fedit    && echo "zsh OK"
+          gen fish > /tmp/fedit.fish && fish --no-execute /tmp/fedit.fish && echo "fish OK"
+          gen pwsh > /tmp/fedit.ps1
+          if command -v pwsh >/dev/null; then
+            pwsh -NoProfile -Command '
+              $errs = $null
+              [System.Management.Automation.Language.Parser]::ParseInput((Get-Content -Raw /tmp/fedit.ps1), [ref]$null, [ref]$errs) | Out-Null
+              if ($errs) { $errs | ForEach-Object { $_.Message }; exit 1 }
+              "pwsh OK"'
+          else
+            echo "pwsh not available — skipping pwsh parse check"
+          fi
+          # xonsh scripts are plain Python — validate syntax without a xonsh install.
+          gen xonsh > /tmp/fedit_xsh.py && python3 -m py_compile /tmp/fedit_xsh.py && echo "xonsh OK"
+          # nushell/elvish are niche; their emitters are covered by unit tests
+          # and the docker harness in tests/completions/ (just test-completions).
       - name: Test
         run: dotnet test Fedit.slnx --nologo --verbosity normal --collect:"XPlat Code Coverage" --results-directory TestResults
       - name: Upload coverage to Codecov

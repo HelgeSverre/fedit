@@ -33,6 +33,60 @@
     <EmbeddedResource Include="Resources/queries/fsharp/highlights.scm">
       <LogicalName>fedit.queries.fsharp.highlights.scm</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/javascript/highlights.scm">
+      <LogicalName>fedit.queries.javascript.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/typescript/highlights.scm">
+      <LogicalName>fedit.queries.typescript.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/python/highlights.scm">
+      <LogicalName>fedit.queries.python.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/json/highlights.scm">
+      <LogicalName>fedit.queries.json.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/c-sharp/highlights.scm">
+      <LogicalName>fedit.queries.c-sharp.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/go/highlights.scm">
+      <LogicalName>fedit.queries.go.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/rust/highlights.scm">
+      <LogicalName>fedit.queries.rust.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/html/highlights.scm">
+      <LogicalName>fedit.queries.html.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/css/highlights.scm">
+      <LogicalName>fedit.queries.css.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/c/highlights.scm">
+      <LogicalName>fedit.queries.c.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/tsx/highlights.scm">
+      <LogicalName>fedit.queries.tsx.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/php/highlights.scm">
+      <LogicalName>fedit.queries.php.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/markdown/highlights.scm">
+      <LogicalName>fedit.queries.markdown.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/xml/highlights.scm">
+      <LogicalName>fedit.queries.xml.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/dart/highlights.scm">
+      <LogicalName>fedit.queries.dart.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/just/highlights.scm">
+      <LogicalName>fedit.queries.just.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/make/highlights.scm">
+      <LogicalName>fedit.queries.make.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/astro/highlights.scm">
+      <LogicalName>fedit.queries.astro.highlights.scm</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
     <!-- Keep the F# grammar OUT of the single-file bundle. .NET's
@@ -60,7 +114,19 @@
         Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(ResolvedFileToPublish.RelativePath)', '^(lib)?tree-sitter-[a-z][a-z0-9_-]+\.(so|dylib|dll)$'))" />
       <_KeepGrammars
         Include="@(_BundledGrammars)"
-        Condition="'%(Filename)' == 'libtree-sitter-fsharp' or '%(Filename)' == 'tree-sitter-fsharp'" />
+        Condition="'%(Filename)' == 'libtree-sitter-fsharp' or '%(Filename)' == 'tree-sitter-fsharp'
+                or '%(Filename)' == 'libtree-sitter-javascript' or '%(Filename)' == 'tree-sitter-javascript'
+                or '%(Filename)' == 'libtree-sitter-typescript' or '%(Filename)' == 'tree-sitter-typescript'
+                or '%(Filename)' == 'libtree-sitter-python' or '%(Filename)' == 'tree-sitter-python'
+                or '%(Filename)' == 'libtree-sitter-json' or '%(Filename)' == 'tree-sitter-json'
+                or '%(Filename)' == 'libtree-sitter-c-sharp' or '%(Filename)' == 'tree-sitter-c-sharp'
+                or '%(Filename)' == 'libtree-sitter-go' or '%(Filename)' == 'tree-sitter-go'
+                or '%(Filename)' == 'libtree-sitter-rust' or '%(Filename)' == 'tree-sitter-rust'
+                or '%(Filename)' == 'libtree-sitter-html' or '%(Filename)' == 'tree-sitter-html'
+                or '%(Filename)' == 'libtree-sitter-css' or '%(Filename)' == 'tree-sitter-css'
+                or '%(Filename)' == 'libtree-sitter-c' or '%(Filename)' == 'tree-sitter-c'
+                or '%(Filename)' == 'libtree-sitter-tsx' or '%(Filename)' == 'tree-sitter-tsx'
+                or '%(Filename)' == 'libtree-sitter-php' or '%(Filename)' == 'tree-sitter-php'" />
       <_DropGrammars Include="@(_BundledGrammars)" Exclude="@(_KeepGrammars)" />
       <ResolvedFileToPublish Remove="@(_DropGrammars)" />
 
@@ -75,7 +141,7 @@
         Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(ResolvedFileToPublish.RelativePath)', '^runtimes[\\/][^\\/]+[\\/]native[\\/](lib)?tree-sitter-fsharp\.(so|dylib|dll)$')) and !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes$([System.IO.Path]::DirectorySeparatorChar)$(RuntimeIdentifier)$([System.IO.Path]::DirectorySeparatorChar)'))" />
       <ResolvedFileToPublish Remove="@(_OtherRidNatives)" />
     </ItemGroup>
-    <Message Text="Trimmed @(_DropGrammars->Count()) bundled tree-sitter grammars (kept libtree-sitter core + fsharp)." Importance="high" />
+    <Message Text="Trimmed @(_DropGrammars->Count()) bundled tree-sitter grammars (kept libtree-sitter core + 13 languages)." Importance="high" />
   </Target>
   <ItemGroup>
     <Compile Include="Primitives.fs" />

@@ -78,26 +78,83 @@ type HighlightRegistry
     static member tryCreate() : HighlightRegistry option =
         let languages = ConcurrentDictionary<string, TreeSitter.Language>()
         let queries = ConcurrentDictionary<string, TreeSitter.Query>()
+        let asm = Assembly.GetExecutingAssembly()
+        let mutable anyLoaded = false
 
+        let tryLoadBundled (id: string) (resourceName: string) =
+            try
+                let lang = new TreeSitter.Language(id)
+                languages.[id] <- lang
+
+                match asm.GetManifestResourceStream(resourceName) with
+                | null -> ()
+                | stream ->
+                    use reader = new StreamReader(stream)
+                    let scm = reader.ReadToEnd()
+                    queries.[id] <- new TreeSitter.Query(lang, scm)
+                    anyLoaded <- true
+            with _ ->
+                ()
+
+        // F# uses the explicit (library, function) constructor because it is
+        // not bundled inside TreeSitter.DotNet — we ship our own cross-built
+        // native under runtimes/<rid>/native/.
         try
-            // The two-arg constructor takes (library, function): the loader
-            // resolves `tree-sitter-fsharp.{dylib|so|dll}` under
-            // `AppContext.BaseDirectory/runtimes/<rid>/native/` and looks up
-            // the `tree_sitter_fsharp` symbol.
-            let lang = new TreeSitter.Language("tree-sitter-fsharp", "tree_sitter_fsharp")
-            languages.["fsharp"] <- lang
+            let fsLang = new TreeSitter.Language("tree-sitter-fsharp", "tree_sitter_fsharp")
 
-            let asm = Assembly.GetExecutingAssembly()
+            languages.["fsharp"] <- fsLang
 
             match asm.GetManifestResourceStream("fedit.queries.fsharp.highlights.scm") with
-            | null -> None
+            | null -> ()
             | stream ->
                 use reader = new StreamReader(stream)
-                let scm = reader.ReadToEnd()
-                let q = new TreeSitter.Query(lang, scm)
-                queries.["fsharp"] <- q
-                Some(new HighlightRegistry(languages, queries))
+                queries.["fsharp"] <- new TreeSitter.Query(fsLang, reader.ReadToEnd())
+                anyLoaded <- true
         with _ ->
+            ()
+
+        // Bundled grammars — simple string-id constructor.
+        [ "javascript"
+          "typescript"
+          "tsx"
+          "python"
+          "json"
+          "c-sharp"
+          "go"
+          "rust"
+          "html"
+          "css"
+          "c"
+          "php" ]
+        |> List.iter (fun id -> tryLoadBundled id $"fedit.queries.{id}.highlights.scm")
+
+        // External grammars — vendored natives under runtimes/<rid>/native/.
+        let tryLoadExternal (id: string) (libName: string) (funcName: string) (resourceName: string) =
+            try
+                let lang = new TreeSitter.Language(libName, funcName)
+                languages.[id] <- lang
+
+                match asm.GetManifestResourceStream(resourceName) with
+                | null -> ()
+                | stream ->
+                    use reader = new StreamReader(stream)
+                    let scm = reader.ReadToEnd()
+                    queries.[id] <- new TreeSitter.Query(lang, scm)
+                    anyLoaded <- true
+            with _ ->
+                ()
+
+        [ "markdown", "tree-sitter-markdown", "tree_sitter_markdown"
+          "xml", "tree-sitter-xml", "tree_sitter_xml"
+          "dart", "tree-sitter-dart", "tree_sitter_dart"
+          "just", "tree-sitter-just", "tree_sitter_just"
+          "make", "tree-sitter-make", "tree_sitter_make"
+          "astro", "tree-sitter-astro", "tree_sitter_astro" ]
+        |> List.iter (fun (id, lib, func) -> tryLoadExternal id lib func $"fedit.queries.{id}.highlights.scm")
+
+        if anyLoaded then
+            Some(new HighlightRegistry(languages, queries))
+        else
             None
 
 [<RequireQualifiedAccess>]
@@ -147,6 +204,49 @@ module Highlight =
             | s when startsDot "punctuation" -> Some Punctuation
             | "attribute" -> Some Attribute
             | s when startsDot "attribute" -> Some Attribute
+            // Constant / boolean — treated as types (distinct values, no mutation)
+            | "constant" -> Some Type
+            | s when startsDot "constant" -> Some Type
+            | "boolean" -> Some Keyword
+            | s when startsDot "boolean" -> Some Keyword
+            // Tag names (XML/HTML/JSX) — treated as types
+            | "tag" -> Some Type
+            | s when startsDot "tag" -> Some Type
+            // Properties — treated as attributes
+            | "property" -> Some Attribute
+            | s when startsDot "property" -> Some Attribute
+            // Module / namespace — treated as types
+            | "module" -> Some Type
+            | s when startsDot "module" -> Some Type
+            // Labels — treated as variables
+            | "label" -> Some Variable
+            | s when startsDot "label" -> Some Variable
+            // Character literals — treated as strings
+            | "character" -> Some String
+            | s when startsDot "character" -> Some String
+            // identifier.parameter (Dart / some grammars)
+            | "identifier.parameter" -> Some Parameter
+            | s when s.StartsWith("identifier.parameter.", StringComparison.Ordinal) -> Some Parameter
+            | "identifier" -> Some Variable
+            | s when startsDot "identifier" -> Some Variable
+            // Markup captures (new nvim-treesitter convention)
+            | "markup.heading" -> Some Function
+            | s when s.StartsWith("markup.heading.", StringComparison.Ordinal) -> Some Function
+            | "markup.raw" -> Some StringSpecial
+            | s when s.StartsWith("markup.raw.", StringComparison.Ordinal) -> Some StringSpecial
+            | "markup.link" -> Some String
+            | s when s.StartsWith("markup.link.", StringComparison.Ordinal) -> Some String
+            | "markup" -> Some String
+            | s when startsDot "markup" -> Some String
+            // Legacy nvim-treesitter text.* convention
+            | "text.title" -> Some Function
+            | s when s.StartsWith("text.title.", StringComparison.Ordinal) -> Some Function
+            | "text.literal" -> Some StringSpecial
+            | s when s.StartsWith("text.literal.", StringComparison.Ordinal) -> Some StringSpecial
+            | "text.uri" -> Some StringSpecial
+            | s when s.StartsWith("text.uri.", StringComparison.Ordinal) -> Some StringSpecial
+            | "text" -> Some String
+            | s when startsDot "text" -> Some String
             | _ -> None
 
     /// Walk every capture in `tree`, project into our DU, return a
@@ -172,16 +272,53 @@ module Highlight =
     let detectLanguage (path: string option) : string option =
         path
         |> Option.bind (fun p ->
-            let ext =
-                match Path.GetExtension p with
-                | null -> ""
-                | s -> s.ToLowerInvariant()
+            let basename = Path.GetFileName p
 
-            match ext with
-            | ".fs"
-            | ".fsi"
-            | ".fsx" -> Some "fsharp"
-            | _ -> None)
+            match basename with
+            | "Justfile"
+            | "justfile" -> Some "just"
+            | "Makefile"
+            | "makefile"
+            | "GNUmakefile" -> Some "make"
+            | _ ->
+                let ext =
+                    match Path.GetExtension p with
+                    | null -> ""
+                    | s -> s.ToLowerInvariant()
+
+                match ext with
+                | ".fs"
+                | ".fsi"
+                | ".fsx" -> Some "fsharp"
+                | ".js"
+                | ".mjs"
+                | ".cjs" -> Some "javascript"
+                | ".ts" -> Some "typescript"
+                | ".tsx" -> Some "tsx"
+                | ".py" -> Some "python"
+                | ".json" -> Some "json"
+                | ".cs" -> Some "c-sharp"
+                | ".go" -> Some "go"
+                | ".rs" -> Some "rust"
+                | ".html"
+                | ".htm" -> Some "html"
+                | ".css" -> Some "css"
+                | ".c"
+                | ".h" -> Some "c"
+                | ".php"
+                | ".phtml" -> Some "php"
+                | ".md"
+                | ".mdx"
+                | ".markdown" -> Some "markdown"
+                | ".xml"
+                | ".svg"
+                | ".xsl"
+                | ".xslt" -> Some "xml"
+                | ".dart" -> Some "dart"
+                | ".just" -> Some "just"
+                | ".mk" -> Some "make"
+                | ".astro" -> Some "astro"
+                | _ -> None)
 
     let dispose (state: HighlightState) =
         state.Tree

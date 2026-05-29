@@ -1,3 +1,21 @@
 [submodule "vendor/tree-sitter-fsharp"]
 	path = vendor/tree-sitter-fsharp
 	url = https://github.com/ionide/tree-sitter-fsharp.git
+[submodule "vendor/tree-sitter-markdown"]
+	path = vendor/tree-sitter-markdown
+	url = https://github.com/tree-sitter-grammars/tree-sitter-markdown
+[submodule "vendor/tree-sitter-xml"]
+	path = vendor/tree-sitter-xml
+	url = https://github.com/tree-sitter-grammars/tree-sitter-xml
+[submodule "vendor/tree-sitter-dart"]
+	path = vendor/tree-sitter-dart
+	url = https://github.com/UserNobody14/tree-sitter-dart
+[submodule "vendor/tree-sitter-just"]
+	path = vendor/tree-sitter-just
+	url = https://github.com/IndianBoy42/tree-sitter-just
+[submodule "vendor/tree-sitter-make"]
+	path = vendor/tree-sitter-make
+	url = https://github.com/tree-sitter-grammars/tree-sitter-make
+[submodule "vendor/tree-sitter-astro"]
+	path = vendor/tree-sitter-astro
+	url = https://github.com/virchau13/tree-sitter-astro
