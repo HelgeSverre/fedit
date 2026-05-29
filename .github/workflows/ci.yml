@@ -66,7 +66,7 @@ jobs:
       # Build the F# tree-sitter grammar for this matrix leg. The
       # binaries aren't tracked in git (~11MB each); zig acts as a
       # uniform C compiler across all three runners.
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
       - name: Build tree-sitter-fsharp ($${{ matrix.rid }})
         shell: bash
         run: |
