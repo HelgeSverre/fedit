@@ -223,6 +223,35 @@ pre .key {
   tab-size: 2;
 }
 
+/* Thin, brand-toned scrollbars for code / TUI scroll areas. */
+pre,
+.tui,
+.mini-tui,
+.anatomy-code__body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--fg-subtle) transparent;
+}
+pre::-webkit-scrollbar,
+.tui::-webkit-scrollbar,
+.mini-tui::-webkit-scrollbar,
+.anatomy-code__body::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+pre::-webkit-scrollbar-track,
+.tui::-webkit-scrollbar-track,
+.mini-tui::-webkit-scrollbar-track,
+.anatomy-code__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+pre::-webkit-scrollbar-thumb,
+.tui::-webkit-scrollbar-thumb,
+.mini-tui::-webkit-scrollbar-thumb,
+.anatomy-code__body::-webkit-scrollbar-thumb {
+  background: var(--fg-subtle);
+  border-radius: 999px;
+}
+
 /* ----- headings: Departure Mono ----- */
 h1,
 h2,
@@ -263,7 +292,7 @@ h3 {
 
 /* ----- layout primitives ----- */
 .container {
-  max-width: 1000px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 0 32px;
 }

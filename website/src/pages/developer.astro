@@ -312,23 +312,25 @@ const verbs = [
       </div>
 
       <div class="anatomy">
-        <TuiFrame label="examples/wordcount/Plugin.fs"
-          ><Fragment
-            set:html={`<span class="muted">namespace</span> Wordcount                          <span class="badge">1</span>
-
-<span class="muted">open</span> Fedit.PluginApi                            <span class="badge">2</span>
-
-<span class="muted">module</span> Plugin =                                <span class="badge">3</span>
-    <span class="muted">let</span> register (host: IPluginHost) =          <span class="badge">4</span>
-        host.RegisterCommand
-            { Name = <span class="accent">"wc"</span>                              <span class="badge">5</span>
-              Usage = <span class="accent">"wc"</span>
-              Summary = <span class="accent">"Count words..."</span>
-              Run = <span class="muted">fun</span> ctx -&gt;                       <span class="badge">6</span>
-                  <span class="muted">let</span> n = ctx.ActiveBuffer.Text.Split(...).Length
-                  [ Notify(Info, <span class="accent">$"{n} words"</span>) ] }    <span class="badge">7</span>`}
-          /></TuiFrame
-        >
+        <div class="anatomy-code">
+          <div class="anatomy-code__label">examples/wordcount/Plugin.fs</div>
+          <div
+            class="anatomy-code__body"
+            set:html={`<div class="aline"><span class="ln"><span class="muted">namespace</span> Wordcount</span><span class="badge">1</span></div>
+<div class="aline"><span class="ln"> </span></div>
+<div class="aline"><span class="ln"><span class="muted">open</span> Fedit.PluginApi</span><span class="badge">2</span></div>
+<div class="aline"><span class="ln"> </span></div>
+<div class="aline"><span class="ln"><span class="muted">module</span> Plugin =</span><span class="badge">3</span></div>
+<div class="aline"><span class="ln">    <span class="muted">let</span> register (host: IPluginHost) =</span><span class="badge">4</span></div>
+<div class="aline"><span class="ln">        host.RegisterCommand</span></div>
+<div class="aline"><span class="ln">            { Name = <span class="accent">"wc"</span></span><span class="badge">5</span></div>
+<div class="aline"><span class="ln">              Usage = <span class="accent">"wc"</span></span></div>
+<div class="aline"><span class="ln">              Summary = <span class="accent">"Count words..."</span></span></div>
+<div class="aline"><span class="ln">              Run = <span class="muted">fun</span> ctx -&gt;</span><span class="badge">6</span></div>
+<div class="aline"><span class="ln">                  <span class="muted">let</span> n = ctx.ActiveBuffer.Text.Split(...).Length</span></div>
+<div class="aline"><span class="ln">                  [ Notify(Info, <span class="accent">$"{n} words"</span>) ] }</span><span class="badge">7</span></div>`}
+          />
+        </div>
 
         <ol class="anatomy-notes">
           <li>
@@ -762,12 +764,56 @@ const verbs = [
     }
   }
 
-  /* The numbered badge that sits inline with the code. */
-  :global(.tui .badge) {
-    display: inline-block;
-    width: 18px;
-    height: 18px;
-    line-height: 18px;
+  /* Anatomy code block — one flex row per line so the number badges
+     right-align in a clean column regardless of line length. */
+  .anatomy-code {
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    transition: border-color var(--t-base) var(--ease);
+  }
+  .anatomy-code:hover {
+    border-color: var(--accent-soft);
+  }
+  .anatomy-code__label {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-subtle);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .anatomy-code__body {
+    padding: 16px 18px;
+    font-family: var(--font-jetbrains-mono);
+    font-size: 11px;
+    line-height: 1.55;
+    overflow-x: auto;
+  }
+  :global(.anatomy-code__body .aline) {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 1.55em;
+  }
+  :global(.anatomy-code__body .ln) {
+    white-space: pre;
+    color: var(--fg);
+  }
+  :global(.anatomy-code__body .muted) {
+    color: var(--fg-muted);
+  }
+  :global(.anatomy-code__body .accent) {
+    color: var(--accent);
+  }
+  :global(.anatomy-code__body .badge) {
+    margin-left: auto;
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
     text-align: center;
     background: var(--accent);
     color: var(--accent-fg);
@@ -775,8 +821,6 @@ const verbs = [
     font-size: 10px;
     font-weight: 700;
     border-radius: 50%;
-    margin-left: var(--space-2);
-    vertical-align: 1px;
   }
 
   .anatomy-notes {
