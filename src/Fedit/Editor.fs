@@ -529,7 +529,7 @@ module Editor =
             | None -> { model with Focus = Editor }, [ LoadFile absolutePath ]
         | Write -> saveActiveBuffer None model
         | WriteAs path -> saveActiveBuffer (Some path) model
-        | OpenConfig ->
+        | Command.OpenConfig ->
             let configPath = ConfigIO.path ()
 
             // Materialize the config on first use so LoadFile has something
@@ -543,17 +543,17 @@ module Editor =
                     ()
 
             executeCommand (Open configPath) model
-        | Quit -> { model with ShouldQuit = true }, [ SaveConfig model.Config ]
-        | ToggleSidebar ->
+        | Command.Quit -> { model with ShouldQuit = true }, [ SaveConfig model.Config ]
+        | Command.ToggleSidebar ->
             { model with
                 Panels =
                     { model.Panels with
                         SidebarVisible = not model.Panels.SidebarVisible } },
             []
         | FocusTree -> { model with Focus = Sidebar }, []
-        | FocusEditor -> { model with Focus = Editor }, []
-        | ReloadWorkspace -> model, [ ScanWorkspace model.Workspace.RootPath ]
-        | NextBuffer -> switchBuffer 1 model, []
+        | Command.FocusEditor -> { model with Focus = Editor }, []
+        | Command.ReloadWorkspace -> model, [ ScanWorkspace model.Workspace.RootPath ]
+        | Command.NextBuffer -> switchBuffer 1 model, []
         | PreviousBuffer -> switchBuffer -1 model, []
         | Theme name ->
             match Themes.tryFindIn model.UserThemes name with
@@ -1319,7 +1319,7 @@ module Editor =
                             Notification = Some(Notification.info $"Cut {text.Length} char(s)") },
                     [ ClipboardCopy text ]
             | Ctrl 'v' -> { model with Notification = None }, [ ClipboardPaste ]
-            | CtrlPageDown -> executeCommand NextBuffer { model with Notification = None }
+            | CtrlPageDown -> executeCommand Command.NextBuffer { model with Notification = None }
             | CtrlPageUp -> executeCommand PreviousBuffer { model with Notification = None }
             | CtrlDigit n when n >= 1 && n <= 9 -> jumpToBuffer n { model with Notification = None }, []
             | _ ->
