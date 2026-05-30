@@ -1,0 +1,57 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import { docsNav } from "../../data/docs-nav";
+---
+
+<DocsLayout
+  title="docs"
+  description="fedit documentation: the plugin author guide, the full keybinding reference, and how the editor is built."
+>
+  <div class="section__head">
+    <h1>docs</h1>
+    <p class="section__lede">Reference for using and extending fedit.</p>
+  </div>
+  <ul class="doc-cards">
+    {
+      docsNav.map((d) => (
+        <li>
+          <a href={d.href}>
+            <strong>{d.label}</strong>
+            <span>{d.summary}</span>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</DocsLayout>
+
+<style>
+  .doc-cards {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 16px;
+  }
+  .doc-cards a {
+    display: block;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    text-decoration: none;
+    color: var(--fg);
+    transition: border-color var(--t-base) var(--ease);
+  }
+  .doc-cards a:hover {
+    border-color: var(--accent);
+  }
+  .doc-cards strong {
+    display: block;
+    font-family: var(--font-departure-mono);
+    margin-bottom: 6px;
+  }
+  .doc-cards span {
+    color: var(--fg-muted);
+    font-size: 14px;
+  }
+</style>
