@@ -1,0 +1,345 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+const filters = ["all", "global", "editor", "sidebar", "prompt"];
+---
+
+<DocsLayout
+  title="keybindings"
+  description="Every default keybinding in fedit — searchable and filterable by context."
+  image="/og/commands.png"
+>
+  <div class="section__head">
+    <h1>keybindings</h1>
+    <p class="section__lede">
+      Every default binding. Generated from the compiled-in keymap (<code>src/Fedit/Keymap.fs</code
+      >). Override any of these in <code>~/.config/fedit/keybinds</code>.
+    </p>
+  </div>
+
+  <div class="kb" x-data="keybinds">
+    <div class="kb__controls">
+      <div class="kb__search">
+        <label for="kb-search">Search</label>
+        <input
+          id="kb-search"
+          type="search"
+          x-model="query"
+          placeholder="strokes, actions, descriptions"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="search keybindings"
+        />
+      </div>
+
+      <div class="kb__chips" role="group" aria-label="filter by context">
+        {
+          filters.map((c) => (
+            <button
+              type="button"
+              class="kb__chip"
+              data-ctx={c}
+              x-bind:class={`{ 'is-active': ctx === '${c}' }`}
+              x-on:click={`ctx = '${c}'`}
+            >
+              {c}
+            </button>
+          ))
+        }
+      </div>
+
+      <p class="kb__count" aria-live="polite">
+        <span x-text="filtered.length"></span> bindings
+      </p>
+    </div>
+
+    <table class="kb__table">
+      <thead>
+        <tr>
+          <th>
+            <button type="button" @click="setSort('stroke')" :aria-sort="sortAria('stroke')">
+              key <span class="kb__caret" x-text="sortKey === 'stroke' ? '·' : ''"></span>
+            </button>
+          </th>
+          <th>
+            <button type="button" @click="setSort('action')" :aria-sort="sortAria('action')">
+              action <span class="kb__caret" x-text="sortKey === 'action' ? '·' : ''"></span>
+            </button>
+          </th>
+          <th>
+            <button type="button" @click="setSort('context')" :aria-sort="sortAria('context')">
+              context <span class="kb__caret" x-text="sortKey === 'context' ? '·' : ''"></span>
+            </button>
+          </th>
+          <th>description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="row in filtered" :key="row.context + row.stroke + row.action">
+          <tr>
+            <td><kbd x-text="row.stroke"></kbd></td>
+            <td><code x-text="row.action"></code></td>
+            <td><span class="kb__ctx" x-text="row.context"></span></td>
+            <td class="kb__desc" x-text="row.description"></td>
+          </tr>
+        </template>
+        <tr x-show="filtered.length === 0" x-cloak>
+          <td colspan="4" class="kb__empty">No bindings match the current filter.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</DocsLayout>
+
+<script>
+  import Alpine from "alpinejs";
+  import focus from "@alpinejs/focus";
+  import keybindings from "../../data/keybindings.json";
+
+  type Binding = {
+    stroke: string;
+    action: string;
+    context: string;
+    category: string;
+    description: string;
+  };
+  type SortKey = "stroke" | "action" | "context";
+
+  Alpine.plugin(focus);
+
+  Alpine.data("keybinds", () => ({
+    all: keybindings as Binding[],
+    query: "",
+    ctx: "all",
+    sortKey: "context" as SortKey,
+
+    get filtered(): Binding[] {
+      const q = this.query.trim().toLowerCase();
+      let out = this.all.filter((b) => {
+        if (this.ctx !== "all" && b.context !== this.ctx) return false;
+        if (!q) return true;
+        return `${b.stroke} ${b.action} ${b.description}`.toLowerCase().includes(q);
+      });
+      const key = this.sortKey;
+      return [...out].sort((a, b) => String(a[key]).localeCompare(String(b[key])));
+    },
+
+    setSort(key: SortKey) {
+      this.sortKey = key;
+    },
+
+    sortAria(key: SortKey): "ascending" | "none" {
+      return this.sortKey === key ? "ascending" : "none";
+    },
+  }));
+
+  window.Alpine = Alpine;
+  Alpine.start();
+</script>
+
+<style>
+  [x-cloak] {
+    display: none !important;
+  }
+
+  /* =============================================================== */
+  /* CONTROLS                                                        */
+  /* =============================================================== */
+  .kb__controls {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-2) var(--space-3);
+    align-items: end;
+  }
+
+  .kb__search {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .kb__search label {
+    font-family: var(--font-jetbrains-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-subtle);
+  }
+  .kb__search input {
+    font-family: var(--font-jetbrains-mono);
+    font-size: 13px;
+    color: var(--fg);
+    background: var(--surface-deep);
+    border: 1px solid var(--border-strong);
+    border-radius: 2px;
+    padding: 8px 10px;
+    transition: border-color var(--t-base) var(--ease);
+  }
+  .kb__search input:hover {
+    border-color: var(--fg-subtle);
+  }
+  .kb__search input:focus-visible {
+    outline: 3px solid var(--accent-soft);
+    outline-offset: 2px;
+    border-color: var(--accent);
+  }
+  .kb__search input::placeholder {
+    color: var(--fg-subtle);
+  }
+
+  .kb__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .kb__chips button {
+    font-family: var(--font-jetbrains-mono);
+    font-size: 12px;
+    color: var(--fg-muted);
+    background: var(--surface-deep);
+    border: 1px solid var(--border-strong);
+    border-radius: 2px;
+    padding: 6px 12px;
+    cursor: pointer;
+    transition:
+      border-color var(--t-base) var(--ease),
+      color var(--t-base) var(--ease);
+  }
+  .kb__chips button:hover {
+    border-color: var(--fg-subtle);
+    color: var(--fg);
+  }
+  .kb__chips button:focus-visible {
+    outline: 3px solid var(--accent-soft);
+    outline-offset: 2px;
+    border-color: var(--accent);
+  }
+  .kb__chips button.is-active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
+    font-weight: 500;
+  }
+
+  .kb__count {
+    grid-column: 1 / -1;
+    font-family: var(--font-jetbrains-mono);
+    font-size: 12px;
+    color: var(--fg-subtle);
+    margin: 0;
+    white-space: nowrap;
+  }
+  .kb__count span {
+    color: var(--accent);
+  }
+
+  /* =============================================================== */
+  /* TABLE                                                           */
+  /* =============================================================== */
+  .kb__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-jetbrains-mono);
+    font-size: 13px;
+    border: 1px solid var(--border);
+    margin-top: var(--space-3);
+  }
+  .kb__table th,
+  .kb__table td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .kb__table thead th {
+    background: var(--surface-deep);
+    border-bottom: 1px solid var(--border-strong);
+    padding: 0;
+  }
+  .kb__table thead th:not(:last-child) {
+    border-right: 1px solid var(--border);
+  }
+  .kb__table thead th button {
+    width: 100%;
+    text-align: left;
+    padding: 9px 12px;
+    font-family: var(--font-jetbrains-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-subtle);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    transition: color var(--t-base) var(--ease);
+  }
+  /* Plain header (description) — match the button cells' metrics. */
+  .kb__table thead th:last-child {
+    padding: 9px 12px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-subtle);
+  }
+  .kb__table thead th button:hover {
+    color: var(--fg);
+  }
+  .kb__table thead th button:focus-visible {
+    outline: 3px solid var(--accent-soft);
+    outline-offset: -3px;
+  }
+  .kb__caret {
+    color: var(--accent);
+  }
+
+  .kb__table tbody tr:hover {
+    background: var(--surface-deep);
+  }
+  .kb__table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .kb__table kbd {
+    font-family: var(--font-jetbrains-mono);
+    font-size: 12px;
+    color: var(--fg);
+    background: var(--surface-deep);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    padding: 2px 7px;
+    white-space: nowrap;
+  }
+  .kb__table td code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 13px;
+    color: var(--fg);
+  }
+  .kb__ctx {
+    color: var(--fg-muted);
+  }
+  .kb__desc {
+    color: var(--fg-muted);
+    font-family: var(--font-sans, inherit);
+    width: 100%;
+  }
+
+  .kb__empty {
+    text-align: center;
+    color: var(--fg-muted);
+    padding: var(--space-5) var(--space-3);
+  }
+
+  @media (max-width: 640px) {
+    .kb__controls {
+      grid-template-columns: 1fr;
+      align-items: stretch;
+    }
+    .kb__table {
+      font-size: 12px;
+    }
+    .kb__table th,
+    .kb__table td {
+      padding: 7px 8px;
+    }
+  }
+</style>
