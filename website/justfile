@@ -58,6 +58,7 @@ lint: deps-if-needed
 gen-keybinds:
     PATH="$PWD/../.dotnet:$PATH" dotnet build ../src/Fedit/Fedit.fsproj --nologo >/dev/null
     PATH="$PWD/../.dotnet:$PATH" dotnet run --project ../src/Fedit/Fedit.fsproj --no-build -- keybinds --json > src/data/keybindings.json
+    bun x oxfmt src/data/keybindings.json
 
 # Remove build artifacts
 [group('build')]
