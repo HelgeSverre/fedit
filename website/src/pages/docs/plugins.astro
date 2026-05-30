@@ -1,6 +1,6 @@
 ---
-import Site from "../layouts/Site.astro";
-import TuiFrame from "../components/TuiFrame.astro";
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import TuiFrame from "../../components/TuiFrame.astro";
 
 const stats = [
   { value: "5", label: "reference plugins" },
@@ -151,7 +151,7 @@ const verbs = [
 ];
 ---
 
-<Site
+<DocsLayout
   title="developer"
   description="Build fedit plugins in F#. Five-minute quickstart, the eight PluginAction types you can return, and five reference implementations under examples/."
   image="/og/developer.png"
@@ -562,7 +562,7 @@ const verbs = [
       </div>
     </div>
   </section>
-</Site>
+</DocsLayout>
 
 <style>
   /* =============================================================== */
