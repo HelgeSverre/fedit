@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>fedit — theme derivation strategies compared (Laravel)</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap");
+
+      :root {
+        --font: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        --page-bg: #0b0b0d;
+        --page-fg: #e6e6e6;
+        --page-muted: #9aa0a6;
+        --page-border: #2a2a2e;
+        --laravel: #ff2d20;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--page-bg);
+        color: var(--page-fg);
+        font-family: var(--font);
+        font-size: 13px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      header {
+        padding: 22px 24px 8px;
+        border-bottom: 1px solid var(--page-border);
+      }
+      h1 { margin: 0 0 6px; font-size: 18px; }
+      h1 .red { color: var(--laravel); }
+      header p { margin: 0; color: var(--page-muted); max-width: 90ch; }
+      .ref {
+        display: inline-flex; gap: 8px; align-items: center; margin-top: 10px;
+        color: var(--page-muted); font-size: 12px;
+      }
+      .ref b { color: var(--page-fg); }
+      .ref .chip { width: 13px; height: 13px; border-radius: 3px; border: 1px solid #0006; }
+
+      .cols {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 18px;
+        padding: 18px 24px 40px;
+      }
+      @media (max-width: 1100px) { .cols { grid-template-columns: 1fr; } }
+
+      .col {
+        border: 1px solid var(--page-border);
+        border-radius: 8px;
+        overflow: hidden;
+        background: #121214;
+        display: flex;
+        flex-direction: column;
+      }
+      .col__head { padding: 12px 14px; border-bottom: 1px solid var(--page-border); }
+      .col__name { font-size: 14px; font-weight: 700; margin: 0 0 2px; }
+      .col__sub { color: var(--page-muted); font-size: 12px; margin: 0; min-height: 32px; }
+      .badge {
+        display: inline-block; margin-top: 8px;
+        font-size: 11px; padding: 2px 8px; border-radius: 999px;
+        border: 1px solid var(--page-border); color: var(--page-muted);
+      }
+      .badge b { color: var(--laravel); }
+
+      .seeds { padding: 10px 14px; border-bottom: 1px solid var(--page-border); }
+      .seeds__label { font-size: 11px; color: var(--page-muted); margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+      .seedrow { display: flex; flex-wrap: wrap; gap: 6px; }
+      .seed { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--page-muted); }
+      .seed .sw { width: 16px; height: 16px; border-radius: 3px; border: 1px solid #0006; }
+      .seed code { color: var(--page-fg); font-size: 10px; }
+
+      /* mini editor */
+      .mini {
+        font-size: 12px;
+        line-height: 1.55;
+      }
+      .mini .gutterwrap { display: grid; grid-template-columns: 36px 1fr; }
+      .ed { padding: 8px 0; overflow: hidden; }
+      .ln { display: grid; grid-template-columns: 34px 1fr; min-height: 20px; }
+      .ln .g { text-align: right; padding-right: 8px; }
+      .ln .c { padding-left: 8px; white-space: pre; overflow: hidden; }
+      .ln.active { }
+      .status { display: flex; justify-content: space-between; padding: 1px 10px; font-size: 11px; }
+      .dock { }
+      .dock .title { padding: 1px 10px; font-size: 11px; }
+      .comp { display: grid; grid-template-columns: 12px auto 1fr auto; gap: 8px; padding: 1px 10px; align-items: center; }
+      .comp .sw3 { display: grid; grid-template-columns: repeat(3, 8px); height: 10px; justify-self: end; border: 1px solid #0006; }
+      .prompt { padding: 1px 10px; font-size: 11px; }
+
+      /* ramp strip */
+      .ramp { padding: 10px 14px; border-top: 1px solid var(--page-border); }
+      .ramp__label { font-size: 11px; color: var(--page-muted); margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+      .strip { display: flex; height: 22px; border-radius: 4px; overflow: hidden; border: 1px solid #0006; margin-bottom: 6px; }
+      .strip span { flex: 1 1 0; }
+      .legend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 10px; color: var(--page-muted); }
+
+      .takeaway {
+        margin: 0 24px 40px;
+        padding: 14px 16px;
+        border: 1px solid var(--page-border);
+        border-left: 3px solid var(--laravel);
+        border-radius: 6px;
+        background: #121214;
+      }
+      .takeaway h2 { margin: 0 0 8px; font-size: 14px; }
+      .takeaway ul { margin: 0; padding-left: 18px; color: var(--page-muted); }
+      .takeaway li { margin: 4px 0; }
+      .takeaway b { color: var(--page-fg); }
+      .takeaway code { color: var(--laravel); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1><span class="red">Laravel</span> theme — hand-picked vs. 3-seed OKLCH, two base bgs</h1>
+      <p>
+        Left column is hand-tuned to match the real Laravel docs (the target). The middle and right
+        columns are generated from just <b>3 seeds</b> — red primary, green secondary, and one base
+        bg — differing only in that base bg (<b>#222221</b> vs <b>#171717</b>). Every swatch is
+        computed live in OKLCH; nothing here is hand-typed CSS except the reference column.
+      </p>
+      <span class="ref">
+        Brand reference (from the Laravel docs):
+        <span class="chip" style="background:#ff2d20"></span> <b>#FF2D20</b> red keyword/inline-code &nbsp;·&nbsp;
+        <span class="chip" style="background:#6fcf86"></span> <b>green</b> strings &nbsp;·&nbsp;
+        warm near-neutral dark chrome (<b>#222221</b>), muted grey comments.
+      </span>
+    </header>
+
+    <div class="cols" id="cols"></div>
+
+    <div class="takeaway">
+      <h2>What the comparison shows</h2>
+      <ul>
+        <li>
+          <b>B — Hand-picked (reference).</b> ~22 individually tuned hexes matched to the docs screenshot:
+          bg <code>#222221</code>, red keywords, green strings. This is the target — but every theme costs
+          this much effort and the contrast guarantees live in the author's head.
+        </li>
+        <li>
+          <b>C — OKLCH from 3 seeds.</b> The entire palette comes from <b>red primary + green secondary +
+          one base bg</b>. The neutral backbone (sidebar, active line, dock, border, gutter, comment, fg)
+          is the base bg's own hue + chroma, L-ramped in OKLab. Status/selection/active-line and the
+          contrast text are all derived. It lands within touching distance of the hand-tuned column.
+        </li>
+        <li>
+          <b>Base bg is the one knob that matters.</b> Middle is <code>#222221</code>, right is
+          <code>#171717</code> — only that single seed changed. Everything else re-ramps off it
+          automatically, so picking the bg darkness is the whole authoring decision for the neutral chrome.
+        </li>
+      </ul>
+    </div>
+
+    <script>
+      /* ---------------- OKLab / OKLCH engine with sRGB gamut clamp ---------------- */
+      const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+      const hexToRgb = (hex) => {
+        let h = hex.replace("#", "");
+        if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+        return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+      };
+      const rgbToHex = ([r, g, b]) => {
+        const h = (n) => clamp(Math.round(n), 0, 255).toString(16).padStart(2, "0");
+        return `#${h(r)}${h(g)}${h(b)}`;
+      };
+      const s2l = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+      const l2sRaw = (c) => (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
+      const l2s = (c) => clamp(l2sRaw(c), 0, 1) * 255;
+      function rgbToOklab([r, g, b]) {
+        const lr = s2l(r), lg = s2l(g), lb = s2l(b);
+        const l = 0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb;
+        const m = 0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb;
+        const s = 0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb;
+        const L = Math.cbrt(l), M = Math.cbrt(m), S = Math.cbrt(s);
+        return [
+          0.2104542553 * L + 0.793617785 * M - 0.0040720468 * S,
+          1.9779984951 * L - 2.428592205 * M + 0.4505937099 * S,
+          0.0259040371 * L + 0.7827717662 * M - 0.808675766 * S,
+        ];
+      }
+      function oklabToLinear([L, a, b]) {
+        const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+        const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+        const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+        const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+        return [
+          4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+          -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+          -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+        ];
+      }
+      const inGamut = (lin) => lin.every((c) => c >= -0.0005 && c <= 1.0005);
+      function oklabToRgb(lab) {
+        const lin = oklabToLinear(lab);
+        return [l2s(lin[0]), l2s(lin[1]), l2s(lin[2])];
+      }
+      // OKLCH (L 0..1, C 0..~0.4, H degrees) → hex, reducing chroma until in sRGB gamut.
+      function lch(L, C, H) {
+        const rad = (H * Math.PI) / 180;
+        let c = C;
+        for (let i = 0; i < 60; i++) {
+          const lab = [L, c * Math.cos(rad), c * Math.sin(rad)];
+          if (inGamut(oklabToLinear(lab))) return rgbToHex(oklabToRgb(lab));
+          c *= 0.96;
+        }
+        return rgbToHex(oklabToRgb([L, 0, 0]));
+      }
+      const toLch = (hex) => {
+        const [L, a, b] = rgbToOklab(hexToRgb(hex));
+        return { L, C: Math.hypot(a, b), H: (Math.atan2(b, a) * 180) / Math.PI };
+      };
+      const shiftL = (hex, dL) => {
+        const lab = rgbToOklab(hexToRgb(hex));
+        lab[0] = clamp(lab[0] + dL, 0, 1);
+        return rgbToHex(oklabToRgb(lab));
+      };
+      const over = (top, bottom, alpha) => {
+        const t = hexToRgb(top), b = hexToRgb(bottom);
+        return rgbToHex([0, 1, 2].map((i) => t[i] * alpha + b[i] * (1 - alpha)));
+      };
+      const luma = (hex) => { const [r, g, b] = hexToRgb(hex); return (299 * r + 587 * g + 114 * b) / 1000 / 255; };
+      const INK = "#0b0b0d", PAPER = "#f7f7f7";
+      const contrast = (hex) => (luma(hex) < 0.5 ? PAPER : INK);
+
+      /* ============================================================
+       * A — DERIVED (the current prototype-v2 engine + its inputs)
+       * ============================================================ */
+      function strategyDerived() {
+        const accent = "#ff2d20", bg = "#0f172a", fg = "#e2e8f0";
+        const dark = true;
+        const raise = (c, amt) => shiftL(c, amt);
+        const selBg = over(accent, bg, 0.5);
+        const statusBg = shiftL(accent, -0.18);
+        return {
+          inputs: [
+            ["accent", accent], ["editor.bg", bg], ["editor.fg", fg],
+            ["syntax.keyword", "#ff7b72"], ["syntax.string", "#a5d6ff"],
+            ["syntax.comment", "#8b949e"], ["syntax.function", "#d2a8ff"], ["syntax.type", "#ffa657"],
+          ],
+          inputCount: 8,
+          seedsLabel: "8 authored inputs",
+          t: {
+            bg, fg,
+            lineActiveBg: raise(bg, 0.022),
+            sidebarBg: over(accent, raise(bg, 0.03), 0.06),
+            dockBg: raise(bg, 0.052),
+            border: over(fg, bg, 0.16),
+            gutterFg: over(fg, bg, 0.5),
+            gutterActiveFg: accent,
+            gutterActiveBg: over(accent, bg, 0.16),
+            selBg, selFg: contrast(selBg),
+            statusBg, statusFg: contrast(statusBg),
+            dockFg: over(fg, bg, 0.82),
+            accent,
+            synKeyword: "#ff7b72", synString: "#a5d6ff", synFunction: "#d2a8ff",
+            synType: "#ffa657", synComment: "#8b949e", synNumber: "#79c0ff",
+          },
+          rampLabel: "neutral backbone (slate)",
+          ramp: [bg, raise(bg, 0.022), raise(bg, 0.03), raise(bg, 0.052), over(fg, bg, 0.16), over(fg, bg, 0.5), fg],
+          rampKeys: ["bg", "line", "surf", "dock", "border", "gutter", "fg"],
+        };
+      }
+
+      /* ============================================================
+       * B — HAND-PICKED (every token chosen; warm near-black + red)
+       * ============================================================ */
+      function strategyHand() {
+        // Tuned to the real Laravel docs screenshot: warm near-neutral bg,
+        // red inline-code/keyword, green strings, muted grey comments.
+        const t = {
+          bg: "#222221", fg: "#d4d4d4",
+          lineActiveBg: "#2a2a28",
+          sidebarBg: "#1b1b1a",
+          dockBg: "#2a2a28",
+          border: "#3a3a37",
+          gutterFg: "#6b6b67",
+          gutterActiveFg: "#ff2d20",
+          gutterActiveBg: "#2e201e",
+          selBg: "#36322b", selFg: "#f0eee9",
+          statusBg: "#2a2a28", statusFg: "#d4d4d4",
+          dockFg: "#c2c2bd",
+          accent: "#ff2d20",
+          synKeyword: "#ff2d20", synString: "#6fcf86", synFunction: "#6fcf86",
+          synType: "#d4d4d4", synComment: "#6b6b67", synNumber: "#c2c2bd",
+        };
+        const inputs = Object.entries(t).map(([k, v]) => [k, v]);
+        return {
+          inputs: inputs.slice(0, 8),
+          inputCount: inputs.length,
+          seedsLabel: inputs.length + " authored — first 8 shown",
+          t,
+          rampLabel: "neutral backbone (warm, hand-tuned)",
+          ramp: [t.bg, t.lineActiveBg, t.dockBg, t.border, t.gutterFg, "#9c918a", t.fg],
+          rampKeys: ["bg", "line", "dock", "border", "gutter", "mid", "fg"],
+        };
+      }
+
+      /* ============================================================
+       * C — OKLCH RAMP from 3 seeds: primary, secondary, neutral
+       *   - neutral seed → full grayscale backbone (one hue+chroma, L ramps)
+       *   - primary      → accent + status + active marker
+       *   - secondary    → 2 shades only (selection + one soft syntax)
+       * ============================================================ */
+      function strategyOklch(bgHex) {
+        // SEEDS (this is the entire authored surface). The neutral backbone is
+        // re-seeded from the chosen base bg: take its OKLCH hue + chroma, then
+        // L-ramp every other neutral off the base's own lightness.
+        const primary = { hex: "#ff2d20", ...toLch("#ff2d20") };   // Laravel red
+        const nb = toLch(bgHex);                                    // base bg → neutral seed
+        const neutral = { H: nb.H, C: Math.min(nb.C, 0.02) };      // inherit bg's warmth, capped
+        const secondary = { H: 150, C: 0.09 };                      // green — Laravel docs strings
+        const baseL = nb.L;
+
+        // grayscale backbone — base bg is taken verbatim; the rest L-ramp off it.
+        const g = (L) => lch(clamp(L, 0, 1), neutral.C, neutral.H);
+        const bg = bgHex;
+        const sidebarBg = g(baseL + 0.02);
+        const lineActiveBg = g(baseL + 0.045);
+        const dockBg = g(baseL + 0.07);
+        const border = g(baseL + 0.165);
+        const gutterFg = g(baseL + 0.315);
+        const comment = g(baseL + 0.345);
+        const fg = g(baseL + 0.665);
+
+        // primary moments
+        const accent = lch(0.66, primary.C, primary.H);            // legible red on dark
+        const statusBg = lch(0.57, primary.C * 0.92, primary.H);   // clean brand-red bar
+        const statusFg = contrast(statusBg);                       // → white (auto)
+        const gutterActiveBg = over(accent, bg, 0.16);
+        const gutterActiveFg = accent;
+
+        // secondary — only two shades (green, as Laravel docs use for strings)
+        const sec = lch(0.78, secondary.C, secondary.H);          // green strings
+        const selBg = lch(baseL + 0.16, secondary.C * 0.4, secondary.H); // green-grey selection
+        const selFg = contrast(selBg);
+
+        // syntax: mono backbone + red brand keyword + green string. On-brand.
+        const t = {
+          bg, fg, lineActiveBg, sidebarBg, dockBg, border, gutterFg,
+          gutterActiveFg, gutterActiveBg, selBg, selFg, statusBg, statusFg,
+          dockFg: g(baseL + 0.575), accent,
+          synKeyword: accent,
+          synNumber: g(baseL + 0.5),
+          synString: sec,
+          synFunction: lch(0.8, secondary.C * 0.85, secondary.H), // green fn (env/transport)
+          synType: g(baseL + 0.62),
+          synComment: comment,
+        };
+        return {
+          inputs: [
+            ["primary", primary.hex],
+            ["secondary tint", sec],
+            ["neutral / bg seed", bg],
+          ],
+          inputCount: 3,
+          seedsLabel: "3 seeds → whole palette",
+          t,
+          rampLabel: "neutral backbone (bg seed, L-ramped)",
+          ramp: [bg, sidebarBg, lineActiveBg, dockBg, border, gutterFg, comment, fg],
+          rampKeys: ["bg", "side", "line", "dock", "border", "gutter", "cmnt", "fg"],
+        };
+      }
+
+      /* ---------------- mini editor renderer ---------------- */
+      const CODE = [
+        ["151", [["c", "// Laravel — three palettes, same surfaces"]]],
+        ["152", [["k", "namespace "], ["t", "App\\Models"], ["", ";"]]],
+        ["153", [["k", "class "], ["t", "User "], ["k", "extends "], ["fn", "Authenticatable"]]],
+        ["154", [["", "{"]]],
+        ["155", [["", "    "], ["k", "protected "], ["", "$fillable = ["]], "active"],
+        ["156", [["", "        "], ["s", "'name'"], ["", ", "], ["s", "'email'"], ["", ","]]],
+        ["157", [["", "    ]; "], ["c", "// guarded mass-assignment"]]],
+        ["158", [["", "    "], ["k", "public function "], ["fn", "posts"], ["", "() {"]]],
+        ["159", [["", "        "], ["k", "return "], ["", "$this->"], ["fn", "hasMany"], ["", "("], ["t", "Post"], ["", "::"], ["n", "class"], ["", ");"]]],
+        ["160", [["", "    }"]]],
+        ["161", [["", "}"]]],
+      ];
+
+      function styleFor(t, kind) {
+        return {
+          k: t.synKeyword, s: t.synString, c: t.synComment, fn: t.synFunction,
+          t: t.synType, n: t.synNumber,
+        }[kind] || t.fg;
+      }
+
+      function renderMini(t) {
+        const lines = CODE.map((row) => {
+          const [num, spans, active] = row;
+          const isActive = active === "active";
+          const code = spans
+            .map(([kind, text]) => {
+              const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+              if (!kind) return `<span style="color:${t.fg}">${esc}</span>`;
+              return `<span style="color:${styleFor(t, kind)}">${esc}</span>`;
+            })
+            .join("");
+          // put a selection span on the active line over 'name'
+          const gColor = isActive ? t.gutterActiveFg : t.gutterFg;
+          const gBg = isActive ? t.gutterActiveBg : "transparent";
+          const cBg = isActive ? t.lineActiveBg : "transparent";
+          return `<div class="ln${isActive ? " active" : ""}">
+            <span class="g" style="color:${gColor};background:${gBg}">${num}</span>
+            <span class="c" style="background:${cBg}">${code}</span>
+          </div>`;
+        }).join("");
+
+        const sw3 = `<span class="sw3"><span style="background:${t.accent}"></span><span style="background:${t.selBg}"></span><span style="background:${t.statusBg}"></span></span>`;
+
+        return `
+          <div class="mini">
+            <div class="ed" style="background:${t.bg}">${lines}</div>
+            <div class="status" style="background:${t.statusBg};color:${t.statusFg}">
+              <span>EDIT  app/Models/User.php</span><span>155:18  LF</span>
+            </div>
+            <div class="dock" style="background:${t.dockBg};color:${t.dockFg}">
+              <div class="title" style="color:${t.accent}"> Themes (3/3) </div>
+              <div class="comp" style="background:${t.selBg};color:${t.selFg}">
+                <span>&gt;</span><span>laravel</span><span style="opacity:.8">Laravel red</span>${sw3}
+              </div>
+              <div class="comp"><span></span><span>github-light</span><span style="opacity:.7">Primer</span>
+                <span class="sw3"><span style="background:#0969da"></span><span style="background:#cce5ff"></span><span style="background:#005ccc"></span></span></div>
+              <div class="comp"><span></span><span>verdandi</span><span style="opacity:.7">be5invis</span>
+                <span class="sw3"><span style="background:#1289ec"></span><span style="background:#114e81"></span><span style="background:#0051af"></span></span></div>
+            </div>
+            <div class="prompt" style="background:${t.lineActiveBg};color:${t.fg}">
+              <span style="color:${t.accent}">:</span> theme laravel
+            </div>
+          </div>`;
+      }
+
+      function renderSeeds(s) {
+        const rows = s.inputs
+          .map(([label, val]) => `<div class="seed"><span class="sw" style="background:${val}"></span>${label} <code>${val}</code></div>`)
+          .join("");
+        return `<p class="seeds__label">${s.seedsLabel}</p><div class="seedrow">${rows}</div>`;
+      }
+
+      function renderRamp(s) {
+        const strip = s.ramp.map((c) => `<span style="background:${c}"></span>`).join("");
+        const legend = s.rampKeys.map((k) => `<span>${k}</span>`).join("");
+        return `<p class="ramp__label">${s.rampLabel}</p><div class="strip">${strip}</div><div class="legend">${legend}</div>`;
+      }
+
+      const COLS = [
+        {
+          name: "B · Hand-picked (docs match)",
+          sub: "Reference target — tuned by hand to read like the real Laravel docs: warm dark chrome, red keywords, green strings.",
+          badge: '<b>22</b> authored, 0 derived',
+          s: strategyHand(),
+        },
+        {
+          name: "C · OKLCH from 3 seeds · bg #222221",
+          sub: "primary (red) + secondary (green) + bg seed #222221. Whole neutral backbone L-ramps off that bg.",
+          badge: '<b>3</b> seeds → whole palette',
+          s: strategyOklch("#222221"),
+        },
+        {
+          name: "C · OKLCH from 3 seeds · bg #171717",
+          sub: "Same 3-seed recipe, darker neutral bg #171717. Only one seed changed vs the column on the left.",
+          badge: '<b>3</b> seeds → whole palette',
+          s: strategyOklch("#171717"),
+        },
+      ];
+
+      document.getElementById("cols").innerHTML = COLS.map((col) => `
+        <section class="col">
+          <div class="col__head">
+            <p class="col__name">${col.name}</p>
+            <p class="col__sub">${col.sub}</p>
+            <span class="badge">${col.badge}</span>
+          </div>
+          <div class="seeds">${renderSeeds(col.s)}</div>
+          ${renderMini(col.s.t)}
+          <div class="ramp">${renderRamp(col.s)}</div>
+        </section>`).join("");
+    </script>
+  </body>
+</html>

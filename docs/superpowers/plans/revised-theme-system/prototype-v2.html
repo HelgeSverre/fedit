@@ -1,0 +1,1606 @@
+<!doctype html>
+<html lang="en" x-data="themeDemo()">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>fedit theme system v2 — derived themes prototype</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap");
+
+      @font-face {
+        font-family: "JetBrainsMono Nerd";
+        src: url("https://cdn.jsdelivr.net/gh/ryanoasis/nerd-fonts@v3.3.0/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFontMono-Regular.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+
+      :root {
+        color-scheme: dark;
+        --page-bg: oklch(8% 0 0);
+        --page-fg: oklch(92% 0 0);
+        --page-muted: oklch(67% 0 0);
+        --page-border: oklch(24% 0 0);
+        --font-size-base: 12px;
+        --line-height-base: 1.55;
+        --font-chrome: "JetBrains Mono", "JetBrainsMono Nerd", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        --font-editor: "JetBrainsMono Nerd", "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        --font-nerd: "JetBrainsMono Nerd", "JetBrains Mono", monospace;
+
+        --stage-bg: oklch(26% 0 0);
+
+        --fedit-accent-fg: oklch(67% 0.19 155);
+        --fedit-editor-fg: oklch(86% 0 0);
+        --fedit-editor-bg: oklch(8% 0 0);
+        --fedit-editor-line-active-fg: var(--fedit-editor-fg);
+        --fedit-editor-line-active-bg: oklch(16% 0 0);
+        --fedit-editor-selection-fg: oklch(8% 0 0);
+        --fedit-editor-selection-bg: oklch(63% 0.18 155);
+
+        --fedit-gutter-fg: oklch(52% 0.02 260);
+        --fedit-gutter-bg: var(--fedit-editor-bg);
+        --fedit-gutter-active-fg: var(--fedit-accent-fg);
+        --fedit-gutter-active-bg: oklch(22% 0.06 155);
+
+        --fedit-sidebar-fg: oklch(86% 0 0);
+        --fedit-sidebar-bg: oklch(12% 0 0);
+        --fedit-sidebar-border-fg: oklch(31% 0 0);
+        --fedit-sidebar-selected-fg: oklch(8% 0 0);
+        --fedit-sidebar-selected-bg: oklch(63% 0.18 155);
+
+        --fedit-status-fg: oklch(100% 0 0);
+        --fedit-status-bg: oklch(41% 0.12 145);
+        --fedit-prompt-fg: oklch(98% 0.05 100);
+        --fedit-prompt-bg: oklch(31% 0 0);
+
+        --fedit-dock-fg: oklch(77% 0 0);
+        --fedit-dock-bg: oklch(16% 0 0);
+        --fedit-dock-title-fg: var(--fedit-accent-fg);
+        --fedit-dock-border-fg: oklch(31% 0 0);
+        --fedit-dock-selected-fg: oklch(8% 0 0);
+        --fedit-dock-selected-bg: oklch(63% 0.18 155);
+
+        --fedit-completion-theme-swatch-border: oklch(8% 0 0);
+        --fedit-syntax-keyword-fg: oklch(72% 0.16 295);
+        --fedit-syntax-string-fg: oklch(78% 0.12 145);
+        --fedit-syntax-comment-fg: oklch(60% 0 0);
+        --fedit-syntax-function-fg: oklch(80% 0.1 225);
+        --fedit-syntax-type-fg: oklch(86% 0.12 90);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--page-bg);
+        color: var(--page-fg);
+        font-family: var(--font-chrome);
+        font-size: var(--font-size-base);
+        line-height: var(--line-height-base);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: geometricPrecision;
+      }
+
+      .app-shell {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h2 {
+        font-size: 1.333rem;
+        margin: 28px 0 12px;
+      }
+
+      p {
+        color: var(--page-muted);
+        max-width: 78ch;
+      }
+
+      .workspace {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+      }
+
+      .editor-stage {
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        justify-content: center;
+        align-items: stretch;
+        padding: 20px;
+        overflow: auto;
+        background: var(--stage-bg);
+        transition: background 0.18s ease;
+      }
+
+      .panel {
+        border: 1px solid var(--page-border);
+        border-radius: 6px;
+        background: oklch(13% 0 0);
+      }
+
+      button {
+        border: 1px solid var(--page-border);
+        background: oklch(16% 0 0);
+        color: var(--page-fg);
+        border-radius: 4px;
+        padding: 6px 8px;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      button[aria-pressed="true"] {
+        border-color: var(--fedit-accent-fg);
+        color: var(--fedit-accent-fg);
+      }
+
+      select {
+        width: 100%;
+        border: 1px solid var(--page-border);
+        border-radius: 4px;
+        background: oklch(8% 0 0);
+        color: var(--page-fg);
+        font: inherit;
+        padding: 7px 8px;
+      }
+
+      .top-nav {
+        flex: 0 0 auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--page-border);
+        background: oklch(10% 0 0);
+      }
+
+      .nav-group {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+        padding-right: 10px;
+        border-right: 1px solid var(--page-border);
+      }
+
+      .nav-group:last-child {
+        border-right: none;
+      }
+
+      .nav-brand {
+        font-weight: 700;
+        color: var(--page-fg);
+      }
+
+      .nav-brand .tag {
+        color: var(--fedit-accent-fg);
+      }
+
+      .nav-label {
+        color: var(--page-muted);
+        font-size: 1rem;
+      }
+
+      .top-nav button {
+        padding: 4px 7px;
+        font-size: 1rem;
+      }
+
+      .editor-preview {
+        width: 100%;
+        min-height: 0;
+        display: flex;
+      }
+
+      .tui {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 0;
+        background: var(--fedit-editor-bg);
+        overflow: hidden;
+        border-radius: 0 0 6px 6px;
+        font-family: var(--font-editor);
+      }
+
+      .tui.is-sidebar-hidden {
+        grid-template-columns: 1fr;
+      }
+
+      .tui.is-sidebar-right {
+        grid-template-columns: 1fr 240px;
+      }
+
+      .tui.is-sidebar-right .sidebar {
+        grid-column: 2;
+        grid-row: 1;
+        border-right: none;
+        border-left: 1px solid var(--fedit-sidebar-border-fg);
+      }
+
+      .tui.is-sidebar-right .editor-shell {
+        grid-column: 1;
+        grid-row: 1;
+      }
+
+      .sidebar {
+        color: var(--fedit-sidebar-fg);
+        background: var(--fedit-sidebar-bg);
+        border-right: 1px solid var(--fedit-sidebar-border-fg);
+        padding: 10px 0;
+      }
+
+      .sidebar-row {
+        display: grid;
+        grid-template-columns: 34px minmax(0, 1fr);
+        gap: 6px;
+        padding: 2px 12px;
+        white-space: nowrap;
+      }
+
+      .sidebar-row.is-directory {
+        cursor: pointer;
+      }
+
+      .sidebar-row span:first-child {
+        font-family: var(--font-nerd);
+      }
+
+      .sidebar-row__name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .sidebar-row.is-selected {
+        color: var(--fedit-sidebar-selected-fg);
+        background: var(--fedit-sidebar-selected-bg);
+      }
+
+      .editor-shell {
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) auto auto auto;
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .editor-shell.is-command-closed {
+        grid-template-rows: minmax(0, 1fr) auto;
+      }
+
+      .editor {
+        color: var(--fedit-editor-fg);
+        background: var(--fedit-editor-bg);
+        padding: 10px 0;
+        overflow: auto;
+        min-height: 0;
+        scrollbar-color: var(--fedit-gutter-fg) var(--fedit-editor-bg);
+      }
+
+      .editor::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+
+      .editor::-webkit-scrollbar-thumb {
+        background: var(--fedit-gutter-fg);
+      }
+
+      .editor::-webkit-scrollbar-track {
+        background: var(--fedit-editor-bg);
+      }
+
+      .line {
+        display: grid;
+        grid-template-columns: 54px 1fr;
+        min-height: 24px;
+        min-width: 860px;
+      }
+
+      .line__gutter {
+        color: var(--fedit-gutter-fg);
+        background: var(--fedit-gutter-bg);
+        padding-right: 10px;
+        text-align: right;
+      }
+
+      .line__code {
+        color: var(--fedit-editor-fg);
+        background: var(--fedit-editor-bg);
+        padding-left: 10px;
+        white-space: pre;
+      }
+
+      .line.is-active .line__gutter {
+        color: var(--fedit-gutter-active-fg);
+        background: var(--fedit-gutter-active-bg);
+      }
+
+      .line.is-active .line__code {
+        color: var(--fedit-editor-line-active-fg);
+        background: var(--fedit-editor-line-active-bg);
+      }
+
+      .selection {
+        color: var(--fedit-editor-selection-fg);
+        background: var(--fedit-editor-selection-bg);
+      }
+
+      .syn-keyword {
+        color: var(--fedit-syntax-keyword-fg);
+      }
+
+      .syn-string {
+        color: var(--fedit-syntax-string-fg);
+      }
+
+      .syn-comment {
+        color: var(--fedit-syntax-comment-fg);
+      }
+
+      .syn-function {
+        color: var(--fedit-syntax-function-fg);
+      }
+
+      .syn-type {
+        color: var(--fedit-syntax-type-fg);
+      }
+
+      .status {
+        color: var(--fedit-status-fg);
+        background: var(--fedit-status-bg);
+        padding: 2px 10px;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .dock {
+        color: var(--fedit-dock-fg);
+        background: var(--fedit-dock-bg);
+        border-top: 1px solid var(--fedit-dock-border-fg);
+      }
+
+      .dock-title {
+        color: var(--fedit-dock-title-fg);
+        padding: 2px 10px;
+      }
+
+      .completion {
+        display: grid;
+        grid-template-columns: 16px minmax(90px, auto) minmax(0, 1fr) 46px;
+        gap: 8px;
+        padding: 2px 10px;
+        align-items: center;
+        cursor: pointer;
+      }
+
+      .completion.is-selected {
+        color: var(--fedit-dock-selected-fg);
+        background: var(--fedit-dock-selected-bg);
+      }
+
+      .completion__label {
+        white-space: nowrap;
+      }
+
+      .completion__detail {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .completion__badge {
+        justify-self: end;
+        min-width: 34px;
+        color: var(--fedit-dock-title-fg);
+        text-align: right;
+        font-size: 0.917rem;
+      }
+
+      .theme-swatch {
+        justify-self: end;
+        display: grid;
+        grid-template-columns: repeat(3, 10px);
+        height: 12px;
+        border: 1px solid var(--fedit-completion-theme-swatch-border);
+      }
+
+      .theme-swatch span:nth-child(1) {
+        background: var(--swatch-accent);
+      }
+
+      .theme-swatch span:nth-child(2) {
+        background: var(--swatch-selection);
+      }
+
+      .theme-swatch span:nth-child(3) {
+        background: var(--swatch-status);
+      }
+
+      .prompt {
+        color: var(--fedit-prompt-fg);
+        background: var(--fedit-prompt-bg);
+        padding: 2px 10px;
+      }
+
+      .prompt__input {
+        min-width: 24ch;
+        outline: none;
+        color: var(--fedit-prompt-fg);
+      }
+
+      .prompt__input:focus {
+        text-decoration: underline;
+        text-decoration-color: var(--fedit-dock-title-fg);
+        text-underline-offset: 3px;
+      }
+
+      .is-hidden {
+        display: none;
+      }
+
+      .prompt__mode {
+        color: var(--fedit-dock-title-fg);
+      }
+
+      .prompt__cursor {
+        color: var(--fedit-editor-selection-fg);
+        background: var(--fedit-editor-selection-bg);
+      }
+
+      .color-sidebar {
+        flex: 0 0 400px;
+        min-height: 0;
+        overflow: auto;
+        border-left: 1px solid var(--page-border);
+        background: oklch(13% 0 0);
+      }
+
+      .color-sidebar__section {
+        padding: 12px;
+        border-bottom: 1px solid var(--page-border);
+      }
+
+      .color-sidebar__title {
+        margin: 0 0 12px;
+        font-size: 1rem;
+        color: var(--page-fg);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .pill {
+        font-size: 0.833rem;
+        padding: 1px 6px;
+        border-radius: 999px;
+        border: 1px solid var(--page-border);
+        color: var(--page-muted);
+      }
+
+      .theme-picker {
+        display: grid;
+        gap: 6px;
+        margin-bottom: 10px;
+        color: var(--page-muted);
+      }
+
+      /* Authored-inputs callout — the whole point of v2. */
+      .authored {
+        margin-top: 12px;
+        border: 1px solid var(--page-border);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+
+      .authored__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 10px;
+        background: oklch(17% 0 0);
+        color: var(--page-fg);
+      }
+
+      .authored__count {
+        color: var(--fedit-accent-fg);
+        font-weight: 700;
+      }
+
+      .authored__row {
+        display: grid;
+        grid-template-columns: 14px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-top: 1px solid var(--page-border);
+        color: var(--page-muted);
+      }
+
+      .authored__chip {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        border: 1px solid var(--page-border);
+      }
+
+      .authored__val {
+        color: var(--page-fg);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .authored__note {
+        padding: 8px 10px;
+        border-top: 1px solid var(--page-border);
+        color: var(--page-muted);
+        font-size: 0.917rem;
+      }
+
+      .token-search {
+        width: 100%;
+        border: 1px solid var(--page-border);
+        border-radius: 4px;
+        background: oklch(8% 0 0);
+        color: var(--page-fg);
+        font: inherit;
+        padding: 8px;
+        margin-bottom: 8px;
+      }
+
+      .filter-toggles {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 4px;
+      }
+
+      .color-list {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+
+      .color-row {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) auto 18px;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--page-border);
+        border-radius: 4px;
+        padding: 8px;
+        color: var(--page-muted);
+      }
+
+      .color-row.is-derived {
+        border-style: dashed;
+        opacity: 0.92;
+      }
+
+      .color-row__chip {
+        width: 18px;
+        height: 18px;
+        border: 1px solid var(--page-border);
+        background: var(--token-color);
+      }
+
+      .color-row code {
+        overflow-wrap: anywhere;
+      }
+
+      .origin {
+        font-size: 0.792rem;
+        padding: 1px 6px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+
+      .origin.is-authored {
+        color: oklch(8% 0 0);
+        background: var(--fedit-accent-fg);
+      }
+
+      .origin.is-derived {
+        color: var(--page-muted);
+        border: 1px solid var(--page-border);
+      }
+
+      .color-row input {
+        width: 18px;
+        height: 18px;
+        border: 1px solid var(--page-border);
+        border-radius: 3px;
+        background: oklch(8% 0 0);
+        color: var(--page-fg);
+        font: inherit;
+        padding: 0;
+        cursor: pointer;
+      }
+
+      .color-row input::-webkit-color-swatch-wrapper {
+        padding: 0;
+      }
+
+      .color-row input::-webkit-color-swatch {
+        border: 0;
+        border-radius: 2px;
+      }
+
+      .color-row input::-moz-color-swatch {
+        border: 0;
+        border-radius: 2px;
+      }
+
+      @media (max-width: 1080px) {
+        .workspace {
+          flex-direction: column;
+          overflow: auto;
+        }
+
+        .editor-stage {
+          flex: 0 0 auto;
+          overflow: visible;
+        }
+
+        .color-sidebar {
+          flex: 0 0 auto;
+          max-height: 520px;
+          border-left: none;
+          border-top: 1px solid var(--page-border);
+        }
+
+        .tui {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <nav class="top-nav" aria-label="Prototype controls">
+        <div class="nav-group">
+          <span class="nav-brand">fedit themes <span class="tag">v2 · derived</span></span>
+        </div>
+        <div class="nav-group">
+          <button type="button" :aria-pressed="sidebarVisible" @click="sidebarVisible = !sidebarVisible">
+            <span x-text="sidebarVisible ? 'sidebar:on' : 'sidebar:off'"></span>
+          </button>
+          <button type="button" @click="toggleSidebarDock()">
+            <span x-text="`sidebar:${sidebarDock}`"></span>
+          </button>
+        </div>
+        <div class="nav-group">
+          <button type="button" :aria-pressed="nerdFonts" @click="nerdFonts = !nerdFonts">
+            <span x-text="nerdFonts ? 'icons:nerd' : 'icons:ascii'"></span>
+          </button>
+        </div>
+        <div class="nav-group">
+          <button type="button" :aria-pressed="!commandBarOpen" @click="commandBarOpen = false">
+            editor
+          </button>
+          <template x-for="(mode, index) in previewModes" :key="mode.label">
+            <button
+              type="button"
+              :aria-pressed="commandBarOpen && modeIndex === index"
+              @click="setPreviewMode(index)"
+              x-text="mode.label"
+            ></button>
+          </template>
+          <button type="button" @click="cyclePreviewVariant()" x-text="`variant: ${currentVariantLabel()}`"></button>
+        </div>
+      </nav>
+
+      <div class="workspace">
+        <main class="editor-stage">
+          <section class="panel editor-preview">
+            <div
+              class="tui"
+              :class="{ 'is-sidebar-hidden': !sidebarVisible, 'is-sidebar-right': sidebarVisible && sidebarDock === 'right' }"
+            >
+            <aside class="sidebar" x-show="sidebarVisible">
+              <template x-for="entry in visibleTreeEntries()" :key="entry.id">
+                <div
+                  class="sidebar-row"
+                  :class="{ 'is-selected': entry.selected, 'is-directory': entry.directory }"
+                  @click="entry.directory && toggleTreeEntry(entry)"
+                >
+                  <span x-text="treeMarker(entry)"></span>
+                  <span class="sidebar-row__name" :style="`padding-left:${entry.depth * 14}px`" x-text="entry.name"></span>
+                </div>
+              </template>
+            </aside>
+
+            <section class="editor-shell" :class="{ 'is-command-closed': !commandBarOpen }">
+              <div class="editor">
+                <div class="line">
+                  <span class="line__gutter">151</span>
+                  <span class="line__code"><span class="syn-comment">// v2: a theme is a few AUTHORED colors; the rest is DERIVED.</span></span>
+                </div>
+                <div class="line is-active">
+                  <span class="line__gutter">152</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> <span class="syn-function">laravel</span> = <span class="selection">Theme.derive</span> {</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">153</span>
+                  <span class="line__code">      Name = <span class="syn-string">"laravel"</span>; Appearance = <span class="syn-type">Dark</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">154</span>
+                  <span class="line__code">      Accent = <span class="syn-function">Color.ofHex</span> <span class="syn-string">"#FF2D20"</span>   <span class="syn-comment">// the only hue you pick</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">155</span>
+                  <span class="line__code">      EditorBg = <span class="syn-function">Color.ofHex</span> <span class="syn-string">"#0F172A"</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">156</span>
+                  <span class="line__code">      EditorFg = <span class="syn-function">Color.ofHex</span> <span class="syn-string">"#E2E8F0"</span> }</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">157</span>
+                  <span class="line__code"><span class="syn-comment">// ── everything below is generated, never hand-tuned ──</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">158</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> statusBg = <span class="syn-type">Oklab</span>.darken accent <span class="syn-string">0.18</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">159</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> statusFg = <span class="syn-type">Color</span>.contrast statusBg     <span class="syn-comment">// black|white</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">160</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> selectionBg = <span class="syn-type">Oklab</span>.over accent editorBg <span class="syn-string">0.50</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">161</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> selectionFg = <span class="syn-type">Color</span>.contrast selectionBg</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">162</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> gutterActiveBg = <span class="syn-type">Oklab</span>.over accent editorBg <span class="syn-string">0.16</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">163</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> lineActiveBg = <span class="syn-type">Oklab</span>.raise editorBg <span class="syn-string">0.022</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">164</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> sidebarBg = <span class="syn-type">Oklab</span>.tint (<span class="syn-type">Oklab</span>.raise editorBg <span class="syn-string">0.03</span>) accent <span class="syn-string">0.06</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">165</span>
+                  <span class="line__code"></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">166</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> all = [ green; …; githubLight; verdandiAlter; laravel; schibsted ]</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">167</span>
+                  <span class="line__code"></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">168</span>
+                  <span class="line__code"><span class="syn-comment">// Horizontal overflow intentionally previews editor-style side scrolling.</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">169</span>
+                  <span class="line__code"><span class="syn-comment">// authored: accent + bg + fg + 5 syntax = 8 values → 31 tokens generated.</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">170</span>
+                  <span class="line__code"></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">171</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> contrast bg = <span class="syn-keyword">if</span> <span class="syn-type">Oklab</span>.luma bg &lt; <span class="syn-string">0.5</span> <span class="syn-keyword">then</span> white <span class="syn-keyword">else</span> ink</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">172</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> raise c amt = <span class="syn-type">Oklab</span>.shiftL c (<span class="syn-keyword">if</span> dark <span class="syn-keyword">then</span> +amt <span class="syn-keyword">else</span> -amt)</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">173</span>
+                  <span class="line__code"></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">174</span>
+                  <span class="line__code"><span class="syn-comment">// The old way hand-picked ~20 hexes per theme. Compare in the inspector →</span></span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">175</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> renderSelection theme = theme.SelectionFg, theme.SelectionBg</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">176</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> renderGutter theme = theme.GutterActiveFg, theme.GutterActiveBg</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">177</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> renderPrompt theme = theme.PromptFg, theme.PromptBg</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">178</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> renderDock theme = theme.DockFg, theme.DockBg, theme.DockSelectedBg</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">179</span>
+                  <span class="line__code"><span class="syn-keyword">let</span> renderThemeSwatch theme = theme.Accent, theme.SelectionBg, theme.StatusBg</span>
+                </div>
+                <div class="line">
+                  <span class="line__gutter">180</span>
+                  <span class="line__code"><span class="syn-comment">// End of scroll sample.</span></span>
+                </div>
+              </div>
+
+              <div class="status">
+                <span x-text="`${commandBarOpen ? currentCommandState().statusMode : 'EDIT'}  src/Fedit/Themes.fs`"></span>
+                <span x-text="sidebarVisible ? '152:18  LF  1/3  TREE' : '152:18  LF  1/3'"></span>
+              </div>
+
+              <div class="dock" x-show="commandBarOpen">
+                <div class="dock-title" x-text="dockTitle()"></div>
+                <template x-for="(item, index) in currentCommandState().items" :key="`${currentCommandState().name}-${item.label}`">
+                  <div
+                    class="completion"
+                    :class="{ 'is-selected': index === selectedCompletion }"
+                    @click="selectCompletion(index)"
+                  >
+                    <span x-text="index === selectedCompletion ? '>' : ''"></span>
+                    <span class="completion__label" x-text="item.label"></span>
+                    <span class="completion__detail" x-text="item.detail"></span>
+                    <template x-if="item.theme">
+                      <span
+                        class="theme-swatch"
+                        :style="`--swatch-accent:${item.theme.vars['--fedit-accent-fg']};--swatch-selection:${item.theme.vars['--fedit-editor-selection-bg']};--swatch-status:${item.theme.vars['--fedit-status-bg']};`"
+                        aria-hidden="true"
+                      >
+                        <span></span><span></span><span></span>
+                      </span>
+                    </template>
+                    <template x-if="!item.theme">
+                      <span class="completion__badge" x-text="item.badge || ''"></span>
+                    </template>
+                  </div>
+                </template>
+              </div>
+
+              <div class="prompt" x-show="commandBarOpen">
+                <span class="prompt__mode" x-text="currentCommandState().promptMode"></span>
+                <span
+                  class="prompt__input"
+                  contenteditable="true"
+                  spellcheck="false"
+                  x-text="promptText"
+                  @input="promptText = $el.textContent"
+                ></span><span class="prompt__cursor">&nbsp;</span>
+              </div>
+            </section>
+            </div>
+          </section>
+        </main>
+
+        <aside class="color-sidebar">
+          <section class="color-sidebar__section">
+            <h2 class="color-sidebar__title">
+              <span x-text="activeTheme.name"></span>
+              <span class="pill" x-text="activeTheme.appearance"></span>
+            </h2>
+            <label class="theme-picker">
+              <span>theme</span>
+              <select x-effect="$el.value = activeTheme.name" @change="applyThemeByName($event.target.value)">
+                <template x-for="theme in themes" :key="theme.name">
+                  <option
+                    :value="theme.name"
+                    :selected="activeTheme.name === theme.name"
+                    x-text="`${theme.name} — ${theme.description}`"
+                  ></option>
+                </template>
+              </select>
+            </label>
+
+            <div class="authored">
+              <div class="authored__head">
+                <span>Authored inputs</span>
+                <span><span class="authored__count" x-text="authoredInputs().length"></span> values</span>
+              </div>
+              <template x-for="row in authoredInputs()" :key="row.label">
+                <div class="authored__row">
+                  <span class="authored__chip" :style="`background:${row.value}`"></span>
+                  <span x-text="row.label"></span>
+                  <span class="authored__val" x-text="row.value"></span>
+                </div>
+              </template>
+              <div class="authored__note">
+                These <span x-text="authoredInputs().length"></span> are everything the theme file specifies.
+                The <span x-text="derivedCount()"></span> tokens below are generated by
+                <code>Theme.derive</code> — OKLab shade ramp, auto-contrast text, accent-over-bg flattening.
+              </div>
+            </div>
+          </section>
+
+          <section class="color-sidebar__section">
+            <input
+              class="token-search"
+              type="search"
+              placeholder="filter tokens"
+              x-model="colorFilter"
+            />
+            <div class="filter-toggles">
+              <button type="button" :aria-pressed="originFilter === 'all'" @click="originFilter = 'all'">all</button>
+              <button type="button" :aria-pressed="originFilter === 'authored'" @click="originFilter = 'authored'">authored</button>
+              <button type="button" :aria-pressed="originFilter === 'derived'" @click="originFilter = 'derived'">derived</button>
+            </div>
+          </section>
+
+          <section class="color-sidebar__section">
+            <div class="color-list">
+              <template x-for="token in filteredTokens()" :key="token">
+                <label class="color-row" :class="{ 'is-derived': !isAuthored(token) }">
+                  <span class="color-row__chip" :style="`--token-color:${computedToken(token)}`"></span>
+                  <code x-text="token"></code>
+                  <span
+                    class="origin"
+                    :class="isAuthored(token) ? 'is-authored' : 'is-derived'"
+                    x-text="isAuthored(token) ? 'authored' : 'derived'"
+                  ></span>
+                  <input type="color" :value="computedToken(token)" @input="setVar(token, $event.target.value)" />
+                </label>
+              </template>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </div>
+
+    <script>
+      function themeDemo() {
+        /* ----------------------------------------------------------------
+         * Color math — a compact OKLab engine so the prototype DERIVES the
+         * palette the same way the proposed Theme.derive would (see
+         * stolen-ideas.md). sRGB <-> OKLab, perceptual L* shifts, alpha
+         * flatten, and Rec.601 auto-contrast.
+         * ---------------------------------------------------------------- */
+        const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+
+        function hexToRgb(hex) {
+          let h = hex.replace("#", "").trim();
+          if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+          return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+        }
+        function rgbToHex([r, g, b]) {
+          const h = (n) => clamp(Math.round(n), 0, 255).toString(16).padStart(2, "0");
+          return `#${h(r)}${h(g)}${h(b)}`;
+        }
+        const srgbToLin = (c) => {
+          c /= 255;
+          return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        };
+        const linToSrgb = (c) => {
+          const v = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+          return clamp(v, 0, 1) * 255;
+        };
+        function rgbToOklab([r, g, b]) {
+          const lr = srgbToLin(r), lg = srgbToLin(g), lb = srgbToLin(b);
+          const l = 0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb;
+          const m = 0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb;
+          const s = 0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb;
+          const l_ = Math.cbrt(l), m_ = Math.cbrt(m), s_ = Math.cbrt(s);
+          return [
+            0.2104542553 * l_ + 0.793617785 * m_ - 0.0040720468 * s_,
+            1.9779984951 * l_ - 2.428592205 * m_ + 0.4505937099 * s_,
+            0.0259040371 * l_ + 0.7827717662 * m_ - 0.808675766 * s_,
+          ];
+        }
+        function oklabToRgb([L, a, b]) {
+          const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+          const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+          const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+          const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+          return [
+            linToSrgb(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+            linToSrgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+            linToSrgb(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s),
+          ];
+        }
+
+        // Perceptual lightness shift (the shade ramp).
+        function shiftL(hex, dL) {
+          const lab = rgbToOklab(hexToRgb(hex));
+          lab[0] = clamp(lab[0] + dL, 0, 1);
+          return rgbToHex(oklabToRgb(lab));
+        }
+        // Flatten `top` at `alpha` over `bottom` (no real terminal alpha).
+        function over(top, bottom, alpha) {
+          const t = hexToRgb(top), b = hexToRgb(bottom);
+          return rgbToHex([0, 1, 2].map((i) => t[i] * alpha + b[i] * (1 - alpha)));
+        }
+        // Rec.601 luma 0..1.
+        function luma(hex) {
+          const [r, g, b] = hexToRgb(hex);
+          return (299 * r + 587 * g + 114 * b) / 1000 / 255;
+        }
+        const INK = "#0b0b0d", PAPER = "#f7f7f7";
+        const contrast = (hex) => (luma(hex) < 0.5 ? PAPER : INK);
+
+        /* ----------------------------------------------------------------
+         * Theme.derive — authored inputs in, 31 CSS tokens out.
+         * Authored: name, appearance, accent, editorBg, editorFg, syntax{5}.
+         * ---------------------------------------------------------------- */
+        function deriveTheme(t) {
+          const dark = t.appearance === "dark";
+          const accent = t.accent;
+          const bg = t.editorBg;
+          const fg = t.editorFg;
+          // raise = move a neutral away from the editor bg toward the fg side.
+          const raise = (c, amt) => shiftL(c, dark ? amt : -amt);
+
+          const lineActiveBg = raise(bg, 0.022);
+          const surface1 = raise(bg, 0.03);
+          const surface2 = raise(bg, 0.052);
+          const panel = over(accent, surface1, 0.06); // 6% accent → belongs to the theme
+          const gutterFg = over(fg, bg, 0.5);
+          const border = over(fg, bg, 0.16);
+          const gutterActiveBg = over(accent, bg, dark ? 0.16 : 0.12);
+          const selectionBg = over(accent, bg, dark ? 0.5 : 0.28);
+          const selectionFg = contrast(selectionBg);
+          const statusBg = shiftL(accent, dark ? -0.18 : -0.04);
+          const statusFg = contrast(statusBg);
+
+          return {
+            name: t.name,
+            description: t.description,
+            appearance: t.appearance,
+            inputs: {
+              accent,
+              "editor.bg": bg,
+              "editor.fg": fg,
+              "syntax.keyword": t.syntax.keyword,
+              "syntax.string": t.syntax.string,
+              "syntax.comment": t.syntax.comment,
+              "syntax.function": t.syntax.function,
+              "syntax.type": t.syntax.type,
+            },
+            stageBg: dark ? "oklch(26% 0 0)" : "oklch(90% 0 0)",
+            vars: {
+              "--fedit-accent-fg": accent,
+              "--fedit-editor-fg": fg,
+              "--fedit-editor-bg": bg,
+              "--fedit-editor-line-active-fg": fg,
+              "--fedit-editor-line-active-bg": lineActiveBg,
+              "--fedit-editor-selection-fg": selectionFg,
+              "--fedit-editor-selection-bg": selectionBg,
+              "--fedit-gutter-fg": gutterFg,
+              "--fedit-gutter-bg": bg,
+              "--fedit-gutter-active-fg": accent,
+              "--fedit-gutter-active-bg": gutterActiveBg,
+              "--fedit-sidebar-fg": fg,
+              "--fedit-sidebar-bg": panel,
+              "--fedit-sidebar-border-fg": border,
+              "--fedit-sidebar-selected-fg": selectionFg,
+              "--fedit-sidebar-selected-bg": selectionBg,
+              "--fedit-status-fg": statusFg,
+              "--fedit-status-bg": statusBg,
+              "--fedit-prompt-fg": over(fg, bg, 0.92),
+              "--fedit-prompt-bg": surface1,
+              "--fedit-dock-fg": over(fg, bg, 0.82),
+              "--fedit-dock-bg": surface2,
+              "--fedit-dock-title-fg": accent,
+              "--fedit-dock-border-fg": border,
+              "--fedit-dock-selected-fg": selectionFg,
+              "--fedit-dock-selected-bg": selectionBg,
+              "--fedit-completion-theme-swatch-border": border,
+              "--fedit-syntax-keyword-fg": t.syntax.keyword,
+              "--fedit-syntax-string-fg": t.syntax.string,
+              "--fedit-syntax-comment-fg": t.syntax.comment,
+              "--fedit-syntax-function-fg": t.syntax.function,
+              "--fedit-syntax-type-fg": t.syntax.type,
+            },
+          };
+        }
+
+        // Tokens whose value comes straight from the authored input set.
+        const authoredTokens = new Set([
+          "--fedit-accent-fg",
+          "--fedit-editor-bg",
+          "--fedit-editor-fg",
+          "--fedit-syntax-keyword-fg",
+          "--fedit-syntax-string-fg",
+          "--fedit-syntax-comment-fg",
+          "--fedit-syntax-function-fg",
+          "--fedit-syntax-type-fg",
+        ]);
+
+        /* ----------------------------------------------------------------
+         * Authored inputs for every theme. Existing bundled themes are
+         * re-expressed in the v2 shape too, so the whole set shrinks. The
+         * four NEW themes (github-light, schibsted, laravel, verdandi-alter)
+         * are exact brand/source palettes.
+         * ---------------------------------------------------------------- */
+        const darkSyntax = {
+          keyword: "#87afff",
+          string: "#87d787",
+          comment: "#808080",
+          function: "#afd7ff",
+          type: "#ffd787",
+        };
+
+        const themeInputs = [
+          { name: "green", description: "Phosphor green — brand default", appearance: "dark", accent: "#00b86b", editorBg: "#0b0b0d", editorFg: "#d7d7d7", syntax: darkSyntax },
+          { name: "blue", description: "Electric blue — high contrast", appearance: "dark", accent: "#1f6feb", editorBg: "#0b0b0d", editorFg: "#d7d7d7", syntax: darkSyntax },
+          { name: "orange", description: "Burnt orange — warm, retro", appearance: "dark", accent: "#d2691e", editorBg: "#0b0b0d", editorFg: "#d7d7d7", syntax: darkSyntax },
+          { name: "cyan", description: "Cool cyan accent", appearance: "dark", accent: "#2bb8e6", editorBg: "#0b0b0d", editorFg: "#d7d7d7", syntax: darkSyntax },
+          { name: "teal", description: "Cyan-green hybrid", appearance: "dark", accent: "#2dd4bf", editorBg: "#0b0b0d", editorFg: "#d7d7d7", syntax: darkSyntax },
+          { name: "yellow", description: "Warm yellow (dark text)", appearance: "dark", accent: "#e3b341", editorBg: "#0b0b0d", editorFg: "#e6dcc0", syntax: darkSyntax },
+          { name: "red", description: "Crimson accent", appearance: "dark", accent: "#ff5f5f", editorBg: "#0b0b0d", editorFg: "#d7d7d7", syntax: darkSyntax },
+          { name: "graphite", description: "Blue-grey high readability", appearance: "dark", accent: "#8cb4ff", editorBg: "#14171c", editorFg: "#d7dde5", syntax: darkSyntax },
+          { name: "evergreen", description: "Soft forest green", appearance: "dark", accent: "#a7c080", editorBg: "#11150f", editorFg: "#d7e0c8", syntax: { keyword: "#a7c080", string: "#dbbc7f", comment: "#7a8478", function: "#83c092", type: "#d699b6" } },
+          { name: "mono-amber", description: "Deep amber phosphor", appearance: "dark", accent: "#ffaf00", editorBg: "#0b0a08", editorFg: "#e8dcc0", syntax: { keyword: "#ffd787", string: "#d7b06a", comment: "#80755a", function: "#ffc04d", type: "#e6b85c" } },
+
+          // ── new: GitHub Light (Primer light_default) ──
+          {
+            name: "github-light",
+            description: "GitHub Light Default (Primer)",
+            appearance: "light",
+            accent: "#0969da",
+            editorBg: "#ffffff",
+            editorFg: "#1f2328",
+            syntax: { keyword: "#cf222e", string: "#0a3069", comment: "#6e7781", function: "#8250df", type: "#953800" },
+          },
+          // ── new: Schibsted (brand — Reflex blue on warm paper) ──
+          {
+            name: "schibsted",
+            description: "Schibsted brand — warm paper + Reflex blue",
+            appearance: "light",
+            accent: "#264bc5",
+            editorBg: "#fafaf7",
+            editorFg: "#020b23",
+            syntax: { keyword: "#91392b", string: "#375f2b", comment: "#959593", function: "#1838a7", type: "#6c4522" },
+          },
+          // ── new: Laravel (brand red on Tailwind slate) ──
+          {
+            name: "laravel",
+            description: "Laravel red on slate",
+            appearance: "dark",
+            accent: "#ff2d20",
+            editorBg: "#0f172a",
+            editorFg: "#e2e8f0",
+            syntax: { keyword: "#ff7b72", string: "#a5d6ff", comment: "#8b949e", function: "#d2a8ff", type: "#ffa657" },
+          },
+          // ── new: Verdandi Alter (be5invis — near-mono blue-gray) ──
+          {
+            name: "verdandi-alter",
+            description: "Verdandi Alter (be5invis)",
+            appearance: "dark",
+            accent: "#1289ec",
+            editorBg: "#0f1216",
+            editorFg: "#949ca3",
+            syntax: { keyword: "#d8dce0", string: "#778089", comment: "#5f6871", function: "#b5bbc0", type: "#b5bbc0" },
+          },
+        ];
+
+        const themes = themeInputs.map(deriveTheme);
+        const defaultIndex = themes.findIndex((t) => t.name === "laravel");
+
+        const commandStates = [
+          {
+            name: "themes",
+            scenario: "themes",
+            title: "Themes",
+            statusMode: "CMD",
+            promptMode: ":",
+            promptText: "theme laravel",
+            items: themes.map((theme) => ({ label: theme.name, detail: theme.description, theme })),
+          },
+          {
+            name: "files",
+            scenario: "files",
+            title: "Files",
+            statusMode: "FILE",
+            promptMode: "",
+            promptText: "src/Fedit/",
+            items: [
+              { label: "Themes.fs", detail: "src/Fedit/Themes.fs", badge: "fs" },
+              { label: "Color.fs", detail: "src/Fedit/Color.fs", badge: "fs" },
+              { label: "View.fs", detail: "src/Fedit/View.fs", badge: "fs" },
+              { label: "Config.fs", detail: "src/Fedit/Config.fs", badge: "fs" },
+            ],
+          },
+          {
+            name: "search",
+            scenario: "find",
+            title: "Find",
+            statusMode: "FIND",
+            promptMode: "/",
+            promptText: "derive",
+            items: [
+              { label: "match 1/5", detail: "line 152: Theme.derive {", badge: "1/5" },
+              { label: "match 2/5", detail: "line 158: Oklab.darken accent", badge: "2/5" },
+              { label: "match 3/5", detail: "line 160: Oklab.over accent", badge: "3/5" },
+            ],
+          },
+          {
+            name: "buffers",
+            scenario: "buffers",
+            title: "Buffers",
+            statusMode: "BUF",
+            promptMode: "@",
+            promptText: "themes",
+            items: [
+              { label: "1 Themes.fs", detail: "src/Fedit/Themes.fs", badge: "open" },
+              { label: "2 stolen-ideas.md", detail: "docs/superpowers/plans/revised-theme-system", badge: "doc" },
+              { label: "3 prototype-v2.html", detail: "docs/superpowers/plans/revised-theme-system", badge: "html" },
+            ],
+          },
+          {
+            name: "commands",
+            scenario: "commands",
+            title: "Commands",
+            statusMode: "CMD",
+            promptMode: ":",
+            promptText: "theme ",
+            items: [
+              { label: "theme <name>", detail: "Switch theme with live preview.", badge: "cmd" },
+              { label: "theme derive", detail: "Regenerate tokens from authored inputs.", badge: "cmd" },
+              { label: "theme export", detail: "Write the full token set to JSON.", badge: "cmd" },
+            ],
+          },
+          {
+            name: "command-empty",
+            scenario: "empty",
+            title: "Commands",
+            statusMode: "CMD",
+            promptMode: ":",
+            promptText: "",
+            items: [
+              { label: "open <path>", detail: "Open a workspace file.", badge: "cmd" },
+              { label: "write", detail: "Save the active buffer.", badge: "cmd" },
+              { label: "theme <name>", detail: "Switch theme with live preview.", badge: "cmd" },
+              { label: "config", detail: "Open ~/.config/fedit/config.json.", badge: "cmd" },
+            ],
+          },
+          {
+            name: "command-pending",
+            scenario: "pending",
+            title: "Commands",
+            statusMode: "CMD",
+            promptMode: ":",
+            promptText: "theme ",
+            items: [{ label: "Theme name required.", detail: "Tab through the theme list or keep typing.", badge: "pending" }],
+          },
+          {
+            name: "command-invalid",
+            scenario: "invalid",
+            title: "Commands",
+            statusMode: "CMD",
+            promptMode: ":",
+            promptText: "thene laravel",
+            items: [{ label: "Unknown command 'thene'.", detail: "Closest command is theme <name>.", badge: "invalid" }],
+          },
+          {
+            name: "goto",
+            scenario: "goto",
+            title: "Goto",
+            statusMode: "CMD",
+            promptMode: ":",
+            promptText: "152:18",
+            items: [{ label: "Jump to line 152, column 18.", detail: "Press Enter to move the cursor.", badge: "ready" }],
+          },
+          {
+            name: "recent",
+            scenario: "recent",
+            title: "Recent",
+            statusMode: "FILE",
+            promptMode: "",
+            promptText: "theme",
+            items: [
+              { label: "docs/superpowers/plans/revised-theme-system/stolen-ideas.md", detail: "recent", badge: "md" },
+              { label: "docs/superpowers/plans/revised-theme-system/prototype-v2.html", detail: "recent", badge: "html" },
+              { label: "brand/themes/laravel.json", detail: "recent", badge: "json" },
+            ],
+          },
+          {
+            name: "search-empty",
+            scenario: "no matches",
+            title: "Find",
+            statusMode: "FIND",
+            promptMode: "/",
+            promptText: "purple",
+            items: [{ label: "no matches", detail: "Search stays open; keep typing or Escape.", badge: "0/0" }],
+          },
+        ];
+
+        const previewModes = [
+          { label: "themes", states: [0] },
+          { label: "files", states: [1, 9] },
+          { label: "find", states: [2, 10] },
+          { label: "buffers", states: [3] },
+          { label: "commands", states: [4, 5, 6, 7] },
+          { label: "goto", states: [8] },
+        ];
+
+        const allTokens = [
+          "--fedit-accent-fg",
+          "--fedit-editor-fg",
+          "--fedit-editor-bg",
+          "--fedit-editor-line-active-fg",
+          "--fedit-editor-line-active-bg",
+          "--fedit-editor-selection-fg",
+          "--fedit-editor-selection-bg",
+          "--fedit-gutter-fg",
+          "--fedit-gutter-bg",
+          "--fedit-gutter-active-fg",
+          "--fedit-gutter-active-bg",
+          "--fedit-sidebar-fg",
+          "--fedit-sidebar-bg",
+          "--fedit-sidebar-border-fg",
+          "--fedit-sidebar-selected-fg",
+          "--fedit-sidebar-selected-bg",
+          "--fedit-status-fg",
+          "--fedit-status-bg",
+          "--fedit-prompt-fg",
+          "--fedit-prompt-bg",
+          "--fedit-dock-fg",
+          "--fedit-dock-bg",
+          "--fedit-dock-title-fg",
+          "--fedit-dock-border-fg",
+          "--fedit-dock-selected-fg",
+          "--fedit-dock-selected-bg",
+          "--fedit-completion-theme-swatch-border",
+          "--fedit-syntax-keyword-fg",
+          "--fedit-syntax-string-fg",
+          "--fedit-syntax-comment-fg",
+          "--fedit-syntax-function-fg",
+          "--fedit-syntax-type-fg",
+        ];
+
+        return {
+          themes,
+          commandStates,
+          previewModes,
+          allTokens,
+          activeTheme: {
+            name: themes[defaultIndex].name,
+            description: themes[defaultIndex].description,
+            appearance: themes[defaultIndex].appearance,
+            inputs: { ...themes[defaultIndex].inputs },
+            vars: { ...themes[defaultIndex].vars },
+          },
+          sidebarVisible: true,
+          sidebarDock: "left",
+          expandedFolders: ["src", "src-fedit", "src-cli", "docs", "docs-plans", "brand", "brand-themes", "website", "website-pages"],
+          nerdFonts: false,
+          commandBarOpen: true,
+          commandIndex: 0,
+          modeIndex: 0,
+          selectedCompletion: defaultIndex,
+          colorFilter: "",
+          originFilter: "all",
+          promptText: commandStates[0].promptText,
+          treeEntries: [
+            {
+              id: "src",
+              name: "src",
+              directory: true,
+              children: [
+                {
+                  id: "src-fedit",
+                  name: "Fedit",
+                  directory: true,
+                  children: [
+                    { id: "themes-fs", name: "Themes.fs", selected: true },
+                    { id: "color-fs", name: "Color.fs" },
+                    { id: "view-fs", name: "View.fs" },
+                    { id: "editor-fs", name: "Editor.fs" },
+                    { id: "commands-fs", name: "Commands.fs" },
+                    { id: "prompt-fs", name: "Prompt.fs" },
+                    { id: "config-fs", name: "Config.fs" },
+                    { id: "highlight-fs", name: "Highlight.fs" },
+                    { id: "program-fs", name: "Program.fs" },
+                  ],
+                },
+                {
+                  id: "src-cli",
+                  name: "Cli",
+                  directory: true,
+                  children: [
+                    { id: "cli-fs", name: "Cli.fs" },
+                    { id: "plugins-fs", name: "Commands/Plugins.fs" },
+                    { id: "completions-fs", name: "Commands/Completions.fs" },
+                  ],
+                },
+              ],
+            },
+            {
+              id: "docs",
+              name: "docs",
+              directory: true,
+              children: [
+                { id: "docs-plugins", name: "plugins.md" },
+                {
+                  id: "docs-plans",
+                  name: "superpowers/plans",
+                  directory: true,
+                  children: [
+                    { id: "stolen-ideas", name: "revised-theme-system/stolen-ideas.md" },
+                    { id: "revised-readme", name: "revised-theme-system/README.md" },
+                    { id: "proto-v2", name: "revised-theme-system/prototype-v2.html" },
+                  ],
+                },
+              ],
+            },
+            {
+              id: "brand",
+              name: "brand",
+              directory: true,
+              children: [
+                {
+                  id: "brand-themes",
+                  name: "themes",
+                  directory: true,
+                  children: [
+                    { id: "github-light-json", name: "github-light.json" },
+                    { id: "schibsted-json", name: "schibsted.json" },
+                    { id: "laravel-json", name: "laravel.json" },
+                    { id: "verdandi-json", name: "verdandi-alter.json" },
+                  ],
+                },
+              ],
+            },
+            {
+              id: "website",
+              name: "website",
+              directory: true,
+              children: [
+                {
+                  id: "website-pages",
+                  name: "src/pages",
+                  directory: true,
+                  children: [
+                    { id: "themes-astro", name: "themes.astro" },
+                    { id: "index-astro", name: "index.astro" },
+                  ],
+                },
+              ],
+            },
+          ],
+          init() {
+            this.applyTheme(themes[defaultIndex]);
+          },
+          authoredInputs() {
+            return Object.entries(this.activeTheme.inputs).map(([label, value]) => ({ label, value }));
+          },
+          derivedCount() {
+            return this.allTokens.length;
+          },
+          isAuthored(token) {
+            return authoredTokens.has(token);
+          },
+          visibleTreeEntries() {
+            const entries = [];
+            const walk = (nodes, depth) => {
+              nodes.forEach((node) => {
+                const expanded = node.directory && this.expandedFolders.includes(node.id);
+                entries.push({ ...node, depth, expanded });
+                if (expanded) walk(node.children || [], depth + 1);
+              });
+            };
+            walk(this.treeEntries, 0);
+            return entries;
+          },
+          toggleTreeEntry(entry) {
+            if (!entry.directory) return;
+            if (this.expandedFolders.includes(entry.id)) {
+              this.expandedFolders = this.expandedFolders.filter((id) => id !== entry.id);
+            } else {
+              this.expandedFolders = [...this.expandedFolders, entry.id];
+            }
+          },
+          treeMarker(entry) {
+            if (this.nerdFonts) {
+              if (entry.directory) return entry.expanded ? "" : "";
+              if (entry.name.endsWith(".fs")) return "";
+              if (entry.name.endsWith(".html")) return "";
+              if (entry.name.endsWith(".astro")) return "";
+              if (entry.name.endsWith(".json")) return "";
+              if (entry.name.endsWith(".md")) return "";
+              return "";
+            }
+            if (entry.directory) return entry.expanded ? "[-]" : "[+]";
+            return "";
+          },
+          currentCommandState() {
+            return this.commandStates[this.commandIndex];
+          },
+          dockTitle() {
+            const state = this.currentCommandState();
+            return ` ${state.title} (${this.selectedCompletion + 1}/${state.items.length}) `;
+          },
+          currentMode() {
+            return this.previewModes[this.modeIndex];
+          },
+          currentVariantLabel() {
+            return this.currentCommandState().scenario;
+          },
+          setPreviewMode(index) {
+            this.modeIndex = index;
+            this.setCommandState(this.currentMode().states[0]);
+          },
+          cyclePreviewVariant() {
+            const mode = this.currentMode();
+            const currentIndex = Math.max(0, mode.states.indexOf(this.commandIndex));
+            const nextIndex = (currentIndex + 1) % mode.states.length;
+            this.setCommandState(mode.states[nextIndex]);
+          },
+          setCommandState(index) {
+            this.commandBarOpen = true;
+            this.commandIndex = index;
+            this.selectedCompletion = Math.min(2, this.currentCommandState().items.length - 1);
+            this.promptText = this.currentCommandState().promptText;
+          },
+          toggleSidebarDock() {
+            this.sidebarDock = this.sidebarDock === "left" ? "right" : "left";
+          },
+          selectCompletion(index) {
+            this.selectedCompletion = index;
+            const item = this.currentCommandState().items[index];
+            if (item && item.theme) this.applyTheme(item.theme);
+          },
+          applyTheme(theme) {
+            this.activeTheme = {
+              name: theme.name,
+              description: theme.description,
+              appearance: theme.appearance,
+              inputs: { ...theme.inputs },
+              vars: { ...theme.vars },
+            };
+            for (const [key, value] of Object.entries(this.activeTheme.vars)) {
+              document.documentElement.style.setProperty(key, value);
+            }
+            document.documentElement.style.setProperty("--stage-bg", theme.stageBg);
+          },
+          applyThemeByName(name) {
+            const theme = this.themes.find((item) => item.name === name);
+            if (theme) this.applyTheme(theme);
+          },
+          setVar(token, value) {
+            this.activeTheme.vars[token] = value;
+            document.documentElement.style.setProperty(token, value);
+          },
+          filteredTokens() {
+            const query = this.colorFilter.trim().toLowerCase();
+            return this.allTokens.filter((token) => {
+              if (query && !token.toLowerCase().includes(query)) return false;
+              if (this.originFilter === "authored") return authoredTokens.has(token);
+              if (this.originFilter === "derived") return !authoredTokens.has(token);
+              return true;
+            });
+          },
+          computedToken(token) {
+            return getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+          },
+        };
+      }
+    </script>
+  </body>
+</html>
