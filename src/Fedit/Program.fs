@@ -27,7 +27,11 @@ module Program =
           { Name = "completions"
             Aliases = []
             HiddenAliases = []
-            Summary = "Generate shell completion scripts" } ]
+            Summary = "Generate shell completion scripts" }
+          { Name = "keybinds"
+            Aliases = []
+            HiddenAliases = []
+            Summary = "Print the default keybindings" } ]
 
     let private app: CliApp<ProgramOption> =
         { Name = "fedit"
@@ -91,13 +95,14 @@ module Program =
           Summary = app.Summary
           Positionals = app.Positionals
           Options = app.Options |> List.map Parser.toOptionDescriptor
-          Subcommands = [ Plugins.descriptor; Completions.descriptor ] }
+          Subcommands = [ Plugins.descriptor; Completions.descriptor; Keybinds.descriptor ] }
 
     [<EntryPoint>]
     let main argv =
         match Parser.route subcommands argv with
         | Some("plugins", rest) -> Plugins.run rest
         | Some("completions", rest) -> Completions.run rootDescriptor rest
+        | Some("keybinds", rest) -> Keybinds.run rest
         | _ ->
 
             match Parser.parse app.Options argv with
