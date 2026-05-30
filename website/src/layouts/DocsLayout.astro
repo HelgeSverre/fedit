@@ -1,0 +1,100 @@
+---
+import Site from "./Site.astro";
+import { docsNav } from "../data/docs-nav";
+
+interface Props {
+  title?: string;
+  description?: string;
+  image?: string;
+}
+
+const { title, description, image } = Astro.props;
+const path = Astro.url.pathname.replace(/\/$/, "");
+---
+
+<Site title={title} description={description} image={image}>
+  <section class="section">
+    <div class="container docs-shell">
+      <aside class="docs-side">
+        <details class="docs-side__disclosure" open>
+          <summary>docs</summary>
+          <nav aria-label="documentation">
+            <ul>
+              {
+                docsNav.map((d) => (
+                  <li>
+                    <a href={d.href} aria-current={path === d.href ? "page" : undefined}>
+                      {d.label}
+                    </a>
+                  </li>
+                ))
+              }
+            </ul>
+          </nav>
+        </details>
+      </aside>
+      <div class="docs-body stack stack--lg">
+        <slot />
+      </div>
+    </div>
+  </section>
+</Site>
+
+<style>
+  .docs-shell {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 48px;
+    align-items: start;
+  }
+  .docs-side {
+    position: sticky;
+    top: 72px;
+  }
+  .docs-side ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .docs-side li {
+    margin: 4px 0;
+  }
+  .docs-side a {
+    display: block;
+    padding: 6px 10px;
+    border-radius: 2px;
+    color: var(--fg-muted);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    transition: color var(--t-base) var(--ease);
+  }
+  .docs-side a:hover {
+    color: var(--fg);
+  }
+  .docs-side a[aria-current="page"] {
+    color: var(--fg);
+    border-left-color: var(--accent);
+  }
+  .docs-side a:focus-visible {
+    outline: 3px solid var(--accent-soft);
+    outline-offset: 2px;
+  }
+  .docs-side__disclosure > summary {
+    display: none;
+  }
+  @media (max-width: 720px) {
+    .docs-shell {
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+    .docs-side {
+      position: static;
+    }
+    .docs-side__disclosure > summary {
+      display: block;
+      cursor: pointer;
+      font-family: var(--font-departure-mono);
+      padding: 8px 0;
+    }
+  }
+</style>
