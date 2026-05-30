@@ -1,6 +1,8 @@
 ---
 import DocsLayout from "../../layouts/DocsLayout.astro";
-const filters = ["all", "global", "editor", "sidebar", "prompt"];
+import keybindings from "../../data/keybindings.json";
+const contexts = [...new Set(keybindings.map((k) => k.context))].sort();
+const filters = ["all", ...contexts];
 ---
 
 <DocsLayout
