@@ -51,6 +51,14 @@ lint: deps-if-needed
     bun x oxfmt --check "**/*.{ts,tsx,css,md,mjs,json}"
     bun x prettier --check "**/*.astro"
 
+# Regenerate src/data/keybindings.json from the F# default keymap.
+# Run after changing Keymap.defaults; the JSON is committed so site
+# builds don't require the fedit binary.
+[group('build')]
+gen-keybinds:
+    PATH="$PWD/../.dotnet:$PATH" dotnet build ../src/Fedit/Fedit.fsproj --nologo >/dev/null
+    PATH="$PWD/../.dotnet:$PATH" dotnet run --project ../src/Fedit/Fedit.fsproj --no-build -- keybinds --json > src/data/keybindings.json
+
 # Remove build artifacts
 [group('build')]
 clean:
