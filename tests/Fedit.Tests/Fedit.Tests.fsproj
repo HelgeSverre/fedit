@@ -18,6 +18,7 @@
     <Compile Include="UpdateTests.fs" />
     <Compile Include="InputTests.fs" />
     <Compile Include="KeymapTests.fs" />
+    <Compile Include="KeybindsCliTests.fs" />
     <Compile Include="Snapshot.fs" />
     <Compile Include="SnapshotTests.fs" />
     <Compile Include="BinarySmokeTests.fs" />
