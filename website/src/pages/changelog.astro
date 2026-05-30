@@ -1,0 +1,71 @@
+---
+import Site from "../layouts/Site.astro";
+import { changelog } from "../data/changelog";
+---
+
+<Site title="changelog" description="What shipped in fedit, phase by phase.">
+  <section class="section">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h1>changelog</h1>
+        <p class="section__lede">
+          What shipped, newest first. fedit's history is a phase-based log — full record in <a
+            href="https://github.com/HelgeSverre/fedit/releases">GitHub releases</a
+          >.
+        </p>
+      </div>
+      {
+        changelog.map((entry) => (
+          <section class="cl-entry">
+            <h2>
+              {entry.version}
+              {entry.date && <span class="cl-date">{entry.date}</span>}
+            </h2>
+            {entry.sections.map((s) => (
+              <div class="cl-section">
+                <h3>{s.type}</h3>
+                <ul>
+                  {s.items.map((i) => (
+                    <li>{i}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </section>
+        ))
+      }
+    </div>
+  </section>
+</Site>
+
+<style>
+  .cl-entry {
+    border-top: 1px solid var(--border);
+    padding-top: 24px;
+  }
+  .cl-entry h2 {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-family: var(--font-departure-mono);
+  }
+  .cl-date {
+    font-size: 13px;
+    color: var(--fg-subtle);
+    font-family: var(--font-jetbrains-mono);
+  }
+  .cl-section h3 {
+    font-size: 13px;
+    text-transform: lowercase;
+    color: var(--fg-muted);
+    margin-bottom: 4px;
+  }
+  .cl-section ul {
+    margin: 0 0 16px;
+    padding-left: 20px;
+    color: var(--fg-muted);
+  }
+  .cl-section li {
+    margin: 4px 0;
+  }
+</style>
