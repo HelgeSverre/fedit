@@ -1,0 +1,1199 @@
+---
+import Site from "../layouts/Site.astro";
+import TuiFrame from "../components/TuiFrame.astro";
+
+const stats = [
+  { value: "5", label: "reference plugins" },
+  { value: "12", label: "lines for the smallest" },
+  { value: "0", label: "IPC, schemas, JSON shapes" },
+  { value: "1", label: ".fs file required" },
+];
+
+const actions = [
+  {
+    name: "Notify",
+    arg: "Severity * string",
+    use: "Report a result; no buffer change.",
+    sample: `[ Notify(Info, $"{n} words") ]`,
+  },
+  {
+    name: "InsertText",
+    arg: "string",
+    use: "Add text at the cursor — timestamps, snippets, UUIDs.",
+    sample: `[ InsertText "[\\(stamp)\\] " ]`,
+  },
+  {
+    name: "ReplaceSelection",
+    arg: "string",
+    use: "Replace selected text (inserts if no selection).",
+    sample: `[ ReplaceSelection "kebab-cased" ]`,
+  },
+  {
+    name: "MoveCursor",
+    arg: "{ Line; Column }",
+    use: "Jump the cursor to a 1-based position.",
+    sample: `[ MoveCursor { Line = 42; Column = 7 } ]`,
+  },
+  {
+    name: "OpenFile",
+    arg: "string",
+    use: "Open a file relative to the workspace root.",
+    sample: `[ OpenFile "src/Main.fs" ]`,
+  },
+  {
+    name: "SaveActiveBuffer",
+    arg: "—",
+    use: "Trigger the same save path as :write.",
+    sample: `[ SaveActiveBuffer ]`,
+  },
+  {
+    name: "RunCommand",
+    arg: "string",
+    use: "Chain into a built-in (or another plugin) by name.",
+    sample: `[ RunCommand "open foo.fs" ]`,
+  },
+  {
+    name: "SetClipboard",
+    arg: "string",
+    use: "Copy text to the system clipboard.",
+    sample: `[ SetClipboard buffer.Text ]`,
+  },
+];
+
+const lifecycle = [
+  {
+    stage: "SCAN",
+    file: "Plugins.discover",
+    desc: "List every <name>/ under ~/.config/fedit/plugins/ and parse its plugin.json.",
+  },
+  {
+    stage: "BUILD",
+    file: "Plugins.build",
+    desc: "If the DLL is missing or older than any .fs, run dotnet build -c Release.",
+  },
+  {
+    stage: "LOAD",
+    file: "AssemblyLoadContext",
+    desc: "Each plugin gets its own ALC so it can't poison the host's type identity.",
+  },
+  {
+    stage: "REGISTER",
+    file: "register(collector)",
+    desc: "Call the plugin's entry point with a collector implementing IPluginHost.",
+  },
+];
+
+const examples = [
+  {
+    name: "wordcount",
+    command: ":wc",
+    blurb: "Count words in the active buffer.",
+    uses: "Notify",
+    preview: `let n =
+    ctx.ActiveBuffer.Text.Split(
+        [| ' '; '\\t'; '\\n'; '\\r' |], ...)
+    |> Array.length
+[ Notify(Info, $"{n} words") ]`,
+  },
+  {
+    name: "journal",
+    command: ":journal",
+    blurb: "Insert a [YYYY-MM-DD HH:MM] stamp at the cursor.",
+    uses: "InsertText + Notify",
+    preview: `let stamp =
+    DateTime.Now.ToString("yyyy-MM-dd HH:mm")
+[ InsertText $"[\\(stamp)\\] "
+  Notify(Info, $"Stamped \\(stamp)") ]`,
+  },
+  {
+    name: "todo-count",
+    command: ":todocount",
+    blurb: "Walk the workspace, count lines containing TODO:.",
+    uses: "Notify",
+    preview: `for line in File.ReadLines file do
+    if line.Contains "TODO:" then
+        count <- count + 1
+[ Notify(Info, $"{count} TODOs") ]`,
+  },
+  {
+    name: "todo-list",
+    command: ":todolist",
+    blurb: "List every TODO: as path:line: text in the dock (cap 50).",
+    uses: "Notify (multi-line)",
+    preview: `let rel = Path.GetRelativePath(root, file)
+results.Add $"{rel}:{lineNo}: {line.Trim()}"
+...
+let body = String.Join("\\n", results)
+[ Notify(Info, body) ]`,
+  },
+  {
+    name: "todo-next",
+    command: ":todonext",
+    blurb: "Jump cursor to the next TODO: in the buffer; wraps.",
+    uses: "MoveCursor + RegisterKeybinding",
+    preview: `[ MoveCursor { Line = lineNo; Column = col }
+  Notify(Info, $"TODO at line {lineNo}") ]
+// at register time:
+host.RegisterKeybinding(KeyChord.Ctrl 't', "todonext")`,
+  },
+];
+
+const verbs = [
+  { v: "list", arg: "", desc: "Show plugins with status (ok / disabled / FAIL)." },
+  { v: "install", arg: "<url-or-path>", desc: "Folder, git URL, or .zip — auto-detected." },
+  { v: "remove", arg: "<name>", desc: "Delete the plugin folder and rescan." },
+  { v: "reload", arg: "", desc: "Rescan disk; rebuilds anything stale." },
+  {
+    v: "validate",
+    arg: "<path>",
+    desc: "Dry-run: parse the manifest, report what would register.",
+  },
+];
+---
+
+<Site
+  title="developer"
+  description="Build fedit plugins in F#. Five-minute quickstart, the eight PluginAction types you can return, and five reference implementations under examples/."
+  image="/og/developer.png"
+>
+  <!-- =============================================================== -->
+  <!-- HERO                                                            -->
+  <!-- =============================================================== -->
+  <section class="section hero">
+    <div class="container hero-grid">
+      <div class="hero-text">
+        <p class="eyebrow">plugin api · v1</p>
+        <h1>Extend the editor in F#.</h1>
+        <p class="lede">
+          Plugins register <span class="accent-word">commands</span> and
+          <span class="accent-word">keybindings</span>. They live in <code
+            >~/.config/fedit/plugins/</code
+          >, build lazily on first launch, and run in-process against a read-only snapshot of the
+          workspace.
+        </p>
+        <p class="meta">
+          No JSON manifests beyond the bare minimum. No IPC. No schema. Just a function.
+        </p>
+        <p class="hero-actions">
+          <a class="cta-primary" href="#quickstart">Quick start</a>
+          <a
+            class="cta-secondary"
+            href="https://github.com/HelgeSverre/fedit/tree/main/examples"
+            target="_blank"
+            rel="noopener">Browse examples</a
+          >
+        </p>
+      </div>
+      <div class="hero-pair">
+        <TuiFrame label="examples/wordcount/Plugin.fs"
+          ><Fragment
+            set:html={`<span class="muted">module</span> Plugin =
+    <span class="muted">let</span> register (host: IPluginHost) =
+        host.RegisterCommand
+            { Name = <span class="accent">"wc"</span>
+              Usage = <span class="accent">"wc"</span>
+              Summary = <span class="accent">"Count words..."</span>
+              Run = <span class="muted">fun</span> ctx -&gt;
+                  <span class="muted">let</span> n = ctx.ActiveBuffer.Text.Split(...).Length
+                  [ Notify(Info, <span class="accent">$"{n} words"</span>) ] }`}
+          /></TuiFrame
+        >
+        <div class="hero-arrow" aria-hidden="true">↓</div>
+        <TuiFrame label="fedit . — :wc"
+          ><Fragment
+            set:html={`<span class="dim">┌─ src/Main.fs ──────────────────────────────────────┐</span>
+<span class="dim">│</span>   1  <span class="muted">module</span> Main                                    <span class="dim">│</span>
+<span class="dim">│</span>   2                                                  <span class="dim">│</span>
+<span class="dim">│</span>   3  <span class="muted">let</span> main argv = printfn <span class="accent">"hello, world"</span>    <span class="dim">│</span>
+<span class="dim">├────────────────────────────────────────────────────┤</span>
+<span class="dim">│</span> <span class="accent">^</span> <span class="muted">src/Main.fs · Ln 1 · 247 words</span>                <span class="dim">│</span>
+<span class="dim">└────────────────────────────────────────────────────┘</span>`}
+          /></TuiFrame
+        >
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- STATS BAND                                                      -->
+  <!-- =============================================================== -->
+  <section class="stats-band">
+    <div class="container">
+      <dl class="stats">
+        {
+          stats.map((s) => (
+            <div>
+              <dt>{s.value}</dt>
+              <dd>{s.label}</dd>
+            </div>
+          ))
+        }
+      </dl>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- TRUST CALLOUT                                                   -->
+  <!-- =============================================================== -->
+  <section class="section callout">
+    <div class="container">
+      <p>
+        <strong>Trust model.</strong> Plugins are full .NET code with no sandbox. They can read any file,
+        open any socket, and run any process. Treat installation like installing a shell tool — only run
+        plugins from sources you trust.
+      </p>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- QUICK START                                                     -->
+  <!-- =============================================================== -->
+  <section id="quickstart" class="section section--alt">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h2>quick start</h2>
+        <p class="section__lede">
+          From zero to running plugin in three commands and three keystrokes.
+        </p>
+      </div>
+
+      <ol class="steps">
+        <li>
+          <span class="step-num">01</span>
+          <div>
+            <h3>Drop a plugin into the plugins directory</h3>
+            <pre class="block"
+              ><span class="dim">$</span> mkdir -p ~/.config/fedit/plugins
+<span class="dim">$</span> cp -R examples/wordcount ~/.config/fedit/plugins/
+<span class="dim">$</span> ./fedit .</pre
+            >
+            <p class="step-note">
+              On launch the host scans this directory, compiles anything stale via
+              <code>dotnet build -c Release</code>, and caches the resulting DLL alongside the
+              source.
+            </p>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">02</span>
+          <div>
+            <h3>Open the prompt and reload</h3>
+            <p>
+              Inside fedit: <kbd>Ctrl+P</kbd> → type <code>plugin reload</code>. The dock confirms
+              which plugins loaded and surfaces any build failures with the exact compiler output.
+            </p>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">03</span>
+          <div>
+            <h3>Run your plugin's command</h3>
+            <p>
+              Type <code>wc</code> and hit <kbd>Enter</kbd>. The active buffer's word count appears
+              in the notification dock. That's it.
+            </p>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- ANATOMY                                                         -->
+  <!-- =============================================================== -->
+  <section class="section">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h2>anatomy of a plugin</h2>
+        <p class="section__lede">
+          The whole authoring surface fits in twelve lines. Numbered callouts on the right point to
+          each piece's role.
+        </p>
+      </div>
+
+      <div class="anatomy">
+        <div class="anatomy-code">
+          <div class="anatomy-code__label">examples/wordcount/Plugin.fs</div>
+          <div
+            class="anatomy-code__body"
+            set:html={`<div class="aline"><span class="ln"><span class="muted">namespace</span> Wordcount</span><span class="badge">1</span></div>
+<div class="aline"><span class="ln"> </span></div>
+<div class="aline"><span class="ln"><span class="muted">open</span> Fedit.PluginApi</span><span class="badge">2</span></div>
+<div class="aline"><span class="ln"> </span></div>
+<div class="aline"><span class="ln"><span class="muted">module</span> Plugin =</span><span class="badge">3</span></div>
+<div class="aline"><span class="ln">    <span class="muted">let</span> register (host: IPluginHost) =</span><span class="badge">4</span></div>
+<div class="aline"><span class="ln">        host.RegisterCommand</span></div>
+<div class="aline"><span class="ln">            { Name = <span class="accent">"wc"</span></span><span class="badge">5</span></div>
+<div class="aline"><span class="ln">              Usage = <span class="accent">"wc"</span></span></div>
+<div class="aline"><span class="ln">              Summary = <span class="accent">"Count words..."</span></span></div>
+<div class="aline"><span class="ln">              Run = <span class="muted">fun</span> ctx -&gt;</span><span class="badge">6</span></div>
+<div class="aline"><span class="ln">                  <span class="muted">let</span> n = ctx.ActiveBuffer.Text.Split(...).Length</span></div>
+<div class="aline"><span class="ln">                  [ Notify(Info, <span class="accent">$"{n} words"</span>) ] }</span><span class="badge">7</span></div>`}
+          />
+        </div>
+
+        <ol class="anatomy-notes">
+          <li>
+            <span class="num">1</span>
+            <div>
+              <strong>Namespace.</strong> Becomes the prefix in <code>entryType</code>. Matches
+              <code>plugin.json</code>'s <code>"entryType": "Wordcount.Plugin"</code>.
+            </div>
+          </li>
+          <li>
+            <span class="num">2</span>
+            <div>
+              <strong>Open the contract.</strong> All API types live in
+              <code>Fedit.PluginApi</code>. Single import — no transitive editor types leak.
+            </div>
+          </li>
+          <li>
+            <span class="num">3</span>
+            <div>
+              <strong>Entry module.</strong> The host loads this module by name from the manifest.
+            </div>
+          </li>
+          <li>
+            <span class="num">4</span>
+            <div>
+              <strong>register.</strong> Called once at plugin load. Synchronous; must not throw. Exceptions
+              mark the plugin as <code>Failed</code> and the host continues.
+            </div>
+          </li>
+          <li>
+            <span class="num">5</span>
+            <div>
+              <strong>Command name.</strong> Users invoke as <code>:wc</code>. Tab-completes
+              alongside built-ins. Collisions with built-ins drop the plugin's command.
+            </div>
+          </li>
+          <li>
+            <span class="num">6</span>
+            <div>
+              <strong>Handler.</strong> Runs each invocation with a fresh <code>PluginContext</code>
+              snapshot — active buffer text, cursor, all open buffers, workspace root. Never live state.
+            </div>
+          </li>
+          <li>
+            <span class="num">7</span>
+            <div>
+              <strong>Return value.</strong> A <code>PluginAction list</code>. The host translates
+              each action into a core editor effect (notification, buffer mutation, file open, …).
+            </div>
+          </li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- LIFECYCLE                                                       -->
+  <!-- =============================================================== -->
+  <section class="section section--alt">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h2>lifecycle</h2>
+        <p class="section__lede">
+          What happens between <code>./fedit .</code> and your <code>register</code> function getting
+          called. Triggered manually via <code>:plugin reload</code>.
+        </p>
+      </div>
+
+      <ol class="pipeline">
+        {
+          lifecycle.map((stage, i) => (
+            <li>
+              <header>
+                <span class="pipeline-step">{String(i + 1).padStart(2, "0")}</span>
+                <h3>{stage.stage}</h3>
+              </header>
+              <code class="pipeline-ref">{stage.file}</code>
+              <p>{stage.desc}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- ACTIONS                                                         -->
+  <!-- =============================================================== -->
+  <section class="section">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h2>actions</h2>
+        <p class="section__lede">
+          A plugin's <code>Run</code> function returns a list of these. The host applies them in order
+          — pick the right one for the effect you want.
+        </p>
+      </div>
+
+      <div class="action-grid">
+        {
+          actions.map((a) => (
+            <article class="action">
+              <header>
+                <code class="action-name">{a.name}</code>
+                <span class="action-arg">{a.arg}</span>
+              </header>
+              <p class="action-use">{a.use}</p>
+              <pre class="action-sample">{a.sample}</pre>
+            </article>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- EXAMPLES                                                        -->
+  <!-- =============================================================== -->
+  <section class="section section--alt">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h2>five reference plugins</h2>
+        <p class="section__lede">
+          Each demonstrates a different combination of actions. Source under
+          <code>examples/</code> — copy any folder to <code>~/.config/fedit/plugins/</code> and it'll
+          build on the next launch.
+        </p>
+      </div>
+
+      <div class="example-grid">
+        {
+          examples.map((ex) => (
+            <article class="example">
+              <header>
+                <code class="example-cmd">{ex.command}</code>
+                <span class="example-name">{ex.name}</span>
+              </header>
+              <p class="example-blurb">{ex.blurb}</p>
+              <pre class="example-preview">{ex.preview}</pre>
+              <footer>
+                <span class="example-tag">{ex.uses}</span>
+                <a
+                  class="example-link"
+                  href={`https://github.com/HelgeSverre/fedit/tree/main/examples/${ex.name}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  source →
+                </a>
+              </footer>
+            </article>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- :plugin VERBS                                                   -->
+  <!-- =============================================================== -->
+  <section class="section">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h2>the :plugin command</h2>
+        <p class="section__lede">
+          One built-in command with verb dispatch. Tab completion suggests verbs first, then
+          arguments.
+        </p>
+      </div>
+
+      <dl class="verb-grid">
+        {
+          verbs.map((v) => (
+            <div class="verb">
+              <dt>
+                <code>
+                  :plugin {v.v}
+                  {v.arg ? ` ${v.arg}` : ""}
+                </code>
+              </dt>
+              <dd>{v.desc}</dd>
+            </div>
+          ))
+        }
+      </dl>
+    </div>
+  </section>
+
+  <!-- =============================================================== -->
+  <!-- FINAL CTA                                                       -->
+  <!-- =============================================================== -->
+  <section class="section section--alt finale">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h2>build your own</h2>
+        <p class="section__lede">
+          Pick where to start — full reference, working code, or the contract itself.
+        </p>
+      </div>
+
+      <div class="finale-grid">
+        <a
+          class="finale-card"
+          href="https://github.com/HelgeSverre/fedit/blob/main/docs/plugins.md"
+        >
+          <h3>The author guide</h3>
+          <p>
+            Manifest reference, every type, conflict policy, debugging tips, distribution
+            conventions.
+          </p>
+          <span class="finale-link">docs/plugins.md →</span>
+        </a>
+        <a class="finale-card" href="https://github.com/HelgeSverre/fedit/tree/main/examples">
+          <h3>The examples</h3>
+          <p>
+            Five plugins ranging from 12 to ~80 lines. Copy any one as your starting skeleton —
+            they're all MIT-licensed.
+          </p>
+          <span class="finale-link">examples/ →</span>
+        </a>
+        <a
+          class="finale-card"
+          href="https://github.com/HelgeSverre/fedit/tree/main/src/Fedit.PluginApi"
+        >
+          <h3>The PluginApi source</h3>
+          <p>Two short files. No magic, no allocations, no surprises — read it in five minutes.</p>
+          <span class="finale-link">src/Fedit.PluginApi/ →</span>
+        </a>
+      </div>
+    </div>
+  </section>
+</Site>
+
+<style>
+  /* =============================================================== */
+  /* HERO                                                            */
+  /* =============================================================== */
+  .hero {
+    padding-top: var(--space-6);
+    padding-bottom: var(--space-5);
+  }
+
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 50% 50%;
+    gap: var(--space-5);
+    align-items: start;
+  }
+
+  @media (max-width: 900px) {
+    .hero-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .eyebrow {
+    font-family: var(--font-jetbrains-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 var(--space-2);
+  }
+
+  .hero h1 {
+    margin-bottom: var(--space-3);
+  }
+
+  .lede {
+    font-family: var(--font-departure-mono);
+    font-size: clamp(16px, 2.1vw, 18px);
+    line-height: 1.55;
+    max-width: 52ch;
+    color: var(--fg);
+    margin: 0 0 var(--space-2);
+  }
+
+  .meta {
+    color: var(--fg-muted);
+    font-size: 13px;
+    margin: 0 0 var(--space-4);
+    max-width: 52ch;
+  }
+
+  .accent-word {
+    color: var(--accent);
+  }
+
+  .hero-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin: 0;
+  }
+
+  .hero-pair {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: stretch;
+  }
+
+  .hero-arrow {
+    color: var(--accent);
+    font-family: var(--font-departure-mono);
+    font-size: 20px;
+    text-align: center;
+    line-height: 1;
+    opacity: 0.7;
+  }
+
+  /* =============================================================== */
+  /* STATS BAND                                                      */
+  /* =============================================================== */
+  .stats-band {
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: var(--space-3) 0;
+    background: var(--surface-2);
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: var(--space-3);
+    margin: 0;
+  }
+
+  .stats div {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .stats dt {
+    font-family: var(--font-departure-mono);
+    font-size: clamp(28px, 4vw, 40px);
+    color: var(--accent);
+    line-height: 1;
+    margin: 0;
+  }
+
+  .stats dd {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+
+  /* =============================================================== */
+  /* TRUST CALLOUT                                                   */
+  /* =============================================================== */
+  .callout {
+    padding: var(--space-4) 0;
+    border-top: none;
+  }
+
+  .callout p {
+    color: var(--fg);
+    border-left: 3px solid var(--accent);
+    padding: var(--space-1) var(--space-3);
+    margin: 0;
+    max-width: 80ch;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .callout strong {
+    color: var(--accent);
+  }
+
+  /* =============================================================== */
+  /* QUICK START                                                     */
+  /* =============================================================== */
+  .steps {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  .steps li {
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    gap: var(--space-3);
+    align-items: flex-start;
+  }
+
+  .step-num {
+    font-family: var(--font-departure-mono);
+    font-size: 28px;
+    color: var(--accent);
+    line-height: 1;
+  }
+
+  .steps h3 {
+    margin: 0 0 var(--space-2);
+    color: var(--fg);
+    text-transform: none;
+    font-size: 16px;
+  }
+
+  .steps p,
+  .step-note {
+    color: var(--fg-muted);
+    max-width: 65ch;
+    margin: var(--space-2) 0 0;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  pre.block {
+    max-width: 720px;
+  }
+
+  /* =============================================================== */
+  /* ANATOMY                                                         */
+  /* =============================================================== */
+  .anatomy {
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    gap: var(--space-4);
+    align-items: start;
+  }
+
+  @media (max-width: 900px) {
+    .anatomy {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* Anatomy code block — one flex row per line so the number badges
+     right-align in a clean column regardless of line length. */
+  .anatomy-code {
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    transition: border-color var(--t-base) var(--ease);
+  }
+  .anatomy-code:hover {
+    border-color: var(--accent-soft);
+  }
+  .anatomy-code__label {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-subtle);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .anatomy-code__body {
+    padding: 16px 18px;
+    font-family: var(--font-jetbrains-mono);
+    font-size: 11px;
+    line-height: 1.55;
+    overflow-x: auto;
+  }
+  :global(.anatomy-code__body .aline) {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 1.55em;
+  }
+  :global(.anatomy-code__body .ln) {
+    white-space: pre;
+    color: var(--fg);
+  }
+  :global(.anatomy-code__body .muted) {
+    color: var(--fg-muted);
+  }
+  :global(.anatomy-code__body .accent) {
+    color: var(--accent);
+  }
+  :global(.anatomy-code__body .badge) {
+    margin-left: auto;
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
+    text-align: center;
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-family: var(--font-jetbrains-mono);
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 50%;
+  }
+
+  .anatomy-notes {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    counter-reset: anno;
+  }
+
+  .anatomy-notes li {
+    display: grid;
+    grid-template-columns: 24px 1fr;
+    gap: var(--space-2);
+    align-items: flex-start;
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .anatomy-notes li:last-child {
+    border-bottom: none;
+  }
+
+  .anatomy-notes .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-family: var(--font-jetbrains-mono);
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 50%;
+    margin-top: 1px;
+  }
+
+  .anatomy-notes div {
+    color: var(--fg-muted);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .anatomy-notes strong {
+    color: var(--fg);
+    font-weight: 500;
+  }
+
+  /* =============================================================== */
+  /* PIPELINE (lifecycle)                                            */
+  /* =============================================================== */
+  .pipeline {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-2);
+    position: relative;
+  }
+
+  @media (max-width: 800px) {
+    .pipeline {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  @media (max-width: 500px) {
+    .pipeline {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .pipeline li {
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    transition: border-color var(--t-base) var(--ease);
+  }
+
+  .pipeline li:hover {
+    border-color: var(--accent-soft);
+  }
+
+  .pipeline header {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+
+  .pipeline-step {
+    font-family: var(--font-jetbrains-mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+  }
+
+  .pipeline h3 {
+    margin: 0;
+    color: var(--fg);
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .pipeline-ref {
+    font-size: 11px;
+    color: var(--fg-subtle);
+    background: transparent;
+    border: none;
+    padding: 0;
+  }
+
+  .pipeline p {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  /* =============================================================== */
+  /* ACTIONS GRID                                                    */
+  /* =============================================================== */
+  .action-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--space-2);
+  }
+
+  .action {
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    transition: border-color var(--t-base) var(--ease);
+  }
+
+  .action:hover {
+    border-color: var(--accent-soft);
+  }
+
+  .action header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  .action-name {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--accent);
+    font-size: 14px;
+  }
+
+  .action-arg {
+    color: var(--fg-subtle);
+    font-size: 11px;
+    font-family: var(--font-jetbrains-mono);
+  }
+
+  .action-use {
+    color: var(--fg-muted);
+    font-size: 12.5px;
+    line-height: 1.55;
+    margin: 0;
+  }
+
+  .action-sample {
+    margin: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: var(--space-1) var(--space-2);
+    font-size: 11px;
+    color: var(--fg);
+    overflow-x: auto;
+  }
+
+  /* =============================================================== */
+  /* EXAMPLE CARDS                                                   */
+  /* =============================================================== */
+  .example-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: var(--space-2);
+  }
+
+  .example {
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    transition: border-color var(--t-base) var(--ease);
+  }
+
+  .example:hover {
+    border-color: var(--accent);
+  }
+
+  .example header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  .example-cmd {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 15px;
+    color: var(--accent);
+  }
+
+  .example-name {
+    font-family: var(--font-departure-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-subtle);
+  }
+
+  .example-blurb {
+    margin: 0;
+    color: var(--fg);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .example-preview {
+    margin: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: var(--space-2);
+    font-size: 11px;
+    line-height: 1.55;
+    color: var(--fg-muted);
+    overflow-x: auto;
+    flex-grow: 1;
+  }
+
+  .example footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border);
+  }
+
+  .example-tag {
+    font-family: var(--font-jetbrains-mono);
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+
+  .example-link {
+    font-family: var(--font-jetbrains-mono);
+    font-size: 11px;
+    color: var(--fg-muted);
+    text-decoration: none;
+    transition: color var(--t-base) var(--ease);
+  }
+
+  .example-link:hover {
+    color: var(--accent);
+  }
+
+  /* =============================================================== */
+  /* :plugin verbs                                                   */
+  /* =============================================================== */
+  .verb-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--space-2);
+    margin: 0;
+  }
+
+  .verb {
+    padding: var(--space-3);
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    transition: border-color var(--t-base) var(--ease);
+  }
+
+  .verb:hover {
+    border-color: var(--accent-soft);
+  }
+
+  .verb dt {
+    margin: 0 0 var(--space-1);
+  }
+
+  .verb dt code {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--accent);
+    font-size: 13px;
+  }
+
+  .verb dd {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* =============================================================== */
+  /* FINAL CTA                                                       */
+  /* =============================================================== */
+  .finale-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--space-3);
+  }
+
+  .finale-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    background: var(--surface-deep);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    text-decoration: none;
+    color: inherit;
+    transition:
+      border-color var(--t-base) var(--ease),
+      transform var(--t-fast) var(--ease);
+  }
+
+  .finale-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+
+  .finale-card h3 {
+    margin: 0;
+    color: var(--fg);
+    font-size: 18px;
+    text-transform: none;
+    letter-spacing: -0.01em;
+  }
+
+  .finale-card p {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 13px;
+    line-height: 1.55;
+    flex-grow: 1;
+  }
+
+  .finale-link {
+    color: var(--accent);
+    font-family: var(--font-jetbrains-mono);
+    font-size: 12px;
+    margin-top: auto;
+  }
+</style>
