@@ -23,7 +23,7 @@ import { changelog } from "../data/changelog";
             </h2>
             {entry.sections.map((s) => (
               <div class="cl-section">
-                <h3>{s.type}</h3>
+                {s.type !== "shipped" && <h3>{s.type}</h3>}
                 <ul>
                   {s.items.map((i) => (
                     <li>{i}</li>
