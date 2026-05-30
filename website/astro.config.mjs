@@ -6,6 +6,9 @@ import inspectClip from "astro-inspect-clip";
 // https://astro.build/config
 export default defineConfig({
   site: "https://fedit.dev",
+  redirects: {
+    "/how": "/docs/architecture",
+  },
   integrations: [sitemap(), inspectClip()],
   build: {
     inlineStylesheets: "auto",
