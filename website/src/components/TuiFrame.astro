@@ -15,31 +15,13 @@ const content = await Astro.slots.render("default");
 const trimmed = content.trimEnd();
 ---
 
-<div class={`tui-frame ${className}`} style={style}>
-  {label && <div class="tui-frame__label">{label}</div>}
+<div class={`tui-frame frame ${className}`} style={style}>
+  {label && <div class="tui-frame__label frame__label">{label}</div>}
   <pre class="tui" set:html={trimmed} />
 </div>
 
 <style>
-  .tui-frame {
-    background: var(--surface-deep);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    overflow: hidden;
-    transition: border-color var(--t-base) var(--ease);
-  }
-  .tui-frame:hover {
-    border-color: var(--accent-soft);
-  }
-  .tui-frame__label {
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--fg-subtle);
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface-2);
-  }
+  /* Frame surface + label bar come from the shared .frame in global.css. */
   pre.tui {
     margin: 0;
     border: none;

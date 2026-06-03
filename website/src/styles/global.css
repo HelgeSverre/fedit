@@ -417,6 +417,31 @@ h3 {
   border-color: var(--accent);
 }
 
+/* ----- framed box -----
+ * Bordered surface with an uppercase label bar, used for terminal-output
+ * frames (TuiFrame) and the plugin-anatomy diagram. Distinct from .card: a
+ * softer accent-soft hover and no lift. Compose with a component class that
+ * owns the body. */
+.frame {
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  transition: border-color var(--t-base) var(--ease);
+}
+.frame:hover {
+  border-color: var(--accent-soft);
+}
+.frame__label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
 /* ----- motion ----- */
 @media (prefers-reduced-motion: reduce) {
   *,
