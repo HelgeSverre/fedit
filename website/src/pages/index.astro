@@ -346,21 +346,16 @@ const cards = [
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: var(--space-2);
   }
+  /* Surface (fill/border/radius/transition + hover border) comes from the
+     shared .card base in global.css; these are the home-grid specifics. */
   .card {
     position: relative;
     display: block;
     padding: var(--space-3);
-    background: var(--surface-deep);
-    border: 1px solid var(--border);
-    border-radius: 4px;
     text-decoration: none;
     color: var(--fg);
-    transition:
-      border-color var(--t-base) var(--ease),
-      transform var(--t-base) var(--ease);
   }
   .card:hover {
-    border-color: var(--accent);
     transform: translateY(-1px);
   }
   .card h3 {

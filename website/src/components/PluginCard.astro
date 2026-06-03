@@ -11,7 +11,7 @@
  */
 ---
 
-<button type="button" class="plugin-card" :class="{ bundled: p.bundled }" @click="open(p)">
+<button type="button" class="plugin-card card" :class="{ bundled: p.bundled }" @click="open(p)">
   <header>
     <span class="dot" aria-hidden="true"></span>
     <span class="name" x-text="p.name"></span>
@@ -36,22 +36,17 @@
 </button>
 
 <style>
+  /* Surface chrome (fill/border/radius/transition + hover border) comes from
+     the shared .card base in global.css. */
   .plugin-card {
     display: flex;
     flex-direction: column;
     text-align: left;
     width: 100%;
-    background: var(--surface-deep);
-    border: 1px solid var(--border);
-    border-radius: 4px;
     overflow: hidden;
     cursor: pointer;
-    transition:
-      border-color var(--t-base) var(--ease),
-      transform var(--t-base) var(--ease);
   }
   .plugin-card:hover {
-    border-color: var(--accent);
     transform: translateY(-2px);
   }
   .plugin-card:focus-visible {

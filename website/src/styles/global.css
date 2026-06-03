@@ -399,6 +399,24 @@ h3 {
   margin-right: 6px;
 }
 
+/* ----- card surface -----
+ * Shared chrome for bordered, hover-accent cards: the home read-next grid,
+ * PluginCard, ThemeCard. Compose with a component class that owns layout,
+ * internal structure, and the hover-lift distance (transform). The base
+ * supplies the surface (fill, border, radius), the transition, and the
+ * accent border on hover. */
+.card {
+  background: var(--surface-deep);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  transition:
+    border-color var(--t-base) var(--ease),
+    transform var(--t-base) var(--ease);
+}
+.card:hover {
+  border-color: var(--accent);
+}
+
 /* ----- motion ----- */
 @media (prefers-reduced-motion: reduce) {
   *,
