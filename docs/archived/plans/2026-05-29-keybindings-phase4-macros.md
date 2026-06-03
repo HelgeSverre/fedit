@@ -1,11 +1,18 @@
 # Keybindings Phase 4 — Macros (Record/Replay) Implementation Plan
 
-> **STATUS: DEFERRED — do not build until explicitly prioritized.** This plan
-> exists so the design is captured while the architecture is fresh; macros are
-> the explicitly out-of-scope item of the keybindings spec (§1, §10). Build
-> only on an explicit go-ahead. Everything below assumes **Phases 1, 2, and 3
-> are already shipped** (the `Action` vocabulary + `runAction`, the `Chord`
-> key model + sequence engine, and the user keymap file + `resolve`).
+> **STATUS: SHIPPED (core), 2026-06-03.** Record / replay / repeat-last landed
+> via the **Effect + markers** variant (`Effect.ReplayKeys` + `MacroReplayStart`/
+> `End`), not the `MacroReplayBatch`-in-`update` variant this plan sketched —
+> `Model` carries native tree-sitter handles, so structural-equality no-op
+> detection isn't viable. **Deferred follow-ons:** keybinds-file persistence
+> (Task 5); stop-on-no-op (Task 3 §3) — unnecessary for termination since
+> `count` is finite; and nested replay — `ReplayMacro` is a no-op while
+> `Replaying` as a runaway guard. Archived as a historical record; the
+> behaviour reference is `CHANGELOG.md` (Macros row) and `README.md`.
+>
+> _Original status: deferred until explicitly prioritized. Assumed Phases 1–3
+> shipped (the `Action` vocabulary + `runAction`, the `Chord` key model +
+> sequence engine, and the user keymap file + `resolve`) — all true at build._
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > superpowers:subagent-driven-development (recommended) or

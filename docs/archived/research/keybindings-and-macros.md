@@ -1,7 +1,7 @@
 # Configurable Keybindings & Macros — Research
 
 > Status: research + recommendation. Companion to the prior audit in
-> [`docs/wip-keybinds.md`](../../wip-keybinds.md), which maps where every
+> [`wip-keybinds.md`](wip-keybinds.md), which maps where every
 > chord currently lives. This doc adds the cross-tool survey (terminals,
 > editors, IDEs), the macro-system landscape, the config-format / F#-DSL
 > analysis, and a concrete recommended design.
@@ -53,7 +53,7 @@ the power-user tier, not the default surface.
 
 ## 1. Current state of fedit
 
-(Condensed from the audit; see [`docs/wip-keybinds.md`](../../wip-keybinds.md)
+(Condensed from the audit; see [`wip-keybinds.md`](wip-keybinds.md)
 for the full chord-by-chord matrix.)
 
 ### 1.1 The core problem: no unified action abstraction
