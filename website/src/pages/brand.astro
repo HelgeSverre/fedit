@@ -519,10 +519,12 @@ const dontList = [
     text-transform: uppercase;
     color: var(--fg-subtle);
   }
-  .type-sample p {
+  /* Base resets use :where() so they stay zero-specificity defaults that the
+     size classes below override without !important. */
+  :where(.type-sample) p {
     margin: 0;
   }
-  .type-sample.dep p {
+  :where(.type-sample.dep) p {
     font-family: var(--font-departure-mono);
     color: var(--fg);
   }
@@ -535,12 +537,12 @@ const dontList = [
     font-size: 24px;
     letter-spacing: -0.02em;
     line-height: 1.2;
-    margin-top: 16px !important;
+    margin-top: 16px;
   }
   .dep-lg {
     font-size: 18px;
-    color: var(--fg-muted) !important;
-    margin-top: 8px !important;
+    color: var(--fg-muted);
+    margin-top: 8px;
   }
 
   .type-sample.jb p {
@@ -555,7 +557,7 @@ const dontList = [
     font-size: 14px;
     color: var(--fg-muted);
     line-height: 1.6;
-    margin-top: 12px !important;
+    margin-top: 12px;
     max-width: 65ch;
   }
   .jb-code {
