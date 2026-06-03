@@ -122,4 +122,4 @@ Fedit.PluginApi`.
 - [`brand/USAGE.md`](brand/USAGE.md) — brand do/don't
 - [`brand/voice.md`](brand/voice.md) — copy rules
 - [`brand/themes/README.md`](brand/themes/README.md) — theme schema
-- [`docs/superpowers/`](docs/superpowers/) — forward-looking research + plans (syntax highlighting, etc.)
+- [`docs/superpowers/`](docs/superpowers/) — forward-looking research + plans (theme system, website style sweep, etc.); shipped plans/specs/research are archived under [`docs/archived/`](docs/archived/)
