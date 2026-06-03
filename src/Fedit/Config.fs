@@ -218,6 +218,18 @@ module ConfigIO =
 
                         let d = Themes.defaultTheme
 
+                        // Optional chrome override. An absent key falls back to
+                        // the bundled value so existing user themes keep today's
+                        // chrome; the literal "default" maps to Color.Default so
+                        // a light theme can override a foreground while leaving a
+                        // background as the terminal default.
+                        let pickColor (field: string) (fallback: Color) =
+                            match getStringProp root field with
+                            | Some s when s.Trim().Equals("default", System.StringComparison.OrdinalIgnoreCase) ->
+                                Color.Default
+                            | Some s -> Color.tryParse s |> Option.defaultValue fallback
+                            | None -> fallback
+
                         match
                             getColorProp root "accent",
                             getColorProp root "statusFg",
@@ -234,6 +246,18 @@ module ConfigIO =
                                   StatusBg = sb
                                   SelectedBg = seb
                                   CurrentLine = cl
+                                  SelectionFg = pickColor "selectionFg" d.SelectionFg
+                                  CurrentLineBg = pickColor "currentLineBg" d.CurrentLineBg
+                                  SurfaceFg = pickColor "surfaceFg" d.SurfaceFg
+                                  SurfaceBg = pickColor "surfaceBg" d.SurfaceBg
+                                  ChromeFg = pickColor "chromeFg" d.ChromeFg
+                                  ChromeBg = pickColor "chromeBg" d.ChromeBg
+                                  PromptFg = pickColor "promptFg" d.PromptFg
+                                  PromptBg = pickColor "promptBg" d.PromptBg
+                                  LineNumberFg = pickColor "lineNumberFg" d.LineNumberFg
+                                  LineNumberBg = pickColor "lineNumberBg" d.LineNumberBg
+                                  ActiveLineFg = pickColor "activeLineFg" d.ActiveLineFg
+                                  ActiveLineBg = pickColor "activeLineBg" d.ActiveLineBg
                                   SyntaxKeyword = pickSyntax "keyword" d.SyntaxKeyword
                                   SyntaxKeywordControl = pickSyntax "keywordControl" d.SyntaxKeywordControl
                                   SyntaxKeywordOperator = pickSyntax "keywordOperator" d.SyntaxKeywordOperator

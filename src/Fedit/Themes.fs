@@ -15,14 +15,30 @@ open System
 type Theme =
     { Name: string
       Description: string
-      // Hue family — four shades of the theme's primary color, from
-      // brightest (Accent) to softest (CurrentLine).
+      // Hue family — the theme's primary color and its companions.
       Accent: Color
       StatusBg: Color
-      SelectedBg: Color
-      CurrentLine: Color
-      // Foreground policy — text on StatusBg.
       StatusFg: Color
+      SelectedBg: Color
+      SelectionFg: Color
+      // Active line number (gutter cell) — foreground + background.
+      // `CurrentLine` is the fg; `ActiveLine*` below is the editor line itself.
+      CurrentLine: Color
+      CurrentLineBg: Color
+      // Chrome surfaces — every painted region carries an explicit fg+bg so a
+      // theme owns the whole screen. A `Color.Default` background means "keep
+      // the terminal's default background" (emits no SGR), which is what the
+      // bundled dark themes use; a light theme sets real backgrounds instead.
+      SurfaceFg: Color
+      SurfaceBg: Color
+      ChromeFg: Color
+      ChromeBg: Color
+      PromptFg: Color
+      PromptBg: Color
+      LineNumberFg: Color
+      LineNumberBg: Color
+      ActiveLineFg: Color
+      ActiveLineBg: Color
       // Syntax palette — one Color per HighlightCapture case.
       // `Color.Default` means "no override; keep the surface foreground".
       SyntaxKeyword: Color
@@ -68,15 +84,72 @@ module Themes =
            SyntaxPunctuation = Color.indexed 246 // dimmer grey
            SyntaxAttribute = Color.indexed 180 |}
 
+    // GitHub Light Default (Primer) syntax palette. Truecolor hex tuned for a
+    // white surface — the dark `defaultSyntax` picks are too pale to read here.
+    // Operators/punctuation/variables stay `Default` so they inherit the dark
+    // editor foreground, matching how GitHub leaves them uncolored.
+    let private githubLightSyntax =
+        {| SyntaxKeyword = Color.ofHex "#CF222E" // red
+           SyntaxKeywordControl = Color.ofHex "#CF222E"
+           SyntaxKeywordOperator = Color.ofHex "#CF222E"
+           SyntaxString = Color.ofHex "#0A3069" // deep blue
+           SyntaxStringSpecial = Color.ofHex "#0A3069"
+           SyntaxNumber = Color.ofHex "#0550AE" // blue constant
+           SyntaxComment = Color.ofHex "#6E7781" // grey
+           SyntaxFunction = Color.ofHex "#8250DF" // purple entity
+           SyntaxFunctionCall = Color.ofHex "#8250DF"
+           SyntaxType = Color.ofHex "#953800" // orange-brown
+           SyntaxConstructor = Color.ofHex "#953800"
+           SyntaxVariable = Color.Default
+           SyntaxParameter = Color.Default
+           SyntaxOperator = Color.Default
+           SyntaxPunctuation = Color.Default
+           SyntaxAttribute = Color.ofHex "#0550AE" |}
+
+    // GitHub Dark Default (Primer) syntax palette. Truecolor hex on a near-black
+    // surface. Operators/punctuation/variables stay `Default` so they inherit
+    // the light editor foreground (#E6EDF3), as GitHub leaves them uncolored.
+    let private githubDarkSyntax =
+        {| SyntaxKeyword = Color.ofHex "#FF7B72" // coral red
+           SyntaxKeywordControl = Color.ofHex "#FF7B72"
+           SyntaxKeywordOperator = Color.ofHex "#FF7B72"
+           SyntaxString = Color.ofHex "#A5D6FF" // light blue
+           SyntaxStringSpecial = Color.ofHex "#A5D6FF"
+           SyntaxNumber = Color.ofHex "#79C0FF" // blue constant
+           SyntaxComment = Color.ofHex "#8B949E" // grey
+           SyntaxFunction = Color.ofHex "#D2A8FF" // light purple entity
+           SyntaxFunctionCall = Color.ofHex "#D2A8FF"
+           SyntaxType = Color.ofHex "#79C0FF" // support type blue
+           SyntaxConstructor = Color.ofHex "#79C0FF"
+           SyntaxVariable = Color.Default
+           SyntaxParameter = Color.Default
+           SyntaxOperator = Color.Default
+           SyntaxPunctuation = Color.Default
+           SyntaxAttribute = Color.ofHex "#79C0FF" |}
+
     // Brand default. Phosphor green #00B86B → ANSI 35 (#00AF5F).
     let green =
         { Name = "green"
           Description = "Phosphor green — brand default"
           Accent = Color.phosphorGreen
           StatusBg = Color.forestGreen
-          SelectedBg = Color.mossGreen
-          CurrentLine = Color.phosphorGreen
           StatusFg = Color.brightWhite
+          SelectedBg = Color.mossGreen
+          SelectionFg = Color.indexed 230
+          CurrentLine = Color.phosphorGreen
+          CurrentLineBg = Color.Default
+          // Chrome defaults reproduce the previously-hardcoded View constants,
+          // so every bundled theme keeps its exact current look.
+          SurfaceFg = Color.indexed 252
+          SurfaceBg = Color.Default
+          ChromeFg = Color.indexed 244
+          ChromeBg = Color.Default
+          PromptFg = Color.indexed 230
+          PromptBg = Color.indexed 237
+          LineNumberFg = Color.indexed 241
+          LineNumberBg = Color.Default
+          ActiveLineFg = Color.indexed 252
+          ActiveLineBg = Color.indexed 236
           SyntaxKeyword = defaultSyntax.SyntaxKeyword
           SyntaxKeywordControl = defaultSyntax.SyntaxKeywordControl
           SyntaxKeywordOperator = defaultSyntax.SyntaxKeywordOperator
@@ -179,8 +252,102 @@ module Themes =
             CurrentLine = Color.ofHex "#AF8700"
             StatusFg = Color.black }
 
+    // First bundled light theme. Every surface carries an explicit light
+    // background — a dark terminal no longer bleeds through — and the syntax
+    // palette swaps to GitHub's light-readable colors.
+    let githubLight =
+        { green with
+            Name = "github-light"
+            Description = "GitHub Light Default (Primer)"
+            Accent = Color.ofHex "#0969DA"
+            StatusBg = Color.ofHex "#0969DA"
+            StatusFg = Color.ofHex "#FFFFFF"
+            SelectedBg = Color.ofHex "#DDF4FF"
+            SelectionFg = Color.ofHex "#1F2328"
+            CurrentLine = Color.ofHex "#1F2328"
+            CurrentLineBg = Color.ofHex "#F6F8FA"
+            SurfaceFg = Color.ofHex "#1F2328"
+            SurfaceBg = Color.ofHex "#FFFFFF"
+            ChromeFg = Color.ofHex "#6E7781"
+            ChromeBg = Color.ofHex "#F6F8FA"
+            PromptFg = Color.ofHex "#1F2328"
+            PromptBg = Color.ofHex "#EAEEF2"
+            LineNumberFg = Color.ofHex "#8C959F"
+            LineNumberBg = Color.ofHex "#FFFFFF"
+            ActiveLineFg = Color.ofHex "#1F2328"
+            ActiveLineBg = Color.ofHex "#F6F8FA"
+            SyntaxKeyword = githubLightSyntax.SyntaxKeyword
+            SyntaxKeywordControl = githubLightSyntax.SyntaxKeywordControl
+            SyntaxKeywordOperator = githubLightSyntax.SyntaxKeywordOperator
+            SyntaxString = githubLightSyntax.SyntaxString
+            SyntaxStringSpecial = githubLightSyntax.SyntaxStringSpecial
+            SyntaxNumber = githubLightSyntax.SyntaxNumber
+            SyntaxComment = githubLightSyntax.SyntaxComment
+            SyntaxFunction = githubLightSyntax.SyntaxFunction
+            SyntaxFunctionCall = githubLightSyntax.SyntaxFunctionCall
+            SyntaxType = githubLightSyntax.SyntaxType
+            SyntaxConstructor = githubLightSyntax.SyntaxConstructor
+            SyntaxVariable = githubLightSyntax.SyntaxVariable
+            SyntaxParameter = githubLightSyntax.SyntaxParameter
+            SyntaxOperator = githubLightSyntax.SyntaxOperator
+            SyntaxPunctuation = githubLightSyntax.SyntaxPunctuation
+            SyntaxAttribute = githubLightSyntax.SyntaxAttribute }
+
+    // GitHub Dark Default (Primer). A full-surface dark theme: unlike the
+    // accent-only bundled themes it sets explicit near-black backgrounds rather
+    // than inheriting green's `Default` chrome, so the palette matches GitHub
+    // exactly instead of the terminal default.
+    let githubDark =
+        { green with
+            Name = "github-dark"
+            Description = "GitHub Dark Default (Primer)"
+            Accent = Color.ofHex "#2F81F7"
+            StatusBg = Color.ofHex "#1F6FEB"
+            StatusFg = Color.ofHex "#FFFFFF"
+            SelectedBg = Color.ofHex "#1E4273"
+            SelectionFg = Color.ofHex "#E6EDF3"
+            CurrentLine = Color.ofHex "#E6EDF3"
+            CurrentLineBg = Color.ofHex "#161B22"
+            SurfaceFg = Color.ofHex "#E6EDF3"
+            SurfaceBg = Color.ofHex "#0D1117"
+            ChromeFg = Color.ofHex "#8B949E"
+            ChromeBg = Color.ofHex "#161B22"
+            PromptFg = Color.ofHex "#E6EDF3"
+            PromptBg = Color.ofHex "#161B22"
+            LineNumberFg = Color.ofHex "#6E7681"
+            LineNumberBg = Color.ofHex "#0D1117"
+            ActiveLineFg = Color.ofHex "#E6EDF3"
+            ActiveLineBg = Color.ofHex "#161B22"
+            SyntaxKeyword = githubDarkSyntax.SyntaxKeyword
+            SyntaxKeywordControl = githubDarkSyntax.SyntaxKeywordControl
+            SyntaxKeywordOperator = githubDarkSyntax.SyntaxKeywordOperator
+            SyntaxString = githubDarkSyntax.SyntaxString
+            SyntaxStringSpecial = githubDarkSyntax.SyntaxStringSpecial
+            SyntaxNumber = githubDarkSyntax.SyntaxNumber
+            SyntaxComment = githubDarkSyntax.SyntaxComment
+            SyntaxFunction = githubDarkSyntax.SyntaxFunction
+            SyntaxFunctionCall = githubDarkSyntax.SyntaxFunctionCall
+            SyntaxType = githubDarkSyntax.SyntaxType
+            SyntaxConstructor = githubDarkSyntax.SyntaxConstructor
+            SyntaxVariable = githubDarkSyntax.SyntaxVariable
+            SyntaxParameter = githubDarkSyntax.SyntaxParameter
+            SyntaxOperator = githubDarkSyntax.SyntaxOperator
+            SyntaxPunctuation = githubDarkSyntax.SyntaxPunctuation
+            SyntaxAttribute = githubDarkSyntax.SyntaxAttribute }
+
     let all =
-        [ green; blue; orange; cyan; teal; yellow; red; graphite; evergreen; monoAmber ]
+        [ green
+          blue
+          orange
+          cyan
+          teal
+          yellow
+          red
+          graphite
+          evergreen
+          monoAmber
+          githubLight
+          githubDark ]
 
     let defaultTheme = green
 

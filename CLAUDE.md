@@ -19,7 +19,7 @@ KeyPressed / Resize → Msg → Editor.update (pure) → (Model', [Effect])
 - **Editor.update** is the only place state transitions live. Returns `(Model', Effect list)`.
 - **runEffect** is the only impure path — file I/O, clipboard, config writes. Effects post results as `Msg` into a `ConcurrentQueue` drained each tick.
 - **Buffers** use a piece table (`PieceTable.fs`); each buffer owns its undo/redo stack.
-- **Themes** are pure accent palettes (5 ANSI int slots) — chrome stays constant across themes.
+- **Themes** own the full chrome surface — accent plus an explicit fg/bg per region (editor, gutter, prompt, dock, status, selection, active line). Bundled dark themes set `Default` backgrounds so they keep terminal-default chrome; a light theme supplies real backgrounds.
 
 Source file order (`<Compile>` in `src/Fedit/Fedit.fsproj` is canonical):
 `Primitives → PieceTable → Buffer → Workspace → Themes → Commands → Cli → Prompt → Model → Editor → Screen → Renderer → Input → View → Runtime → Program`.

@@ -4,26 +4,38 @@ open System
 
 [<RequireQualifiedAccess>]
 module Layout =
-    let private surface = Style.withColors (Indexed 252uy) Default
-    let private chrome = Style.withColors (Indexed 244uy) Default
-    let private commandBar = Style.withColors (Indexed 230uy) (Indexed 237uy)
-    let private lineNumber = Style.withColors (Indexed 241uy) Default
-    // Active editor line background — dim gray, fixed (intentionally not
-    // theme-derived: the theme accent is too saturated to use behind text).
-    let private currentLineBg = Style.withColors (Indexed 252uy) (Indexed 236uy)
+    // Chrome styles are now theme-owned: each pulls an explicit fg+bg from the
+    // theme so a palette controls the whole surface. The bundled dark themes
+    // carry `Default` backgrounds (no SGR), so the rendered output is identical
+    // to the previously-hardcoded constants.
+    let private surfaceOf (theme: Theme) =
+        Style.withColors theme.SurfaceFg theme.SurfaceBg
 
-    let private accentOf (theme: Theme) = Style.withColors theme.Accent Default
+    let private chromeOf (theme: Theme) =
+        Style.withColors theme.ChromeFg theme.ChromeBg
+
+    let private promptOf (theme: Theme) =
+        Style.withColors theme.PromptFg theme.PromptBg
+
+    let private lineNumberOf (theme: Theme) =
+        Style.withColors theme.LineNumberFg theme.LineNumberBg
+
+    let private activeLineOf (theme: Theme) =
+        Style.withColors theme.ActiveLineFg theme.ActiveLineBg
+
+    // Dock title sits on the dock panel, so its background follows ChromeBg.
+    let private accentOf (theme: Theme) =
+        Style.withColors theme.Accent theme.ChromeBg
 
     let private statusOf (theme: Theme) =
         Style.withColors theme.StatusFg theme.StatusBg
 
     let private selectedOf (theme: Theme) =
-        { commandBar with
-            Background = theme.SelectedBg
+        { Style.withColors theme.SelectionFg theme.SelectedBg with
             Bold = true }
 
     let private currentLineOf (theme: Theme) =
-        Style.withColors theme.CurrentLine Default
+        Style.withColors theme.CurrentLine theme.CurrentLineBg
 
     /// Nerd Font glyph for a file name (by extension). Returns a 2-char
     /// "<glyph><space>" so the column count matches the ASCII `[+] ` marker.
@@ -123,7 +135,9 @@ module Layout =
             text.Substring(start, min width (text.Length - start))
 
     let private renderSidebar width height screen model =
-        let selected = selectedOf (effectiveTheme model)
+        let theme = effectiveTheme model
+        let selected = selectedOf theme
+        let surface = surfaceOf theme
         Screen.fillRect 0 0 width height surface ' ' screen
 
         let entries = Workspace.visibleEntries model.Workspace
@@ -164,6 +178,9 @@ module Layout =
         let theme = effectiveTheme model
         let selected = selectedOf theme
         let currentLineNumber = currentLineOf theme
+        let surface = surfaceOf theme
+        let lineNumber = lineNumberOf theme
+        let currentLineBg = activeLineOf theme
         let gutterWidth = Buffer.gutterWidth buffer
         let digits = gutterWidth - 2
         let rows = Buffer.lines buffer |> List.toArray
@@ -324,6 +341,8 @@ module Layout =
         let accent = accentOf theme
         let status = statusOf theme
         let selected = selectedOf theme
+        let chrome = chromeOf theme
+        let commandBar = promptOf theme
         let width = max 1 model.Terminal.Width
         let height = max 1 model.Terminal.Height
 
