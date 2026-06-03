@@ -39,6 +39,14 @@ let ``Shift+Tab keeps Shift in the modifier set`` () =
     let info = keyInfo '\t' ConsoleKey.Tab true false false
     Input.tryMap info |> should equal (Some(chord [ Shift ] (Named Tab)))
 
+[<Fact>]
+let ``Spacebar maps to the named Space key, not Char space`` () =
+    // The whole prompt/editor/sidebar text-insert path keys off this: the
+    // spacebar is a structural Named key, so every fallthrough that inserts
+    // text must special-case it (regression guard for the ":theme " bug).
+    let info = keyInfo ' ' ConsoleKey.Spacebar false false false
+    Input.tryMap info |> should equal (Some(chord [] (Named Space)))
+
 // --- Ctrl/Alt + character (case-folded, Shift preserved) ---
 
 [<Fact>]

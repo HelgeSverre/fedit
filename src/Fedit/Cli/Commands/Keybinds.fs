@@ -194,13 +194,19 @@ let toJson (keymap: Keymap) : string =
 let private renderTable (keymap: Keymap) : string =
     let rows =
         keymap
-        |> List.choose (fun b -> b.Action |> Option.map (fun a -> contextName b.Context, Chord.renderStroke b.Stroke, a))
+        |> List.choose (fun b ->
+            b.Action
+            |> Option.map (fun a -> contextName b.Context, Chord.renderStroke b.Stroke, a))
 
     let ctxWidth =
-        rows |> List.map (fun (c, _, _) -> c.Length) |> (fun ls -> if List.isEmpty ls then 0 else List.max ls)
+        rows
+        |> List.map (fun (c, _, _) -> c.Length)
+        |> (fun ls -> if List.isEmpty ls then 0 else List.max ls)
 
     let strokeWidth =
-        rows |> List.map (fun (_, s, _) -> s.Length) |> (fun ls -> if List.isEmpty ls then 0 else List.max ls)
+        rows
+        |> List.map (fun (_, s, _) -> s.Length)
+        |> (fun ls -> if List.isEmpty ls then 0 else List.max ls)
 
     let sb = StringBuilder()
 

@@ -124,6 +124,42 @@ let ``typing a character into the editor inserts it`` () =
     buffer.Dirty |> should equal true
 
 [<Fact>]
+let ``pressing Space inserts a space into the editor buffer`` () =
+    let model = initModel ()
+    let a, _ = Editor.update (KeyPressed(chr 'a')) model
+    let spaced, _ = Editor.update (KeyPressed(nk Space)) a
+    let b, _ = Editor.update (KeyPressed(chr 'b')) spaced
+    let buffer = b.Editors.Buffers[b.Editors.ActiveBufferId]
+    Buffer.text buffer |> should equal "a b"
+
+[<Fact>]
+let ``pressing Space in the sidebar reaches the incremental search`` () =
+    // The sidebar search is jump-to-match, not a free-text filter: a space is
+    // only retained when it extends a query that still matches a tree entry.
+    // A filename with an embedded space proves Space routes through dispatch.
+    let tree: FileNode =
+        { Path = "/root"
+          Name = "root"
+          IsDirectory = true
+          Children =
+            [ { Path = "/root/my file.fs"
+                Name = "my file.fs"
+                IsDirectory = false
+                Children = [] } ] }
+
+    let model = initModel ()
+
+    let focused =
+        { model with
+            Focus = Sidebar
+            Workspace = Workspace.setTree tree model.Workspace }
+
+    let m, _ = Editor.update (KeyPressed(chr 'm')) focused
+    let y, _ = Editor.update (KeyPressed(chr 'y')) m
+    let spaced, _ = Editor.update (KeyPressed(nk Space)) y
+    spaced.Workspace.SearchBuffer |> should equal "my "
+
+[<Fact>]
 let ``Ctrl+P opens the prompt in Command mode with : prefix`` () =
     let model = initModel ()
     let next, _ = Editor.update (KeyPressed(ck 'p')) model
@@ -193,6 +229,19 @@ let ``Tab fills the prompt with the highlighted completion`` () =
     filled.Prompt.Text |> should equal (":" + firstApply)
     // Prompt stays open so the user can keep typing arguments.
     filled.Prompt.Active |> should equal true
+
+[<Fact>]
+let ``Space inserts a space so command arguments can be typed`` () =
+    let model = initModel ()
+    let opened, _ = Editor.update (KeyPressed(ck 'p')) model
+
+    // ck 'p' already seeds the prompt with ":".
+    let typed =
+        "theme"
+        |> Seq.fold (fun m c -> fst (Editor.update (KeyPressed(chr c)) m)) opened
+
+    let spaced, _ = Editor.update (KeyPressed(nk Space)) typed
+    spaced.Prompt.Text |> should equal ":theme "
 
 [<Fact>]
 let ``Tab on empty completion list is a no-op`` () =

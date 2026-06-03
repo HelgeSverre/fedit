@@ -63,10 +63,7 @@ module Workspace =
               IsSelected = Some node.Path = selected }
 
         if node.IsDirectory && Set.contains node.Path expanded then
-            entry
-            :: (node.Children
-                |> sortChildren
-                |> List.collect (flatten selected expanded (depth + 1)))
+            entry :: (node.Children |> List.collect (flatten selected expanded (depth + 1)))
         else
             [ entry ]
 

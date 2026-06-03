@@ -1061,6 +1061,12 @@ module Editor =
             { model with
                 Workspace = Workspace.appendSearch c model.Workspace },
             []
+        // Spacebar maps to `Named Space`, not `Char ' '`; treat it as a literal
+        // filter character so multi-word filters work.
+        | { Mods = m; Key = Named Space } when m.IsEmpty ->
+            { model with
+                Workspace = Workspace.appendSearch ' ' model.Workspace },
+            []
         | { Mods = m; Key = Named Backspace } when m.IsEmpty && model.Workspace.SearchBuffer.Length > 0 ->
             { model with
                 Workspace = Workspace.backspaceSearch model.Workspace },
@@ -1082,6 +1088,9 @@ module Editor =
         match chord with
         | { Mods = m; Key = Char value } when m.IsEmpty ->
             updateActiveBuffer (editTransform (Buffer.insertText (string value)) >> Buffer.clearSelection) model, []
+        // Spacebar maps to `Named Space`, not `Char ' '`; insert it as literal text.
+        | { Mods = m; Key = Named Space } when m.IsEmpty ->
+            updateActiveBuffer (editTransform (Buffer.insertText " ") >> Buffer.clearSelection) model, []
         | { Mods = m; Key = Named Enter } when m.IsEmpty ->
             updateActiveBuffer (editTransform Buffer.insertNewline >> Buffer.clearSelection) model, []
         | { Mods = m; Key = Named Backspace } when m.IsEmpty && hasSelection ->
@@ -1179,6 +1188,9 @@ module Editor =
         | { Mods = m; Key = Named Backspace } when m.IsEmpty -> deletePromptBackward model
         | { Mods = m; Key = Named Delete } when m.IsEmpty -> deletePromptForward model
         | { Mods = m; Key = Char value } when m.IsEmpty -> insertPromptText (string value) model
+        // Spacebar maps to `Named Space`, not `Char ' '`; insert it as text so
+        // command arguments (`:theme green`) can be typed.
+        | { Mods = m; Key = Named Space } when m.IsEmpty -> insertPromptText " " model
         | c when c = nk Tab ->
             // Tab fills the prompt with the highlighted completion so users
             // can type `:o<Tab>` → `:open` and continue with arguments.
