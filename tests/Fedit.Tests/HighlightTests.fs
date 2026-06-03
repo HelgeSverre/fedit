@@ -40,10 +40,10 @@ let ``resolveCapture returns None for unknown capture`` () =
 
 [<Fact>]
 let ``detectLanguage maps F# extensions`` () =
-    Assert.Equal(Some "fsharp", Highlight.detectLanguage (Some "foo.fs"))
-    Assert.Equal(Some "fsharp", Highlight.detectLanguage (Some "Bar.FSI"))
-    Assert.Equal(Some "fsharp", Highlight.detectLanguage (Some "script.fsx"))
-    Assert.Equal(None, Highlight.detectLanguage None)
+    Assert.Equal(Some "fsharp", Highlight.detectLanguage (Some "foo.fs") "")
+    Assert.Equal(Some "fsharp", Highlight.detectLanguage (Some "Bar.FSI") "")
+    Assert.Equal(Some "fsharp", Highlight.detectLanguage (Some "script.fsx") "")
+    Assert.Equal(None, Highlight.detectLanguage None "")
 
 [<Theory>]
 [<InlineData("foo.js", "javascript")>]
@@ -63,8 +63,13 @@ let ``detectLanguage maps F# extensions`` () =
 [<InlineData("app.tsx", "tsx")>]
 [<InlineData("index.php", "php")>]
 [<InlineData("script.phtml", "php")>]
+[<InlineData("deploy.sh", "bash")>]
+[<InlineData("lib.bash", "bash")>]
+[<InlineData("run.zsh", "bash")>]
+[<InlineData("setup.ksh", "bash")>]
+[<InlineData("Open.command", "bash")>]
 let ``detectLanguage maps bundled language extensions`` (path: string) (expected: string) =
-    Assert.Equal(Some expected, Highlight.detectLanguage (Some path))
+    Assert.Equal(Some expected, Highlight.detectLanguage (Some path) "")
 
 [<Theory>]
 [<InlineData("readme.md", "markdown")>]
@@ -83,7 +88,33 @@ let ``detectLanguage maps bundled language extensions`` (path: string) (expected
 [<InlineData("rules.mk", "make")>]
 [<InlineData("index.astro", "astro")>]
 let ``detectLanguage maps vendored language extensions`` (path: string) (expected: string) =
-    Assert.Equal(Some expected, Highlight.detectLanguage (Some path))
+    Assert.Equal(Some expected, Highlight.detectLanguage (Some path) "")
+
+[<Theory>]
+[<InlineData(".bashrc")>]
+[<InlineData(".bash_profile")>]
+[<InlineData(".bash_aliases")>]
+[<InlineData(".profile")>]
+[<InlineData(".zshrc")>]
+[<InlineData(".zshenv")>]
+[<InlineData(".kshrc")>]
+[<InlineData("PKGBUILD")>]
+[<InlineData("APKBUILD")>]
+let ``detectLanguage maps shell config filenames`` (path: string) =
+    Assert.Equal(Some "bash", Highlight.detectLanguage (Some path) "")
+
+[<Fact>]
+let ``detectLanguage detects shell scripts by shebang`` () =
+    // Extensionless scripts identified only by their #! line.
+    Assert.Equal(Some "bash", Highlight.detectLanguage (Some "deploy") "#!/bin/bash\necho hi")
+    Assert.Equal(Some "bash", Highlight.detectLanguage (Some "configure") "#!/bin/sh\nset -e")
+    Assert.Equal(Some "bash", Highlight.detectLanguage (Some "run") "#!/usr/bin/env bash\n")
+    Assert.Equal(Some "bash", Highlight.detectLanguage None "#!/usr/bin/env zsh\n")
+    Assert.Equal(Some "bash", Highlight.detectLanguage (Some "task") "#! /bin/bash -eu\n")
+    // Non-shell shebang and plain text must not resolve to bash.
+    Assert.Equal(None, Highlight.detectLanguage (Some "app") "#!/usr/bin/env python\nprint(1)")
+    Assert.Equal(None, Highlight.detectLanguage (Some "main") "#!/usr/bin/node\n")
+    Assert.Equal(None, Highlight.detectLanguage (Some "notes") "just some text\n")
 
 [<Theory>]
 [<InlineData("tsx")>]
@@ -94,6 +125,7 @@ let ``detectLanguage maps vendored language extensions`` (path: string) (expecte
 [<InlineData("just")>]
 [<InlineData("make")>]
 [<InlineData("astro")>]
+[<InlineData("bash")>]
 let ``registry loads language without throwing`` (lang: string) =
     let registry = HighlightRegistry.tryCreate ()
     Assert.True(registry.IsSome, "HighlightRegistry.tryCreate returned None")
@@ -110,12 +142,32 @@ let ``registry loads language without throwing`` (lang: string) =
 [<InlineData("just", "build:\n    cargo build")>]
 [<InlineData("make", "all:\n\techo hi")>]
 [<InlineData("astro", "<h1>Hello</h1>")>]
+[<InlineData("bash", "#!/bin/bash\nif [ -f foo ]; then echo \"hi $HOME\"; fi")>]
 let ``parse produces non-empty spans for new languages`` (lang: string) (src: string) =
     let registry = HighlightRegistry.tryCreate ()
     Assert.True(registry.IsSome, "registry missing")
     let state = Highlight.parse registry.Value lang src None
     Assert.True(state.IsSome, $"parse returned None for '{lang}'")
     Assert.True(state.Value.Spans.Length > 0, $"no spans produced for '{lang}'")
+
+[<Fact>]
+[<Trait("Category", "Smoke")>]
+let ``parse yields keyword, string, and comment captures for bash`` () =
+    use registry =
+        match HighlightRegistry.tryCreate () with
+        | Some r -> r
+        | None -> failwith "no registry"
+
+    let source = "#!/bin/bash\n# deploy\nif [ -f foo ]; then\n  echo \"hi $HOME\"\nfi"
+
+    match Highlight.parse registry "bash" source None with
+    | None -> Assert.Fail "parse returned None — bash query likely failed to compile"
+    | Some state ->
+        Assert.Equal("bash", state.Language)
+        Assert.Contains(state.Spans, fun (s: HighlightSpan) -> s.Capture = Keyword)
+        Assert.Contains(state.Spans, fun (s: HighlightSpan) -> s.Capture = String)
+        Assert.Contains(state.Spans, fun (s: HighlightSpan) -> s.Capture = Comment)
+        Highlight.dispose state
 
 [<Fact>]
 let ``spanAt returns covering span via binary search`` () =

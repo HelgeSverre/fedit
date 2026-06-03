@@ -663,10 +663,12 @@ module Editor =
                         model.Editors.Buffers
                         |> Map.fold
                             (fun acc id buffer ->
-                                match Highlight.detectLanguage buffer.FilePath with
+                                let source = Buffer.text buffer
+
+                                match Highlight.detectLanguage buffer.FilePath source with
                                 | None -> acc
                                 | Some lang ->
-                                    match Highlight.parse registry lang (Buffer.text buffer) None with
+                                    match Highlight.parse registry lang source None with
                                     | Some s -> Map.add id s acc
                                     | None -> acc)
                             Map.empty
@@ -1374,7 +1376,7 @@ module Editor =
                     if not model.Config.SyntaxHighlightingEnabled then
                         model.HighlightStates
                     else
-                        match Highlight.detectLanguage (Some path), model.HighlightRegistry with
+                        match Highlight.detectLanguage (Some path) normalized, model.HighlightRegistry with
                         | Some lang, Some registry ->
                             match Highlight.parse registry lang normalized None with
                             | Some state -> Map.add buffer.Id state model.HighlightStates

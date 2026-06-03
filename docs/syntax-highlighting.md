@@ -1,11 +1,12 @@
 # Syntax highlighting
 
-`fedit` highlights F# source files using
-[tree-sitter](https://tree-sitter.github.io/tree-sitter/) and the
+`fedit` highlights source files using
+[tree-sitter](https://tree-sitter.github.io/tree-sitter/) — F# (via the
 [ionide/tree-sitter-fsharp](https://github.com/ionide/tree-sitter-fsharp)
-grammar. This page covers the implementation, how to update the
-grammar, how themes map onto capture names, and how to troubleshoot
-when colors don't appear.
+grammar), shell scripts, and the other languages listed under
+[Supported languages](#supported-languages). This page covers the
+implementation, how to update the grammar, how themes map onto capture
+names, and how to troubleshoot when colors don't appear.
 
 ## How it works
 
@@ -42,17 +43,44 @@ needs edit-records plumbed through `Buffer.fs`).
 
 ## Supported languages
 
-Only F# today. Files mapped by extension:
+`Highlight.detectLanguage` maps files to grammars by filename, then
+extension, then `#!` shebang line (for extensionless scripts):
 
-| Extension | Language |
-| --------- | -------- |
-| `.fs`     | `fsharp` |
-| `.fsi`    | `fsharp` |
-| `.fsx`    | `fsharp` |
+| Language     | Detected by                                                                                                                                 |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fsharp`     | `.fs`, `.fsi`, `.fsx`                                                                                                                       |
+| `javascript` | `.js`, `.mjs`, `.cjs`                                                                                                                       |
+| `typescript` | `.ts`                                                                                                                                       |
+| `tsx`        | `.tsx`                                                                                                                                      |
+| `python`     | `.py`                                                                                                                                       |
+| `json`       | `.json`                                                                                                                                     |
+| `c-sharp`    | `.cs`                                                                                                                                       |
+| `go`         | `.go`                                                                                                                                       |
+| `rust`       | `.rs`                                                                                                                                       |
+| `html`       | `.html`, `.htm`                                                                                                                             |
+| `css`        | `.css`                                                                                                                                      |
+| `c`          | `.c`, `.h`                                                                                                                                  |
+| `php`        | `.php`, `.phtml`                                                                                                                            |
+| `bash`       | `.sh`, `.bash`, `.zsh`, `.ksh`, `.command`; shell dotfiles (`.bashrc`, `.zshrc`, `.profile`, `PKGBUILD`, …); or a `#!/bin/sh`-style shebang |
+| `markdown`   | `.md`, `.mdx`, `.markdown`                                                                                                                  |
+| `xml`        | `.xml`, `.svg`, `.xsl`, `.xslt`                                                                                                             |
+| `dart`       | `.dart`                                                                                                                                     |
+| `just`       | `.just`, `Justfile`                                                                                                                         |
+| `make`       | `.mk`, `Makefile`, `GNUmakefile`                                                                                                            |
+| `astro`      | `.astro`                                                                                                                                    |
 
-Adding another language means: (1) vendor the grammar as a submodule,
-(2) build a per-RID native, (3) embed its `highlights.scm`, (4) extend
-`HighlightRegistry.tryCreate` and `Highlight.detectLanguage`.
+Grammars come from two places. Most are **bundled** inside
+`TreeSitter.DotNet` (loaded via the string-id constructor); F# and a
+handful of others are **vendored** natives under `runtimes/<rid>/native/`
+(loaded via the `(library, function)` constructor). tree-sitter-bash is
+the de-facto grammar for every POSIX-ish shell, so `.zsh`/`.ksh` map to
+it too.
+
+Adding a **bundled** language: add its id to the bundled list in
+`HighlightRegistry.tryCreate`, embed a `highlights.scm`, add it to the
+`_KeepGrammars` publish-trim list in `Fedit.fsproj`, and extend
+`Highlight.detectLanguage`. A **vendored** language additionally needs:
+vendor the grammar, build a per-RID native, and use the external loader.
 
 ## Updating the F# grammar
 

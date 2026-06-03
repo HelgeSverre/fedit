@@ -70,6 +70,9 @@
     <EmbeddedResource Include="Resources/queries/php/highlights.scm">
       <LogicalName>fedit.queries.php.highlights.scm</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/bash/highlights.scm">
+      <LogicalName>fedit.queries.bash.highlights.scm</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="Resources/queries/markdown/highlights.scm">
       <LogicalName>fedit.queries.markdown.highlights.scm</LogicalName>
     </EmbeddedResource>
@@ -127,7 +130,8 @@
                 or '%(Filename)' == 'libtree-sitter-css' or '%(Filename)' == 'tree-sitter-css'
                 or '%(Filename)' == 'libtree-sitter-c' or '%(Filename)' == 'tree-sitter-c'
                 or '%(Filename)' == 'libtree-sitter-tsx' or '%(Filename)' == 'tree-sitter-tsx'
-                or '%(Filename)' == 'libtree-sitter-php' or '%(Filename)' == 'tree-sitter-php'" />
+                or '%(Filename)' == 'libtree-sitter-php' or '%(Filename)' == 'tree-sitter-php'
+                or '%(Filename)' == 'libtree-sitter-bash' or '%(Filename)' == 'tree-sitter-bash'" />
       <_DropGrammars Include="@(_BundledGrammars)" Exclude="@(_KeepGrammars)" />
       <ResolvedFileToPublish Remove="@(_DropGrammars)" />
 
@@ -142,7 +146,7 @@
         Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(ResolvedFileToPublish.RelativePath)', '^runtimes[\\/][^\\/]+[\\/]native[\\/](lib)?tree-sitter-fsharp\.(so|dylib|dll)$')) and !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes$([System.IO.Path]::DirectorySeparatorChar)$(RuntimeIdentifier)$([System.IO.Path]::DirectorySeparatorChar)'))" />
       <ResolvedFileToPublish Remove="@(_OtherRidNatives)" />
     </ItemGroup>
-    <Message Text="Trimmed @(_DropGrammars->Count()) bundled tree-sitter grammars (kept libtree-sitter core + 13 languages)." Importance="high" />
+    <Message Text="Trimmed @(_DropGrammars->Count()) bundled tree-sitter grammars (kept libtree-sitter core + 14 languages)." Importance="high" />
   </Target>
   <ItemGroup>
     <Compile Include="Primitives.fs" />

@@ -146,11 +146,15 @@ just uninstall
 
 ## Syntax highlighting
 
-`fedit` highlights F# source files (`.fs`, `.fsi`, `.fsx`) using
-[tree-sitter](https://tree-sitter.github.io/tree-sitter/) and the
+`fedit` highlights source files with
+[tree-sitter](https://tree-sitter.github.io/tree-sitter/): F# (`.fs`,
+`.fsi`, `.fsx`, via the
 [ionide/tree-sitter-fsharp](https://github.com/ionide/tree-sitter-fsharp)
-grammar. F# is the only language for the MVP; the architecture is set
-up for more.
+grammar), shell scripts (`.sh`/`.bash`/`.zsh`, shell dotfiles, or a
+`#!/bin/sh`-style shebang), and JavaScript/TypeScript, Python, Go, Rust,
+C/C#, JSON, HTML/CSS, and more. See
+[docs/syntax-highlighting.md](docs/syntax-highlighting.md) for the full
+list and how files are detected.
 
 Toggle from the command bar:
 

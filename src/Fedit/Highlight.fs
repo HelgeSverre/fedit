@@ -125,7 +125,8 @@ type HighlightRegistry
           "html"
           "css"
           "c"
-          "php" ]
+          "php"
+          "bash" ]
         |> List.iter (fun id -> tryLoadBundled id $"fedit.queries.{id}.highlights.scm")
 
         // External grammars — vendored natives under runtimes/<rid>/native/.
@@ -269,56 +270,121 @@ module Highlight =
         result.Sort(fun a b -> compare a.StartByte b.StartByte)
         result.ToArray()
 
-    let detectLanguage (path: string option) : string option =
-        path
-        |> Option.bind (fun p ->
-            let basename = Path.GetFileName p
+    /// Interpreter basenames that map onto the bundled `bash` grammar.
+    /// tree-sitter-bash is the de-facto grammar for every POSIX-ish shell.
+    let private shellInterpreters =
+        set [ "sh"; "bash"; "dash"; "zsh"; "ksh"; "mksh"; "ash" ]
 
-            match basename with
-            | "Justfile"
-            | "justfile" -> Some "just"
-            | "Makefile"
-            | "makefile"
-            | "GNUmakefile" -> Some "make"
-            | _ ->
-                let ext =
-                    match Path.GetExtension p with
-                    | null -> ""
-                    | s -> s.ToLowerInvariant()
+    /// Detect a shell script from its `#!` line when the path gives no
+    /// hint (extensionless scripts). Resolves `/usr/bin/env <interp>` to
+    /// the real interpreter and ignores flags / env-var assignments.
+    let private detectShebang (source: string) : string option =
+        let firstLine =
+            match source.IndexOf '\n' with
+            | -1 -> source
+            | i -> source.Substring(0, i)
 
-                match ext with
-                | ".fs"
-                | ".fsi"
-                | ".fsx" -> Some "fsharp"
-                | ".js"
-                | ".mjs"
-                | ".cjs" -> Some "javascript"
-                | ".ts" -> Some "typescript"
-                | ".tsx" -> Some "tsx"
-                | ".py" -> Some "python"
-                | ".json" -> Some "json"
-                | ".cs" -> Some "c-sharp"
-                | ".go" -> Some "go"
-                | ".rs" -> Some "rust"
-                | ".html"
-                | ".htm" -> Some "html"
-                | ".css" -> Some "css"
-                | ".c"
-                | ".h" -> Some "c"
-                | ".php"
-                | ".phtml" -> Some "php"
-                | ".md"
-                | ".mdx"
-                | ".markdown" -> Some "markdown"
-                | ".xml"
-                | ".svg"
-                | ".xsl"
-                | ".xslt" -> Some "xml"
-                | ".dart" -> Some "dart"
-                | ".just" -> Some "just"
-                | ".mk" -> Some "make"
-                | ".astro" -> Some "astro"
-                | _ -> None)
+        let line = firstLine.Trim()
+
+        if not (line.StartsWith("#!", StringComparison.Ordinal)) then
+            None
+        else
+            let tokens =
+                line.Substring(2).Split([| ' '; '\t' |], StringSplitOptions.RemoveEmptyEntries)
+                |> Array.toList
+
+            match tokens with
+            | [] -> None
+            | first :: more ->
+                let interp =
+                    match Path.GetFileName first with
+                    | "env" ->
+                        // `/usr/bin/env [-S] [VAR=x] bash` — first plain token.
+                        more
+                        |> List.tryFind (fun t ->
+                            not (t.StartsWith("-", StringComparison.Ordinal)) && not (t.Contains "="))
+                        |> Option.map Path.GetFileName
+                    | other -> Some other
+
+                match interp with
+                | Some name when Set.contains name shellInterpreters -> Some "bash"
+                | _ -> None
+
+    let detectLanguage (path: string option) (source: string) : string option =
+        let byPath =
+            path
+            |> Option.bind (fun p ->
+                let basename = Path.GetFileName p
+
+                match basename with
+                | "Justfile"
+                | "justfile" -> Some "just"
+                | "Makefile"
+                | "makefile"
+                | "GNUmakefile" -> Some "make"
+                // Shell dotfiles / config files with no extension.
+                | ".bashrc"
+                | ".bash_profile"
+                | ".bash_aliases"
+                | ".bash_login"
+                | ".bash_logout"
+                | ".profile"
+                | ".zshrc"
+                | ".zshenv"
+                | ".zprofile"
+                | ".zlogin"
+                | ".zlogout"
+                | ".kshrc"
+                | "PKGBUILD"
+                | "APKBUILD" -> Some "bash"
+                | _ ->
+                    let ext =
+                        match Path.GetExtension p with
+                        | null -> ""
+                        | s -> s.ToLowerInvariant()
+
+                    match ext with
+                    | ".fs"
+                    | ".fsi"
+                    | ".fsx" -> Some "fsharp"
+                    | ".js"
+                    | ".mjs"
+                    | ".cjs" -> Some "javascript"
+                    | ".ts" -> Some "typescript"
+                    | ".tsx" -> Some "tsx"
+                    | ".py" -> Some "python"
+                    | ".json" -> Some "json"
+                    | ".cs" -> Some "c-sharp"
+                    | ".go" -> Some "go"
+                    | ".rs" -> Some "rust"
+                    | ".html"
+                    | ".htm" -> Some "html"
+                    | ".css" -> Some "css"
+                    | ".c"
+                    | ".h" -> Some "c"
+                    | ".php"
+                    | ".phtml" -> Some "php"
+                    | ".sh"
+                    | ".bash"
+                    | ".zsh"
+                    | ".ksh"
+                    | ".command" -> Some "bash"
+                    | ".md"
+                    | ".mdx"
+                    | ".markdown" -> Some "markdown"
+                    | ".xml"
+                    | ".svg"
+                    | ".xsl"
+                    | ".xslt" -> Some "xml"
+                    | ".dart" -> Some "dart"
+                    | ".just" -> Some "just"
+                    | ".mk" -> Some "make"
+                    | ".astro" -> Some "astro"
+                    | _ -> None)
+
+        match byPath with
+        | Some _ -> byPath
+        | None -> detectShebang source
 
     let dispose (state: HighlightState) =
         state.Tree
