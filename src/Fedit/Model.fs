@@ -142,6 +142,20 @@ type Model =
         /// no built-in sequence is bound until the keymap lands, so in practice
         /// this stays `None` on the shipped key set.
         PendingPrefix: (Chord list * int64) option
+        /// Named macro registers. Key is the register char (e.g. 'a'); value is
+        /// the chords recorded into it, in press order. In-memory only this
+        /// phase — not persisted to the keybinds file.
+        Registers: Map<char, Chord list>
+        /// `Some r` while recording into register `r`; `None` otherwise. The
+        /// record-append hook in `update` keys off this.
+        Recording: char option
+        /// True while a macro replay is in flight (bracketed by
+        /// `MacroReplayStart`/`MacroReplayEnd`). The record-append hook checks
+        /// it so injected keys are never re-recorded.
+        Replaying: bool
+        /// The last register replayed or finished recording, for
+        /// "repeat last macro".
+        LastMacro: char option
     }
 
 type Msg =
@@ -161,6 +175,11 @@ type Msg =
     | ClipboardPasted of Result<string, string>
     | SearchCompleted of bufferId: int * query: string * matches: int list
     | WorkspaceChangedExternally
+    /// Brackets a macro replay batch so the record-append hook can suppress
+    /// recording of injected keys (sets/clears `Model.Replaying`). Enqueued by
+    /// the `ReplayKeys` effect interpreter around the injected `KeyPressed`s.
+    | MacroReplayStart
+    | MacroReplayEnd
     | PluginsScanned of Result<PluginRegistry, string>
     | PluginInstalled of name: string * Result<unit, string>
     | PluginRemoved of name: string * Result<unit, string>
@@ -182,3 +201,7 @@ type Effect =
     | RemovePluginDir of name: string
     | BuildPlugin of pluginPath: string
     | LoadKeybinds
+    /// Replay a recorded macro: re-enqueue these chords as `KeyPressed` msgs
+    /// `count` times. Interpreted in `Runtime.startEffect` (it owns the queue),
+    /// bracketed by `MacroReplayStart`/`MacroReplayEnd`.
+    | ReplayKeys of chords: Chord list * count: int

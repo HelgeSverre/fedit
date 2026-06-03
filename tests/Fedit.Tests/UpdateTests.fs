@@ -27,6 +27,10 @@ let private cnk n : Chord =
     { Mods = Set.ofList [ Ctrl ]
       Key = Named n } // ctrl+<named>
 
+let private csk c : Chord =
+    { Mods = Set.ofList [ Ctrl; Shift ]
+      Key = Key.Char c } // ctrl+shift+<char>
+
 [<Fact>]
 let ``init produces a model with the scratch buffer`` () =
     let model = initModel ()
@@ -688,3 +692,146 @@ let ``a plugin keybinding on a non-global Ctrl chord still fires through the edi
         | SaveBuffer _ -> true
         | _ -> false)
     |> should equal true
+
+// ── macros: record / replay / repeat (keybindings phase 4) ───────────────
+
+[<Fact>]
+let ``RecordMacro starts recording into the named register`` () =
+    let model = initModel ()
+    let recording, _ = Editor.runAction (RecordMacro 'a') model
+    recording.Recording |> should equal (Some 'a')
+
+[<Fact>]
+let ``recording captures each subsequent chord into the register`` () =
+    let model = initModel ()
+    let recording, _ = Editor.runAction (RecordMacro 'a') model
+    let after, _ = Editor.update (KeyPressed(chr 'x')) recording
+    (after.Registers |> Map.find 'a') |> should equal [ chr 'x' ]
+
+[<Fact>]
+let ``RecordMacro again stops recording and remembers the register`` () =
+    let model = initModel ()
+    let on, _ = Editor.runAction (RecordMacro 'a') model
+    let off, _ = Editor.runAction (RecordMacro 'a') on
+    off.Recording |> should equal None
+    off.LastMacro |> should equal (Some 'a')
+
+[<Fact>]
+let ``ReplayMacro emits a ReplayKeys effect carrying the recorded chords`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ chr 'x'; chr 'y' ] ] }
+
+    let _, effects = Editor.runAction (ReplayMacro('a', 2)) model
+
+    match effects with
+    | [ ReplayKeys(chords, count) ] ->
+        chords |> should equal [ chr 'x'; chr 'y' ]
+        count |> should equal 2
+    | other -> failwithf "expected one ReplayKeys effect, got %A" other
+
+[<Fact>]
+let ``replaying an empty register produces no effect`` () =
+    let model = initModel ()
+    let _, effects = Editor.runAction (ReplayMacro('z', 1)) model
+    effects |> List.isEmpty |> should equal true
+
+[<Fact>]
+let ``replaying the register currently being recorded is refused`` () =
+    let model =
+        { initModel () with
+            Recording = Some 'a'
+            Registers = Map.ofList [ 'a', [ chr 'x' ] ] }
+
+    let _, effects = Editor.runAction (ReplayMacro('a', 1)) model
+    effects |> List.isEmpty |> should equal true
+
+[<Fact>]
+let ``ReplayMacro does not start a nested replay while already replaying`` () =
+    let model =
+        { initModel () with
+            Replaying = true
+            Registers = Map.ofList [ 'a', [ chr 'x' ] ] }
+
+    let _, effects = Editor.runAction (ReplayMacro('a', 1)) model
+    effects |> List.isEmpty |> should equal true
+
+[<Fact>]
+let ``keys injected during replay are not appended to a recording register`` () =
+    // Recording @b while a replay is in flight must not capture the injected
+    // keys — the Replaying flag suppresses the record-append hook.
+    let model =
+        { initModel () with
+            Recording = Some 'b'
+            Replaying = true }
+
+    let after, _ = Editor.update (KeyPressed(chr 'z')) model
+
+    (after.Registers |> Map.tryFind 'b' |> Option.defaultValue [])
+    |> List.isEmpty
+    |> should equal true
+
+[<Fact>]
+let ``MacroReplayStart and MacroReplayEnd bracket the replaying flag`` () =
+    let model = initModel ()
+    let started, _ = Editor.update MacroReplayStart model
+    started.Replaying |> should equal true
+    let ended, _ = Editor.update MacroReplayEnd started
+    ended.Replaying |> should equal false
+
+[<Fact>]
+let ``replaying a recorded edit re-applies it through the marker bracket`` () =
+    // Record "xy", stop, then drive the runtime's replay sequence by hand
+    // (MacroReplayStart, the keys, MacroReplayEnd) and confirm the edit repeats
+    // without re-recording the injected keys.
+    let model = initModel ()
+    let rec0, _ = Editor.runAction (RecordMacro 'a') model
+    let r1, _ = Editor.update (KeyPressed(chr 'x')) rec0
+    let r2, _ = Editor.update (KeyPressed(chr 'y')) r1
+    let recorded, _ = Editor.runAction (RecordMacro 'a') r2
+    let chords = recorded.Registers |> Map.find 'a'
+
+    let afterStart, _ = Editor.update MacroReplayStart recorded
+
+    let afterKeys =
+        chords |> List.fold (fun m c -> fst (Editor.update (KeyPressed c) m)) afterStart
+
+    let afterEnd, _ = Editor.update MacroReplayEnd afterKeys
+
+    let buffer = afterEnd.Editors.Buffers[afterEnd.Editors.ActiveBufferId]
+    Buffer.text buffer |> should equal "xyxy"
+    // injected keys were not re-recorded into the still-present register
+    (afterEnd.Registers |> Map.find 'a') |> should equal chords
+
+[<Fact>]
+let ``the stop-recording chord is not captured into the register`` () =
+    // Drive through the bound default chord (Ctrl+Shift+M → record-macro:a) so
+    // the record-append hook's record-toggle guard is exercised end to end.
+    let model = initModel ()
+    let on, _ = Editor.update (KeyPressed(csk 'm')) model
+    on.Recording |> should equal (Some 'a')
+    let typed, _ = Editor.update (KeyPressed(chr 'x')) on
+    let off, _ = Editor.update (KeyPressed(csk 'm')) typed
+    off.Recording |> should equal None
+    (off.Registers |> Map.find 'a') |> should equal [ chr 'x' ]
+
+[<Fact>]
+let ``RepeatLastMacro replays the last recorded register`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ chr 'x' ] ]
+            LastMacro = Some 'a' }
+
+    let _, effects = Editor.runAction RepeatLastMacro model
+
+    match effects with
+    | [ ReplayKeys(chords, count) ] ->
+        chords |> should equal [ chr 'x' ]
+        count |> should equal 1
+    | other -> failwithf "expected one ReplayKeys effect, got %A" other
+
+[<Fact>]
+let ``RepeatLastMacro with no prior macro produces no effect`` () =
+    let model = initModel ()
+    let _, effects = Editor.runAction RepeatLastMacro model
+    effects |> List.isEmpty |> should equal true

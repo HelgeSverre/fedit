@@ -352,6 +352,18 @@ module Runtime =
                     let keymap, errors = KeymapIO.load ()
                     queue.Enqueue(KeybindsLoaded(keymap, errors)))
                 |> ignore
+            | ReplayKeys(chords, count) ->
+                // Pure in-memory queue manipulation — runs synchronously on the
+                // dispatch thread (unlike the I/O effects). Bracket the injected
+                // keys with markers so the record-append hook suppresses
+                // self-recording; the main loop drains them on later ticks.
+                queue.Enqueue MacroReplayStart
+
+                for _ in 1..count do
+                    for chord in chords do
+                        queue.Enqueue(KeyPressed chord)
+
+                queue.Enqueue MacroReplayEnd
 
         let dispatch model msg =
             log $"msg: {msg}"

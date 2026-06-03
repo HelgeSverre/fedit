@@ -120,6 +120,13 @@ module Status =
             | Some(chords, _) -> Chord.renderStroke chords + "… "
             | None -> ""
 
+        // Active macro recording prefixes the mode so it shows under the
+        // default StatusFormat — the only discoverability surface this phase.
+        let recording =
+            match model.Recording with
+            | Some r -> $"REC @{r}  "
+            | None -> ""
+
         let label =
             match model.Focus with
             | Sidebar ->
@@ -130,7 +137,7 @@ module Status =
             | Editor -> "EDIT"
             | Prompt -> promptModeLabel model.Prompt.Mode
 
-        pending + label
+        recording + pending + label
 
     let private bufferIndicator (model: Model) =
         let ids = model.Editors.Buffers |> Map.toList |> List.map fst |> List.sort

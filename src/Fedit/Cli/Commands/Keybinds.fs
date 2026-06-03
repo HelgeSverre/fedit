@@ -76,6 +76,7 @@ let actionName (action: Action) : string =
     | NoOp -> "no-op"
     | RecordMacro _ -> "record-macro"
     | ReplayMacro _ -> "replay-macro"
+    | RepeatLastMacro -> "repeat-last-macro"
 
 /// `(category, description)` one-liner per action for the website grid.
 /// Lead with a verb; no emoji, no marketing words (brand/voice.md). The
@@ -143,6 +144,7 @@ let actionMeta (action: Action) : string * string =
     | NoOp -> "other", "Do nothing"
     | RecordMacro _ -> "edit", "Record a macro into a register"
     | ReplayMacro _ -> "edit", "Replay a macro from a register"
+    | RepeatLastMacro -> "edit", "Replay the last macro"
 
 let private contextName (ctx: Context) : string =
     match ctx with

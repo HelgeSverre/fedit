@@ -302,6 +302,14 @@ A stroke is a `+`-joined chord such as `ctrl+shift+p`, `alt+left`, `f6`, or
 plugin's, and a context binding beats a `global` one. A copyable starter file
 lives at [`examples/keybinds`](examples/keybinds).
 
+### Macros
+
+Record a run of keystrokes and replay it. `Ctrl+Shift+M` starts and stops
+recording into register `a` — the status bar shows `REC @a` while it captures.
+`Ctrl+Shift+R` replays the register; `Ctrl+Shift+.` repeats the last macro.
+Triggers are modifier chords so bare keys stay text input. Macros live in
+memory for the session; they are not yet persisted to the keybinds file.
+
 ## Configuration
 
 `fedit` reads `~/.config/fedit/config.json` at startup. The file is created automatically the first time the editor persists state (`:theme` or opening a file updates `recent`). Hand-edited values are preserved on every save — unknown keys you add to the file are kept intact.

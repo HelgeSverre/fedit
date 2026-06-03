@@ -81,9 +81,10 @@ type Action =
     | Chain of Action list
     | When of cond: Cond * thenDo: Action * elseDo: Action
     | NoOp
-    // deferred — bind/parse-able later, but no-ops until macros/keymap land
+    // macros (keybindings phase 4)
     | RecordMacro of register: char
     | ReplayMacro of register: char * count: int
+    | RepeatLastMacro
 
 [<RequireQualifiedAccess>]
 module Action =

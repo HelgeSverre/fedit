@@ -1010,9 +1010,49 @@ module Editor =
         | RunPlugin(source, name, arg) -> executeCommand (Command.PluginInvoke(source, name, arg)) model
 
         | ReloadKeybinds -> model, [ LoadKeybinds ]
-        // deferred — macros land in a later phase; no-ops for now
-        | RecordMacro _ -> model, []
-        | ReplayMacro _ -> model, []
+
+        // ── macros (keybindings phase 4) ──
+        | RecordMacro register ->
+            match model.Recording with
+            | Some active when active = register ->
+                // Toggle off: the just-recorded register becomes the repeat target.
+                { model with
+                    Recording = None
+                    LastMacro = Some register
+                    Notification = Some(Notification.info $"Recorded macro @{register}") },
+                []
+            | _ ->
+                // Start (or switch) recording: clear the register, begin capture.
+                { model with
+                    Recording = Some register
+                    Registers = model.Registers |> Map.add register []
+                    Notification = Some(Notification.info $"Recording @{register}…") },
+                []
+        | ReplayMacro(register, count) ->
+            // A replayed chord must not spawn another replay (runaway guard); a
+            // register cannot replay itself while it is being recorded.
+            let selfRef =
+                match model.Recording with
+                | Some active -> active = register
+                | None -> false
+
+            if model.Replaying || selfRef then
+                model, []
+            else
+                match model.Registers |> Map.tryFind register with
+                | Some chords when not (List.isEmpty chords) && count > 0 ->
+                    { model with LastMacro = Some register }, [ ReplayKeys(chords, count) ]
+                | _ ->
+                    { model with
+                        Notification = Some(Notification.warning $"No macro in @{register}") },
+                    []
+        | RepeatLastMacro ->
+            match model.LastMacro with
+            | Some register -> runAction (ReplayMacro(register, 1)) model
+            | None ->
+                { model with
+                    Notification = Some(Notification.info "No macro to repeat") },
+                []
 
     let private moveSearchMatch delta model =
         let prompt = model.Prompt
@@ -1272,7 +1312,11 @@ module Editor =
           QuitArmed = false
           ShouldQuit = false
           Keymap = Keymap.defaults
-          PendingPrefix = None },
+          PendingPrefix = None
+          Registers = Map.empty
+          Recording = None
+          Replaying = false
+          LastMacro = None },
         [ ScanWorkspace rootPath; ScanPlugins; LoadKeybinds ]
 
     let update msg model =
@@ -1467,6 +1511,8 @@ module Editor =
         | PluginBuildFinished(name, Result.Error message) ->
             notify (Some(Notification.error $"Build '{name}' failed: {message}")) model, []
         | SequenceTimedOut -> { model with PendingPrefix = None }, []
+        | MacroReplayStart -> { model with Replaying = true }, []
+        | MacroReplayEnd -> { model with Replaying = false }, []
         | KeybindsLoaded(keymap, errors) ->
             let model = { model with Keymap = keymap }
 
@@ -1481,6 +1527,30 @@ module Editor =
                     { model with QuitArmed = false }
 
             let ctx = contextOf model.Focus
+
+            // Record-append hook: while recording (and not replaying), capture
+            // each incoming chord into the active register, except the chord
+            // that toggles recording off (which `runAction RecordMacro`
+            // consumes). Recording captures chords, not Actions, so replay
+            // re-runs live keymap resolution and reassembles any sequences.
+            let model =
+                match model.Recording with
+                | Some r when not model.Replaying ->
+                    let isRecordToggle =
+                        match Keymap.resolve ctx [ chord ] model.Keymap with
+                        | Bound(RecordMacro _) -> true
+                        | _ -> false
+
+                    if isRecordToggle then
+                        model
+                    else
+                        let appended =
+                            (model.Registers |> Map.tryFind r |> Option.defaultValue []) @ [ chord ]
+
+                        { model with
+                            Registers = model.Registers |> Map.add r appended }
+                | _ -> model
+
             let pending = model.PendingPrefix |> Option.map fst |> Option.defaultValue []
 
             let isPrefix (s: KeyStroke) =

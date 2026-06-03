@@ -97,6 +97,11 @@ module Keymap =
           single (chord [ Ctrl ] (Named Backspace)) DeleteWordBack
           single (chord [ Ctrl ] (Named Delete)) DeleteWordForward
 
+          // ── macros: modifier chords only (bare Char is reserved for text) ──
+          single (chord [ Ctrl; Shift ] (Key.Char 'm')) (RecordMacro 'a')
+          single (chord [ Ctrl; Shift ] (Key.Char 'r')) (ReplayMacro('a', 1))
+          single (chord [ Ctrl; Shift ] (Key.Char '.')) RepeatLastMacro
+
           // ── sidebar navigation (Context.Sidebar) ──
           single (chord [] (Named Up)) SidebarUp |> inCtx Context.Sidebar
           single (chord [] (Named Down)) SidebarDown |> inCtx Context.Sidebar
@@ -294,6 +299,7 @@ module Keymap =
                 | Some n -> Ok(ReplayMacro(r.Trim().[0], n))
                 | None -> Result.Error "replay-macro count must be a number"
             | _ -> Result.Error "replay-macro needs a single-character register"
+        | "repeat-last-macro" -> Ok RepeatLastMacro
         | "no-op" -> Ok NoOp
         | other -> Result.Error $"unknown action '{other}'"
 

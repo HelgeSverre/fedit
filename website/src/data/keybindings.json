@@ -266,6 +266,27 @@
     "description": "Delete the word after the cursor"
   },
   {
+    "stroke": "ctrl+shift+m",
+    "action": "record-macro",
+    "context": "editor",
+    "category": "edit",
+    "description": "Record a macro into a register"
+  },
+  {
+    "stroke": "ctrl+shift+r",
+    "action": "replay-macro",
+    "context": "editor",
+    "category": "edit",
+    "description": "Replay a macro from a register"
+  },
+  {
+    "stroke": "ctrl+shift+.",
+    "action": "repeat-last-macro",
+    "context": "editor",
+    "category": "edit",
+    "description": "Replay the last macro"
+  },
+  {
     "stroke": "up",
     "action": "sidebar-up",
     "context": "sidebar",
