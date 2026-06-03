@@ -18,20 +18,20 @@ This plan implements **Phase B** of [`docs/superpowers/specs/2026-05-30-docs-sub
 - **Zero visual regression.** Every task ends with a side-by-side visual check of the affected pages in `just website::dev`. If anything shifts, the extraction is wrong — fix the utility, don't accept the drift.
 - **One pattern per task.** Small, reversible commits. If an extraction goes sideways, `git revert` touches one pattern.
 - **Respect the brand rules.** `brand/USAGE.md` (banned colors/patterns), `brand/voice.md`, the `.tui` calt/liga alignment rules, `--accent-soft` focus rings, and `NO_COLOR`/no-accent legibility must survive every change.
-- **Don't restructure tokens.** `global.css`'s `:root` token block (neutrals, accent, semantic vars, spacing, timing) is the source of truth and stays. We add utilities/components that *consume* tokens; we don't rename tokens.
+- **Don't restructure tokens.** `global.css`'s `:root` token block (neutrals, accent, semantic vars, spacing, timing) is the source of truth and stays. We add utilities/components that _consume_ tokens; we don't rename tokens.
 
 ---
 
 ## File structure
 
-| File | Change | Responsibility |
-| ---- | ------ | -------------- |
-| `website/src/styles/utilities.css` | **create** | Low-level reusable utilities (section head, stacks if not already, kbd, chips, card, table). |
-| `website/src/styles/components.css` | **create** | Slightly higher-level shared component classes that span multiple pages (e.g. code/TUI frame chrome, definition grid). |
-| `website/src/styles/global.css` | modify | `@import` the two partials; keep the token block + base typography. |
-| `website/src/pages/*.astro`, `website/src/pages/docs/*.astro` | modify | Remove now-duplicated rules from their `<style>` blocks; keep unique rules. |
-| `website/src/components/*.astro` | modify | Same — thin the `<style>` blocks. |
-| `website/docs/STYLES.md` *(or a comment header in `utilities.css`)* | **create** | Document the utility vocabulary so future pages reuse it. |
+| File                                                                | Change     | Responsibility                                                                                                         |
+| ------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `website/src/styles/utilities.css`                                  | **create** | Low-level reusable utilities (section head, stacks if not already, kbd, chips, card, table).                           |
+| `website/src/styles/components.css`                                 | **create** | Slightly higher-level shared component classes that span multiple pages (e.g. code/TUI frame chrome, definition grid). |
+| `website/src/styles/global.css`                                     | modify     | `@import` the two partials; keep the token block + base typography.                                                    |
+| `website/src/pages/*.astro`, `website/src/pages/docs/*.astro`       | modify     | Remove now-duplicated rules from their `<style>` blocks; keep unique rules.                                            |
+| `website/src/components/*.astro`                                    | modify     | Same — thin the `<style>` blocks.                                                                                      |
+| `website/docs/STYLES.md` _(or a comment header in `utilities.css`)_ | **create** | Document the utility vocabulary so future pages reuse it.                                                              |
 
 > Whether to split into `utilities.css` + `components.css` or fold everything into `global.css` is a judgment call made in Task 1 based on the audit's volume. Default: two partials, imported at the top of `global.css`. If the audit yields only a handful of utilities, fold into `global.css` and skip the partials — note the choice in the Task 1 commit.
 
@@ -75,7 +75,7 @@ For each pattern appearing in ≥2 files, mark it for extraction and assign it t
 - [ ] **Step 5: Check what's already shared**
 
 Run: `grep -n "\.section\b\|\.container\|\.stack\|\.dl-grid\|kbd\|section__head\|section__lede" website/src/styles/global.css`
-Some utilities (`.section`, `.container`, `.stack`, possibly `.dl-grid`, `section__head`) may already live in `global.css`. Do NOT re-extract those — note them as "already shared" so later tasks only remove *component-local duplicates* of them.
+Some utilities (`.section`, `.container`, `.stack`, possibly `.dl-grid`, `section__head`) may already live in `global.css`. Do NOT re-extract those — note them as "already shared" so later tasks only remove _component-local duplicates_ of them.
 
 - [ ] **Step 6: Commit the audit note** (if you wrote a `STYLES.md` draft)
 
@@ -89,6 +89,7 @@ git commit -m "docs(website): style audit + shared-utility extraction plan" --al
 ## Task 2: Scaffold the partials and wire them into global.css
 
 **Files:**
+
 - Create: `website/src/styles/utilities.css`
 - Create: `website/src/styles/components.css`
 - Modify: `website/src/styles/global.css`
@@ -146,7 +147,8 @@ git commit -m "chore(website): scaffold utilities.css + components.css partials"
 ### Extraction loop (template)
 
 **Files (per pattern):**
-- Modify: `website/src/styles/utilities.css` *or* `components.css` (add the shared class)
+
+- Modify: `website/src/styles/utilities.css` _or_ `components.css` (add the shared class)
 - Modify: each `*.astro` that currently defines the pattern locally (remove the duplicate)
 
 - [ ] **Step A: Add the canonical class to the partial**
@@ -156,20 +158,20 @@ Move the most complete/correct version of the rules into the partial under a com
 ```css
 /* Filter chips: a row of toggle buttons; .is-active fills with accent. */
 .chips {
-  display: flex;
-  gap: 4px;
+    display: flex;
+    gap: 4px;
 }
 .chips button {
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  color: var(--fg-muted);
-  font-size: 13px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    color: var(--fg-muted);
+    font-size: 13px;
 }
 .chips button.is-active {
-  color: var(--accent-fg);
-  background: var(--accent);
-  border-color: var(--accent);
+    color: var(--accent-fg);
+    background: var(--accent);
+    border-color: var(--accent);
 }
 ```
 
@@ -214,6 +216,7 @@ Do the safe, high-duplication patterns first:
 `brand.astro` carries `!important` rules (e.g. `margin-top: …px !important`, `color: var(--fg-muted) !important`) — a specificity smell. Now that shared utilities exist, most should be expressible without `!important`.
 
 **Files:**
+
 - Modify: `website/src/pages/brand.astro`
 - Modify: `website/src/styles/utilities.css` or `components.css` (if a shared class is the right fix)
 
@@ -247,6 +250,7 @@ git commit -m "refactor(website): remove brand.astro !important overrides via sh
 ## Task 11: Document the vocabulary
 
 **Files:**
+
 - Create/Modify: `website/docs/STYLES.md` (or finalize the header comments in the partials)
 
 - [ ] **Step 1: Write the vocabulary doc**
@@ -282,4 +286,7 @@ git commit -m "docs(website): document the shared style vocabulary"
 - **Ordering:** depends on Phase A being merged (docs pages exist) — stated up front. Safe high-duplication patterns first; `!important` cleanup after utilities exist.
 - **Reversibility:** one pattern per commit, so any regression is revertable in isolation.
 - **Judgment calls flagged:** partials-vs-fold-into-global decided post-audit (Task 1/file-structure note); element-level `kbd` base rule confirmed against per-page needs (Task 4).
+
+```
+
 ```

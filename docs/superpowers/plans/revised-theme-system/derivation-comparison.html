@@ -326,8 +326,8 @@
 
         // primary moments
         const accent = lch(0.66, primary.C, primary.H);            // legible red on dark
-        const statusBg = lch(0.57, primary.C * 0.92, primary.H);   // clean brand-red bar
-        const statusFg = contrast(statusBg);                       // → white (auto)
+        const statusBg = g(baseL + 0.07);                          // neutral bar — red used sparingly
+        const statusFg = fg;                                       // muted neutral text; mode word is accent
         const gutterActiveBg = over(accent, bg, 0.16);
         const gutterActiveFg = accent;
 
@@ -412,7 +412,7 @@
           <div class="mini">
             <div class="ed" style="background:${t.bg}">${lines}</div>
             <div class="status" style="background:${t.statusBg};color:${t.statusFg}">
-              <span>EDIT  app/Models/User.php</span><span>155:18  LF</span>
+              <span><span style="color:${t.accent};font-weight:700">EDIT</span>  app/Models/User.php</span><span>155:18  LF</span>
             </div>
             <div class="dock" style="background:${t.dockBg};color:${t.dockFg}">
               <div class="title" style="color:${t.accent}"> Themes (3/3) </div>

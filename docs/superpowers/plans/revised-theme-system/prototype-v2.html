@@ -1064,7 +1064,9 @@
           const gutterActiveBg = over(accent, bg, dark ? 0.16 : 0.12);
           const selectionBg = over(accent, bg, dark ? 0.5 : 0.28);
           const selectionFg = contrast(selectionBg);
-          const statusBg = shiftL(accent, dark ? -0.18 : -0.04);
+          // statusBg: accent-derived by default; neutralStatus themes keep a calm
+          // surface bar and reserve the accent for the mode word / dock title.
+          const statusBg = t.neutralStatus ? surface2 : shiftL(accent, dark ? -0.18 : -0.04);
           const statusFg = contrast(statusBg);
 
           return {
@@ -1177,15 +1179,17 @@
             editorFg: "#020b23",
             syntax: { keyword: "#91392b", string: "#375f2b", comment: "#959593", function: "#1838a7", type: "#6c4522" },
           },
-          // ── new: Laravel (brand red on Tailwind slate) ──
+          // ── new: Laravel (brand red on warm near-black; docs-accurate) ──
+          // bg #222221 + neutral status bar; red keyword, green strings (Laravel docs).
           {
             name: "laravel",
-            description: "Laravel red on slate",
+            description: "Laravel red on warm near-black",
             appearance: "dark",
             accent: "#ff2d20",
-            editorBg: "#0f172a",
-            editorFg: "#e2e8f0",
-            syntax: { keyword: "#ff7b72", string: "#a5d6ff", comment: "#8b949e", function: "#d2a8ff", type: "#ffa657" },
+            editorBg: "#222221",
+            editorFg: "#d4d4d4",
+            neutralStatus: true,
+            syntax: { keyword: "#ff6a5e", string: "#6fcf86", comment: "#6b6b67", function: "#6fcf86", type: "#d4d4d4" },
           },
           // ── new: Verdandi Alter (be5invis — near-mono blue-gray) ──
           {

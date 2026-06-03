@@ -48,13 +48,13 @@ left as a placeholder for that future work.
 
 **New routes**
 
-| Route                 | Source                                        | Layout       |
-| --------------------- | --------------------------------------------- | ------------ |
-| `/docs`               | new hub/landing (cards linking each doc)      | `DocsLayout` |
-| `/docs/plugins`       | current `/developer` plugin guide, moved in   | `DocsLayout` |
-| `/docs/keybindings`   | new interactive searchable datagrid           | `DocsLayout` |
-| `/docs/architecture`  | current `/how` content, moved in (placeholder)| `DocsLayout` |
-| `/changelog`          | new page                                      | `Site`       |
+| Route                | Source                                         | Layout       |
+| -------------------- | ---------------------------------------------- | ------------ |
+| `/docs`              | new hub/landing (cards linking each doc)       | `DocsLayout` |
+| `/docs/plugins`      | current `/developer` plugin guide, moved in    | `DocsLayout` |
+| `/docs/keybindings`  | new interactive searchable datagrid            | `DocsLayout` |
+| `/docs/architecture` | current `/how` content, moved in (placeholder) | `DocsLayout` |
+| `/changelog`         | new page                                       | `Site`       |
 
 **Header nav change**
 
@@ -65,7 +65,7 @@ New: `install · commands · themes · plugins · docs · changelog`
 - `how` → folds into `/docs/architecture` (content moved verbatim).
 - `developer` (`/developer`) → folds into `/docs/plugins` (content moved verbatim).
 - `commands` → **kept** in nav as the static at-a-glance cheatsheet. The
-  *interactive/searchable* grid is the separate `/docs/keybindings` page. (The
+  _interactive/searchable_ grid is the separate `/docs/keybindings` page. (The
   two are deliberately distinct: one is a printable reference, one is a
   filterable tool.)
 
@@ -93,25 +93,30 @@ Props mirror `Site.astro` (`title`, `description`, `image`) and pass through.
 **Data pipeline**
 
 1. New CLI subcommand: `fedit keybinds --json`.
-   - Registered as a `CliSubcommandSpec` (`Name = "keybinds"`), with a
-     `--json` `CliOptionSpec` flag.
-   - Serializes **`Keymap.defaults`** (the compiled-in defaults only — not any
-     user `~/.config/fedit/keybinds` overlay) to a JSON array of:
-     ```json
-     { "stroke": "ctrl+s", "action": "save", "context": "global",
-       "category": "file", "description": "Save the active buffer" }
-     ```
-   - `stroke` via `Chord.renderStroke`; `action` via a kebab name (reuse the
-     Phase-3 `parseAction` name table inverted, or a small `Action -> string`);
-     `context` from `Binding.Context`.
-   - `description` + `category`: the F# DSL carries neither. Add a small
-     `Action -> (category * description)` table (host-side, in the keybinds
-     command module or a `KeybindsMeta` helper). This is the one piece of prose
-     authored for the dump.
-   - Non-JSON `fedit keybinds` (no flag) prints a human-readable table (nice to
-     have; keep minimal).
+    - Registered as a `CliSubcommandSpec` (`Name = "keybinds"`), with a
+      `--json` `CliOptionSpec` flag.
+    - Serializes **`Keymap.defaults`** (the compiled-in defaults only — not any
+      user `~/.config/fedit/keybinds` overlay) to a JSON array of:
+        ```json
+        {
+            "stroke": "ctrl+s",
+            "action": "save",
+            "context": "global",
+            "category": "file",
+            "description": "Save the active buffer"
+        }
+        ```
+    - `stroke` via `Chord.renderStroke`; `action` via a kebab name (reuse the
+      Phase-3 `parseAction` name table inverted, or a small `Action -> string`);
+      `context` from `Binding.Context`.
+    - `description` + `category`: the F# DSL carries neither. Add a small
+      `Action -> (category * description)` table (host-side, in the keybinds
+      command module or a `KeybindsMeta` helper). This is the one piece of prose
+      authored for the dump.
+    - Non-JSON `fedit keybinds` (no flag) prints a human-readable table (nice to
+      have; keep minimal).
 2. `just website::gen-keybinds` recipe runs `./fedit keybinds --json >
-   website/src/data/keybindings.json`. The JSON is **committed** so web builds
+website/src/data/keybindings.json`. The JSON is **committed** so web builds
    never require the binary. Recipe documented as the regen step when bindings
    change.
 
@@ -197,4 +202,7 @@ component `<style>` blocks, and a verified no-regression pass.
   keybindings grid search/filter/sort verified in-browser; redirects resolve.
 - **Data sync:** `just website::gen-keybinds` reproduces the committed
   `keybindings.json` with no diff (drift check).
+
+```
+
 ```

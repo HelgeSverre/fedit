@@ -14,28 +14,28 @@ This plan implements **Phase A** of [`docs/superpowers/specs/2026-05-30-docs-sub
 
 ## File structure
 
-| File | Change | Responsibility |
-| ---- | ------ | -------------- |
-| `src/Fedit/Cli/Commands/Keybinds.fs` | **create** | `actionName`/`actionMeta`/`toJson`, `descriptor`, `run` for `fedit keybinds [--json]`. |
-| `src/Fedit/Fedit.fsproj` | modify | Add `<Compile Include="Cli\Commands\Keybinds.fs" />` before `Program.fs`. |
-| `src/Fedit/Program.fs` | modify | Register the `keybinds` subcommand spec, add it to `rootDescriptor.Subcommands`, and route it in `main`. |
-| `tests/Fedit.Tests/KeybindsCliTests.fs` | **create** | Assert every default serializes with non-empty fields + valid JSON. |
-| `tests/Fedit.Tests/Fedit.Tests.fsproj` | modify | Register the new test file. |
-| `website/justfile` | modify | Add `gen-keybinds` recipe. |
-| `website/src/data/keybindings.json` | **create** (generated, committed) | The serialized default keymap the grid reads. |
-| `website/src/data/docs-nav.ts` | **create** | Single source for the docs sidebar + `/docs` hub cards. |
-| `website/src/data/changelog.ts` | **create** | Hand-maintained mirror of `CHANGELOG.md`. |
-| `website/src/layouts/DocsLayout.astro` | **create** | Site wrapper + persistent sidebar. |
-| `website/src/pages/docs/index.astro` | **create** | Docs hub. |
-| `website/src/pages/docs/plugins.astro` | **create** (moved from `developer.astro`) | Plugin author guide. |
-| `website/src/pages/docs/architecture.astro` | **create** (moved from `how.astro`) | Architecture overview (placeholder for future rewrite). |
-| `website/src/pages/docs/keybindings.astro` | **create** | Interactive datagrid. |
-| `website/src/pages/changelog.astro` | **create** | Changelog page. |
-| `website/src/pages/developer.astro` | **delete** | Replaced by redirect. |
-| `website/src/pages/how.astro` | **delete** | Replaced by redirect. |
-| `website/astro.config.mjs` | modify | Add `redirects` for `/developer`→`/docs/plugins`, `/how`→`/docs/architecture`. |
-| `website/src/components/Header.astro` | modify | nav: drop `how`+`brand`, add `docs`+`changelog`. |
-| `website/src/components/Footer.astro` | modify | add `brand`; repoint `how`/`developer` links to new URLs. |
+| File                                        | Change                                    | Responsibility                                                                                           |
+| ------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `src/Fedit/Cli/Commands/Keybinds.fs`        | **create**                                | `actionName`/`actionMeta`/`toJson`, `descriptor`, `run` for `fedit keybinds [--json]`.                   |
+| `src/Fedit/Fedit.fsproj`                    | modify                                    | Add `<Compile Include="Cli\Commands\Keybinds.fs" />` before `Program.fs`.                                |
+| `src/Fedit/Program.fs`                      | modify                                    | Register the `keybinds` subcommand spec, add it to `rootDescriptor.Subcommands`, and route it in `main`. |
+| `tests/Fedit.Tests/KeybindsCliTests.fs`     | **create**                                | Assert every default serializes with non-empty fields + valid JSON.                                      |
+| `tests/Fedit.Tests/Fedit.Tests.fsproj`      | modify                                    | Register the new test file.                                                                              |
+| `website/justfile`                          | modify                                    | Add `gen-keybinds` recipe.                                                                               |
+| `website/src/data/keybindings.json`         | **create** (generated, committed)         | The serialized default keymap the grid reads.                                                            |
+| `website/src/data/docs-nav.ts`              | **create**                                | Single source for the docs sidebar + `/docs` hub cards.                                                  |
+| `website/src/data/changelog.ts`             | **create**                                | Hand-maintained mirror of `CHANGELOG.md`.                                                                |
+| `website/src/layouts/DocsLayout.astro`      | **create**                                | Site wrapper + persistent sidebar.                                                                       |
+| `website/src/pages/docs/index.astro`        | **create**                                | Docs hub.                                                                                                |
+| `website/src/pages/docs/plugins.astro`      | **create** (moved from `developer.astro`) | Plugin author guide.                                                                                     |
+| `website/src/pages/docs/architecture.astro` | **create** (moved from `how.astro`)       | Architecture overview (placeholder for future rewrite).                                                  |
+| `website/src/pages/docs/keybindings.astro`  | **create**                                | Interactive datagrid.                                                                                    |
+| `website/src/pages/changelog.astro`         | **create**                                | Changelog page.                                                                                          |
+| `website/src/pages/developer.astro`         | **delete**                                | Replaced by redirect.                                                                                    |
+| `website/src/pages/how.astro`               | **delete**                                | Replaced by redirect.                                                                                    |
+| `website/astro.config.mjs`                  | modify                                    | Add `redirects` for `/developer`→`/docs/plugins`, `/how`→`/docs/architecture`.                           |
+| `website/src/components/Header.astro`       | modify                                    | nav: drop `how`+`brand`, add `docs`+`changelog`.                                                         |
+| `website/src/components/Footer.astro`       | modify                                    | add `brand`; repoint `how`/`developer` links to new URLs.                                                |
 
 **Compile-order rule (CLAUDE.md `FS0225`):** `Keybinds.fs` must be listed in the fsproj **and** committed. It goes after `Cli\Commands\Completions.fs` and before `Program.fs` — it depends on `Keymap`, `Keys`, `Actions`, `Cli` (all earlier) and is consumed by `Program.fs`.
 
@@ -46,6 +46,7 @@ This plan implements **Phase A** of [`docs/superpowers/specs/2026-05-30-docs-sub
 Mirror the `Fedit.Cli.Commands.Completions` module pattern. The dump serializes `Keymap.defaults` only — the compiled-in defaults, not any user overlay (spec "Out of scope").
 
 **Files:**
+
 - Create: `src/Fedit/Cli/Commands/Keybinds.fs`
 - Modify: `src/Fedit/Fedit.fsproj`
 - Modify: `src/Fedit/Program.fs`
@@ -309,6 +310,7 @@ git commit -m "feat(cli): add 'keybinds' subcommand dumping defaults as JSON"
 ## Task 2: CLI dump test
 
 **Files:**
+
 - Create: `tests/Fedit.Tests/KeybindsCliTests.fs`
 - Modify: `tests/Fedit.Tests/Fedit.Tests.fsproj`
 
@@ -373,6 +375,7 @@ git commit -m "test(cli): keybinds JSON dump covers every bound default"
 ## Task 3: `gen-keybinds` recipe + committed JSON
 
 **Files:**
+
 - Modify: `website/justfile`
 - Create: `website/src/data/keybindings.json` (generated)
 
@@ -413,6 +416,7 @@ git commit -m "build(website): gen-keybinds recipe + committed keybindings.json"
 ## Task 4: Docs nav data + DocsLayout
 
 **Files:**
+
 - Create: `website/src/data/docs-nav.ts`
 - Create: `website/src/layouts/DocsLayout.astro`
 
@@ -426,27 +430,27 @@ git commit -m "build(website): gen-keybinds recipe + committed keybindings.json"
  * Adding a doc is one entry here plus the page file.
  */
 export interface DocEntry {
-  href: string;
-  label: string;
-  summary: string;
+    href: string;
+    label: string;
+    summary: string;
 }
 
 export const docsNav: DocEntry[] = [
-  {
-    href: "/docs/plugins",
-    label: "Plugin guide",
-    summary: "Write a plugin: one .fs file, no IPC, no JSON manifests.",
-  },
-  {
-    href: "/docs/keybindings",
-    label: "Keybindings",
-    summary: "Every default binding — searchable, filterable by context.",
-  },
-  {
-    href: "/docs/architecture",
-    label: "Architecture",
-    summary: "How fedit is built: the pure MVU loop and piece-table buffers.",
-  },
+    {
+        href: "/docs/plugins",
+        label: "Plugin guide",
+        summary: "Write a plugin: one .fs file, no IPC, no JSON manifests.",
+    },
+    {
+        href: "/docs/keybindings",
+        label: "Keybindings",
+        summary: "Every default binding — searchable, filterable by context.",
+    },
+    {
+        href: "/docs/architecture",
+        label: "Architecture",
+        summary: "How fedit is built: the pure MVU loop and piece-table buffers.",
+    },
 ];
 ```
 
@@ -575,6 +579,7 @@ git commit -m "feat(website): docs nav data + DocsLayout with sidebar"
 ## Task 5: Move plugin guide and architecture pages into /docs
 
 **Files:**
+
 - Create: `website/src/pages/docs/plugins.astro`
 - Create: `website/src/pages/docs/architecture.astro`
 - Delete: `website/src/pages/developer.astro`
@@ -589,6 +594,7 @@ git mv website/src/pages/developer.astro website/src/pages/docs/plugins.astro
 ```
 
 Then edit `website/src/pages/docs/plugins.astro`:
+
 - Change the import `import Site from "../layouts/Site.astro";` to `import DocsLayout from "../../layouts/DocsLayout.astro";`.
 - Replace the `<Site …>` opening and `</Site>` closing tags with `<DocsLayout …>` / `</DocsLayout>`.
 - Fix every relative import that gained a directory level: `../components/X.astro` → `../../components/X.astro`, `../data/X` → `../../data/X`.
@@ -620,6 +626,7 @@ git commit -m "refactor(website): move plugin guide and how into /docs"
 ## Task 6: /docs hub page
 
 **Files:**
+
 - Create: `website/src/pages/docs/index.astro`
 
 - [ ] **Step 1: Create the hub**
@@ -705,6 +712,7 @@ git commit -m "feat(website): /docs hub page"
 Mirror the `/plugins` Alpine.js pattern (search/filter/sort over an embedded array). Read the patterns in `website/src/pages/plugins.astro` first.
 
 **Files:**
+
 - Create: `website/src/pages/docs/keybindings.astro`
 
 - [ ] **Step 1: Create the page**
@@ -904,6 +912,7 @@ git commit -m "feat(website): interactive keybindings datagrid"
 ## Task 8: Changelog data + page
 
 **Files:**
+
 - Create: `website/src/data/changelog.ts`
 - Create: `website/src/pages/changelog.astro`
 
@@ -921,27 +930,27 @@ Read `CHANGELOG.md` first, then mirror it. `website/src/data/changelog.ts`:
  * yet — edit this file by hand for now.
  */
 export interface ChangelogSection {
-  /** e.g. "Added", "Fixed", "Changed". */
-  type: string;
-  items: string[];
+    /** e.g. "Added", "Fixed", "Changed". */
+    type: string;
+    items: string[];
 }
 
 export interface ChangelogEntry {
-  version: string;
-  /** ISO date YYYY-MM-DD, or "" if unreleased. */
-  date: string;
-  sections: ChangelogSection[];
+    version: string;
+    /** ISO date YYYY-MM-DD, or "" if unreleased. */
+    date: string;
+    sections: ChangelogSection[];
 }
 
 export const changelog: ChangelogEntry[] = [
-  // Populate from CHANGELOG.md, newest first. Example shape:
-  // {
-  //   version: "0.1.0",
-  //   date: "2026-05-29",
-  //   sections: [
-  //     { type: "Added", items: ["Data-driven keybindings with a user keybinds file."] },
-  //   ],
-  // },
+    // Populate from CHANGELOG.md, newest first. Example shape:
+    // {
+    //   version: "0.1.0",
+    //   date: "2026-05-29",
+    //   sections: [
+    //     { type: "Added", items: ["Data-driven keybindings with a user keybinds file."] },
+    //   ],
+    // },
 ];
 ```
 
@@ -1044,6 +1053,7 @@ git commit -m "feat(website): changelog page from hand-maintained data"
 ## Task 9: Nav, footer, and redirects
 
 **Files:**
+
 - Modify: `website/src/components/Header.astro`
 - Modify: `website/src/components/Footer.astro`
 - Modify: `website/astro.config.mjs`
@@ -1054,12 +1064,12 @@ In `website/src/components/Header.astro`, replace the `links` array:
 
 ```js
 const links = [
-  { href: "/#install", label: "install" },
-  { href: "/commands", label: "commands" },
-  { href: "/themes", label: "themes" },
-  { href: "/plugins", label: "plugins" },
-  { href: "/docs", label: "docs" },
-  { href: "/changelog", label: "changelog" },
+    { href: "/#install", label: "install" },
+    { href: "/commands", label: "commands" },
+    { href: "/themes", label: "themes" },
+    { href: "/plugins", label: "plugins" },
+    { href: "/docs", label: "docs" },
+    { href: "/changelog", label: "changelog" },
 ];
 ```
 
@@ -1128,4 +1138,7 @@ git commit -m "feat(website): nav adds docs+changelog; brand to footer; redirect
 - **Type consistency:** `actionName`/`actionMeta`/`toJson`/`descriptor`/`run` names are consistent across Tasks 1–3; the JSON row shape (`stroke/action/context/category/description`) is identical in the CLI dump (Task 1), the test (Task 2), and the grid (Task 7); `docsNav`/`DocEntry` consistent across Tasks 4 and 6.
 - **Compile order:** `Keybinds.fs` after `Completions.fs`, before `Program.fs` (FS0225 gotcha).
 - **Verify-against-real-code flags:** the exact `CliCommandDescriptor`/`CliOptionSpec` field spellings and the Alpine init idiom are called out to confirm against `Cli.fs`/`Completions.fs`/`plugins.astro` before finalizing.
+
+```
+
 ```
