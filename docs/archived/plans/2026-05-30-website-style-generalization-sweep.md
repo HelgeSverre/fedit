@@ -1,5 +1,25 @@
 # Website Style Generalization Sweep Implementation Plan
 
+> **STATUS: SHIPPED, 2026-06-03.** The Task 1 audit collapsed the 11-task plan
+> to three real changes. Most candidate patterns were already shared in
+> `global.css` (`section__head`/`section__lede`, `.dl-grid`, `.stack`, base
+> `kbd`) with no local duplicates, and the chips/table chrome turned out to be
+> single-use after Phase A (`/plugins` uses a `<select>`, not chips, and has no
+> table). What actually shipped:
+>
+> - **`.card` surface** → `global.css`; home read-next grid, `PluginCard`,
+>   `ThemeCard` compose it (`docs .doc-cards` stays scoped — intentionally
+>   flat). Commit `6a8b51e`.
+> - **`.frame` chrome** → `global.css`; `TuiFrame` and `developer.astro`'s
+>   anatomy block (byte-identical chrome) compose it. Commit `644eb5d`.
+> - **`brand.astro` `!important` cleanup** → the four overrides were dropped by
+>   wrapping two base resets in `:where()`. Commit `566e951`.
+>
+> `.card`/`.frame` are self-documented inline in `global.css`, so the separate
+> `STYLES.md` (Task 11) was intentionally skipped as over-engineering. Each
+> change was verified by screenshot (zero visual regression). The task list
+> below is the original plan, kept as history — the audit superseded its scope.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Refactor the website's per-component inline `<style>` blocks into a documented shared-utility vocabulary, keeping component-scoped CSS only where styling is genuinely unique — with zero visual regression.
