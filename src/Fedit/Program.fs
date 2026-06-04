@@ -31,7 +31,11 @@ module Program =
           { Name = "keybinds"
             Aliases = []
             HiddenAliases = []
-            Summary = "Print the default keybindings" } ]
+            Summary = "Print the default keybindings" }
+          { Name = "themes"
+            Aliases = []
+            HiddenAliases = []
+            Summary = "Print the bundled themes" } ]
 
     let private app: CliApp<ProgramOption> =
         { Name = "fedit"
@@ -95,7 +99,11 @@ module Program =
           Summary = app.Summary
           Positionals = app.Positionals
           Options = app.Options |> List.map Parser.toOptionDescriptor
-          Subcommands = [ Plugins.descriptor; Completions.descriptor; Keybinds.descriptor ] }
+          Subcommands =
+            [ Plugins.descriptor
+              Completions.descriptor
+              Keybinds.descriptor
+              Themes.descriptor ] }
 
     [<EntryPoint>]
     let main argv =
@@ -103,6 +111,7 @@ module Program =
         | Some("plugins", rest) -> Plugins.run rest
         | Some("completions", rest) -> Completions.run rootDescriptor rest
         | Some("keybinds", rest) -> Keybinds.run rest
+        | Some("themes", rest) -> Themes.run rest
         | _ ->
 
             match Parser.parse app.Options argv with

@@ -176,6 +176,7 @@
     <Compile Include="Cli\Commands\Plugins.fs" />
     <Compile Include="Cli\Commands\Completions.fs" />
     <Compile Include="Cli\Commands\Keybinds.fs" />
+    <Compile Include="Cli\Commands\Themes.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 </Project>
