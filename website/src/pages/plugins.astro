@@ -256,15 +256,10 @@ const bundledCount = plugins.filter((p) => p.bundled).length;
       try {
         await navigator.clipboard.writeText(cmd);
       } catch {
-        // Clipboard API can fail without a secure context — fall back.
-        const ta = document.createElement("textarea");
-        ta.value = cmd;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        ta.remove();
+        // Clipboard API needs a secure context (HTTPS or localhost) — both
+        // hold for this site, so a failure here means the user denied access.
+        // Leave the state untouched rather than claim a copy that didn't land.
+        return;
       }
       this.copied = true;
       if (this._copyTimer) clearTimeout(this._copyTimer);
