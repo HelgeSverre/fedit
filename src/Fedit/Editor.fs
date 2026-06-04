@@ -757,21 +757,32 @@ module Editor =
 
             match argument.Trim() with
             | "" ->
-                // List every effective binding (context, stroke, action).
-                let lines =
-                    model.Keymap
-                    |> List.choose (fun b ->
-                        b.Action
-                        |> Option.map (fun a ->
-                            sprintf "%-8s %-18s %A" (ctxName b.Context) (Chord.renderStroke b.Stroke) a))
+                // Open the full listing in a buffer — a single status line can't
+                // hold it, and a buffer is scrollable and searchable. Reuse an
+                // existing keybindings buffer (refresh in place) so repeated runs
+                // don't spawn duplicates; otherwise allocate the next id.
+                let name = "keybindings"
+                let doc = Keymap.renderDoc model.Keymap
 
-                let body =
-                    if lines.IsEmpty then
-                        "(no keybindings)"
-                    else
-                        String.concat "\n" lines
+                let existingId =
+                    model.Editors.Buffers
+                    |> Map.tryPick (fun id b -> if b.Name = name then Some id else None)
 
-                notify (Some(Notification.info body)) model, []
+                let id = existingId |> Option.defaultValue model.Editors.NextBufferId
+                let buffer = Buffer.fromText id None name doc "\n"
+
+                { model with
+                    Editors =
+                        { model.Editors with
+                            Buffers = model.Editors.Buffers |> Map.add id buffer
+                            ActiveBufferId = id
+                            NextBufferId =
+                                match existingId with
+                                | Some _ -> model.Editors.NextBufferId
+                                | None -> id + 1 }
+                    Focus = Editor
+                    Notification = None },
+                []
             | "reload" -> notify (Some(Notification.info "Reloading keybinds…")) model, [ LoadKeybinds ]
             | strokeText ->
                 let chords =
@@ -784,18 +795,19 @@ module Editor =
                 else
                     let stroke = chords |> List.choose id
 
-                    let lines =
+                    // One line per context, joined — the status bar is single-row.
+                    let parts =
                         [ Context.Global; Context.Editor; Context.Sidebar; Context.Prompt ]
                         |> List.map (fun ctx ->
                             let outcome =
                                 match Keymap.resolve ctx stroke model.Keymap with
-                                | Bound a -> sprintf "%A" a
+                                | Bound a -> (sprintf "%A" a).Replace("\n", " ")
                                 | Unbound -> "(unbound)"
                                 | NotBound -> "—"
 
-                            sprintf "%-8s %s" (ctxName ctx) outcome)
+                            sprintf "%s=%s" (ctxName ctx) outcome)
 
-                    let body = Chord.renderStroke stroke + "\n" + String.concat "\n" lines
+                    let body = Chord.renderStroke stroke + "  " + String.concat "  " parts
                     notify (Some(Notification.info body)) model, []
 
         | PluginInvoke(source, name, _argument) ->

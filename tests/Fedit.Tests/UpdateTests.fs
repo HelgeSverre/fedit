@@ -51,6 +51,22 @@ let ``init returns a ScanWorkspace startup effect`` () =
     |> should equal true
 
 [<Fact>]
+let ``keybind command opens a formatted keybindings buffer in the editor`` () =
+    let press chord m =
+        fst (Editor.update (KeyPressed chord) m)
+
+    // Ctrl+P → type "keybind" → Enter.
+    let opened = initModel () |> press (ck 'p')
+    let typed = "keybind" |> Seq.fold (fun m c -> press (chr c) m) opened
+    let submitted = press (nk Enter) typed
+
+    let active = submitted.Editors.Buffers[submitted.Editors.ActiveBufferId]
+    active.Name |> should equal "keybindings"
+    submitted.Focus |> should equal Editor
+    Assert.Contains("## global", Buffer.text active)
+    Assert.Contains("ctrl+s", Buffer.text active)
+
+[<Fact>]
 let ``KeyPressed Ctrl+q with clean buffers quits immediately`` () =
     let model = initModel ()
     let next, _ = Editor.update (KeyPressed(ck 'q')) model

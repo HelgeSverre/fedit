@@ -222,3 +222,40 @@ let ``the user keymap takes precedence over a plugin chord on the same stroke`` 
         | SaveBuffer _ -> true
         | _ -> false)
     |> should equal true
+
+// ── renderDoc (the `:keybind` buffer body) ────────────────────────────
+
+[<Fact>]
+let ``renderDoc groups effective bindings by context and shows a known default`` () =
+    let doc = Keymap.renderDoc Keymap.defaults
+
+    Assert.Contains("## global", doc)
+    Assert.Contains("## editor", doc)
+    Assert.Contains("## sidebar", doc)
+    // ctrl+s → Save is a built-in default and should appear with a readable label.
+    Assert.Contains("ctrl+s", doc)
+    Assert.Contains("Save", doc)
+    // The body holds no control characters other than its line separators.
+    doc
+    |> Seq.exists (fun c -> System.Char.IsControl c && c <> '\n')
+    |> should equal false
+
+[<Fact>]
+let ``renderDoc lists each context+stroke once, reflecting later-wins overrides`` () =
+    // Override the default ctrl+s (Save) with Quit; the effective doc must show
+    // ctrl+s exactly once, bound to Quit.
+    let overridden =
+        Keymap.defaults
+        @ [ { Stroke = [ cs ]
+              Context = Context.Global
+              Action = Some Action.Quit } ]
+
+    let doc = Keymap.renderDoc overridden
+
+    // Match the stroke column exactly ("ctrl+s" then padding) — a loose
+    // substring also matches "ctrl+shift+m" etc.
+    let csLines =
+        doc.Split('\n') |> Array.filter (fun l -> l.Trim().StartsWith("ctrl+s "))
+
+    csLines.Length |> should equal 1
+    Assert.Contains("Quit", csLines[0])

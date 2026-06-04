@@ -183,6 +183,59 @@ module Keymap =
                 Map.add a (existing @ [ s ]) acc)
             Map.empty
 
+    /// Render the effective keymap as a readable, grouped document — the body
+    /// of the `:keybind` buffer. Deduped to the effective binding per
+    /// (context, stroke) so later-wins overrides and unbinds are reflected,
+    /// grouped by context, columns aligned, sorted by stroke. Line endings are
+    /// always "\n" so the buffer splits cleanly on every platform.
+    let renderDoc (keymap: Keymap) : string =
+        let ctxName =
+            function
+            | Context.Global -> "global"
+            | Context.Editor -> "editor"
+            | Context.Sidebar -> "sidebar"
+            | Context.Prompt -> "prompt"
+
+        // defaults @ user-delta: later bindings win, and a final action of None
+        // means the stroke was explicitly unbound.
+        let effective =
+            keymap
+            |> List.fold (fun acc b -> Map.add (b.Context, b.Stroke) b.Action acc) Map.empty
+
+        let rowsFor ctx =
+            effective
+            |> Map.toList
+            |> List.choose (fun ((c, stroke), action) ->
+                if c = ctx then
+                    action
+                    |> Option.map (fun a -> Chord.renderStroke stroke, (sprintf "%A" a).Replace("\n", " "))
+                else
+                    None)
+            |> List.sortBy fst
+
+        let sb = System.Text.StringBuilder()
+        let line (s: string) = sb.Append(s).Append('\n') |> ignore
+
+        line "# fedit keybindings"
+        line ""
+        line "Effective bindings: built-in defaults overlaid by ~/.config/fedit/keybinds."
+        line "Edit that file, then run `:keybind reload`."
+        line ""
+
+        for ctx in [ Context.Global; Context.Editor; Context.Sidebar; Context.Prompt ] do
+            match rowsFor ctx with
+            | [] -> ()
+            | rows ->
+                line (sprintf "## %s" (ctxName ctx))
+                let width = rows |> List.map (fst >> String.length) |> List.max
+
+                for (stroke, action) in rows do
+                    line (sprintf "  %s  %s" (stroke.PadRight width) action)
+
+                line ""
+
+        sb.ToString().TrimEnd('\n') + "\n"
+
     // ── line-format parser (spec §6.6 + the run-plugin grammar) ───────────
 
     let private (|ContextWord|_|) (s: string) =
