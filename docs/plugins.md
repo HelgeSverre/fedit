@@ -189,6 +189,7 @@ action in order. Pick the right action for the effect you want:
 | `InsertText "abc"`                   | Add text at the cursor                            | Timestamp, UUID, snippet         |
 | `ReplaceSelection "abc"`             | Replace the current selection (insert if no sel.) | Surround, reformat, kebabify     |
 | `MoveCursor { Line = …; Column = …}` | Jump the cursor (1-based coords)                  | "Next TODO", "match brace"       |
+| `SelectRange(anchor, cursor)`        | Select a range; caret lands on `cursor`           | "Select word", "expand to line"  |
 | `OpenFile "path"`                    | Open a file relative to the workspace root        | "Jump to definition"             |
 | `SaveActiveBuffer`                   | Trigger the same save path as `:write`            | Auto-save after a rewrite        |
 | `RunCommand "open foo.fs"`           | Chain into a built-in command by name             | Open the file you just generated |

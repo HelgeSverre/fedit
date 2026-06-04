@@ -147,7 +147,7 @@ module Editor =
 
         let recentItems =
             recentFiltered
-            |> List.map (fun (absolute, relative) ->
+            |> List.map (fun (_, relative) ->
                 { Label = relative
                   ApplyText = relative
                   Detail = "recent"
@@ -500,6 +500,23 @@ module Editor =
                         (fun buffer ->
                             let idx = Buffer.positionToIndex target buffer
                             Buffer.moveToOffset idx buffer)
+                        current
+            | Fedit.PluginApi.SelectRange(anchorPos, cursorPos) ->
+                // Same 1-based coords as MoveCursor. The anchor pins one end;
+                // the caret lands on `cursor` (the live end), so the result
+                // matches a shift+motion selection. `positionToIndex` clamps,
+                // so out-of-range plugin coords are safe.
+                let toTarget (pos: Fedit.PluginApi.CursorPosition) =
+                    { Line = max 0 (pos.Line - 1)
+                      Column = max 0 (pos.Column - 1) }
+
+                current <-
+                    updateActiveBuffer
+                        (fun buffer ->
+                            let anchorIdx = Buffer.positionToIndex (toTarget anchorPos) buffer
+                            let cursorIdx = Buffer.positionToIndex (toTarget cursorPos) buffer
+
+                            buffer |> Buffer.setSelection anchorIdx |> Buffer.moveToOffset cursorIdx)
                         current
             | Fedit.PluginApi.OpenFile path ->
                 let absolutePath = resolvePath current.Workspace.RootPath path

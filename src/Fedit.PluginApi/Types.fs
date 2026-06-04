@@ -6,8 +6,10 @@ type Severity =
     | Warning
     | Error
 
-/// Cursor position inside a buffer. 1-based line, 0-based column —
-/// matches the fedit `BufferState.Cursor` convention surfaced to UI.
+/// Cursor position inside a buffer. 1-based line and column — mirrors the
+/// status bar's `Ln N · Col M` indicator. The host translates to and from
+/// fedit's 0-based internal `Position` at the API boundary, and clamps
+/// out-of-range coordinates to the buffer.
 type CursorPosition = { Line: int; Column: int }
 
 /// A read-only snapshot of a buffer at the moment a plugin command runs.
@@ -41,6 +43,11 @@ type PluginAction =
     | SaveActiveBuffer
     | RunCommand of name: string
     | SetClipboard of string
+    /// Select the range between two positions. `anchor` is the fixed end;
+    /// the caret ends on `cursor` (the live end), so a follow-up
+    /// `ReplaceSelection` or `MoveCursor` behaves like a shift+motion
+    /// selection. Equal positions collapse to a zero-width selection.
+    | SelectRange of anchor: CursorPosition * cursor: CursorPosition
 
 /// A command definition a plugin registers with the host. `Run` is invoked
 /// synchronously when the command fires; it should be fast (< 50ms).
