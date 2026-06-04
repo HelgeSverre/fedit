@@ -60,7 +60,13 @@ module Screen =
 
     let setCell x y style glyph screen =
         if inBounds x y screen then
-            screen.Cells[y, x] <- { Glyph = glyph; Style = style }
+            // Grid invariant: a cell holds exactly one printable column. The
+            // renderer emits glyphs raw and tracks the cursor as advancing one
+            // column per cell, so a control character (notably '\n' from a
+            // multi-line notification) would emit a literal control byte and
+            // desync the terminal. Coerce any control char to a space.
+            let safe = if System.Char.IsControl glyph then ' ' else glyph
+            screen.Cells[y, x] <- { Glyph = safe; Style = style }
 
     let writeText x y style maxWidth (text: string) screen =
         if y >= 0 && y < screen.Height && maxWidth > 0 then
