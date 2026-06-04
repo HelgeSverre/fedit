@@ -6,6 +6,11 @@
 /// overlay. The action names are the inverse of `Keymap.parseAction`;
 /// descriptions and categories are authored prose (the F# DSL carries
 /// neither).
+///
+/// `--json` additionally appends every `Action` with no default binding
+/// (`bound: false`, empty stroke/context) so the website can list the
+/// unbound actions a user might want to map. The bare table and the
+/// in-editor `:keybind` buffer stay bound-only.
 module Fedit.Cli.Commands.Keybinds
 
 open System.Text
@@ -146,6 +151,74 @@ let actionMeta (action: Action) : string * string =
     | ReplayMacro _ -> "edit", "Replay a macro from a register"
     | RepeatLastMacro -> "edit", "Replay the last macro"
 
+/// One representative value per `Action` case — the enumeration the website
+/// uses to list unbound actions. Payload-carrying cases get sentinel args;
+/// `actionName`/`actionMeta` ignore payloads. This is the ONE list not
+/// checked for completeness by the compiler — keep it in sync with `Action`
+/// (the `allActions covers every Action case` test backstops omissions).
+let allActions: Action list =
+    [ MoveLeft
+      MoveRight
+      MoveUp
+      MoveDown
+      MoveWordLeft
+      MoveWordRight
+      MoveHome
+      MoveEnd
+      MovePageUp
+      MovePageDown
+      ExtendLeft
+      ExtendRight
+      ExtendUp
+      ExtendDown
+      ExtendHome
+      ExtendEnd
+      SelectAll
+      Indent
+      Unindent
+      DeleteWordBack
+      DeleteWordForward
+      Undo
+      Redo
+      Copy
+      Cut
+      Paste
+      Save
+      SaveAs ""
+      Quit
+      OpenPalette
+      OpenFilePicker
+      OpenSearch
+      NextBuffer
+      PrevBuffer
+      JumpToBuffer 0
+      SetTheme ""
+      Goto(0, None)
+      ReloadWorkspace
+      OpenConfig
+      ReloadKeybinds
+      RunPlugin("", "", "")
+      RevealSidebar
+      HideSidebar
+      ToggleSidebar
+      FocusSidebar
+      FocusEditor
+      SidebarUp
+      SidebarDown
+      SidebarPageUp
+      SidebarPageDown
+      SidebarTop
+      SidebarBottom
+      SidebarCollapse
+      SidebarExpand
+      SidebarActivate
+      Chain []
+      When(HasSelection, NoOp, NoOp)
+      NoOp
+      RecordMacro ' '
+      ReplayMacro(' ', 1)
+      RepeatLastMacro ]
+
 let private contextName (ctx: Context) : string =
     match ctx with
     | Context.Global -> "global"
@@ -167,30 +240,51 @@ let private jsonEscape (s: string) : string =
 
     sb.ToString()
 
-/// Serialize every binding with a concrete `Action` to a JSON object.
-/// `Action = None` (unbinds) are skipped — they carry no name. Returns a
-/// pretty-ish array ending with a newline.
+/// Serialize bindings, then every unbound `Action`, to a JSON array.
+/// `Action = None` (unbinds) are skipped — they carry no name. Each row
+/// carries a `bound` flag; unbound actions get an empty stroke/context so
+/// the website can render and filter them. Ends with a newline.
 let toJson (keymap: Keymap) : string =
-    let objects =
+    let field name value =
+        sprintf "\"%s\": \"%s\"" name (jsonEscape value)
+
+    let renderRow stroke action context category description bound =
+        let pairs =
+            [ field "stroke" stroke
+              field "action" action
+              field "context" context
+              field "category" category
+              field "description" description
+              sprintf "\"bound\": %b" bound ]
+
+        "  { " + String.concat ", " pairs + " }"
+
+    let boundRows =
         keymap
         |> List.choose (fun b ->
             b.Action
             |> Option.map (fun a ->
                 let category, description = actionMeta a
 
-                let field name value =
-                    sprintf "\"%s\": \"%s\"" name (jsonEscape value)
+                renderRow
+                    (Chord.renderStroke b.Stroke)
+                    (actionName a)
+                    (contextName b.Context)
+                    category
+                    description
+                    true))
 
-                let pairs =
-                    [ field "stroke" (Chord.renderStroke b.Stroke)
-                      field "action" (actionName a)
-                      field "context" (contextName b.Context)
-                      field "category" category
-                      field "description" description ]
+    let boundNames =
+        keymap |> List.choose (fun b -> b.Action) |> List.map actionName |> Set.ofList
 
-                "  { " + String.concat ", " pairs + " }"))
+    let unboundRows =
+        allActions
+        |> List.filter (fun a -> not (boundNames.Contains(actionName a)))
+        |> List.map (fun a ->
+            let category, description = actionMeta a
+            renderRow "" (actionName a) "" category description false)
 
-    "[\n" + String.concat ",\n" objects + "\n]\n"
+    "[\n" + String.concat ",\n" (boundRows @ unboundRows) + "\n]\n"
 
 /// Human-readable aligned table: context, stroke, action per line.
 let private renderTable (keymap: Keymap) : string =

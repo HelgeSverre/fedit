@@ -4,419 +4,575 @@
     "action": "save",
     "context": "global",
     "category": "file",
-    "description": "Save the active buffer"
+    "description": "Save the active buffer",
+    "bound": true
   },
   {
     "stroke": "ctrl+p",
     "action": "command-palette",
     "context": "global",
     "category": "prompt",
-    "description": "Open the command palette"
+    "description": "Open the command palette",
+    "bound": true
   },
   {
     "stroke": "ctrl+o",
     "action": "open-file",
     "context": "global",
     "category": "prompt",
-    "description": "Open the file picker"
+    "description": "Open the file picker",
+    "bound": true
   },
   {
     "stroke": "ctrl+f",
     "action": "search",
     "context": "global",
     "category": "prompt",
-    "description": "Open in-buffer search"
+    "description": "Open in-buffer search",
+    "bound": true
   },
   {
     "stroke": "ctrl+e",
     "action": "focus-editor",
     "context": "global",
     "category": "panel",
-    "description": "Move focus to the editor"
+    "description": "Move focus to the editor",
+    "bound": true
   },
   {
     "stroke": "ctrl+r",
     "action": "reload-workspace",
     "context": "global",
     "category": "workspace",
-    "description": "Reload the workspace from disk"
+    "description": "Reload the workspace from disk",
+    "bound": true
   },
   {
     "stroke": "ctrl+z",
     "action": "undo",
     "context": "global",
     "category": "edit",
-    "description": "Undo the last change"
+    "description": "Undo the last change",
+    "bound": true
   },
   {
     "stroke": "ctrl+y",
     "action": "redo",
     "context": "global",
     "category": "edit",
-    "description": "Redo the last undone change"
+    "description": "Redo the last undone change",
+    "bound": true
   },
   {
     "stroke": "ctrl+a",
     "action": "select-all",
     "context": "global",
     "category": "selection",
-    "description": "Select the whole buffer"
+    "description": "Select the whole buffer",
+    "bound": true
   },
   {
     "stroke": "ctrl+c",
     "action": "copy",
     "context": "global",
     "category": "clipboard",
-    "description": "Copy the selection to the clipboard"
+    "description": "Copy the selection to the clipboard",
+    "bound": true
   },
   {
     "stroke": "ctrl+x",
     "action": "cut",
     "context": "global",
     "category": "clipboard",
-    "description": "Cut the selection to the clipboard"
+    "description": "Cut the selection to the clipboard",
+    "bound": true
   },
   {
     "stroke": "ctrl+v",
     "action": "paste",
     "context": "global",
     "category": "clipboard",
-    "description": "Paste from the clipboard"
+    "description": "Paste from the clipboard",
+    "bound": true
   },
   {
     "stroke": "ctrl+pagedown",
     "action": "next-buffer",
     "context": "global",
     "category": "buffer",
-    "description": "Switch to the next buffer"
+    "description": "Switch to the next buffer",
+    "bound": true
   },
   {
     "stroke": "ctrl+pageup",
     "action": "prev-buffer",
     "context": "global",
     "category": "buffer",
-    "description": "Switch to the previous buffer"
+    "description": "Switch to the previous buffer",
+    "bound": true
   },
   {
     "stroke": "ctrl+b",
     "action": "when",
     "context": "global",
     "category": "other",
-    "description": "Run an action conditionally"
+    "description": "Run an action conditionally",
+    "bound": true
   },
   {
     "stroke": "ctrl+b",
     "action": "chain",
     "context": "sidebar",
     "category": "other",
-    "description": "Run several actions in sequence"
+    "description": "Run several actions in sequence",
+    "bound": true
   },
   {
     "stroke": "left",
     "action": "move-left",
     "context": "editor",
     "category": "motion",
-    "description": "Move the cursor left one column"
+    "description": "Move the cursor left one column",
+    "bound": true
   },
   {
     "stroke": "right",
     "action": "move-right",
     "context": "editor",
     "category": "motion",
-    "description": "Move the cursor right one column"
+    "description": "Move the cursor right one column",
+    "bound": true
   },
   {
     "stroke": "up",
     "action": "move-up",
     "context": "editor",
     "category": "motion",
-    "description": "Move the cursor up one line"
+    "description": "Move the cursor up one line",
+    "bound": true
   },
   {
     "stroke": "down",
     "action": "move-down",
     "context": "editor",
     "category": "motion",
-    "description": "Move the cursor down one line"
+    "description": "Move the cursor down one line",
+    "bound": true
   },
   {
     "stroke": "home",
     "action": "move-home",
     "context": "editor",
     "category": "motion",
-    "description": "Move the cursor to the start of the line"
+    "description": "Move the cursor to the start of the line",
+    "bound": true
   },
   {
     "stroke": "end",
     "action": "move-end",
     "context": "editor",
     "category": "motion",
-    "description": "Move the cursor to the end of the line"
+    "description": "Move the cursor to the end of the line",
+    "bound": true
   },
   {
     "stroke": "shift+left",
     "action": "extend-left",
     "context": "editor",
     "category": "selection",
-    "description": "Extend the selection left one column"
+    "description": "Extend the selection left one column",
+    "bound": true
   },
   {
     "stroke": "shift+right",
     "action": "extend-right",
     "context": "editor",
     "category": "selection",
-    "description": "Extend the selection right one column"
+    "description": "Extend the selection right one column",
+    "bound": true
   },
   {
     "stroke": "shift+up",
     "action": "extend-up",
     "context": "editor",
     "category": "selection",
-    "description": "Extend the selection up one line"
+    "description": "Extend the selection up one line",
+    "bound": true
   },
   {
     "stroke": "shift+down",
     "action": "extend-down",
     "context": "editor",
     "category": "selection",
-    "description": "Extend the selection down one line"
+    "description": "Extend the selection down one line",
+    "bound": true
   },
   {
     "stroke": "shift+home",
     "action": "extend-home",
     "context": "editor",
     "category": "selection",
-    "description": "Extend the selection to the start of the line"
+    "description": "Extend the selection to the start of the line",
+    "bound": true
   },
   {
     "stroke": "shift+end",
     "action": "extend-end",
     "context": "editor",
     "category": "selection",
-    "description": "Extend the selection to the end of the line"
+    "description": "Extend the selection to the end of the line",
+    "bound": true
   },
   {
     "stroke": "pageup",
     "action": "page-up",
     "context": "editor",
     "category": "motion",
-    "description": "Scroll up one page"
+    "description": "Scroll up one page",
+    "bound": true
   },
   {
     "stroke": "pagedown",
     "action": "page-down",
     "context": "editor",
     "category": "motion",
-    "description": "Scroll down one page"
+    "description": "Scroll down one page",
+    "bound": true
   },
   {
     "stroke": "tab",
     "action": "indent",
     "context": "editor",
     "category": "edit",
-    "description": "Indent the current line or selection"
+    "description": "Indent the current line or selection",
+    "bound": true
   },
   {
     "stroke": "shift+tab",
     "action": "unindent",
     "context": "editor",
     "category": "edit",
-    "description": "Unindent the current line or selection"
+    "description": "Unindent the current line or selection",
+    "bound": true
   },
   {
     "stroke": "alt+left",
     "action": "move-word-left",
     "context": "editor",
     "category": "motion",
-    "description": "Move the cursor left one word"
+    "description": "Move the cursor left one word",
+    "bound": true
   },
   {
     "stroke": "alt+right",
     "action": "move-word-right",
     "context": "editor",
     "category": "motion",
-    "description": "Move the cursor right one word"
+    "description": "Move the cursor right one word",
+    "bound": true
   },
   {
     "stroke": "ctrl+left",
     "action": "move-word-left",
     "context": "editor",
     "category": "motion",
-    "description": "Move the cursor left one word"
+    "description": "Move the cursor left one word",
+    "bound": true
   },
   {
     "stroke": "ctrl+right",
     "action": "move-word-right",
     "context": "editor",
     "category": "motion",
-    "description": "Move the cursor right one word"
+    "description": "Move the cursor right one word",
+    "bound": true
   },
   {
     "stroke": "ctrl+backspace",
     "action": "delete-word-back",
     "context": "editor",
     "category": "edit",
-    "description": "Delete the word before the cursor"
+    "description": "Delete the word before the cursor",
+    "bound": true
   },
   {
     "stroke": "ctrl+delete",
     "action": "delete-word-forward",
     "context": "editor",
     "category": "edit",
-    "description": "Delete the word after the cursor"
+    "description": "Delete the word after the cursor",
+    "bound": true
   },
   {
     "stroke": "ctrl+shift+m",
     "action": "record-macro",
     "context": "editor",
     "category": "edit",
-    "description": "Record a macro into a register"
+    "description": "Record a macro into a register",
+    "bound": true
   },
   {
     "stroke": "ctrl+shift+r",
     "action": "replay-macro",
     "context": "editor",
     "category": "edit",
-    "description": "Replay a macro from a register"
+    "description": "Replay a macro from a register",
+    "bound": true
   },
   {
     "stroke": "ctrl+shift+.",
     "action": "repeat-last-macro",
     "context": "editor",
     "category": "edit",
-    "description": "Replay the last macro"
+    "description": "Replay the last macro",
+    "bound": true
   },
   {
     "stroke": "up",
     "action": "sidebar-up",
     "context": "sidebar",
     "category": "tree",
-    "description": "Move the tree selection up"
+    "description": "Move the tree selection up",
+    "bound": true
   },
   {
     "stroke": "down",
     "action": "sidebar-down",
     "context": "sidebar",
     "category": "tree",
-    "description": "Move the tree selection down"
+    "description": "Move the tree selection down",
+    "bound": true
   },
   {
     "stroke": "pageup",
     "action": "sidebar-page-up",
     "context": "sidebar",
     "category": "tree",
-    "description": "Move the tree selection up one page"
+    "description": "Move the tree selection up one page",
+    "bound": true
   },
   {
     "stroke": "pagedown",
     "action": "sidebar-page-down",
     "context": "sidebar",
     "category": "tree",
-    "description": "Move the tree selection down one page"
+    "description": "Move the tree selection down one page",
+    "bound": true
   },
   {
     "stroke": "home",
     "action": "sidebar-top",
     "context": "sidebar",
     "category": "tree",
-    "description": "Move the tree selection to the top"
+    "description": "Move the tree selection to the top",
+    "bound": true
   },
   {
     "stroke": "end",
     "action": "sidebar-bottom",
     "context": "sidebar",
     "category": "tree",
-    "description": "Move the tree selection to the bottom"
+    "description": "Move the tree selection to the bottom",
+    "bound": true
   },
   {
     "stroke": "left",
     "action": "sidebar-collapse",
     "context": "sidebar",
     "category": "tree",
-    "description": "Collapse the selected tree node"
+    "description": "Collapse the selected tree node",
+    "bound": true
   },
   {
     "stroke": "right",
     "action": "sidebar-expand",
     "context": "sidebar",
     "category": "tree",
-    "description": "Expand the selected tree node"
+    "description": "Expand the selected tree node",
+    "bound": true
   },
   {
     "stroke": "enter",
     "action": "sidebar-activate",
     "context": "sidebar",
     "category": "tree",
-    "description": "Open the selected tree node"
+    "description": "Open the selected tree node",
+    "bound": true
   },
   {
     "stroke": "esc",
     "action": "focus-editor",
     "context": "sidebar",
     "category": "panel",
-    "description": "Move focus to the editor"
+    "description": "Move focus to the editor",
+    "bound": true
   },
   {
     "stroke": "ctrl+1",
     "action": "jump-to-buffer",
     "context": "global",
     "category": "buffer",
-    "description": "Jump to a buffer by number"
+    "description": "Jump to a buffer by number",
+    "bound": true
   },
   {
     "stroke": "ctrl+2",
     "action": "jump-to-buffer",
     "context": "global",
     "category": "buffer",
-    "description": "Jump to a buffer by number"
+    "description": "Jump to a buffer by number",
+    "bound": true
   },
   {
     "stroke": "ctrl+3",
     "action": "jump-to-buffer",
     "context": "global",
     "category": "buffer",
-    "description": "Jump to a buffer by number"
+    "description": "Jump to a buffer by number",
+    "bound": true
   },
   {
     "stroke": "ctrl+4",
     "action": "jump-to-buffer",
     "context": "global",
     "category": "buffer",
-    "description": "Jump to a buffer by number"
+    "description": "Jump to a buffer by number",
+    "bound": true
   },
   {
     "stroke": "ctrl+5",
     "action": "jump-to-buffer",
     "context": "global",
     "category": "buffer",
-    "description": "Jump to a buffer by number"
+    "description": "Jump to a buffer by number",
+    "bound": true
   },
   {
     "stroke": "ctrl+6",
     "action": "jump-to-buffer",
     "context": "global",
     "category": "buffer",
-    "description": "Jump to a buffer by number"
+    "description": "Jump to a buffer by number",
+    "bound": true
   },
   {
     "stroke": "ctrl+7",
     "action": "jump-to-buffer",
     "context": "global",
     "category": "buffer",
-    "description": "Jump to a buffer by number"
+    "description": "Jump to a buffer by number",
+    "bound": true
   },
   {
     "stroke": "ctrl+8",
     "action": "jump-to-buffer",
     "context": "global",
     "category": "buffer",
-    "description": "Jump to a buffer by number"
+    "description": "Jump to a buffer by number",
+    "bound": true
   },
   {
     "stroke": "ctrl+9",
     "action": "jump-to-buffer",
     "context": "global",
     "category": "buffer",
-    "description": "Jump to a buffer by number"
+    "description": "Jump to a buffer by number",
+    "bound": true
+  },
+  {
+    "stroke": "",
+    "action": "save-as",
+    "context": "",
+    "category": "file",
+    "description": "Save the active buffer to a new path",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "quit",
+    "context": "",
+    "category": "file",
+    "description": "Quit the editor",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "set-theme",
+    "context": "",
+    "category": "view",
+    "description": "Switch the active theme",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "goto",
+    "context": "",
+    "category": "motion",
+    "description": "Jump to a line and column",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "open-config",
+    "context": "",
+    "category": "config",
+    "description": "Open the config directory",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "reload-keybinds",
+    "context": "",
+    "category": "config",
+    "description": "Reload the user keybinds file",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "run-plugin",
+    "context": "",
+    "category": "plugin",
+    "description": "Run a plugin command",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "reveal-sidebar",
+    "context": "",
+    "category": "panel",
+    "description": "Reveal the sidebar",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "hide-sidebar",
+    "context": "",
+    "category": "panel",
+    "description": "Hide the sidebar",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "toggle-sidebar",
+    "context": "",
+    "category": "panel",
+    "description": "Toggle the sidebar",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "focus-sidebar",
+    "context": "",
+    "category": "panel",
+    "description": "Move focus to the sidebar",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "no-op",
+    "context": "",
+    "category": "other",
+    "description": "Do nothing",
+    "bound": false
   }
 ]

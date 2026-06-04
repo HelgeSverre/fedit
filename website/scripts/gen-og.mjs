@@ -105,6 +105,15 @@ const pages = [
     lede: "Pure-data MVU loop. Piece-table buffers. Effects on the thread pool, messages on the main loop.",
   },
   {
+    slug: "architecture",
+    eyebrow: "fedit.dev / architecture",
+    title: "architecture",
+    // "architecture" is a 12-char unbreakable word; 128px clips the title
+    // column, so shrink it to fit beside the caret.
+    titleSize: 92,
+    lede: "An Elm-style update loop. Pure model, effects as data, piece-table buffers, an ANSI screen renderer.",
+  },
+  {
     slug: "brand",
     eyebrow: "fedit.dev / brand",
     title: "brand",
@@ -117,9 +126,9 @@ const pages = [
     lede: "Browse the plugin registry. Search, filter, and copy a one-line install command.",
   },
   {
-    slug: "developer",
-    eyebrow: "fedit.dev / developer",
-    title: "developer",
+    slug: "extend",
+    eyebrow: "fedit.dev / extend",
+    title: "extend",
     lede: "Build fedit plugins in F#. Quickstart, the eight PluginAction types, five reference implementations.",
   },
 ];
@@ -250,7 +259,7 @@ const Card = (page) =>
             style: {
               display: "flex",
               fontFamily: "Departure Mono",
-              fontSize: 128,
+              fontSize: page.titleSize ?? 128,
               lineHeight: 1,
               letterSpacing: "-0.03em",
               color: FG,

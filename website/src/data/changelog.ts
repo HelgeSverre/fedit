@@ -31,16 +31,16 @@ const shipped = (version: string, item: string): ChangelogEntry => ({
 
 export const changelog: ChangelogEntry[] = [
   shipped(
-    "Themes",
-    'Chrome is now theme-owned: the previously-hardcoded editor/sidebar text, borders, dock panel, prompt, line numbers, active line, and selection became explicit fg/bg slots on the Theme record, so a palette controls the whole surface. The ten accent-only themes inherit green\'s chrome with default backgrounds, so they render byte-identical. Added the first two full-surface themes — github-light and github-dark (GitHub Primer palettes) — each with its own surface-readable syntax colors. User-theme JSON accepts the new fg/bg keys (and a literal "default") with back-compatible fallbacks.',
+    "Keybinds",
+    "':keybind' opens the effective keymap in a scrollable, searchable buffer instead of dumping every binding into the status line — grouped by context, aligned, deduped to the active binding per stroke, reused in place on repeat. ':keybind <stroke>' now reports on a single line; ':keybind reload' is unchanged.",
   ),
   shipped(
     "Render",
     "Screen.setCell coerces control characters to a space, enforcing the grid invariant that every cell holds one printable column. Fixes multi-line notifications (e.g. the old :keybind dump) writing a raw newline into the single-row status line, which desynced the diff renderer's cursor and corrupted the TUI until a repaint.",
   ),
   shipped(
-    "Keybinds",
-    "':keybind' opens the effective keymap in a scrollable, searchable buffer instead of dumping every binding into the status line — grouped by context, aligned, deduped to the active binding per stroke, reused in place on repeat. ':keybind <stroke>' now reports on a single line; ':keybind reload' is unchanged.",
+    "Themes",
+    'Chrome is now theme-owned: the previously-hardcoded editor/sidebar text, borders, dock panel, prompt, line numbers, active line, and selection became explicit fg/bg slots on the Theme record, so a palette controls the whole surface. The ten accent-only themes inherit green\'s chrome with default backgrounds, so they render byte-identical. Added the first two full-surface themes — github-light and github-dark (GitHub Primer palettes) — each with its own surface-readable syntax colors. User-theme JSON accepts the new fg/bg keys (and a literal "default") with back-compatible fallbacks.',
   ),
   shipped(
     "Buffers",
@@ -137,6 +137,10 @@ export const changelog: ChangelogEntry[] = [
   shipped(
     "Prompt",
     "Unified CommandBarState + SearchState into one PromptState with prefix dispatch — modes derive from the first character (: command/goto, / search, @ buffers, empty file picker). Ctrl+P opens in command mode, Ctrl+O file picker, Ctrl+F search. Ctrl+B is a three-state sidebar toggle (Zed-style). Sidebar gets VS Code / Finder-style type-ahead. Status bar gets 1ch padding; legend strip removed; :help retired. Prompt.fs module + design/modality-explorer.html capture the design path.",
+  ),
+  shipped(
+    "Macros",
+    "Record and replay keystroke macros (keybindings phase 4). Ctrl+Shift+M toggles recording into register a, Ctrl+Shift+R replays it, Ctrl+Shift+. repeats the last macro. Recording captures chords (not actions), so replay re-runs live keymap resolution and reassembles sequences; injected keys are bracketed by MacroReplayStart/End markers so a replay is never self-recorded. Status bar shows REC @a while recording. Triggers are modifier chords — bare Char stays text input. In-memory for the session; keybinds-file persistence, stop-on-no-op, and nested replay are deferred.",
   ),
   shipped(
     "Keys",

@@ -42,7 +42,7 @@ const actions = [
   {
     name: "RunCommand",
     arg: "string",
-    use: "Chain into a built-in (or another plugin) by name.",
+    use: "Chain into a built-in command by name.",
     sample: `[ RunCommand "open foo.fs" ]`,
   },
   {
@@ -125,7 +125,7 @@ const verbs = [
 <DocsLayout
   title="plugins"
   description="Build fedit plugins in F#. A five-minute quickstart, the eight PluginAction types you can return, and five reference implementations under examples/."
-  image="/og/developer.png"
+  image="/og/extend.png"
 >
   <div class="section__head">
     <h1>plugins</h1>
@@ -163,10 +163,12 @@ const verbs = [
         </p>
       </li>
       <li>
-        <strong>Open the prompt and reload.</strong>
+        <strong>Confirm it loaded.</strong>
         <p class="doc-p">
-          Inside fedit: <kbd>Ctrl+P</kbd> → type <code>plugin reload</code>. The dock confirms which
-          plugins loaded and surfaces any build failures with the exact compiler output.
+          The plugin already built and loaded on launch. To check: <kbd>Ctrl+P</kbd> → type
+          <code>plugin list</code>. The dock shows each plugin's status and surfaces any build
+          failures with the exact compiler output. Edited a plugin since launch?
+          <code>plugin reload</code> rebuilds anything stale and reloads.
         </p>
       </li>
       <li>
@@ -239,7 +241,7 @@ const verbs = [
     <h2>lifecycle</h2>
     <p class="doc-p">
       What happens between <code>./fedit .</code> and your <code>register</code> function getting called.
-      Triggered manually via <code>:plugin reload</code>.
+      Runs automatically on startup, and on demand via <code>:plugin reload</code>.
     </p>
 
     <ol class="doc-pipeline">
@@ -350,7 +352,7 @@ const verbs = [
       </li>
       <li>
         <a href="https://github.com/HelgeSverre/fedit/tree/main/examples">examples/</a> — five plugins
-        from 12 to ~80 lines. Copy any one as your starting skeleton; all MIT-licensed.
+        from 16 to ~100 lines. Copy any one as your starting skeleton; all MIT-licensed.
       </li>
       <li>
         <a href="https://github.com/HelgeSverre/fedit/tree/main/src/Fedit.PluginApi"

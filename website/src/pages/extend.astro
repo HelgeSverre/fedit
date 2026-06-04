@@ -4,8 +4,8 @@ import TuiFrame from "../components/TuiFrame.astro";
 
 const stats = [
   { value: "5", label: "reference plugins" },
-  { value: "12", label: "lines for the smallest" },
-  { value: "0", label: "IPC, schemas, JSON shapes" },
+  { value: "16", label: "lines for the smallest" },
+  { value: "0", label: "IPC or message schemas" },
   { value: "1", label: ".fs file required" },
 ];
 
@@ -49,7 +49,7 @@ const actions = [
   {
     name: "RunCommand",
     arg: "string",
-    use: "Chain into a built-in (or another plugin) by name.",
+    use: "Chain into a built-in command by name.",
     sample: `[ RunCommand "open foo.fs" ]`,
   },
   {
@@ -152,9 +152,9 @@ const verbs = [
 ---
 
 <Site
-  title="developer"
+  title="extend"
   description="Build fedit plugins in F#. Five-minute quickstart, the eight PluginAction types you can return, and five reference implementations under examples/."
-  image="/og/developer.png"
+  image="/og/extend.png"
 >
   <!-- =============================================================== -->
   <!-- HERO                                                            -->
@@ -277,10 +277,12 @@ const verbs = [
         <li>
           <span class="step-num">02</span>
           <div>
-            <h3>Open the prompt and reload</h3>
+            <h3>Confirm it loaded</h3>
             <p>
-              Inside fedit: <kbd>Ctrl+P</kbd> → type <code>plugin reload</code>. The dock confirms
-              which plugins loaded and surfaces any build failures with the exact compiler output.
+              The plugin already built and loaded on launch. To check: <kbd>Ctrl+P</kbd> → type
+              <code>plugin list</code>. The dock shows each plugin's status — <code>ok</code>,
+              <code>disabled</code>, or a build failure with the exact compiler output. Edited a
+              plugin since launch? <code>plugin reload</code> rebuilds anything stale and reloads.
             </p>
           </div>
         </li>
@@ -395,7 +397,7 @@ const verbs = [
         <h2>lifecycle</h2>
         <p class="section__lede">
           What happens between <code>./fedit .</code> and your <code>register</code> function getting
-          called. Triggered manually via <code>:plugin reload</code>.
+          called. Runs automatically on startup, and on demand via <code>:plugin reload</code>.
         </p>
       </div>
 
@@ -546,7 +548,7 @@ const verbs = [
         <a class="finale-card" href="https://github.com/HelgeSverre/fedit/tree/main/examples">
           <h3>The examples</h3>
           <p>
-            Five plugins ranging from 12 to ~80 lines. Copy any one as your starting skeleton —
+            Five plugins ranging from 16 to ~100 lines. Copy any one as your starting skeleton —
             they're all MIT-licensed.
           </p>
           <span class="finale-link">examples/ →</span>

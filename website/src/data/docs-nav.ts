@@ -17,7 +17,7 @@ export const docsNav: DocEntry[] = [
   {
     href: "/docs/keybindings",
     label: "Keybindings",
-    summary: "Every default binding — searchable, filterable by context.",
+    summary: "Every binding plus every unbound action — searchable, filterable by context.",
   },
   {
     href: "/docs/architecture",

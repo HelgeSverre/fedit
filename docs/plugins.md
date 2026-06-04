@@ -191,7 +191,7 @@ action in order. Pick the right action for the effect you want:
 | `MoveCursor { Line = …; Column = …}` | Jump the cursor (1-based coords)                  | "Next TODO", "match brace"       |
 | `OpenFile "path"`                    | Open a file relative to the workspace root        | "Jump to definition"             |
 | `SaveActiveBuffer`                   | Trigger the same save path as `:write`            | Auto-save after a rewrite        |
-| `RunCommand "open foo.fs"`           | Chain into a built-in (or another plugin) by name | Open the file you just generated |
+| `RunCommand "open foo.fs"`           | Chain into a built-in command by name             | Open the file you just generated |
 | `SetClipboard "abc"`                 | Copy text to the system clipboard                 | "Yank current line"              |
 
 ### Registration
