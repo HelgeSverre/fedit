@@ -71,8 +71,6 @@ module Color =
     // Constructors
     // ─────────────────────────────────────────────────────────────────
 
-    let rgb (r: byte) (g: byte) (b: byte) = Rgb(r, g, b)
-
     /// Clamp into the cube range and box as `Indexed`.
     let indexed (n: int) = Indexed(byte (max 0 (min 255 n)))
 

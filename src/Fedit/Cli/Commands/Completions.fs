@@ -48,18 +48,6 @@ let parseShell (s: string) : Result<Shell, string> =
     | other ->
         Result.Error $"unsupported shell '{other}' (supported: zsh, bash, fish, pwsh, nu, elvish, xonsh, yash, murex)"
 
-let shellName (shell: Shell) =
-    match shell with
-    | Zsh -> "zsh"
-    | Bash -> "bash"
-    | Fish -> "fish"
-    | Pwsh -> "pwsh"
-    | Nushell -> "nu"
-    | Elvish -> "elvish"
-    | Xonsh -> "xonsh"
-    | Yash -> "yash"
-    | Murex -> "murex"
-
 /// Standard install location per shell. `~/.zsh/completions/_fedit`
 /// matches the fpath convention; bash uses XDG; fish auto-discovers
 /// `~/.config/fish/completions/<cmd>.fish`. PowerShell, Nushell, Elvish

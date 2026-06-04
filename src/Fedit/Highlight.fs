@@ -178,58 +178,58 @@ module Highlight =
             | "keyword.operator" -> Some KeywordOperator
             | s when s.StartsWith("keyword.operator.", StringComparison.Ordinal) -> Some KeywordOperator
             | "keyword" -> Some Keyword
-            | s when startsDot "keyword" -> Some Keyword
+            | _ when startsDot "keyword" -> Some Keyword
             | "string.special" -> Some StringSpecial
             | s when s.StartsWith("string.special.", StringComparison.Ordinal) -> Some StringSpecial
             | "string" -> Some String
-            | s when startsDot "string" -> Some String
+            | _ when startsDot "string" -> Some String
             | "function.call" -> Some FunctionCall
             | s when s.StartsWith("function.call.", StringComparison.Ordinal) -> Some FunctionCall
             | "function" -> Some Function
-            | s when startsDot "function" -> Some Function
+            | _ when startsDot "function" -> Some Function
             | "type" -> Some Type
-            | s when startsDot "type" -> Some Type
+            | _ when startsDot "type" -> Some Type
             | "constructor" -> Some Constructor
-            | s when startsDot "constructor" -> Some Constructor
+            | _ when startsDot "constructor" -> Some Constructor
             | "variable.parameter" -> Some Parameter
             | s when s.StartsWith("variable.parameter.", StringComparison.Ordinal) -> Some Parameter
             | "variable" -> Some Variable
-            | s when startsDot "variable" -> Some Variable
+            | _ when startsDot "variable" -> Some Variable
             | "number" -> Some Number
-            | s when startsDot "number" -> Some Number
+            | _ when startsDot "number" -> Some Number
             | "comment" -> Some Comment
-            | s when startsDot "comment" -> Some Comment
+            | _ when startsDot "comment" -> Some Comment
             | "operator" -> Some Operator
-            | s when startsDot "operator" -> Some Operator
+            | _ when startsDot "operator" -> Some Operator
             | "punctuation" -> Some Punctuation
-            | s when startsDot "punctuation" -> Some Punctuation
+            | _ when startsDot "punctuation" -> Some Punctuation
             | "attribute" -> Some Attribute
-            | s when startsDot "attribute" -> Some Attribute
+            | _ when startsDot "attribute" -> Some Attribute
             // Constant / boolean — treated as types (distinct values, no mutation)
             | "constant" -> Some Type
-            | s when startsDot "constant" -> Some Type
+            | _ when startsDot "constant" -> Some Type
             | "boolean" -> Some Keyword
-            | s when startsDot "boolean" -> Some Keyword
+            | _ when startsDot "boolean" -> Some Keyword
             // Tag names (XML/HTML/JSX) — treated as types
             | "tag" -> Some Type
-            | s when startsDot "tag" -> Some Type
+            | _ when startsDot "tag" -> Some Type
             // Properties — treated as attributes
             | "property" -> Some Attribute
-            | s when startsDot "property" -> Some Attribute
+            | _ when startsDot "property" -> Some Attribute
             // Module / namespace — treated as types
             | "module" -> Some Type
-            | s when startsDot "module" -> Some Type
+            | _ when startsDot "module" -> Some Type
             // Labels — treated as variables
             | "label" -> Some Variable
-            | s when startsDot "label" -> Some Variable
+            | _ when startsDot "label" -> Some Variable
             // Character literals — treated as strings
             | "character" -> Some String
-            | s when startsDot "character" -> Some String
+            | _ when startsDot "character" -> Some String
             // identifier.parameter (Dart / some grammars)
             | "identifier.parameter" -> Some Parameter
             | s when s.StartsWith("identifier.parameter.", StringComparison.Ordinal) -> Some Parameter
             | "identifier" -> Some Variable
-            | s when startsDot "identifier" -> Some Variable
+            | _ when startsDot "identifier" -> Some Variable
             // Markup captures (new nvim-treesitter convention)
             | "markup.heading" -> Some Function
             | s when s.StartsWith("markup.heading.", StringComparison.Ordinal) -> Some Function
@@ -238,7 +238,7 @@ module Highlight =
             | "markup.link" -> Some String
             | s when s.StartsWith("markup.link.", StringComparison.Ordinal) -> Some String
             | "markup" -> Some String
-            | s when startsDot "markup" -> Some String
+            | _ when startsDot "markup" -> Some String
             // Legacy nvim-treesitter text.* convention
             | "text.title" -> Some Function
             | s when s.StartsWith("text.title.", StringComparison.Ordinal) -> Some Function
@@ -247,7 +247,7 @@ module Highlight =
             | "text.uri" -> Some StringSpecial
             | s when s.StartsWith("text.uri.", StringComparison.Ordinal) -> Some StringSpecial
             | "text" -> Some String
-            | s when startsDot "text" -> Some String
+            | _ when startsDot "text" -> Some String
             | _ -> None
 
     /// Walk every capture in `tree`, project into our DU, return a
