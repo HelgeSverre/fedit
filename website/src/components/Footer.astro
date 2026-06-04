@@ -11,10 +11,16 @@ const cols = [
       { href: "/themes", label: "themes" },
       { href: "/extend", label: "extend" },
       { href: "/docs", label: "docs" },
-      { href: "/docs/architecture", label: "how it works" },
       { href: "/changelog", label: "changelog" },
+    ],
+  },
+  {
+    title: "learn",
+    links: [
       { href: "/brand", label: "brand" },
-      { href: "/developer", label: "developer" },
+      { href: "/docs/plugins", label: "plugins" },
+      { href: "/docs/keybindings", label: "keybindings" },
+      { href: "/docs/architecture", label: "architecture" },
     ],
   },
 ];
@@ -114,18 +120,21 @@ const cols = [
     border-top: 1px solid var(--border);
     background: var(--surface-2);
   }
+
   .foot-cols {
     display: grid;
-    grid-template-columns: 1.4fr 1.4fr 1fr;
+    grid-template-columns: 1.4fr 1.4fr 1.4fr 1fr;
     gap: 40px;
     align-items: start;
   }
+
   @media (max-width: 700px) {
     .foot-cols {
       grid-template-columns: 1fr;
       gap: 32px;
     }
   }
+
   .site-foot strong {
     font-family: "Departure Mono", "JetBrains Mono", monospace;
     font-size: 14px;
@@ -134,51 +143,62 @@ const cols = [
     margin-bottom: 12px;
     color: var(--fg);
   }
+
   .site-foot p,
   .site-foot ul {
     margin: 0;
     font-size: 13px;
     color: var(--fg-muted);
   }
+
   .site-foot ul {
     list-style: none;
     padding: 0;
   }
+
   .site-foot ul li {
     margin: 6px 0;
   }
+
   .site-foot a {
     text-decoration-color: transparent;
     transition:
       text-decoration-color var(--t-base) var(--ease),
       color var(--t-base) var(--ease);
   }
+
   .site-foot a:hover {
     text-decoration-color: var(--accent);
   }
+
   .with-icon {
     display: inline-flex;
     align-items: center;
     gap: 6px;
   }
+
   .with-icon :global(svg) {
     color: var(--fg-subtle);
     transition: color var(--t-base) var(--ease);
   }
+
   .with-icon:hover :global(svg) {
     color: var(--accent);
   }
+
   /* The made-by column owns its own rhythm via .stack — kill the strong
-   * bottom margin and the .socials top margin so the gap is the single
-   * source of separation. */
+     * bottom margin and the .socials top margin so the gap is the single
+     * source of separation. */
   .made-by strong {
     margin-bottom: 0;
   }
+
   .socials {
     margin: 0;
     display: flex;
     gap: 14px;
   }
+
   .icon-link {
     display: inline-flex;
     align-items: center;
@@ -189,10 +209,12 @@ const cols = [
       color var(--t-base) var(--ease),
       transform var(--t-fast) var(--ease);
   }
+
   .icon-link:hover {
     color: var(--accent);
     transform: translateY(-1px);
   }
+
   .icon-link:active {
     transform: translateY(0);
   }
