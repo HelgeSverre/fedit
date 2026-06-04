@@ -2,7 +2,6 @@
 import Site from "../layouts/Site.astro";
 import Symbol from "../components/Symbol.astro";
 import CaretRise from "../components/mascots/CaretRise.astro";
-import CodeBlock from "../components/CodeBlock.astro";
 
 const features = [
   {
@@ -28,8 +27,8 @@ const features = [
     desc: "external changes trigger a debounced 300ms rescan; no need to press Ctrl+R",
   },
   {
-    name: "ten themes",
-    desc: "swap accent palette live; persists to ~/.config/fedit/config.json",
+    name: "twelve themes",
+    desc: "full-surface palettes (incl. light); swap live, persists to ~/.config/fedit/config.json",
   },
   { name: "UTF-8", desc: "reads any line-ending style, preserves it on save, no BOM written" },
 ];
@@ -43,7 +42,7 @@ const cards = [
   {
     href: "/themes",
     title: "themes",
-    blurb: "Ten accent palettes. Switch live from the command bar.",
+    blurb: "Twelve palettes, including light. Switch live from the command bar.",
   },
   {
     href: "/how",
@@ -60,7 +59,7 @@ const cards = [
 
 <Site
   title="fedit — edit files in the terminal"
-  description="A small terminal text editor written in F#. Workspace tree, multi-buffer, piece-table buffers, find, command palette, system clipboard, ten color themes."
+  description="A small terminal text editor written in F#. Workspace tree, multi-buffer, piece-table buffers, find, command palette, system clipboard, twelve color themes."
   image="/og/index.png"
   titleOverride
 >

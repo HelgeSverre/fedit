@@ -1,0 +1,250 @@
+---
+/**
+ * A compact, faithful preview of how a theme colors the real editor: sidebar,
+ * gutter, syntax-highlighted code with an active line + selection, status bar,
+ * and command prompt. Driven entirely by the theme's per-surface colors (from
+ * `fedit themes --json`) — no in-browser derivation.
+ *
+ * Adapted from docs/superpowers/plans/revised-theme-system/prototype-v2.html,
+ * stripped of Alpine.js, the color inspector, the OKLab engine, and the dock.
+ *
+ * Code lines are data (not inline HTML) so the formatter can't reflow
+ * significant whitespace into the `white-space: pre` cells.
+ */
+import type { Theme } from "../data/themes";
+
+interface Props {
+  theme: Theme;
+}
+const { theme: t } = Astro.props;
+
+// Representative dark terminal background for the surfaces a dark theme leaves
+// at the terminal default (null). Light themes supply their own backgrounds.
+const CANVAS = "#0B0B0D";
+
+// Resolve every surface to a concrete value, falling back where a theme keeps
+// the terminal default.
+const editorBg = t.surfaceBg ?? CANVAS;
+const editorFg = t.surfaceFg ?? "#D0D0D0";
+const gutterFg = t.lineNumberFg ?? "#626262";
+const gutterBg = t.lineNumberBg ?? editorBg;
+const gutterActiveFg = t.currentLine ?? t.accent;
+const activeBg = t.activeLineBg ?? "#303030";
+const gutterActiveBg = t.currentLineBg ?? activeBg;
+const activeFg = t.activeLineFg ?? editorFg;
+const sidebarFg = t.chromeFg ?? "#808080";
+const sidebarBg = t.chromeBg ?? editorBg;
+const borderFg = t.chromeFg ?? "#3A3A3A";
+const statusFg = t.statusFg ?? "#FFFFFF";
+const statusBg = t.statusBg ?? t.accent;
+const selectionFg = t.selectionFg ?? editorBg;
+const selectionBg = t.selectedBg ?? t.accent;
+const promptFg = t.promptFg ?? editorFg;
+const promptBg = t.promptBg ?? sidebarBg;
+
+const synKeyword = t.syntax.keyword ?? editorFg;
+const synString = t.syntax.string ?? editorFg;
+const synComment = t.syntax.comment ?? gutterFg;
+const synFunction = t.syntax.function ?? editorFg;
+const synType = t.syntax.type ?? editorFg;
+
+const vars = [
+  `--ed-bg:${editorBg}`,
+  `--ed-fg:${editorFg}`,
+  `--ed-gutter-fg:${gutterFg}`,
+  `--ed-gutter-bg:${gutterBg}`,
+  `--ed-gutter-active-fg:${gutterActiveFg}`,
+  `--ed-gutter-active-bg:${gutterActiveBg}`,
+  `--ed-active-bg:${activeBg}`,
+  `--ed-active-fg:${activeFg}`,
+  `--ed-sidebar-fg:${sidebarFg}`,
+  `--ed-sidebar-bg:${sidebarBg}`,
+  `--ed-border-fg:${borderFg}`,
+  `--ed-status-fg:${statusFg}`,
+  `--ed-status-bg:${statusBg}`,
+  `--ed-sel-fg:${selectionFg}`,
+  `--ed-sel-bg:${selectionBg}`,
+  `--ed-prompt-fg:${promptFg}`,
+  `--ed-prompt-bg:${promptBg}`,
+  `--ed-accent:${t.accent}`,
+  `--syn-keyword:${synKeyword}`,
+  `--syn-string:${synString}`,
+  `--syn-comment:${synComment}`,
+  `--syn-function:${synFunction}`,
+  `--syn-type:${synType}`,
+].join(";");
+
+// A token is plain text, or text painted by a class (`syn-*` or `sel`).
+type Tok = { t: string; c?: string };
+const sidebar = ["src", "Themes.fs", "View.fs"];
+const lines: { n: number; active?: boolean; toks: Tok[] }[] = [
+  {
+    n: 1,
+    toks: [{ t: "module", c: "syn-keyword" }, { t: " " }, { t: "Fedit.Themes", c: "syn-type" }],
+  },
+  { n: 2, toks: [{ t: "// one accent per surface", c: "syn-comment" }] },
+  {
+    n: 3,
+    active: true,
+    toks: [
+      { t: "let", c: "syn-keyword" },
+      { t: " " },
+      { t: "green", c: "syn-function" },
+      { t: " =" },
+    ],
+  },
+  {
+    n: 4,
+    toks: [
+      { t: "  Accent = " },
+      { t: "Color.ofHex", c: "tep__sel" },
+      { t: " " },
+      { t: '"#00B86B"', c: "syn-string" },
+    ],
+  },
+  {
+    n: 5,
+    toks: [
+      { t: "  StatusBg = " },
+      { t: "Color.indexed", c: "syn-function" },
+      { t: " " },
+      { t: "22", c: "syn-type" },
+    ],
+  },
+  { n: 6, toks: [{ t: "// chrome is theme-owned", c: "syn-comment" }] },
+];
+---
+
+<div class="tep tui" style={vars} aria-hidden="true">
+  <aside class="tep__sidebar">
+    {
+      sidebar.map((name, i) => (
+        <div class={`tep__file${i === 1 ? " tep__file--sel" : ""}`}>{name}</div>
+      ))
+    }
+  </aside>
+  <div class="tep__main">
+    <div class="tep__code">
+      {
+        lines.map((ln) => (
+          <div class={`tep__line${ln.active ? " tep__line--active" : ""}`}>
+            <span class="tep__gutter">{ln.n}</span>
+            <span class="tep__src">
+              {ln.toks.map((tk) => (tk.c ? <span class={tk.c}>{tk.t}</span> : tk.t))}
+            </span>
+          </div>
+        ))
+      }
+    </div>
+    <div class="tep__status">
+      <span>EDIT Themes.fs</span>
+      <span>3:14 LF</span>
+    </div>
+    <div class="tep__prompt"><span class="tep__prompt-mode">:</span>theme {t.name}</div>
+  </div>
+</div>
+
+<style>
+  .tep {
+    display: grid;
+    grid-template-columns: 84px 1fr;
+    background: var(--ed-bg);
+    color: var(--ed-fg);
+    font-size: 11px;
+    overflow: hidden;
+  }
+  .tep__sidebar {
+    background: var(--ed-sidebar-bg);
+    color: var(--ed-sidebar-fg);
+    border-right: 1px solid var(--ed-border-fg);
+    padding: 2px 0;
+    min-width: 0;
+    line-height: 1em;
+  }
+  .tep__file {
+    padding: 2px 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tep__file--sel {
+    background: var(--ed-sel-bg);
+    color: var(--ed-sel-fg);
+    font-weight: 600;
+  }
+  .tep__main {
+    display: grid;
+    grid-template-rows: 1fr auto auto;
+    min-width: 0;
+  }
+  .tep__code {
+    background: var(--ed-bg);
+    padding: 2px 0;
+    line-height: 1em;
+  }
+  .tep__line {
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    white-space: pre;
+    padding: 2px 0;
+  }
+  .tep__line--active {
+    background: var(--ed-active-bg);
+    color: var(--ed-active-fg);
+  }
+  .tep__gutter {
+    color: var(--ed-gutter-fg);
+    background: var(--ed-gutter-bg);
+    text-align: right;
+    padding-right: 4px;
+  }
+  .tep__line--active .tep__gutter {
+    color: var(--ed-gutter-active-fg);
+    background: var(--ed-gutter-active-bg);
+  }
+  .tep__src {
+    padding-left: 4px;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .tep__sel {
+    background: var(--ed-sel-bg);
+    color: var(--ed-sel-fg);
+  }
+  .syn-keyword {
+    color: var(--syn-keyword);
+  }
+  .syn-string {
+    color: var(--syn-string);
+  }
+  .syn-comment {
+    color: var(--syn-comment);
+  }
+  .syn-function {
+    color: var(--syn-function);
+  }
+  .syn-type {
+    color: var(--syn-type);
+  }
+  .tep__status {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 4px;
+    background: var(--ed-status-bg);
+    color: var(--ed-status-fg);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .tep__prompt {
+    padding: 2px 4px;
+    background: var(--ed-prompt-bg);
+    color: var(--ed-prompt-fg);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .tep__prompt-mode {
+    color: var(--ed-accent);
+    font-weight: 600;
+  }
+</style>

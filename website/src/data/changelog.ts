@@ -31,6 +31,18 @@ const shipped = (version: string, item: string): ChangelogEntry => ({
 
 export const changelog: ChangelogEntry[] = [
   shipped(
+    "Themes",
+    'Chrome is now theme-owned: the previously-hardcoded editor/sidebar text, borders, dock panel, prompt, line numbers, active line, and selection became explicit fg/bg slots on the Theme record, so a palette controls the whole surface. The ten accent-only themes inherit green\'s chrome with default backgrounds, so they render byte-identical. Added the first two full-surface themes — github-light and github-dark (GitHub Primer palettes) — each with its own surface-readable syntax colors. User-theme JSON accepts the new fg/bg keys (and a literal "default") with back-compatible fallbacks.',
+  ),
+  shipped(
+    "Render",
+    "Screen.setCell coerces control characters to a space, enforcing the grid invariant that every cell holds one printable column. Fixes multi-line notifications (e.g. the old :keybind dump) writing a raw newline into the single-row status line, which desynced the diff renderer's cursor and corrupted the TUI until a repaint.",
+  ),
+  shipped(
+    "Keybinds",
+    "':keybind' opens the effective keymap in a scrollable, searchable buffer instead of dumping every binding into the status line — grouped by context, aligned, deduped to the active binding per stroke, reused in place on repeat. ':keybind <stroke>' now reports on a single line; ':keybind reload' is unchanged.",
+  ),
+  shipped(
     "Buffers",
     "Buffer-switching keybindings land in the global key handler: Ctrl+PageDown next buffer, Ctrl+PageUp previous, Ctrl+1..9 jump to the buffer at sorted index 1..9. Matches Zed / VS Code / IntelliJ defaults. Out-of-range jumps (Ctrl+5 with 3 buffers open) are a silent no-op rather than a notification. KeyInput grows CtrlPageUp / CtrlPageDown / CtrlDigit of int cases; Input.tryMap recovers the digit value from the contiguous ConsoleKey.D0..D9 range. Legacy macOS Terminal.app may not pass Ctrl+digit through cleanly — flagged as a known limitation; Plan B is Alt+1..9.",
   ),

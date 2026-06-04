@@ -60,6 +60,15 @@ gen-keybinds:
     PATH="$PWD/../.dotnet:$PATH" dotnet run --project ../src/Fedit/Fedit.fsproj --no-build -- keybinds --json > src/data/keybindings.json
     bun x oxfmt src/data/keybindings.json
 
+# Regenerate src/data/themes.json from the bundled F# themes (Themes.all).
+# Run after changing Themes.fs; the JSON is committed so site builds don't
+# require the fedit binary.
+[group('build')]
+gen-themes:
+    PATH="$PWD/../.dotnet:$PATH" dotnet build ../src/Fedit/Fedit.fsproj --nologo >/dev/null
+    PATH="$PWD/../.dotnet:$PATH" dotnet run --project ../src/Fedit/Fedit.fsproj --no-build -- themes --json > src/data/themes.json
+    bun x oxfmt src/data/themes.json
+
 # Remove build artifacts
 [group('build')]
 clean:

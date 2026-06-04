@@ -1,29 +1,22 @@
 ---
 import type { Theme } from "../data/themes";
+import ThemeEditorPreview from "./ThemeEditorPreview.astro";
 interface Props {
   theme: Theme;
 }
 const { theme } = Astro.props;
 ---
 
-<article class="theme-card card" style={`--accent:${theme.hex};`}>
+<article class="theme-card card" style={`--accent:${theme.accent};`}>
   <header>
     <span class="dot" aria-hidden="true"></span>
     <span class="name">{theme.name}</span>
     {theme.isDefault && <span class="label">default</span>}
   </header>
-  <pre class="mini-tui"
-    ><span class="dim">┌─ src ─────────┬─ Main.fs ──┐</span>
-<span class="dim">│</span> ▾ src         <span class="dim">│</span>   1 module     <span class="dim">│</span>
-<span class="dim">│</span>   Buffer.fs   <span class="dim">│</span>   2 open …     <span class="dim">│</span>
-<span class="dim">│</span>   Main.fs     <span class="dim">│</span>   3            <span class="dim">│</span>
-<span class="dim">├───────────────┴────────────┤</span>
-<span class="dim">│</span> <span class="accent">^</span> <span class="muted">Ln 1 · LF · 1 buf</span>     <span class="dim">│</span>
-<span class="dim">└────────────────────────────┘</span></pre
-  >
+  <ThemeEditorPreview theme={theme} />
   <footer>
     <span>{theme.description}</span>
-    <code>{theme.hex} · ansi {theme.ansi256}</code>
+    <code>{theme.accent} · {theme.appearance}</code>
   </footer>
 </article>
 
@@ -69,19 +62,6 @@ const { theme } = Astro.props;
     background: color-mix(in oklch, var(--accent) 12%, transparent);
     padding: 2px 6px;
     border-radius: 2px;
-  }
-  pre.mini-tui {
-    margin: 0;
-    border: none;
-    background: var(--surface-2);
-    border-radius: 0;
-    font-size: 10px;
-    padding: 12px;
-    line-height: 1.45;
-    overflow: hidden;
-  }
-  pre.mini-tui .accent {
-    color: var(--accent);
   }
   footer {
     display: flex;
