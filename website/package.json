@@ -16,7 +16,8 @@
     "@astrojs/compiler-rs": "^0.2.1",
     "alpinejs": "^3.15.12",
     "astro": "^6.4.2",
-    "astro-inspect-clip": "^1.0.4"
+    "astro-inspect-clip": "^1.0.4",
+    "vercel": "^54.9.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
