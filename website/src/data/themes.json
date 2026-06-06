@@ -287,7 +287,7 @@
     "activeLineBg": "#303030",
     "currentLine": "#AF8700",
     "currentLineBg": null,
-    "statusFg": "#000000",
+    "statusFg": "#FFFFFF",
     "statusBg": "#5F3B00",
     "selectionFg": "#FFFFD7",
     "selectedBg": "#875F00",
@@ -357,6 +357,36 @@
       "comment": "#8B949E",
       "function": "#D2A8FF",
       "type": "#79C0FF"
+    }
+  },
+  {
+    "name": "ayu",
+    "description": "Ayu Dark — modern dark theme with vibrant accent",
+    "isDefault": false,
+    "appearance": "dark",
+    "accent": "#E6B450",
+    "surfaceFg": "#BFBDB6",
+    "surfaceBg": "#0D1017",
+    "chromeFg": "#5A6378",
+    "chromeBg": "#10141C",
+    "promptFg": "#BFBDB6",
+    "promptBg": "#10141C",
+    "lineNumberFg": "#5A6378",
+    "lineNumberBg": "#0D1017",
+    "activeLineFg": "#BFBDB6",
+    "activeLineBg": "#161A24",
+    "currentLine": "#FF8F40",
+    "currentLineBg": "#161A24",
+    "statusFg": "#0D1017",
+    "statusBg": "#E6B450",
+    "selectionFg": "#BFBDB6",
+    "selectedBg": "#3388FF",
+    "syntax": {
+      "keyword": "#FF8F40",
+      "string": "#AAD94C",
+      "comment": "#5A6673",
+      "function": "#FFB454",
+      "type": "#59C2FF"
     }
   }
 ]

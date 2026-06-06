@@ -335,6 +335,66 @@ module Themes =
             SyntaxPunctuation = githubDarkSyntax.SyntaxPunctuation
             SyntaxAttribute = githubDarkSyntax.SyntaxAttribute }
 
+    // Ayu Dark syntax palette. Based on the Ayu color scheme with vibrant
+    // orange keywords, green strings, and purple constants on a dark surface.
+    let private ayuSyntax =
+        {| SyntaxKeyword = Color.ofHex "#FF8F40" // orange
+           SyntaxKeywordControl = Color.ofHex "#FF8F40"
+           SyntaxKeywordOperator = Color.ofHex "#FF8F40"
+           SyntaxString = Color.ofHex "#AAD94C" // green
+           SyntaxStringSpecial = Color.ofHex "#95E6CB" // teal
+           SyntaxNumber = Color.ofHex "#D2A6FF" // purple
+           SyntaxComment = Color.ofHex "#5A6673" // gray
+           SyntaxFunction = Color.ofHex "#FFB454" // yellow-orange
+           SyntaxFunctionCall = Color.ofHex "#FFB454"
+           SyntaxType = Color.ofHex "#59C2FF" // blue
+           SyntaxConstructor = Color.ofHex "#59C2FF"
+           SyntaxVariable = Color.ofHex "#F29668" // pink
+           SyntaxParameter = Color.ofHex "#F29668"
+           SyntaxOperator = Color.ofHex "#F29668"
+           SyntaxPunctuation = Color.ofHex "#BFBDB6" // light gray
+           SyntaxAttribute = Color.ofHex "#D2A6FF" |}
+
+    // Ayu Dark theme. A full-surface dark theme based on the popular Ayu
+    // color scheme. Uses the accent tint #E6B450 for highlights and status bar.
+    let ayu =
+        { green with
+            Name = "ayu"
+            Description = "Ayu Dark — modern dark theme with vibrant accent"
+            Accent = Color.ofHex "#E6B450"
+            StatusBg = Color.ofHex "#E6B450"
+            StatusFg = Color.ofHex "#0D1017"
+            SelectedBg = Color.ofHex "#3388FF"
+            SelectionFg = Color.ofHex "#BFBDB6"
+            CurrentLine = Color.ofHex "#FF8F40"
+            CurrentLineBg = Color.ofHex "#161A24"
+            SurfaceFg = Color.ofHex "#BFBDB6"
+            SurfaceBg = Color.ofHex "#0D1017"
+            ChromeFg = Color.ofHex "#5A6378"
+            ChromeBg = Color.ofHex "#10141C"
+            PromptFg = Color.ofHex "#BFBDB6"
+            PromptBg = Color.ofHex "#10141C"
+            LineNumberFg = Color.ofHex "#5A6378"
+            LineNumberBg = Color.ofHex "#0D1017"
+            ActiveLineFg = Color.ofHex "#BFBDB6"
+            ActiveLineBg = Color.ofHex "#161A24"
+            SyntaxKeyword = ayuSyntax.SyntaxKeyword
+            SyntaxKeywordControl = ayuSyntax.SyntaxKeywordControl
+            SyntaxKeywordOperator = ayuSyntax.SyntaxKeywordOperator
+            SyntaxString = ayuSyntax.SyntaxString
+            SyntaxStringSpecial = ayuSyntax.SyntaxStringSpecial
+            SyntaxNumber = ayuSyntax.SyntaxNumber
+            SyntaxComment = ayuSyntax.SyntaxComment
+            SyntaxFunction = ayuSyntax.SyntaxFunction
+            SyntaxFunctionCall = ayuSyntax.SyntaxFunctionCall
+            SyntaxType = ayuSyntax.SyntaxType
+            SyntaxConstructor = ayuSyntax.SyntaxConstructor
+            SyntaxVariable = ayuSyntax.SyntaxVariable
+            SyntaxParameter = ayuSyntax.SyntaxParameter
+            SyntaxOperator = ayuSyntax.SyntaxOperator
+            SyntaxPunctuation = ayuSyntax.SyntaxPunctuation
+            SyntaxAttribute = ayuSyntax.SyntaxAttribute }
+
     let all =
         [ green
           blue
@@ -347,7 +407,8 @@ module Themes =
           evergreen
           monoAmber
           githubLight
-          githubDark ]
+          githubDark
+          ayu ]
 
     let defaultTheme = green
 
