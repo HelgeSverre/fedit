@@ -119,6 +119,16 @@
     </None>
   </ItemGroup>
 
+  <Target Name="KeepPluginApiDllSidecar" AfterTargets="ComputeResolvedFilesToPublishList">
+    <!-- Manifest-only plugins compile against this contract DLL via HintPath.
+         Keep it beside the single-file host instead of bundling it away. -->
+    <ItemGroup>
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)" Condition="'%(Filename)%(Extension)' == 'Fedit.PluginApi.dll'">
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
   <!-- Trim the 25+ bundled tree-sitter grammars we don't ship.
        TreeSitter.DotNet's NuGet package places them at the publish
        root (RelativePath = `libtree-sitter-<lang>.<ext>` with no

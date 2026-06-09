@@ -296,7 +296,7 @@ let private list (argv: string[]) : int =
                     if wantsBuild items then
                         // Full scan + build + load. Matches the in-editor
                         // `:plugin list` output exactly.
-                        Fedit.Plugins.scanAndLoad root (apiDllPath ()) Map.empty ignore
+                        Fedit.Plugins.scanAndLoad root (apiDllPath ()) Set.empty ignore
                         |> fun registry -> registry.Loaded |> Map.toList |> List.map snd
                     else
                         // Manifest-only: no `dotnet build`.

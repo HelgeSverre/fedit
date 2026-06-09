@@ -313,26 +313,21 @@ This is the MVP. Concretely deferred to v2:
   doesn't write to `~/.config/fedit/config.json`.
 - **Async / long-running commands** — handlers block the UI thread.
   Plugins doing real I/O need to keep work brief.
-- **`Selection` in `BufferView`** — always `None`. Plugins reading
-  selection should fall back to `ActiveBuffer.Text` and the cursor
-  position.
 - **Per-plugin settings** — no `IPluginHost.Config<T>()` yet. Plugins
   that need configuration can read their own JSON file relative to
   `~/.config/fedit/plugins/<name>/`.
 - **Workspace mutation** — no create/delete file API. The workaround
-  is to `RunCommand "open <path>"` (which loads or creates a buffer
-  for `<path>`).
+  is to create or modify the file yourself, then `RunCommand "open <path>"`
+  to open an existing file in a buffer.
 - **API v2** — when `apiVersion` ticks, v1 plugins keep working via
   the host shipping `Fedit.PluginApi.v1.dll` alongside the new one.
-- **Configurable keybindings (in design)** — a forthcoming user keymap
-  (`~/.config/fedit/keybinds`) will let users bind any stroke — including
-  `Ctrl+Shift`, F-keys, and multi-key sequences — to plugin commands,
-  independent of the v1 `KeyChord`. Two changes will affect plugins: the user
-  keymap resolves **before** plugin-registered chords (so a user can always
-  reclaim a chord a plugin grabbed), and the expanded key decoder will make
-  the currently-dormant `Alt`/`CtrlShift`/`F` `KeyChord` variants actually
-  fire. `RegisterKeybinding` and `KeyChord` themselves stay unchanged. See
-  [the keybindings spec §6.7](superpowers/specs/2026-05-29-keybindings-spec.md#67-plugin-system--pluginapi-boundary).
+- **Configurable keybindings** — the user keymap
+  (`~/.config/fedit/keybinds`) lets users bind strokes to plugin commands,
+  independent of the v1 `KeyChord`. The user keymap resolves **before**
+  plugin-registered chords, so a user can always reclaim a chord a plugin
+  grabbed. `RegisterKeybinding` supports `Ctrl`, `Alt`, `CtrlShift`, and
+  `F` chords; plain printable `Char` chords are reserved for text entry and
+  are rejected.
 
 If your use case hits one of these walls, open an issue at
 [github.com/HelgeSverre/fedit](https://github.com/HelgeSverre/fedit) —

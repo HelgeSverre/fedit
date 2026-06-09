@@ -89,9 +89,9 @@ install dest="~/.local/bin":
     {{dotnet}} publish {{project}} -c Release -o bin/dist
     mkdir -p {{dest}}
     install -m 0755 bin/dist/fedit {{dest}}/fedit
-    # The F# tree-sitter grammar lives outside the single-file bundle and is
-    # resolved at AppContext.BaseDirectory/runtimes/<rid>/native/. Ship it next
-    # to the binary or syntax highlighting silently no-ops.
+    install -m 0644 bin/dist/Fedit.PluginApi.dll {{dest}}/Fedit.PluginApi.dll
+    # Plugin builds and tree-sitter grammars resolve sidecars via
+    # AppContext.BaseDirectory. Ship them next to the binary.
     rm -rf {{dest}}/runtimes
     cp -R bin/dist/runtimes {{dest}}/runtimes
     @echo "Installed fedit to {{dest}}/fedit"
@@ -108,6 +108,7 @@ install dest="%LOCALAPPDATA%\\Programs\\fedit":
     dotnet publish {{project}} -c Release -r win-x64 -o bin\dist
     if not exist "{{dest}}" mkdir "{{dest}}"
     copy /Y bin\dist\fedit.exe "{{dest}}\fedit.exe"
+    copy /Y bin\dist\Fedit.PluginApi.dll "{{dest}}\Fedit.PluginApi.dll"
     if exist "{{dest}}\runtimes" rmdir /S /Q "{{dest}}\runtimes"
     xcopy /E /I /Y bin\dist\runtimes "{{dest}}\runtimes"
     @echo Installed fedit to {{dest}}\fedit.exe

@@ -43,7 +43,8 @@ type LoadedPlugin =
       Path: string
       Status: PluginLoadStatus
       Commands: PluginCommand list
-      Keybindings: (KeyChord * string) list }
+      Keybindings: (KeyChord * string) list
+      Conflicts: string list }
 
 /// Aggregate registry of all plugins known to the host.
 type PluginRegistry =
@@ -58,6 +59,68 @@ type PluginSource =
     | FolderSource of path: string
     | GitSource of url: string
     | ZipSource of path: string
+
+module private PluginNames =
+    let private hasSeparator (value: string) =
+        value.Contains(Path.DirectorySeparatorChar)
+        || value.Contains(Path.AltDirectorySeparatorChar)
+        || value.Contains('/')
+        || value.Contains('\\')
+
+    let validateName (name: string) : Result<string, string> =
+        if String.IsNullOrWhiteSpace name then
+            Result.Error "plugin name must not be empty"
+        elif name = "." || name = ".." then
+            Result.Error "plugin name must not be '.' or '..'"
+        elif Path.IsPathRooted name || hasSeparator name then
+            Result.Error "plugin name must be a single path segment"
+        elif name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 then
+            Result.Error "plugin name contains invalid filename characters"
+        elif
+            name
+            |> Seq.exists (fun c -> not (Char.IsLetterOrDigit c || c = '.' || c = '_' || c = '-'))
+        then
+            Result.Error "plugin name may contain only letters, digits, '.', '_' and '-'"
+        else
+            Result.Ok name
+
+    let validateFileName (field: string) (name: string) : Result<string, string> =
+        if String.IsNullOrWhiteSpace name then
+            Result.Error $"{field} must not be empty"
+        elif Path.IsPathRooted name || hasSeparator name then
+            Result.Error $"{field} must be a filename, not a path"
+        elif
+            name = "."
+            || name = ".."
+            || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+        then
+            Result.Error $"{field} contains invalid filename characters"
+        else
+            Result.Ok name
+
+    let childPath (root: string) (name: string) : Result<string, string> =
+        match validateName name with
+        | Result.Error e -> Result.Error e
+        | Result.Ok safeName ->
+            let rootFull = Path.GetFullPath root
+            let target = Path.GetFullPath(Path.Combine(rootFull, safeName))
+
+            let rootWithSeparator =
+                if rootFull.EndsWith(Path.DirectorySeparatorChar) then
+                    rootFull
+                else
+                    rootFull + string Path.DirectorySeparatorChar
+
+            let comparison =
+                if Path.DirectorySeparatorChar = '\\' then
+                    StringComparison.OrdinalIgnoreCase
+                else
+                    StringComparison.Ordinal
+
+            if target.StartsWith(rootWithSeparator, comparison) then
+                Result.Ok target
+            else
+                Result.Error "plugin path escapes the plugin root"
 
 [<RequireQualifiedAccess>]
 module PluginRegistry =
@@ -97,22 +160,28 @@ module private ManifestJson =
             | _, Result.Error e, _
             | _, _, Result.Error e -> Result.Error e
             | Ok name, Ok version, Ok apiVersion ->
-                if apiVersion <> "1" then
-                    Result.Error $"unsupported apiVersion '{apiVersion}' (host supports '1')"
-                else
-                    match required "entryAssembly", required "entryType" with
-                    | Result.Error e, _
-                    | _, Result.Error e -> Result.Error e
-                    | Ok entryAssembly, Ok entryType ->
-                        Ok
-                            { Name = name
-                              Version = version
-                              ApiVersion = apiVersion
-                              Description = optStr root "description" |> Option.defaultValue ""
-                              Author = optStr root "author" |> Option.defaultValue ""
-                              Homepage = optStr root "homepage" |> Option.defaultValue ""
-                              EntryAssembly = entryAssembly
-                              EntryType = entryType }
+                match PluginNames.validateName name with
+                | Result.Error e -> Result.Error e
+                | Result.Ok safeName ->
+                    if apiVersion <> "1" then
+                        Result.Error $"unsupported apiVersion '{apiVersion}' (host supports '1')"
+                    else
+                        match required "entryAssembly", required "entryType" with
+                        | Result.Error e, _
+                        | _, Result.Error e -> Result.Error e
+                        | Ok entryAssembly, Ok entryType ->
+                            match PluginNames.validateFileName "entryAssembly" entryAssembly with
+                            | Result.Error e -> Result.Error e
+                            | Result.Ok safeEntryAssembly ->
+                                Ok
+                                    { Name = safeName
+                                      Version = version
+                                      ApiVersion = apiVersion
+                                      Description = optStr root "description" |> Option.defaultValue ""
+                                      Author = optStr root "author" |> Option.defaultValue ""
+                                      Homepage = optStr root "homepage" |> Option.defaultValue ""
+                                      EntryAssembly = safeEntryAssembly
+                                      EntryType = entryType }
         with ex ->
             Result.Error $"failed to parse plugin.json: {ex.Message}"
 
@@ -340,14 +409,16 @@ module Plugins =
                               Path = pluginDir
                               Status = Disabled
                               Commands = []
-                              Keybindings = [] }
+                              Keybindings = []
+                              Conflicts = [] }
                     | Result.Error reason ->
                         Some
                             { Manifest = placeholderManifest (Path.GetFileName pluginDir)
                               Path = pluginDir
                               Status = Failed reason
                               Commands = []
-                              Keybindings = [] })
+                              Keybindings = []
+                              Conflicts = [] })
             |> List.ofSeq
 
     /// Build the plugin if its DLL is missing or stale. Returns the path
@@ -392,7 +463,8 @@ module Plugins =
                     { loaded with
                         Status = Loaded
                         Commands = collector.Commands
-                        Keybindings = collector.Keybindings }
+                        Keybindings = collector.Keybindings
+                        Conflicts = collector.Conflicts }
                 with ex ->
                     { loaded with
                         Status = Failed $"register threw: {ex.Message}" }
@@ -406,7 +478,7 @@ module Plugins =
     let scanAndLoad
         (pluginsRoot: string)
         (pluginApiDllPath: string)
-        (enableMap: Map<string, bool>)
+        (disabledPlugins: Set<string>)
         (log: string -> unit)
         : PluginRegistry =
         let discovered = discover pluginsRoot
@@ -415,12 +487,9 @@ module Plugins =
         let processed =
             discovered
             |> List.map (fun loaded ->
-                let enabledByConfig =
-                    enableMap.TryFind loaded.Manifest.Name |> Option.defaultValue true
-
                 match loaded.Status with
+                | _ when disabledPlugins.Contains loaded.Manifest.Name -> { loaded with Status = Disabled }
                 | Failed _ -> loaded
-                | _ when not enabledByConfig -> { loaded with Status = Disabled }
                 | _ ->
                     match build pluginApiDllPath loaded with
                     | Result.Error e -> { loaded with Status = Failed e }
@@ -431,6 +500,8 @@ module Plugins =
         let keys = ResizeArray<KeyChord * string>()
 
         for plugin in processed do
+            plugin.Conflicts |> List.iter conflicts.Add
+
             if plugin.Status = Loaded then
                 for cmd in plugin.Commands do
                     if commands.ContainsKey cmd.Name then
@@ -489,7 +560,10 @@ module Plugins =
             match tryParseManifest manifestPath with
             | Result.Error e -> failwith e
             | Ok manifest ->
-                let target = Path.Combine(pluginsRoot, manifest.Name)
+                let target =
+                    match PluginNames.childPath pluginsRoot manifest.Name with
+                    | Result.Ok path -> path
+                    | Result.Error e -> failwith e
 
                 if Directory.Exists target then
                     failwith $"plugin '{manifest.Name}' already installed"
@@ -504,7 +578,10 @@ module Plugins =
                     ()
 
     let uninstall (pluginsRoot: string) (name: string) : unit =
-        let target = Path.Combine(pluginsRoot, name)
+        let target =
+            match PluginNames.childPath pluginsRoot name with
+            | Result.Ok path -> path
+            | Result.Error e -> failwith e
 
         if not (Directory.Exists target) then
             failwith $"plugin '{name}' not installed"

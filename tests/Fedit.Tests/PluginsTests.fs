@@ -59,6 +59,41 @@ let ``tryParseManifest rejects an incompatible apiVersion`` () =
     | Result.Ok _ -> Assert.Fail "expected Error for unsupported apiVersion"
     | Result.Error reason -> Assert.Contains("apiVersion", reason)
 
+[<Theory>]
+[<InlineData("../wc")>]
+[<InlineData("wc/nested")>]
+[<InlineData("/tmp/wc")>]
+let ``tryParseManifest rejects plugin names that are not single safe segments`` name =
+    let path =
+        writeTemp
+            $"""{{
+              "name": "{name}",
+              "version": "0.1.0",
+              "apiVersion": "1",
+              "entryAssembly": "wc.dll",
+              "entryType": "Wc.Plugin"
+            }}"""
+
+    match Plugins.tryParseManifest path with
+    | Result.Ok _ -> Assert.Fail "expected Error for unsafe plugin name"
+    | Result.Error reason -> Assert.Contains("plugin name", reason)
+
+[<Fact>]
+let ``tryParseManifest rejects entryAssembly paths`` () =
+    let path =
+        writeTemp
+            """{
+              "name": "wc",
+              "version": "0.1.0",
+              "apiVersion": "1",
+              "entryAssembly": "../wc.dll",
+              "entryType": "Wc.Plugin"
+            }"""
+
+    match Plugins.tryParseManifest path with
+    | Result.Ok _ -> Assert.Fail "expected Error for unsafe entryAssembly"
+    | Result.Error reason -> Assert.Contains("entryAssembly", reason)
+
 [<Fact>]
 let ``tryParseManifest surfaces malformed JSON as Error`` () =
     let path = writeTemp "{ not valid json"
@@ -209,6 +244,26 @@ let ``allSpecs excludes plugin names that collide with builtins`` () =
     Assert.Equal(1, opens.Length)
     Assert.DoesNotContain("evil", opens.[0].Summary)
 
+[<Fact>]
+let ``uninstall rejects names that escape the plugin root`` () =
+    let pluginsRoot = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())
+    let victim = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())
+    Directory.CreateDirectory pluginsRoot |> ignore
+    Directory.CreateDirectory victim |> ignore
+
+    try
+        let ex =
+            Assert.Throws<System.Exception>(fun () -> Plugins.uninstall pluginsRoot victim)
+
+        Assert.Contains("plugin name", ex.Message)
+        Assert.True(Directory.Exists victim)
+    finally
+        if Directory.Exists pluginsRoot then
+            Directory.Delete(pluginsRoot, recursive = true)
+
+        if Directory.Exists victim then
+            Directory.Delete(victim, recursive = true)
+
 // ---------------------------------------------------------------------------
 // End-to-end: build and load the wordcount example through scanAndLoad
 // ---------------------------------------------------------------------------
@@ -255,7 +310,7 @@ let ``scanAndLoad builds and loads the wordcount example end-to-end`` () =
     let messages = System.Collections.Concurrent.ConcurrentQueue<string>()
     let log (s: string) = messages.Enqueue s
 
-    let registry = Plugins.scanAndLoad pluginsRoot apiDllPath Map.empty log
+    let registry = Plugins.scanAndLoad pluginsRoot apiDllPath Set.empty log
 
     Assert.True(registry.Loaded.ContainsKey "wordcount", "expected wordcount in registry.Loaded")
 
@@ -272,6 +327,91 @@ let ``scanAndLoad builds and loads the wordcount example end-to-end`` () =
         Directory.Delete(pluginsRoot, recursive = true)
     with _ ->
         ()
+
+[<Fact>]
+let ``scanAndLoad surfaces conflicts collected inside one plugin`` () =
+    let pluginsRoot = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())
+    let pluginDir = Path.Combine(pluginsRoot, "conflicter")
+    Directory.CreateDirectory pluginDir |> ignore
+
+    File.WriteAllText(
+        Path.Combine(pluginDir, "plugin.json"),
+        """{ "name":"conflicter","version":"0.1.0","apiVersion":"1",
+             "entryAssembly":"conflicter.dll","entryType":"Conflicter.Plugin" }"""
+    )
+
+    File.WriteAllText(
+        Path.Combine(pluginDir, "Plugin.fs"),
+        """namespace Conflicter
+
+open Fedit.PluginApi
+
+type Plugin =
+    static member register(host: IPluginHost) =
+        let cmd =
+            { Name = "dup"
+              Usage = ""
+              Summary = "duplicate"
+              Run = fun _ -> [] }
+
+        host.RegisterCommand cmd
+        host.RegisterCommand cmd
+        host.RegisterKeybinding(KeyChord.Char 'x', "dup")
+"""
+    )
+
+    let messages = System.Collections.Concurrent.ConcurrentQueue<string>()
+    let log (s: string) = messages.Enqueue s
+    let registry = Plugins.scanAndLoad pluginsRoot apiDllPath Set.empty log
+
+    try
+        Assert.Contains(registry.Conflicts, fun c -> c.Contains("duplicate command 'dup'"))
+        Assert.Contains(registry.Conflicts, fun c -> c.Contains("reserved chord"))
+    finally
+        if Directory.Exists pluginsRoot then
+            Directory.Delete(pluginsRoot, recursive = true)
+
+[<Fact>]
+let ``scanAndLoad leaves disabled plugins unloaded and unregistered`` () =
+    let pluginsRoot = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())
+    let pluginDir = Path.Combine(pluginsRoot, "alpha")
+    Directory.CreateDirectory pluginDir |> ignore
+
+    File.WriteAllText(
+        Path.Combine(pluginDir, "plugin.json"),
+        """{ "name":"alpha","version":"0.1.0","apiVersion":"1",
+             "entryAssembly":"alpha.dll","entryType":"Alpha.Plugin" }"""
+    )
+
+    File.WriteAllText(
+        Path.Combine(pluginDir, "Plugin.fs"),
+        """namespace Alpha
+
+open Fedit.PluginApi
+
+type Plugin =
+    static member register(host: IPluginHost) =
+        host.RegisterCommand { Name = "alpha"; Usage = ""; Summary = ""; Run = fun _ -> [] }
+"""
+    )
+
+    let messages = System.Collections.Concurrent.ConcurrentQueue<string>()
+    let log (s: string) = messages.Enqueue s
+
+    let registry =
+        Plugins.scanAndLoad pluginsRoot apiDllPath (Set.ofList [ "alpha" ]) log
+
+    try
+        match registry.Loaded.["alpha"].Status with
+        | PluginLoadStatus.Disabled -> ()
+        | other -> Assert.Fail $"expected Disabled, got {other}"
+
+        Assert.False(registry.Commands.ContainsKey "alpha")
+        Assert.Empty(registry.Keybindings)
+        Assert.DoesNotContain("alpha", registry.Enabled)
+    finally
+        if Directory.Exists pluginsRoot then
+            Directory.Delete(pluginsRoot, recursive = true)
 
 // ---------------------------------------------------------------------------
 // PluginContext snapshot: Selection field
