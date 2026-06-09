@@ -6,7 +6,7 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -48,29 +48,45 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Build the F# tree-sitter grammar for the matrix's RID. Zig
-      # acts as a uniform cross-compiler so we don't need per-OS
+      # Build the vendored tree-sitter grammars for the matrix's RID.
+      # Zig acts as a uniform cross-compiler so we don't need per-OS
       # toolchain conditionals. The publish target's <None Include>
-      # picks up the resulting native on the next dotnet publish step.
+      # picks up the resulting natives on the next dotnet publish step.
       - uses: mlugg/setup-zig@v2
-      - name: Build tree-sitter-fsharp for ${{ matrix.rid }}
+      - name: Build tree-sitter grammars for ${{ matrix.rid }}
         shell: bash
         run: |
           case "${{ matrix.rid }}" in
-            osx-arm64)   target="aarch64-macos";      out="libtree-sitter-fsharp.dylib" ;;
-            osx-x64)     target="x86_64-macos";       out="libtree-sitter-fsharp.dylib" ;;
-            linux-x64)   target="x86_64-linux-gnu";   out="libtree-sitter-fsharp.so" ;;
-            linux-arm64) target="aarch64-linux-gnu";  out="libtree-sitter-fsharp.so" ;;
-            win-x64)     target="x86_64-windows-gnu"; out="tree-sitter-fsharp.dll" ;;
+            osx-arm64)   target="aarch64-macos";      ext="dylib"; pfx="lib" ;;
+            osx-x64)     target="x86_64-macos";       ext="dylib"; pfx="lib" ;;
+            linux-x64)   target="x86_64-linux-gnu";   ext="so";    pfx="lib" ;;
+            linux-arm64) target="aarch64-linux-gnu";  ext="so";    pfx="lib" ;;
+            win-x64)     target="x86_64-windows-gnu"; ext="dll";   pfx="" ;;
             *) echo "Unknown RID: ${{ matrix.rid }}" >&2; exit 1 ;;
           esac
           dest="src/Fedit/runtimes/${{ matrix.rid }}/native"
           mkdir -p "$dest"
           zig cc -O2 -shared -fPIC -target "$target" \
             -I vendor/tree-sitter-fsharp/fsharp/src \
-            -o "$dest/$out" \
+            -o "$dest/${pfx}tree-sitter-fsharp.${ext}" \
             vendor/tree-sitter-fsharp/fsharp/src/parser.c \
             vendor/tree-sitter-fsharp/fsharp/src/scanner.c
+          grammars=(
+            "markdown|vendor/tree-sitter-markdown/tree-sitter-markdown/src|parser.c scanner.c"
+            "xml|vendor/tree-sitter-xml/xml/src|parser.c scanner.c"
+            "dart|vendor/tree-sitter-dart/src|parser.c scanner.c"
+            "just|vendor/tree-sitter-just/src|parser.c scanner.c"
+            "make|vendor/tree-sitter-make/src|parser.c"
+            "astro|vendor/tree-sitter-astro/src|parser.c scanner.c"
+          )
+          for entry in "${grammars[@]}"; do
+            IFS='|' read -r name srcdir files <<< "$entry"
+            srcs=""
+            for f in $files; do [ -f "$srcdir/$f" ] && srcs="$srcs $srcdir/$f"; done
+            zig cc -O2 -UNDEBUG -shared -fPIC -target "$target" \
+              -I "$srcdir" -o "$dest/${pfx}tree-sitter-${name}.${ext}" $srcs
+            echo "$name OK"
+          done
 
       - name: dotnet publish
         run: dotnet publish src/Fedit/Fedit.fsproj -c Release -r ${{ matrix.rid }} -o dist/${{ matrix.rid }} --nologo
@@ -79,11 +95,25 @@ jobs:
         shell: bash
         run: cp README.md LICENSE dist/${{ matrix.rid }}/
 
+      - name: verify release sidecars
+        shell: bash
+        run: |
+          test -f "dist/${{ matrix.rid }}/Fedit.PluginApi.dll"
+          test -d "dist/${{ matrix.rid }}/runtimes/${{ matrix.rid }}/native"
+          case "${{ matrix.rid }}" in
+            win-x64) ext="dll"; pfx="" ;;
+            linux-*) ext="so"; pfx="lib" ;;
+            *) ext="dylib"; pfx="lib" ;;
+          esac
+          for grammar in fsharp markdown xml dart just make astro; do
+            test -f "dist/${{ matrix.rid }}/runtimes/${{ matrix.rid }}/native/${pfx}tree-sitter-${grammar}.${ext}"
+          done
+
       - name: archive (unix)
         if: matrix.ext == 'tar.xz'
         shell: bash
         run: |
-          tar -cJf "fedit-${{ matrix.triple }}.tar.xz" -C "dist/${{ matrix.rid }}" fedit LICENSE README.md
+          tar -cJf "fedit-${{ matrix.triple }}.tar.xz" -C "dist/${{ matrix.rid }}" .
           shasum -a 256 "fedit-${{ matrix.triple }}.tar.xz" | awk '{print $1}' > "fedit-${{ matrix.triple }}.sha256"
 
       - name: archive (windows)
@@ -108,6 +138,8 @@ jobs:
     name: Publish release + update homebrew tap
     needs: build
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v6
 

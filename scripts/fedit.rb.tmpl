@@ -25,15 +25,17 @@ class Fedit < Formula
   license "MIT"
 
   def install
-    bin.install "fedit"
+    libexec.install "fedit"
+    libexec.install "Fedit.PluginApi.dll" if File.exist?("Fedit.PluginApi.dll")
+    libexec.install "runtimes" if Dir.exist?("runtimes")
+    bin.write_exec_script libexec/"fedit"
     generate_completions_from_executable(
       bin/"fedit", "completions",
       shell_parameter_format: :none,
       shells:                 [:bash, :zsh, :fish]
     )
-    doc_files = Dir["README.*", "readme.*", "LICENSE", "LICENSE.*", "CHANGELOG.*"]
-    leftover = Dir["*"] - doc_files
-    pkgshare.install(*leftover) unless leftover.empty?
+    doc.install "README.md" if File.exist?("README.md")
+    doc.install "LICENSE" if File.exist?("LICENSE")
   end
 
   test do
