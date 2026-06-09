@@ -346,8 +346,15 @@ module Buffer =
     let selectionRange (buffer: BufferState) =
         buffer.Selection
         |> Option.map (fun anchor ->
-            let cur = positionToIndex buffer.Cursor buffer
-            if anchor <= cur then anchor, cur else cur, anchor)
+            let len = PieceTable.length buffer.Document
+            let clampIndex index = index |> max 0 |> min len
+            let safeAnchor = clampIndex anchor
+            let cur = positionToIndex buffer.Cursor buffer |> clampIndex
+
+            if safeAnchor <= cur then
+                safeAnchor, cur
+            else
+                cur, safeAnchor)
 
     let selectionText (buffer: BufferState) =
         match selectionRange buffer with
@@ -578,7 +585,8 @@ module Buffer =
         else
             { buffer with
                 FilePath = Some filePath
-                Name = name }
+                Name = name
+                Dirty = true }
 
     let undo buffer =
         match buffer.Undo with
@@ -590,9 +598,11 @@ module Buffer =
                 Lines = computeLines previous.Document
                 Cursor = previous.Cursor
                 PreferredColumn = previous.PreferredColumn
+                Selection = None
                 Dirty = previous.Dirty
                 Undo = rest
-                Redo = current :: buffer.Redo }
+                Redo = current :: buffer.Redo
+                EditTick = buffer.EditTick + 1 }
         | [] -> buffer
 
     let redo buffer =
@@ -605,7 +615,9 @@ module Buffer =
                 Lines = computeLines next.Document
                 Cursor = next.Cursor
                 PreferredColumn = next.PreferredColumn
+                Selection = None
                 Dirty = next.Dirty
                 Undo = current :: buffer.Undo
-                Redo = rest }
+                Redo = rest
+                EditTick = buffer.EditTick + 1 }
         | [] -> buffer

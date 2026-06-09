@@ -45,7 +45,7 @@ let private chromeOf (t: Theme) =
 // Full-surface themes deliberately replace green's whole chrome (their own
 // editor/gutter/dock backgrounds) rather than inheriting it. Every other bundled
 // theme is `{ green with <hue> }` and must keep green's chrome verbatim.
-let private fullSurfaceThemes = set [ "github-light"; "github-dark" ]
+let private fullSurfaceThemes = set [ "github-light"; "github-dark"; "ayu" ]
 
 [<Fact>]
 let ``accent-only bundled themes inherit green's chrome surface`` () =

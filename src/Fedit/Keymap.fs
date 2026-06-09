@@ -94,6 +94,10 @@ module Keymap =
           single (chord [ Alt ] (Named Right)) MoveWordRight
           single (chord [ Ctrl ] (Named Left)) MoveWordLeft // wip #8
           single (chord [ Ctrl ] (Named Right)) MoveWordRight // wip #8
+          single (chord [ Super ] (Named Left)) MoveHome // terminals that report Command+Left
+          single (chord [ Super ] (Named Right)) MoveEnd // terminals that report Command+Right
+          single (chord [ Super; Shift ] (Named Left)) ExtendHome
+          single (chord [ Super; Shift ] (Named Right)) ExtendEnd
           single (chord [ Ctrl ] (Named Backspace)) DeleteWordBack
           single (chord [ Ctrl ] (Named Delete)) DeleteWordForward
 

@@ -193,7 +193,7 @@ module Color =
     /// quantizer when reducing a truecolor value to the nearest cube slot.
     let private cubeLevels = [| 0; 95; 135; 175; 215; 255 |]
 
-    let private cubeRgb (n: byte) : int * int * int =
+    let cubeRgb (n: byte) : int * int * int =
         // 16-231 is a 6×6×6 cube; 232-255 is a 24-step gray ramp.
         let i = int n
 

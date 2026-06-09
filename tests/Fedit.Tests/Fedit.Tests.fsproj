@@ -18,6 +18,7 @@
     <Compile Include="PromptTests.fs" />
     <Compile Include="WorkspaceTests.fs" />
     <Compile Include="UpdateTests.fs" />
+    <Compile Include="PickersTests.fs" />
     <Compile Include="InputTests.fs" />
     <Compile Include="KeymapTests.fs" />
     <Compile Include="KeybindsCliTests.fs" />

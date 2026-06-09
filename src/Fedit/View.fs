@@ -1,6 +1,8 @@
 namespace Fedit
 
 open System
+open Fedit.PickerTypes
+open Fedit.PromptTypes
 
 [<RequireQualifiedAccess>]
 module Layout =
@@ -122,6 +124,38 @@ module Layout =
                 DockInfo("Find", [ line ])
         else
             NoDock
+
+    let private pickerKindOfPromptSession =
+        function
+        | PromptSessionKind.PluginsSession -> Some PickerKind.PluginPicker
+        | PromptSessionKind.MacrosSession -> Some PickerKind.MacroPicker
+        | PromptSessionKind.KeybindingsSession -> Some PickerKind.KeyBindingPicker
+        | _ -> None
+
+    let private pickerPendingOfPrompt (pending: PromptPendingConfirmation option) : PickerPendingConfirmation option =
+        pending
+        |> Option.map (fun pending ->
+            { ItemId = pending.ItemId
+              ActionId = pending.ActionId
+              Key = pending.Key
+              Label = pending.Label })
+
+    let private pickerViewOfPromptSession model =
+        pickerKindOfPromptSession model.Prompt.Session
+        |> Option.map (fun kind ->
+            Pickers.buildView
+                model
+                { Kind = kind
+                  SelectedItemId = model.Prompt.SelectedItemId
+                  Filter = model.Prompt.Text
+                  PendingConfirmation = pickerPendingOfPrompt model.Prompt.PendingConfirmation })
+
+    let private promptDisplayPrefix =
+        function
+        | PromptSessionKind.PluginsSession -> "Plugins: "
+        | PromptSessionKind.MacrosSession -> "Macros: "
+        | PromptSessionKind.KeybindingsSession -> "Keybindings: "
+        | _ -> ""
 
     let private pad width (text: string) =
         if width <= 0 then ""
@@ -336,6 +370,202 @@ module Layout =
         else
             screen
 
+    // ── Picker dock ─────────────────────────────────────────────────────
+    // Renders a `PickerView` — semantic, layout-agnostic data — into the dock.
+    // These functions consume only the view + theme + geometry, never the
+    // Model, so row and layout generation stay testable apart from rendering.
+
+    /// Semantic badge role → terminal color. Success reuses the theme accent;
+    /// warning/danger fall back to ANSI yellow/red because the theme schema has
+    /// no notification slots yet (see the picker design doc).
+    let private badgeStyleOf (theme: Theme) (role: PickerBadgeRole) =
+        let fg =
+            match role with
+            | Success -> theme.Accent
+            | Warning -> Color.yellow
+            | Danger -> Color.red
+            | Neutral
+            | Muted -> theme.ChromeFg
+
+        match role with
+        | Muted -> Style.withColors fg theme.ChromeBg
+        | _ ->
+            { Style.withColors fg theme.ChromeBg with
+                Bold = true }
+
+    /// Action-key chip style. Disabled actions render as plain chrome (no
+    /// emphasis); enabled actions are bold and colored by role.
+    let private actionKeyStyleOf (theme: Theme) enabled (role: PickerActionRole) =
+        if not enabled then
+            Style.withColors theme.ChromeFg theme.ChromeBg
+        else
+            let fg =
+                match role with
+                | Primary -> theme.Accent
+                | Secondary -> theme.ChromeFg
+                | Destructive -> Color.red
+
+            { Style.withColors fg theme.ChromeBg with
+                Bold = true }
+
+    /// Write `text` at (x, y) clipped to `maxX`, returning the next free x.
+    /// Lays out multi-style segments (labels, colored badges, key chips) on a row.
+    let private writeSeg x y style maxX (text: string) screen =
+        if x >= maxX || String.IsNullOrEmpty text then
+            x
+        else
+            let shown =
+                let avail = maxX - x
+                if text.Length > avail then text[.. avail - 1] else text
+
+            Screen.writeText x y style shown.Length shown screen
+            x + shown.Length
+
+    let private accessoryText =
+        function
+        | TextAccessory s -> s
+        | CountAccessory(label, value) -> $"{value} {label}"
+        | ShortcutAccessory chord -> Chord.render chord
+
+    let private keyChip (chord: Chord) = $"[{Chord.render chord}]"
+
+    let private renderPickerFooter (theme: Theme) footerY width (footer: PickerFooter) screen =
+        let chrome = chromeOf theme
+        let maxX = max 0 (width - 1)
+
+        match footer with
+        | ConfirmationFooter(label, key) ->
+            let warn = badgeStyleOf theme Warning
+            let mutable x = writeSeg 1 footerY warn maxX "confirm: press " screen
+            x <- writeSeg x footerY (actionKeyStyleOf theme true Destructive) maxX (keyChip key) screen
+            writeSeg x footerY warn maxX $" again to {label}" screen |> ignore
+        | ActionFooter actions ->
+            let mutable x = 1
+
+            for action in actions do
+                let enabled =
+                    match action.State with
+                    | Enabled -> true
+                    | Disabled _ -> false
+
+                x <- writeSeg x footerY (actionKeyStyleOf theme enabled action.Role) maxX (keyChip action.Key) screen
+                x <- writeSeg x footerY chrome maxX $" {action.Label}   " screen
+
+    let private renderInspector (theme: Theme) x bodyTop bodyHeight maxX (inspector: PickerInspector) screen =
+        let accent = accentOf theme
+        let chrome = chromeOf theme
+        let width = max 0 (maxX - x)
+
+        let lineFor =
+            function
+            | TextLine s -> chrome, s
+            | PathLine s -> chrome, s
+            | ErrorLine s -> Style.withColors Color.red theme.ChromeBg, s
+            | ShortcutSequenceLine chords -> chrome, Chord.renderStroke chords
+
+        let rows =
+            [ yield accent, inspector.Title
+              match inspector.Subtitle with
+              | Some s -> yield chrome, s
+              | None -> ()
+              yield! inspector.Lines |> List.map lineFor ]
+
+        rows
+        |> List.truncate bodyHeight
+        |> List.iteri (fun i (style, text) -> Screen.writeText x (bodyTop + i) style width (pad width text) screen)
+
+    let private renderPicker (theme: Theme) dockY width dockHeight (view: PickerView) screen =
+        let accent = accentOf theme
+        let chrome = chromeOf theme
+        let selected = selectedOf theme
+
+        let filterSuffix =
+            if String.IsNullOrWhiteSpace view.Filter then
+                ""
+            else
+                $"  filter: {view.Filter}"
+
+        Screen.writeText 0 dockY accent width (pad width $" {view.Title} ({view.Items.Length}){filterSuffix} ") screen
+
+        let bodyTop = dockY + 1
+        let footerY = dockY + dockHeight - 1
+        let bodyHeight = max 0 (footerY - bodyTop)
+
+        if bodyHeight > 0 then
+            if view.Items.IsEmpty then
+                let w = max 0 (width - 2)
+                Screen.writeText 1 bodyTop chrome w (pad w ("  " + view.EmptyText)) screen
+            else
+                let selectedIndex = max 0 (min (view.Items.Length - 1) view.SelectedIndex)
+
+                let viewOffset =
+                    if selectedIndex < bodyHeight then
+                        0
+                    else
+                        selectedIndex - bodyHeight + 1
+                    |> min (max 0 (view.Items.Length - bodyHeight))
+
+                let visible = view.Items |> List.skip viewOffset |> List.truncate bodyHeight
+
+                match view.Layout with
+                | ListWithInspector ->
+                    let leftWidth = max 16 (min 40 (width / 2))
+                    Screen.drawVerticalLine leftWidth bodyTop bodyHeight chrome '│' screen
+
+                    visible
+                    |> List.iteri (fun i item ->
+                        let isSelected = viewOffset + i = selectedIndex
+                        let rowY = bodyTop + i
+                        let rowStyle = if isSelected then selected else chrome
+                        let maxX = leftWidth - 1
+                        let prefix = if isSelected then "> " else "  "
+                        let mutable x = writeSeg 1 rowY rowStyle maxX (prefix + item.Title) screen
+
+                        match item.Badge with
+                        | Some badge ->
+                            x <- writeSeg (x + 1) rowY (badgeStyleOf theme badge.Role) maxX badge.Label screen
+                        | None -> ()
+
+                        if isSelected then
+                            for fillX in x .. maxX - 1 do
+                                Screen.setCell fillX rowY selected ' ' screen)
+
+                    match
+                        view.Items
+                        |> List.tryItem selectedIndex
+                        |> Option.bind (fun item -> item.Inspector)
+                    with
+                    | Some inspector ->
+                        renderInspector theme (leftWidth + 2) bodyTop bodyHeight (max 0 (width - 1)) inspector screen
+                    | None -> ()
+                | SearchResults ->
+                    let maxX = max 0 (width - 1)
+
+                    visible
+                    |> List.iteri (fun i item ->
+                        let isSelected = viewOffset + i = selectedIndex
+                        let rowY = bodyTop + i
+                        let rowStyle = if isSelected then selected else chrome
+                        let prefix = if isSelected then "> " else "  "
+                        let mutable x = writeSeg 1 rowY rowStyle maxX prefix screen
+                        x <- writeSeg x rowY (actionKeyStyleOf theme true Primary) maxX $"[{item.Title}]" screen
+
+                        match item.Subtitle with
+                        | Some sub -> x <- writeSeg (x + 1) rowY rowStyle maxX sub screen
+                        | None -> ()
+
+                        for acc in item.Accessories do
+                            x <- writeSeg (x + 2) rowY chrome maxX (accessoryText acc) screen
+
+                        match item.Badge with
+                        | Some badge ->
+                            writeSeg (x + 2) rowY (badgeStyleOf theme badge.Role) maxX badge.Label screen
+                            |> ignore
+                        | None -> ())
+
+        if dockHeight > 1 then
+            renderPickerFooter theme footerY width view.Footer screen
+
     let render model =
         let theme = effectiveTheme model
         let accent = accentOf theme
@@ -346,12 +576,27 @@ module Layout =
         let width = max 1 model.Terminal.Width
         let height = max 1 model.Terminal.Height
 
-        let panel = dockPanel model
+        let pickerView = pickerViewOfPromptSession model
+
+        // The picker takes over the dock when open; otherwise the prompt panel does.
+        let panel =
+            match pickerView with
+            | Some _ -> NoDock
+            | None -> dockPanel model
+
+        // Menu-style list surfaces (the picker and the completion lists) size to
+        // their content, capped at the configured dock height, so a filter that
+        // leaves few rows yields a short dock that grows back up to the cap. The
+        // dock is bottom-anchored, so a smaller height hands the freed rows to
+        // the editor. The prose info/help dock keeps the full configured height.
+        let configuredMax = min model.Panels.DockHeight (max 3 (height / 3))
 
         let dockHeight =
-            match panel with
-            | NoDock -> 0
-            | _ -> min model.Panels.DockHeight (max 3 (height / 3))
+            match pickerView, panel with
+            | Some view, _ -> min configuredMax (Pickers.desiredRows view)
+            | None, DockCompletions(_, items, _) -> min configuredMax (1 + max 1 items.Length)
+            | None, DockInfo _ -> configuredMax
+            | None, NoDock -> 0
 
         let statusY = max 0 (height - dockHeight - 2)
         let dockY = max 0 (height - dockHeight - 1)
@@ -436,28 +681,36 @@ module Layout =
                             let detailStyle = if isSelected then { style with Bold = false } else chrome
                             Screen.writeText detailX rowY detailStyle detailWidth (pad detailWidth item.Detail) current)
 
+        match pickerView with
+        | Some view -> renderPicker theme dockY width dockHeight view current
+        | None -> ()
+
         Screen.fillRect 0 commandY width 1 commandBar ' ' current
 
         let prompt = model.Prompt
 
         let lineText =
             if prompt.Active then
+                let displayPrefix = promptDisplayPrefix prompt.Session
+
                 let suffix =
                     match prompt.Mode, prompt.SearchPreview with
                     | Search, Some preview when not preview.Matches.IsEmpty ->
                         $"  ({preview.Current + 1}/{preview.Matches.Length})"
                     | _ -> ""
 
-                prompt.Text + suffix
+                displayPrefix + prompt.Text + suffix
             else
                 ""
 
         Screen.writeText 0 commandY commandBar width (pad width lineText) current
 
         if prompt.Active then
+            let displayPrefix = promptDisplayPrefix prompt.Session
+
             current <-
                 Screen.withCursor
-                    { Left = min (width - 1) prompt.Cursor
+                    { Left = min (width - 1) (displayPrefix.Length + prompt.Cursor)
                       Top = commandY
                       Visible = true }
                     current

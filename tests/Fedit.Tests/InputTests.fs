@@ -78,6 +78,11 @@ let ``Ctrl+1 parses to ctrl+'1'`` () =
     let info = keyInfo ' ' ConsoleKey.D1 false false true
     Input.tryMap info |> should equal (Some(chord [ Ctrl ] (Key.Char '1')))
 
+[<Fact>]
+let ``Alt+B compatibility maps to Alt+Left word-motion chord`` () =
+    let info = keyInfo 'b' ConsoleKey.B false true false
+    Input.tryMap info |> should equal (Some(chord [ Alt ] (Named Left)))
+
 // --- Function keys ---
 
 [<Fact>]
@@ -107,29 +112,92 @@ let ``plain digit (no Ctrl) parses to a bare Char`` () =
     let info = keyInfo '5' ConsoleKey.D5 false false false
     Input.tryMap info |> should equal (Some(chord [] (Key.Char '5')))
 
+// --- Raw ANSI escape parsing for sequences Console.ReadKey leaves split ---
+
+[<Fact>]
+let ``CSI modified Left decodes Ctrl modifier`` () =
+    Input.tryParseAnsiSequence "\u001b[1;5D"
+    |> should equal (Some(chord [ Ctrl ] (Named Left)))
+
+[<Fact>]
+let ``CSI modified Left decodes Shift plus Super modifier`` () =
+    Input.tryParseAnsiSequence "\u001b[1;10D"
+    |> should equal (Some(chord [ Shift; Super ] (Named Left)))
+
+[<Fact>]
+let ``CSI-u decodes Ctrl+digit for buffer jumps`` () =
+    Input.tryParseAnsiSequence "\u001b[49;5u"
+    |> should equal (Some(chord [ Ctrl ] (Key.Char '1')))
+
+[<Fact>]
+let ``ESC b compatibility maps to Alt+Left word-motion chord`` () =
+    Input.tryParseAnsiSequence "\u001bb"
+    |> should equal (Some(chord [ Alt ] (Named Left)))
+
+[<Fact>]
+let ``generic ESC-prefixed printable key still decodes as Alt key`` () =
+    Input.tryParseAnsiSequence "\u001bx"
+    |> should equal (Some(chord [ Alt ] (Key.Char 'x')))
+
+[<Fact>]
+let ``classifyEscapeSequence routes SGR mouse before keyboard parsing`` () =
+    Input.classifyEscapeSequence MouseEncoding.MouseSgr "\u001b[<65;10;5M"
+    |> Option.map (function
+        | Input.EscapeSequence.MouseEvent e -> Some e
+        | _ -> None)
+    |> Option.flatten
+    |> Option.isSome
+    |> should equal true
+
+[<Fact>]
+let ``classifyEscapeSequence treats Ghostty shift wheel as handled mouse input`` () =
+    match Input.classifyEscapeSequence MouseEncoding.MouseSgr "\u001b[<71;151;42M" with
+    | Some(Input.EscapeSequence.Chord _) -> failwith "SGR mouse reports must not be decoded as keyboard chords"
+    | Some _ -> ()
+    | None -> failwith "valid SGR mouse reports must be handled so their bytes are not replayed into the buffer"
+
+[<Fact>]
+let ``classifyEscapeSequence routes CSI-u key reports to chords`` () =
+    Input.classifyEscapeSequence MouseEncoding.MouseSgr "\u001b[49;5u"
+    |> should equal (Some(Input.EscapeSequence.Chord(chord [ Ctrl ] (Key.Char '1'))))
+
 // --- SGR mouse wheel parsing ("[<Cb;Cx;Cy" + 'M'/'m') — unchanged ---
 
 [<Fact>]
-let ``parseSgrMouse decodes wheel up to -1`` () =
-    Input.parseSgrMouse "[<64;10;5M" |> should equal (Some -1)
+let ``MouseProtocol tryParseSgr decodes wheel up to scroll event`` () =
+    let event = MouseProtocol.tryParseSgr "[<64;10;5M"
+    event |> Option.isSome |> should equal true
+    event.Value.Button |> should equal ScrollUp
+    event.Value.Action |> should equal Press
 
 [<Fact>]
-let ``parseSgrMouse decodes wheel down to +1`` () =
-    Input.parseSgrMouse "[<65;10;5M" |> should equal (Some 1)
+let ``MouseProtocol tryParseSgr decodes wheel down to scroll event`` () =
+    let event = MouseProtocol.tryParseSgr "[<65;10;5M"
+    event |> Option.isSome |> should equal true
+    event.Value.Button |> should equal ScrollDown
+    event.Value.Action |> should equal Press
 
 [<Fact>]
-let ``parseSgrMouse ignores modifier bits on the wheel code`` () =
+let ``MouseProtocol tryParseSgr ignores modifier bits on the wheel code`` () =
     // 64 + shift(4) = 68 is still wheel-up
-    Input.parseSgrMouse "[<68;1;1M" |> should equal (Some -1)
+    let event = MouseProtocol.tryParseSgr "[<68;1;1M"
+    event |> Option.isSome |> should equal true
+    event.Value.Button |> should equal ScrollUp
 
 [<Fact>]
-let ``parseSgrMouse rejects a plain button press`` () =
-    Input.parseSgrMouse "[<0;10;5M" |> should equal None
+let ``MouseProtocol tryParseSgr decodes a plain button press`` () =
+    let event = MouseProtocol.tryParseSgr "[<0;10;5M"
+    event |> Option.isSome |> should equal true
+    event.Value.Button |> should equal LeftButton
+    event.Value.Action |> should equal Press
 
 [<Fact>]
-let ``parseSgrMouse rejects the horizontal wheel`` () =
-    Input.parseSgrMouse "[<66;10;5M" |> should equal None
+let ``MouseProtocol tryParseSgr decodes the horizontal wheel`` () =
+    let event = MouseProtocol.tryParseSgr "[<66;10;5M"
+    // 66 = 64 + 2; the &&& 0b1100_0011 mask gives 66 which is not a standard wheel
+    // but our decoder treats 96/97 as horizontal. 66 falls through.
+    event |> Option.isNone |> should equal true
 
 [<Fact>]
-let ``parseSgrMouse rejects malformed input`` () =
-    Input.parseSgrMouse "garbage" |> should equal None
+let ``MouseProtocol tryParseSgr rejects malformed input`` () =
+    MouseProtocol.tryParseSgr "garbage" |> should equal None

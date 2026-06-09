@@ -64,11 +64,11 @@ type PickerLayout =
 
 Layouts are not user-toggleable. Each picker kind chooses the layout that matches the workflow:
 
-| Picker | Layout | Reason |
-| --- | --- | --- |
-| `PluginPicker` | `ListWithInspector` | Plugins need status, path/error detail, counts, and lifecycle actions. |
-| `MacroPicker` | `ListWithInspector` | Macros need selected register detail, sequence preview, and register actions. |
-| `KeyBindingPicker` | `SearchResults` | Keybindings are primarily searched and inspected inline. |
+| Picker             | Layout              | Reason                                                                        |
+| ------------------ | ------------------- | ----------------------------------------------------------------------------- |
+| `PluginPicker`     | `ListWithInspector` | Plugins need status, path/error detail, counts, and lifecycle actions.        |
+| `MacroPicker`      | `ListWithInspector` | Macros need selected register detail, sequence preview, and register actions. |
+| `KeyBindingPicker` | `SearchResults`     | Keybindings are primarily searched and inspected inline.                      |
 
 ## Picker State
 

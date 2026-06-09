@@ -46,6 +46,12 @@ module Chord =
     /// Build a chord from a modifier list and a key.
     let make (mods: Modifier list) (key: Key) : Chord = { Mods = Set.ofList mods; Key = key }
 
+    /// Bare named key (no modifiers).
+    let bareNamed n : Chord = { Mods = Set.empty; Key = Named n }
+
+    /// Bare character key (no modifiers).
+    let ofChar c : Chord = { Mods = Set.empty; Key = Key.Char c }
+
     let private modToken =
         function
         | Ctrl -> "ctrl"

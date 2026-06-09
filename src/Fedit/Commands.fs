@@ -28,6 +28,10 @@ type Command =
     | Goto of line: int * column: int option
     /// Built-in plugin manager command. `plugin list|enable|disable|install|remove|reload|validate`.
     | Plugin of verb: string * argument: string
+    /// Open the plugin manager dock.
+    | Plugins
+    /// Open the macro manager dock.
+    | Macros
     /// Open the user's config file (`~/.config/fedit/config.json`) in a
     /// buffer. Creates the file with the running config if absent.
     | OpenConfig
@@ -239,6 +243,16 @@ module Commands =
                               Pending $"plugin {verbLower} requires an argument."
                           else
                               Ready(Plugin(verbLower, rest)) }
+          { Name = "plugins"
+            Usage = "plugins"
+            Summary = "Open the plugin manager."
+            Hidden = false
+            Constructor = simple Plugins }
+          { Name = "macros"
+            Usage = "macros"
+            Summary = "Open the macro manager."
+            Hidden = false
+            Constructor = simple Macros }
           { Name = "keybind"
             Usage = "keybind [reload | <stroke>]"
             Summary = "List effective keybindings, reload the file, or show what a stroke is bound to."

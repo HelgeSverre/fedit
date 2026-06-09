@@ -313,4 +313,3 @@ the new surfaces, `just test`, and `git diff --check`.
 - User-configurable layouts.
 - A general table layout engine.
 - A full command language for nested sessions.
-

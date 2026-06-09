@@ -237,3 +237,29 @@ let ``syntax completions suggest on/off/toggle`` () =
     let comps = Commands.completions ctx "syntax "
     let labels = comps |> List.map (fun c -> c.Label)
     labels |> List.sort |> should equal [ "off"; "on"; "toggle" ]
+
+[<Fact>]
+let ``plugins parses to Ready Plugins`` () =
+    match Commands.parse "plugins" with
+    | ParsedCommand.Ready Command.Plugins -> ()
+    | other -> failwithf "expected Ready Plugins, got %A" other
+
+[<Fact>]
+let ``macros parses to Ready Macros`` () =
+    match Commands.parse "macros" with
+    | ParsedCommand.Ready Command.Macros -> ()
+    | other -> failwithf "expected Ready Macros, got %A" other
+
+[<Fact>]
+let ``plugins and macros appear in command completions`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = []
+          Recent = []
+          Buffers = []
+          Themes = Themes.all
+          CompletionLimit = 32 }
+
+    let labels = Commands.completions ctx "" |> List.map _.Label
+    labels |> should contain "plugins"
+    labels |> should contain "macros"

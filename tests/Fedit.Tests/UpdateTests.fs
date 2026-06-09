@@ -1,6 +1,7 @@
 module Fedit.Tests.UpdateTests
 
 open Fedit
+open Fedit.PromptTypes
 open Xunit
 open FsUnit.Xunit
 
@@ -51,20 +52,35 @@ let ``init returns a ScanWorkspace startup effect`` () =
     |> should equal true
 
 [<Fact>]
-let ``keybind command opens a formatted keybindings buffer in the editor`` () =
+let ``initWithInitialFile queues the file open after startup effects`` () =
+    let _, effects =
+        Editor.initWithInitialFile
+            "/root"
+            (Some "/root/file.fs")
+            { Width = 80; Height = 24 }
+            (Config.defaults Themes.defaultTheme)
+            []
+            None
+
+    effects |> List.last |> should equal (LoadFile "/root/file.fs")
+
+[<Fact>]
+let ``keybind command opens the keybinding prompt session`` () =
     let press chord m =
         fst (Editor.update (KeyPressed chord) m)
 
-    // Ctrl+P → type "keybind" → Enter.
     let opened = initModel () |> press (ck 'p')
-    let typed = "keybind" |> Seq.fold (fun m c -> press (chr c) m) opened
-    let submitted = press (nk Enter) typed
 
-    let active = submitted.Editors.Buffers[submitted.Editors.ActiveBufferId]
-    active.Name |> should equal "keybindings"
-    submitted.Focus |> should equal Editor
-    Assert.Contains("## global", Buffer.text active)
-    Assert.Contains("ctrl+s", Buffer.text active)
+    let submitted =
+        "keybind" |> Seq.fold (fun m c -> press (chr c) m) opened |> press (nk Enter)
+
+    submitted.Prompt.Active |> should equal true
+    submitted.Prompt.Session |> should equal PromptSessionKind.KeybindingsSession
+    submitted.Prompt.SelectedItemId.IsSome |> should equal true
+    submitted.Prompt.Text |> should equal ""
+    submitted.Prompt.PendingConfirmation |> should equal None
+    submitted.Focus |> should equal Prompt
+    submitted.Editors.Buffers.Count |> should equal 1
 
 [<Fact>]
 let ``KeyPressed Ctrl+q with clean buffers quits immediately`` () =
@@ -108,6 +124,31 @@ let private modelWithLines n =
 let private activeBuffer (model: Model) =
     model.Editors.Buffers[model.Editors.ActiveBufferId]
 
+let private commandModel text =
+    let press chord m =
+        fst (Editor.update (KeyPressed chord) m)
+
+    let opened = initModel () |> press (ck 'p')
+    text |> Seq.fold (fun m c -> press (chr c) m) opened |> press (nk Enter)
+
+let private testPlugin name status =
+    let manifest =
+        { Name = name
+          Version = "1.0.0"
+          ApiVersion = "1"
+          Description = ""
+          Author = ""
+          Homepage = ""
+          EntryAssembly = $"{name}.dll"
+          EntryType = "Test.Plugin" }
+
+    { Manifest = manifest
+      Path = $"/tmp/{name}"
+      Status = status
+      Commands = []
+      Keybindings = []
+      Conflicts = [] }
+
 [<Fact>]
 let ``MouseScrolled down in viewport mode moves the viewport`` () =
     // default config: ScrollViewport, scrolloff 5, 3 lines/tick; height 24-8-2 = 14
@@ -142,6 +183,190 @@ let ``typing a character into the editor inserts it`` () =
     let buffer = next.Editors.Buffers[next.Editors.ActiveBufferId]
     Buffer.text buffer |> should equal "a"
     buffer.Dirty |> should equal true
+
+[<Fact>]
+let ``plugins command opens the plugin prompt session`` () =
+    let next = commandModel "plugins"
+
+    next.Prompt.Active |> should equal true
+    next.Prompt.Session |> should equal PromptSessionKind.PluginsSession
+    next.Prompt.SelectedItemId |> should equal None
+    next.Prompt.Text |> should equal ""
+    next.Prompt.PendingConfirmation |> should equal None
+    next.Focus |> should equal Prompt
+
+[<Fact>]
+let ``macros command opens the macro prompt session`` () =
+    let next = commandModel "macros"
+
+    next.Prompt.Active |> should equal true
+    next.Prompt.Session |> should equal PromptSessionKind.MacrosSession
+    next.Prompt.SelectedItemId |> should equal (Some "a")
+    next.Prompt.Text |> should equal ""
+    next.Prompt.PendingConfirmation |> should equal None
+    next.Focus |> should equal Prompt
+
+[<Fact>]
+let ``manager key handling blocks editor text insertion`` () =
+    let model = commandModel "macros"
+    let next, _ = Editor.update (KeyPressed(chr 'z')) model
+
+    Buffer.text (activeBuffer next) |> should equal ""
+    next.Prompt.Text |> should equal "z"
+
+[<Fact>]
+let ``prompt session input is not recorded into an active macro`` () =
+    let model =
+        { initModel () with
+            Recording = Some 'q'
+            Registers = Map.ofList [ 'q', [ chr 'x' ] ]
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.MacrosSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "a"
+                    PendingConfirmation = None } }
+
+    let next, _ = Editor.update (KeyPressed(chr 'z')) model
+
+    next.Prompt.Text |> should equal "z"
+    next.Registers |> Map.find 'q' |> should equal [ chr 'x' ]
+
+[<Fact>]
+let ``prompt session action keys are not shadowed by prompt keymap bindings`` () =
+    let plugin = testPlugin "alpha" Loaded
+
+    let model =
+        { initModel () with
+            Config =
+                { (Config.defaults Themes.defaultTheme) with
+                    DisabledPlugins = Set.empty }
+            Plugins =
+                { PluginRegistry.empty with
+                    Loaded = Map.ofList [ "alpha", plugin ] }
+            Keymap =
+                (initModel ()).Keymap
+                @ [ { Stroke = [ chr 'd' ]
+                      Context = Context.Prompt
+                      Action = Some OpenPalette } ]
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.PluginsSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "alpha"
+                    PendingConfirmation = None } }
+
+    let next, effects = Editor.update (KeyPressed(chr 'd')) model
+
+    next.Config.DisabledPlugins |> should equal (Set.ofList [ "alpha" ])
+    next.Prompt.Session |> should equal PromptSessionKind.PluginsSession
+
+    effects
+    |> should equal [ SaveConfig next.Config; ScanPlugins next.Config.DisabledPlugins ]
+
+[<Fact>]
+let ``plugin manager disable updates config and rescans with disabled set`` () =
+    let plugin = testPlugin "alpha" Loaded
+
+    let model =
+        { initModel () with
+            Config =
+                { (Config.defaults Themes.defaultTheme) with
+                    DisabledPlugins = Set.empty }
+            Plugins =
+                { PluginRegistry.empty with
+                    Loaded = Map.ofList [ "alpha", plugin ] }
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.PluginsSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "alpha"
+                    PendingConfirmation = None } }
+
+    let next, effects = Editor.update (KeyPressed(chr 'd')) model
+
+    next.Config.DisabledPlugins |> should equal (Set.ofList [ "alpha" ])
+
+    effects
+    |> should equal [ SaveConfig next.Config; ScanPlugins next.Config.DisabledPlugins ]
+
+[<Fact>]
+let ``plugin prompt session clamps selection after plugin scans`` () =
+    let alpha = testPlugin "alpha" Loaded
+
+    let registry =
+        { PluginRegistry.empty with
+            Loaded = Map.ofList [ "alpha", alpha ] }
+
+    let model =
+        { initModel () with
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.PluginsSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "beta"
+                    PendingConfirmation = None } }
+
+    let next, effects = Editor.update (PluginsScanned(Result.Ok registry)) model
+
+    next.Prompt.SelectedItemId |> should equal (Some "alpha")
+    Assert.Empty effects
+
+[<Fact>]
+let ``macro manager replays a non-empty selected register`` () =
+    let chords = [ chr 'a'; chr 'b' ]
+
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'b', chords ]
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.MacrosSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "b"
+                    PendingConfirmation = None } }
+
+    let next, effects = Editor.update (KeyPressed(nk Enter)) model
+
+    next.LastMacro |> should equal (Some 'b')
+    next.Prompt.Active |> should equal false
+    effects |> should equal [ ReplayKeys(chords, 1) ]
+
+[<Fact>]
+let ``macro manager starts recording and closes on overwrite`` () =
+    let model =
+        { initModel () with
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.MacrosSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "c"
+                    PendingConfirmation = None } }
+
+    let next, effects = Editor.update (KeyPressed(chr 'r')) model
+
+    next.Recording |> should equal (Some 'c')
+    Assert.Empty(next.Registers |> Map.find 'c')
+    next.Prompt.Active |> should equal false
+    Assert.Empty effects
 
 [<Fact>]
 let ``pressing Space inserts a space into the editor buffer`` () =
@@ -851,3 +1076,48 @@ let ``RepeatLastMacro with no prior macro produces no effect`` () =
     let model = initModel ()
     let _, effects = Editor.runAction RepeatLastMacro model
     effects |> List.isEmpty |> should equal true
+
+// --- Prompt Tab/Enter interaction ---
+
+[<Fact>]
+let ``Enter on pending command with completions applies the first completion`` () =
+    let press chord m =
+        fst (Editor.update (KeyPressed chord) m)
+
+    let model = initModel ()
+    let opened = press (ck 'p') model
+    let typed = press (chr 'o') opened
+
+    typed.Prompt.Completions |> List.isEmpty |> should equal false
+    typed.Prompt.Parsed |> should equal (Pending "Command is incomplete.")
+
+    let entered = press (nk Enter) typed
+    // Enter on a pending command with completions applies the first completion
+    // instead of showing the pending message or executing
+    entered.Prompt.Text |> should equal ":open"
+    entered.Prompt.Parsed |> should equal (Pending "Path is required.")
+    entered.Prompt.Active |> should equal true
+
+[<Fact>]
+let ``Tab then Enter on open command shows pending message instead of silent no-op`` () =
+    let press chord m =
+        fst (Editor.update (KeyPressed chord) m)
+
+    let model = initModel ()
+    let opened = press (ck 'p') model
+    let typed = press (chr 'o') opened
+    let tabbed = press (nk Tab) typed
+
+    tabbed.Prompt.Text |> should equal ":open"
+    tabbed.Prompt.Parsed |> should equal (Pending "Path is required.")
+
+    let entered, effects = Editor.update (KeyPressed(nk Enter)) tabbed
+    // After Tab completes `:open`, Enter should show the pending message
+    // instead of silently re-applying the same completion.
+    entered.Prompt.Active |> should equal true
+    entered.Prompt.Text |> should equal ":open"
+
+    entered.Notification
+    |> should equal (Some(Notification.warning "Path is required."))
+
+    effects |> should equal ([]: Effect list)

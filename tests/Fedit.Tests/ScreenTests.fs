@@ -1,6 +1,8 @@
 module Fedit.Tests.ScreenTests
 
 open Fedit
+open Fedit.PromptTypes
+open System.IO
 open Xunit
 open FsUnit.Xunit
 
@@ -25,6 +27,30 @@ let ``writeText never stores control characters as cell glyphs`` () =
     for x in 0..9 do
         Assert.False(System.Char.IsControl(screen.Cells[0, x].Glyph))
 
+// Regression: an `Indexed` background color must interpolate into the SGR escape
+// (`48;5;200`), not leak the literal `{value}`. A missing `$` on the background
+// branch of `Renderer.colorToAnsiCode` emitted `\x1b[…;48;5;{value}m`, surfacing
+// the broken `value}m` token in the rendered frame. Indexed backgrounds occur on
+// 256-color terminals (every Rgb background is downgraded to Indexed) and whenever
+// a theme uses an indexed background directly.
+[<Fact>]
+let ``renderer interpolates an indexed background color`` () =
+    let screen = Screen.create 1 1
+
+    Screen.setCell
+        0
+        0
+        { Style.defaultStyle with
+            Background = Indexed 200uy }
+        'x'
+        screen
+
+    use writer = new StringWriter()
+    Renderer.render writer ColorAnsi256 ValueNone screen
+    let output = writer.ToString()
+    output |> should haveSubstring "48;5;200"
+    output |> should not' (haveSubstring "{value}")
+
 [<Fact>]
 let ``a multi-line notification renders without control glyphs`` () =
     // Reproduces the `:keybind` listing: a multi-line body shown via the
@@ -48,3 +74,79 @@ let ``a multi-line notification renders without control glyphs`` () =
                       yield (row, col, int glyph) ]
 
     Assert.True(List.isEmpty controlCells, sprintf "control glyphs leaked into cells: %A" controlCells)
+
+[<Fact>]
+let ``plugin prompt session renders the selected item title, badge, version, path, and prompt label`` () =
+    let model, _ =
+        Editor.init "/root" { Width = 100; Height = 24 } (Config.defaults Themes.defaultTheme) [] None
+
+    let manifest =
+        { Name = "alpha"
+          Version = "1.0.0"
+          ApiVersion = "1"
+          Description = ""
+          Author = ""
+          Homepage = ""
+          EntryAssembly = "alpha.dll"
+          EntryType = "Alpha.Plugin" }
+
+    let plugin =
+        { Manifest = manifest
+          Path = "/plugins/alpha"
+          Status = Loaded
+          Commands = []
+          Keybindings = []
+          Conflicts = [] }
+
+    let model =
+        { model with
+            Plugins =
+                { PluginRegistry.empty with
+                    Loaded = Map.ofList [ "alpha", plugin ] }
+            Focus = Prompt
+            Prompt =
+                { model.Prompt with
+                    Active = true
+                    Session = PromptSessionKind.PluginsSession
+                    Text = "alp"
+                    Cursor = 3
+                    SelectedItemId = Some "alpha"
+                    PendingConfirmation = None } }
+
+    let screen = Layout.render model
+
+    let allText =
+        [ for row in 0 .. screen.Height - 1 ->
+              [ for col in 0 .. screen.Width - 1 -> screen.Cells[row, col].Glyph ]
+              |> Array.ofList
+              |> System.String ]
+        |> String.concat "\n"
+
+    allText |> should haveSubstring "Plugins"
+    allText |> should haveSubstring "alpha"
+    allText |> should haveSubstring "loaded"
+    allText |> should haveSubstring "1.0.0"
+    allText |> should haveSubstring "/plugins/alpha"
+    allText |> should haveSubstring "Plugins: alp"
+
+    allText
+    |> should not' (haveSubstring "+----------------------------------------------------------------------------+")
+
+[<Fact>]
+let ``terminal enables and restores Kitty keyboard protocol around the alternate screen`` () =
+    use enterWriter = new StringWriter()
+
+    let enterTerm =
+        Terminal.createWithCapabilities enterWriter TerminalCapabilities.modern
+
+    Terminal.enter enterTerm
+
+    use leaveWriter = new StringWriter()
+
+    let leaveTerm =
+        Terminal.createWithCapabilities leaveWriter TerminalCapabilities.modern
+
+    Terminal.leave leaveTerm
+
+    enterWriter.ToString() |> should haveSubstring "\u001b[>1u"
+    leaveWriter.ToString() |> should haveSubstring "\u001b[<u"

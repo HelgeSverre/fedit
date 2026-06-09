@@ -1,6 +1,7 @@
 namespace Fedit
 
 open System
+open Fedit.PromptTypes
 
 type EditorsState =
     { Buffers: Map<int, BufferState>
@@ -22,14 +23,17 @@ type SearchPreview = { Matches: int list; Current: int }
 
 type PromptState =
     { Active: bool
+      Session: PromptSessionKind
       Text: string
       Cursor: int
       Mode: PromptMode
       Parsed: ParsedCommand
       Completions: CompletionItem list
       SelectedCompletion: int
+      SelectedItemId: string option
       History: string list
       HistoryIndex: int option
+      PendingConfirmation: PromptPendingConfirmation option
       SearchPreview: SearchPreview option }
 
 type PanelsState =
@@ -48,6 +52,7 @@ type Config =
     {
         Theme: Theme
         Recent: string list
+        DisabledPlugins: Set<string>
         CompletionLimit: int
         SidebarIndent: int
         SidebarWidth: int
@@ -93,6 +98,7 @@ module Config =
     let defaults theme =
         { Theme = theme
           Recent = []
+          DisabledPlugins = Set.empty
           CompletionLimit = 8
           SidebarIndent = 2
           SidebarWidth = 30
@@ -108,6 +114,11 @@ module Config =
           ScrollMode = ScrollViewport
           ScrollOff = 5
           MouseScrollLines = 3 }
+
+/// Tracks an in-progress mouse drag for click-to-select.
+type MouseDragState =
+    { AnchorBufferId: int
+      AnchorPosition: Position }
 
 type Model =
     {
@@ -156,6 +167,9 @@ type Model =
         /// The last register replayed or finished recording, for
         /// "repeat last macro".
         LastMacro: char option
+        /// In-progress mouse drag anchor. `None` when no drag is active.
+        /// Set on left-button press in the editor, cleared on release.
+        MouseDrag: MouseDragState option
     }
 
 type Msg =
@@ -167,6 +181,11 @@ type Msg =
     /// input event like `Resize` — handled in `update`, not a keystroke, so
     /// it stays outside the keybinding / `Action` layer.
     | MouseScrolled of int
+    | MousePressed of MouseEvent
+    | MouseReleased of MouseEvent
+    | MouseDragged of MouseEvent
+    | FocusGained
+    | FocusLost
     | WorkspaceLoaded of Result<FileNode * int, string>
     | FileOpened of path: string * Result<string, string>
     | BufferSaved of bufferId: int * path: string * revision: int * Result<unit, string>
@@ -196,7 +215,7 @@ type Effect =
     | ClipboardCopy of string
     | ClipboardPaste
     | RunSearch of bufferId: int * query: string * haystack: string
-    | ScanPlugins
+    | ScanPlugins of disabledPlugins: Set<string>
     | InstallPluginFromSource of source: PluginSource
     | RemovePluginDir of name: string
     | BuildPlugin of pluginPath: string

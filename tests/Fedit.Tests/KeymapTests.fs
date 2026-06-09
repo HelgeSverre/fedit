@@ -181,6 +181,13 @@ let ``editor motion defaults resolve in the editor context`` () =
     Keymap.resolve Context.Editor left Keymap.defaults
     |> should equal (Bound MoveLeft)
 
+[<Fact>]
+let ``terminal-reported Command+Left resolves to line home`` () =
+    let cmdLeft = [ Keymap.chord [ Super ] (Named Left) ]
+
+    Keymap.resolve Context.Editor cmdLeft Keymap.defaults
+    |> should equal (Bound MoveHome)
+
 // ── plugin precedence flip (spec §6.7.4, §11.2) ───────────────────────
 
 [<Fact>]

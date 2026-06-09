@@ -20,14 +20,9 @@ module ConfigIO =
 
     let themesDirectory () = Path.Combine(directory (), "themes")
 
-    let private optStr (s: string | null) =
-        match s with
-        | null -> None
-        | value -> Some value
-
     let private getStringProp (root: System.Text.Json.JsonElement) (name: string) =
         match root.TryGetProperty(name: string) with
-        | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.String -> optStr (elem.GetString())
+        | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.String -> Text.optStr (elem.GetString())
         | _ -> None
 
     let private getIntProp (root: System.Text.Json.JsonElement) (name: string) =
@@ -62,11 +57,25 @@ module ConfigIO =
                         elem.EnumerateArray()
                         |> Seq.choose (fun item ->
                             if item.ValueKind = System.Text.Json.JsonValueKind.String then
-                                optStr (item.GetString())
+                                Text.optStr (item.GetString())
                             else
                                 None)
                         |> Seq.toList
                     | _ -> defaults.Recent
+
+                let disabledPlugins =
+                    match root.TryGetProperty "disabledPlugins" with
+                    | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.Array ->
+                        elem.EnumerateArray()
+                        |> Seq.choose (fun item ->
+                            if item.ValueKind = System.Text.Json.JsonValueKind.String then
+                                Text.optStr (item.GetString())
+                            else
+                                None)
+                        |> Seq.map (fun name -> name.Trim())
+                        |> Seq.filter (String.IsNullOrWhiteSpace >> not)
+                        |> Set.ofSeq
+                    | _ -> defaults.DisabledPlugins
 
                 let completionLimit =
                     getIntProp root "completionLimit"
@@ -143,6 +152,7 @@ module ConfigIO =
                 let config =
                     { Theme = theme
                       Recent = recent
+                      DisabledPlugins = disabledPlugins
                       CompletionLimit = completionLimit
                       SidebarIndent = sidebarIndent
                       SidebarWidth = sidebarWidth
@@ -189,7 +199,7 @@ module ConfigIO =
 
                         let fallbackName =
                             Path.GetFileNameWithoutExtension file
-                            |> optStr
+                            |> Text.optStr
                             |> Option.defaultValue "user-theme"
 
                         let name =
@@ -308,6 +318,11 @@ module ConfigIO =
         for item in config.Recent do
             recentArray.Add(System.Text.Json.Nodes.JsonValue.Create item)
 
+        let disabledPluginsArray = System.Text.Json.Nodes.JsonArray()
+
+        for item in config.DisabledPlugins |> Set.toList |> List.sort do
+            disabledPluginsArray.Add(System.Text.Json.Nodes.JsonValue.Create item)
+
         let wordMotionStr =
             match config.WordMotion with
             | WordEnd -> "wordEnd"
@@ -325,6 +340,7 @@ module ConfigIO =
 
         root["theme"] <- System.Text.Json.Nodes.JsonValue.Create config.Theme.Name
         root["recent"] <- recentArray
+        root["disabledPlugins"] <- disabledPluginsArray
         root["completionLimit"] <- System.Text.Json.Nodes.JsonValue.Create config.CompletionLimit
         root["sidebarIndent"] <- System.Text.Json.Nodes.JsonValue.Create config.SidebarIndent
         root["sidebarWidth"] <- System.Text.Json.Nodes.JsonValue.Create config.SidebarWidth
@@ -342,4 +358,4 @@ module ConfigIO =
 
         let options = System.Text.Json.JsonSerializerOptions(WriteIndented = true)
         let json = root.ToJsonString options
-        File.WriteAllText(p, json + "\n", utf8WithoutBom)
+        File.writeAllTextAtomic p (json + "\n")

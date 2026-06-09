@@ -65,9 +65,38 @@ let ``undo restores prior text`` () =
     buffer.Dirty |> should equal false
 
 [<Fact>]
+let ``undo is a text revision and clears stale selection`` () =
+    let edited = newBuffer () |> Buffer.insertText "X"
+
+    let withSelection =
+        { edited with
+            Selection = Some(PieceTable.length edited.Document) }
+
+    let undone = Buffer.undo withSelection
+    Buffer.line 0 undone |> should equal "hello"
+    undone.EditTick |> should equal (edited.EditTick + 1)
+    undone.Selection |> should equal None
+
+[<Fact>]
+let ``selectionRange clamps stale anchors`` () =
+    let buffer =
+        { Buffer.fromText 1 None "test" "ab" "\n" with
+            Selection = Some 99
+            Cursor = Position.zero }
+
+    Buffer.selectionText buffer |> should equal "ab"
+
+[<Fact>]
+let ``stale save completion keeps buffer dirty`` () =
+    let buffer = newBuffer () |> Buffer.insertText "X"
+    let saved = Buffer.markSaved 0 "/tmp/test.txt" buffer
+    saved.Dirty |> should equal true
+
+[<Fact>]
 let ``redo reapplies the change`` () =
     let buffer = newBuffer () |> Buffer.insertText "X" |> Buffer.undo |> Buffer.redo
     Buffer.line 0 buffer |> should equal "Xhello"
+    buffer.Selection |> should equal None
 
 [<Fact>]
 let ``indent inserts configured spaces at cursor`` () =

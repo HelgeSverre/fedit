@@ -16,11 +16,6 @@ open System.Collections.Concurrent
 module Runtime =
     let private utf8WithoutBom = UTF8Encoding false
 
-    let private optStr (s: string | null) =
-        match s with
-        | null -> None
-        | value -> Some value
-
     let private isMac =
         System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX)
 
@@ -40,11 +35,16 @@ module Runtime =
             info.ArgumentList.Add "clipboard"
 
         info.RedirectStandardInput <- true
+        info.RedirectStandardError <- true
         info.UseShellExecute <- false
         use proc = startProcessOrFail info
         proc.StandardInput.Write text
         proc.StandardInput.Close()
+        let stderr = proc.StandardError.ReadToEnd()
         proc.WaitForExit()
+
+        if proc.ExitCode <> 0 then
+            failwith $"clipboard copy failed (exit {proc.ExitCode}): {stderr}"
 
     let private clipboardPaste () =
         let info = System.Diagnostics.ProcessStartInfo()
@@ -58,21 +58,50 @@ module Runtime =
             info.ArgumentList.Add "-out"
 
         info.RedirectStandardOutput <- true
+        info.RedirectStandardError <- true
         info.UseShellExecute <- false
         use proc = startProcessOrFail info
         let output = proc.StandardOutput.ReadToEnd()
+        let stderr = proc.StandardError.ReadToEnd()
         proc.WaitForExit()
+
+        if proc.ExitCode <> 0 then
+            failwith $"clipboard paste failed (exit {proc.ExitCode}): {stderr}"
+
         output
 
-    let private ensureDirectoryFor (path: string) =
-        Path.GetDirectoryName path
-        |> optStr
-        |> Option.iter (fun directory ->
-            if not (String.IsNullOrWhiteSpace directory) then
-                Directory.CreateDirectory directory |> ignore)
+    let private renderTextResult (result: Result<string, string>) =
+        match result with
+        | Result.Ok text -> $"Ok(<len={text.Length}>)"
+        | Result.Error error -> $"Error({error})"
+
+    let private renderUnitResult (result: Result<unit, string>) =
+        match result with
+        | Result.Ok() -> "Ok"
+        | Result.Error error -> $"Error({error})"
+
+    let private renderMsg msg =
+        match msg with
+        | FileOpened(path, result) -> $"FileOpened({path}, {renderTextResult result})"
+        | BufferSaved(bufferId, path, revision, result) ->
+            $"BufferSaved(buffer={bufferId}, path={path}, revision={revision}, {renderUnitResult result})"
+        | ClipboardPasted result -> $"ClipboardPasted({renderTextResult result})"
+        | SearchCompleted(bufferId, query, matches) ->
+            $"SearchCompleted(buffer={bufferId}, queryLen={query.Length}, matches={matches.Length})"
+        | _ -> $"{msg}"
+
+    let private renderEffect effect =
+        match effect with
+        | SaveBuffer(bufferId, path, revision, contents) ->
+            $"SaveBuffer(buffer={bufferId}, path={path}, revision={revision}, contentsLen={contents.Length})"
+        | SaveConfig _ -> "SaveConfig(<config>)"
+        | ClipboardCopy text -> $"ClipboardCopy(<len={text.Length}>)"
+        | RunSearch(bufferId, query, haystack) ->
+            $"RunSearch(buffer={bufferId}, queryLen={query.Length}, haystackLen={haystack.Length})"
+        | _ -> $"{effect}"
 
     let private makeNode (path: string) isDirectory children : FileNode =
-        let rawName = Path.GetFileName path |> optStr |> Option.defaultValue path
+        let rawName = Path.GetFileName path |> Text.optStr |> Option.defaultValue path
 
         { Path = path
           Name = if String.IsNullOrWhiteSpace rawName then path else rawName
@@ -81,7 +110,7 @@ module Runtime =
 
     let private shouldSkip (path: string) =
         Path.GetFileName path
-        |> optStr
+        |> Text.optStr
         |> Option.map Workspace.excludedNames.Contains
         |> Option.defaultValue false
 
@@ -126,14 +155,17 @@ module Runtime =
         { Width = max 1 Console.WindowWidth
           Height = max 1 Console.WindowHeight }
 
-    let run rootPath (logPath: string option) =
+    let run rootPath initialFile (logPath: string option) =
         Console.OutputEncoding <- Encoding.UTF8
         Console.TreatControlCAsInput <- true
 
         let logWriter: StreamWriter option =
             logPath
             |> Option.map (fun path ->
-                ensureDirectoryFor path
+                Path.GetDirectoryName path
+                |> Text.optStr
+                |> Option.iter (fun d -> Directory.CreateDirectory d |> ignore)
+
                 new StreamWriter(path, append = true, encoding = utf8WithoutBom))
 
         let log (s: string) =
@@ -156,6 +188,10 @@ module Runtime =
         // task, preserving dispatch order by construction.
         let configSaveLock = obj ()
         let mutable configSaveChain: Task = Task.CompletedTask
+        // Serialize buffer writes per canonical path so repeated saves cannot
+        // land out of dispatch order on disk.
+        let bufferSaveLock = obj ()
+        let bufferSaveChains = System.Collections.Generic.Dictionary<string, Task>()
         // Phase 12.3: cancel previous incremental search before starting the next.
         let mutable searchCts: CancellationTokenSource option = None
 
@@ -206,17 +242,33 @@ module Runtime =
                     enqueueUnlessCancelled token msg)
                 |> ignore
             | SaveBuffer(bufferId, path, revision, contents) ->
-                Task.Run(fun () ->
-                    let msg =
-                        try
-                            ensureDirectoryFor path
-                            File.WriteAllText(path, contents, utf8WithoutBom)
-                            BufferSaved(bufferId, path, revision, Result.Ok())
-                        with ex ->
-                            BufferSaved(bufferId, path, revision, Result.Error ex.Message)
+                let key =
+                    try
+                        Path.GetFullPath path
+                    with _ ->
+                        path
 
-                    queue.Enqueue msg)
-                |> ignore
+                lock bufferSaveLock (fun () ->
+                    let previous =
+                        match bufferSaveChains.TryGetValue key with
+                        | true, task -> task
+                        | false, _ -> Task.CompletedTask
+
+                    let next =
+                        previous.ContinueWith(
+                            (fun (_: Task) ->
+                                let msg =
+                                    try
+                                        File.writeAllTextAtomic path contents
+                                        BufferSaved(bufferId, path, revision, Result.Ok())
+                                    with ex ->
+                                        BufferSaved(bufferId, path, revision, Result.Error ex.Message)
+
+                                queue.Enqueue msg),
+                            TaskContinuationOptions.None
+                        )
+
+                    bufferSaveChains[key] <- next)
             | SaveConfig config ->
                 // Chain onto the previous config-save task so writes land in
                 // dispatch order regardless of pool scheduling.
@@ -278,16 +330,13 @@ module Runtime =
 
                     queue.Enqueue msg)
                 |> ignore
-            | ScanPlugins ->
+            | ScanPlugins disabledPlugins ->
                 Task.Run(fun () ->
                     let msg =
                         try
                             let pluginsRoot = Path.Combine(ConfigIO.directory (), "plugins")
                             let apiDll = Path.Combine(AppContext.BaseDirectory, "Fedit.PluginApi.dll")
-                            // MVP: enable map is empty — discovered plugins
-                            // default to enabled. Per-plugin disable lives in
-                            // a future config field.
-                            let registry = Plugins.scanAndLoad pluginsRoot apiDll Map.empty log
+                            let registry = Plugins.scanAndLoad pluginsRoot apiDll disabledPlugins log
                             PluginsScanned(Result.Ok registry)
                         with ex ->
                             PluginsScanned(Result.Error ex.Message)
@@ -337,7 +386,8 @@ module Runtime =
                                       Path = pluginPath
                                       Status = Disabled
                                       Commands = []
-                                      Keybindings = [] }
+                                      Keybindings = []
+                                      Conflicts = [] }
 
                                 match Plugins.build apiDll loaded with
                                 | Result.Ok _ -> PluginBuildFinished(name, Result.Ok())
@@ -366,9 +416,9 @@ module Runtime =
                 queue.Enqueue MacroReplayEnd
 
         let dispatch model msg =
-            log $"msg: {msg}"
+            log $"msg: {renderMsg msg}"
             let nextModel, effects = Editor.update msg model
-            effects |> List.iter (fun e -> log $"effect: {e}")
+            effects |> List.iter (fun e -> log $"effect: {renderEffect e}")
             effects |> List.iter startEffect
             nextModel
 
@@ -382,7 +432,7 @@ module Runtime =
         | Some _ -> log "highlight: loaded tree-sitter F# grammar"
 
         let initialModel, startupEffects =
-            Editor.init rootPath (consoleSize ()) config userThemes highlightRegistry
+            Editor.initWithInitialFile rootPath initialFile (consoleSize ()) config userThemes highlightRegistry
 
         // Replace the default welcome notification with a warning if any
         // startup loaders failed. Otherwise leave the welcome in place.
@@ -399,8 +449,8 @@ module Runtime =
 
         let mutable model = initialModel
         let mutable needsRender = true
-        let mutable previousFrame: Screen voption = ValueNone
-        let writer = Console.Out
+        let terminal = Terminal.create ()
+        Terminal.logCapabilities terminal log
 
         let isExcludedFsPath (path: string) =
             try
@@ -441,7 +491,9 @@ module Runtime =
                 None
 
         try
-            Renderer.enter writer
+            Terminal.enter terminal
+            let detectedCaps = Terminal.detectCapabilities terminal
+            log $"capabilities (detected): {TerminalCapabilities.toLogString detectedCaps}"
 
             while not model.ShouldQuit do
                 let size = consoleSize ()
@@ -472,61 +524,30 @@ module Runtime =
 
                 if needsRender then
                     let frame = Layout.render model
-                    Renderer.render writer previousFrame frame
-                    previousFrame <- ValueSome frame
+                    Terminal.writeFrame terminal frame
                     needsRender <- false
 
-                if Console.KeyAvailable then
-                    let keyInfo = Console.ReadKey true
+                match Terminal.tryReadEvent terminal with
+                | Some(TerminalEvent.KeyEvent chord) ->
+                    model <- dispatch model (KeyPressed chord)
+                    needsRender <- true
+                | Some(TerminalEvent.MouseEvent event) ->
+                    match event.Action with
+                    | Press ->
+                        match MouseProtocol.toWheelTicks event with
+                        | Some ticks -> model <- dispatch model (MouseScrolled ticks)
+                        | None -> model <- dispatch model (MousePressed event)
+                    | Release -> model <- dispatch model (MouseReleased event)
+                    | Drag -> model <- dispatch model (MouseDragged event)
 
-                    // SGR mouse reports arrive as ESC [ < Cb ; Cx ; Cy (M|m).
-                    // .NET's ReadKey decodes known key sequences (arrows, Fn)
-                    // itself, so a bare ESC trailed by more bytes is almost
-                    // always a mouse event — drain the CSI and parse it.
-                    let mouseTicks =
-                        if keyInfo.Key = ConsoleKey.Escape && Console.KeyAvailable then
-                            let c1 = Console.ReadKey true
-
-                            if c1.KeyChar = '[' && Console.KeyAvailable then
-                                let c2 = Console.ReadKey true
-
-                                if c2.KeyChar = '<' then
-                                    let sb = System.Text.StringBuilder("[<")
-                                    let mutable terminated = false
-                                    let mutable guard = 0
-
-                                    while not terminated && Console.KeyAvailable && guard < 32 do
-                                        let c = Console.ReadKey true
-                                        sb.Append c.KeyChar |> ignore
-
-                                        if c.KeyChar = 'M' || c.KeyChar = 'm' then
-                                            terminated <- true
-
-                                        guard <- guard + 1
-
-                                    if terminated then
-                                        Input.parseSgrMouse (sb.ToString())
-                                    else
-                                        None
-                                else
-                                    None
-                            else
-                                None
-                        else
-                            None
-
-                    match mouseTicks with
-                    | Some ticks ->
-                        model <- dispatch model (MouseScrolled ticks)
-                        needsRender <- true
-                    | None ->
-                        match Input.tryMap keyInfo with
-                        | Some chord ->
-                            model <- dispatch model (KeyPressed chord)
-                            needsRender <- true
-                        | None -> ()
-                else
-                    Thread.Sleep 16
+                    needsRender <- true
+                | Some(TerminalEvent.FocusIn) ->
+                    model <- dispatch model FocusGained
+                    needsRender <- true
+                | Some(TerminalEvent.FocusOut) ->
+                    model <- dispatch model FocusLost
+                    needsRender <- true
+                | None -> Thread.Sleep 16
         finally
             scanCts
             |> Option.iter (fun cts ->
@@ -561,5 +582,5 @@ module Runtime =
                 with _ ->
                     ())
 
-            Renderer.leave writer
+            Terminal.leave terminal
             logWriter |> Option.iter (fun w -> w.Dispose())

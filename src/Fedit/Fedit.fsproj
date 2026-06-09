@@ -165,6 +165,11 @@
   <ItemGroup>
     <Compile Include="Primitives.fs" />
     <Compile Include="Keys.fs" />
+    <Compile Include="Events.fs" />
+    <Compile Include="TerminalCapabilities.fs" />
+    <Compile Include="MouseProtocol.fs" />
+    <Compile Include="ImageProtocol.fs" />
+    <Compile Include="KittyImage.fs" />
     <Compile Include="PieceTable.fs" />
     <Compile Include="Buffer.fs" />
     <Compile Include="Workspace.fs" />
@@ -176,8 +181,11 @@
     <Compile Include="Actions.fs" />
     <Compile Include="Keymap.fs" />
     <Compile Include="Plugins.fs" />
+    <Compile Include="PickerTypes.fs" />
+    <Compile Include="PromptTypes.fs" />
     <Compile Include="Model.fs" />
     <Compile Include="Config.fs" />
+    <Compile Include="Pickers.fs" />
     <Compile Include="KeymapIO.fs" />
     <Compile Include="Prompt.fs" />
     <Compile Include="Editor.fs" />
@@ -185,6 +193,7 @@
     <Compile Include="Renderer.fs" />
     <Compile Include="Input.fs" />
     <Compile Include="View.fs" />
+    <Compile Include="Terminal.fs" />
     <Compile Include="Runtime.fs" />
     <Compile Include="Cli.fs" />
     <Compile Include="Cli\Commands\Plugins.fs" />

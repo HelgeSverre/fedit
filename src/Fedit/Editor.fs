@@ -2,19 +2,45 @@ namespace Fedit
 
 open System
 open System.IO
+open Fedit.PickerTypes
+open Fedit.PromptTypes
 
 [<RequireQualifiedAccess>]
 module Editor =
+    let private sessionForMode =
+        function
+        | FilePicker -> PromptSessionKind.FileOpenSession
+        | PromptMode.Command -> PromptSessionKind.CommandSession
+        | Search -> PromptSessionKind.SearchSession
+        | Buffers -> PromptSessionKind.BufferSwitchSession
+
+    let private isPromptListSession =
+        function
+        | PromptSessionKind.PluginsSession
+        | PromptSessionKind.MacrosSession
+        | PromptSessionKind.KeybindingsSession -> true
+        | _ -> false
+
+    let private pickerKindOfPromptSession =
+        function
+        | PromptSessionKind.PluginsSession -> Some PickerKind.PluginPicker
+        | PromptSessionKind.MacrosSession -> Some PickerKind.MacroPicker
+        | PromptSessionKind.KeybindingsSession -> Some PickerKind.KeyBindingPicker
+        | _ -> None
+
     let private emptyPrompt =
         { Active = false
+          Session = PromptSessionKind.FileOpenSession
           Text = ""
           Cursor = 0
           Mode = FilePicker
           Parsed = Empty
           Completions = []
           SelectedCompletion = 0
+          SelectedItemId = None
           History = []
           HistoryIndex = None
+          PendingConfirmation = None
           SearchPreview = None }
 
     let private initialPanels (config: Config) =
@@ -42,8 +68,158 @@ module Editor =
         { model with
             Notification = notification }
 
+    let private scanPluginsEffect model =
+        ScanPlugins model.Config.DisabledPlugins
+
     let activeBufferState model =
         model.Editors.Buffers[model.Editors.ActiveBufferId]
+
+    /// Pure layout geometry: returns (editorX, editorWidth, mainHeight) for the
+    /// current model. Mirrors the arithmetic inside `View.Layout.render` so
+    /// mouse handlers can inverse-map screen coordinates to buffer positions.
+    let editorLayout (model: Model) =
+        let width = max 1 model.Terminal.Width
+        let height = max 1 model.Terminal.Height
+
+        let sidebarWidth =
+            if model.Panels.SidebarVisible && width >= 40 then
+                min model.Panels.SidebarWidth (max 18 (width / 3))
+            else
+                0
+
+        let editorX = if sidebarWidth > 0 then sidebarWidth + 1 else 0
+        let editorWidth = max 1 (width - editorX)
+
+        let configuredMax = min model.Panels.DockHeight (max 3 (height / 3))
+
+        let pickerView =
+            match model.Prompt.Session with
+            | PromptSessionKind.PluginsSession ->
+                Some(
+                    Pickers.buildView
+                        model
+                        { Kind = PickerKind.PluginPicker
+                          SelectedItemId = model.Prompt.SelectedItemId
+                          Filter = model.Prompt.Text
+                          PendingConfirmation =
+                            model.Prompt.PendingConfirmation
+                            |> Option.map (fun pending ->
+                                { ItemId = pending.ItemId
+                                  ActionId = pending.ActionId
+                                  Key = pending.Key
+                                  Label = pending.Label }) }
+                )
+            | PromptSessionKind.MacrosSession ->
+                Some(
+                    Pickers.buildView
+                        model
+                        { Kind = PickerKind.MacroPicker
+                          SelectedItemId = model.Prompt.SelectedItemId
+                          Filter = model.Prompt.Text
+                          PendingConfirmation =
+                            model.Prompt.PendingConfirmation
+                            |> Option.map (fun pending ->
+                                { ItemId = pending.ItemId
+                                  ActionId = pending.ActionId
+                                  Key = pending.Key
+                                  Label = pending.Label }) }
+                )
+            | PromptSessionKind.KeybindingsSession ->
+                Some(
+                    Pickers.buildView
+                        model
+                        { Kind = PickerKind.KeyBindingPicker
+                          SelectedItemId = model.Prompt.SelectedItemId
+                          Filter = model.Prompt.Text
+                          PendingConfirmation =
+                            model.Prompt.PendingConfirmation
+                            |> Option.map (fun pending ->
+                                { ItemId = pending.ItemId
+                                  ActionId = pending.ActionId
+                                  Key = pending.Key
+                                  Label = pending.Label }) }
+                )
+            | _ -> None
+
+        let panel =
+            let prompt = model.Prompt
+
+            if prompt.Active then
+                match prompt.Mode with
+                | FilePicker when not prompt.Completions.IsEmpty ->
+                    DockCompletions("Files", prompt.Completions, prompt.SelectedCompletion)
+                | FilePicker -> DockInfo("Files", [ "Type to filter recent + workspace files." ])
+                | Command when not prompt.Completions.IsEmpty ->
+                    DockCompletions("Commands", prompt.Completions, prompt.SelectedCompletion)
+                | Command ->
+                    let lines =
+                        match prompt.Parsed with
+                        | Ready(Command.Goto(line, None)) -> [ $"Press Enter to jump to line {line}." ]
+                        | Ready(Command.Goto(line, Some col)) ->
+                            [ $"Press Enter to jump to line {line}, column {col}." ]
+                        | Ready _ -> [ "Press Enter to run the command." ]
+                        | Pending message -> [ message ]
+                        | Invalid message -> [ message ]
+                        | Empty -> Commands.helpLines () |> List.truncate (max 0 (model.Panels.DockHeight - 1))
+
+                    DockInfo("Commands", lines)
+                | Buffers when not prompt.Completions.IsEmpty ->
+                    DockCompletions("Buffers", prompt.Completions, prompt.SelectedCompletion)
+                | Buffers -> DockInfo("Buffers", [ "Type buffer id or name." ])
+                | Search ->
+                    let line =
+                        match prompt.SearchPreview with
+                        | Some preview when preview.Matches.IsEmpty -> "no matches"
+                        | Some preview -> $"match {preview.Current + 1}/{preview.Matches.Length}"
+                        | None -> "Type to search the active buffer."
+
+                    DockInfo("Find", [ line ])
+            else
+                NoDock
+
+        let dockHeight =
+            match pickerView, panel with
+            | Some view, _ -> min configuredMax (Pickers.desiredRows view)
+            | None, DockCompletions(_, items, _) -> min configuredMax (1 + max 1 items.Length)
+            | None, DockInfo _ -> configuredMax
+            | None, NoDock -> 0
+
+        let mainHeight = max 1 (max 0 (height - dockHeight - 2))
+        editorX, editorWidth, mainHeight
+
+    /// Map a mouse event's screen coordinates to a buffer position.
+    /// Returns `None` if the click is outside the editor content area.
+    let private mouseToBufferPosition (event: MouseEvent) (model: Model) : Position option =
+        let editorX, editorWidth, mainHeight = editorLayout model
+        let buffer = activeBufferState model
+        let gutterWidth = Buffer.gutterWidth buffer
+        let contentX = editorX + gutterWidth
+        let contentWidth = max 1 (editorWidth - gutterWidth)
+
+        let mouseX = event.Position.Column
+        let mouseY = event.Position.Line
+
+        if
+            mouseY < 0
+            || mouseY >= mainHeight
+            || mouseX < contentX
+            || mouseX >= contentX + contentWidth
+        then
+            None
+        else
+            let lineIndex = buffer.ViewportTop + mouseY
+            let columnIndex = buffer.ViewportLeft + (mouseX - contentX)
+            let rows = Buffer.lines buffer |> List.toArray
+
+            if lineIndex >= rows.Length then
+                None
+            else
+                let lineLength = rows[lineIndex].Length
+                let clampedCol = max 0 (min columnIndex lineLength)
+
+                Some
+                    { Line = lineIndex
+                      Column = clampedCol }
 
     /// Recompute the highlight state for `buffer` whenever its text
     /// might have changed. Idempotent on read-only transforms — a no-op
@@ -204,60 +380,67 @@ module Editor =
 
     let private refreshPrompt model : Model * Effect list =
         let prompt = model.Prompt
-        let mode = Prompt.modeOf prompt.Text
-        let argument = Prompt.argumentOf prompt.Text
 
-        let isNumericGoto =
-            let trimmed = argument.TrimStart()
-            trimmed.Length > 0 && Char.IsDigit trimmed[0]
+        if isPromptListSession prompt.Session then
+            model, []
+        else
+            let mode = Prompt.modeOf prompt.Text
+            let argument = Prompt.argumentOf prompt.Text
 
-        let allCommandSpecs = Commands.allSpecs (pluginCmdTuples model)
+            let isNumericGoto =
+                let trimmed = argument.TrimStart()
+                trimmed.Length > 0 && Char.IsDigit trimmed[0]
 
-        let completions, parsed =
-            match mode with
-            | FilePicker -> filePickerCompletions model prompt.Text, Empty
-            | Command when isNumericGoto -> [], Commands.parseGoto argument
-            | Command -> commandCompletions model argument, Commands.parseWith allCommandSpecs argument
-            | Buffers -> buffersCompletions model argument, Empty
-            | Search -> [], Empty
+            let allCommandSpecs = Commands.allSpecs (pluginCmdTuples model)
 
-        let selectedIndex =
-            if completions.IsEmpty then
-                0
-            else
-                min prompt.SelectedCompletion (completions.Length - 1)
+            let completions, parsed =
+                match mode with
+                | FilePicker -> filePickerCompletions model prompt.Text, Empty
+                | Command when isNumericGoto -> [], Commands.parseGoto argument
+                | Command -> commandCompletions model argument, Commands.parseWith allCommandSpecs argument
+                | Buffers -> buffersCompletions model argument, Empty
+                | Search -> [], Empty
 
-        // Keep stale search highlights visible while a new query is in
-        // flight; the SearchCompleted handler overwrites once results land.
-        let nextSearchPreview =
-            match mode with
-            | Search -> prompt.SearchPreview
-            | _ -> None
-
-        let nextModel =
-            { model with
-                Prompt =
-                    { prompt with
-                        Mode = mode
-                        Parsed = parsed
-                        Completions = completions
-                        SelectedCompletion = selectedIndex
-                        SearchPreview = nextSearchPreview } }
-
-        let effects =
-            match mode with
-            | Search ->
-                let query = Prompt.argumentOf nextModel.Prompt.Text
-
-                if query.Length = 0 then
-                    []
+            let selectedIndex =
+                if completions.IsEmpty then
+                    0
                 else
-                    let buffer = activeBufferState nextModel
-                    let haystack = Buffer.text buffer
-                    [ RunSearch(buffer.Id, query, haystack) ]
-            | _ -> []
+                    min prompt.SelectedCompletion (completions.Length - 1)
 
-        nextModel, effects
+            // Keep stale search highlights visible while a new query is in
+            // flight; the SearchCompleted handler overwrites once results land.
+            let nextSearchPreview =
+                match mode with
+                | Search -> prompt.SearchPreview
+                | _ -> None
+
+            let nextModel =
+                { model with
+                    Prompt =
+                        { prompt with
+                            Session = sessionForMode mode
+                            Mode = mode
+                            Parsed = parsed
+                            Completions = completions
+                            SelectedCompletion = selectedIndex
+                            SelectedItemId = None
+                            PendingConfirmation = None
+                            SearchPreview = nextSearchPreview } }
+
+            let effects =
+                match mode with
+                | Search ->
+                    let query = Prompt.argumentOf nextModel.Prompt.Text
+
+                    if query.Length = 0 then
+                        []
+                    else
+                        let buffer = activeBufferState nextModel
+                        let haystack = Buffer.text buffer
+                        [ RunSearch(buffer.Id, query, haystack) ]
+                | _ -> []
+
+            nextModel, effects
 
     let private openPrompt (initialText: string) model =
         { model with
@@ -265,12 +448,38 @@ module Editor =
             Prompt =
                 { model.Prompt with
                     Active = true
+                    Session = sessionForMode (Prompt.modeOf initialText)
                     Text = initialText
                     Cursor = initialText.Length
                     HistoryIndex = None
                     SelectedCompletion = 0
+                    SelectedItemId = None
+                    PendingConfirmation = None
                     SearchPreview = None } }
         |> refreshPrompt
+
+    let private openPromptSession session model =
+        let selected =
+            pickerKindOfPromptSession session |> Option.bind (Pickers.firstItemId model)
+
+        { model with
+            Focus = Prompt
+            Notification = None
+            Prompt =
+                { model.Prompt with
+                    Active = true
+                    Session = session
+                    Text = ""
+                    Cursor = 0
+                    Mode = FilePicker
+                    Parsed = Empty
+                    Completions = []
+                    SelectedCompletion = 0
+                    SelectedItemId = selected
+                    HistoryIndex = None
+                    PendingConfirmation = None
+                    SearchPreview = None } },
+        []
 
     let private closePrompt model =
         { model with
@@ -278,13 +487,16 @@ module Editor =
             Prompt =
                 { model.Prompt with
                     Active = false
+                    Session = PromptSessionKind.FileOpenSession
                     Text = ""
                     Cursor = 0
                     Mode = FilePicker
                     Parsed = Empty
                     Completions = []
                     SelectedCompletion = 0
+                    SelectedItemId = None
                     HistoryIndex = None
+                    PendingConfirmation = None
                     SearchPreview = None } }
 
     let private resolvePath (rootPath: string) (path: string) =
@@ -536,6 +748,172 @@ module Editor =
 
         current, List.ofSeq effects
 
+    and private trySelectedItem model pickerState =
+        let pickerView = Pickers.buildView model pickerState
+        pickerView.Items |> List.tryItem pickerView.SelectedIndex
+
+    and private trySelectedRegister model pickerState =
+        trySelectedItem model pickerState
+        |> Option.bind (fun item -> if item.Id.Length = 1 then Some item.Id[0] else None)
+
+    and private runPickerAction (actionChord: Chord) model pickerState =
+        match trySelectedItem model pickerState with
+        | None -> model, Some pickerState, []
+        | Some selectedItem ->
+            let matchingAction =
+                selectedItem.Actions
+                |> List.tryFind (fun a -> a.Key = actionChord && a.State = PickerActionState.Enabled)
+
+            match matchingAction with
+            | None -> model, Some pickerState, []
+            | Some action ->
+                let alreadyArmed =
+                    match pickerState.PendingConfirmation with
+                    | Some pending ->
+                        pending.ItemId = Some selectedItem.Id
+                        && pending.ActionId = action.Id
+                        && pending.Key = action.Key
+                    | None -> false
+
+                match action.Confirmation with
+                | Some confirmation when not alreadyArmed ->
+                    let pending: PickerPendingConfirmation =
+                        { ItemId = Some selectedItem.Id
+                          ActionId = action.Id
+                          Key = action.Key
+                          Label = confirmation.Label }
+
+                    { model with
+                        Notification =
+                            Some(Notification.warning $"Press {Chord.render action.Key} again to {confirmation.Label}.") },
+                    Some
+                        { pickerState with
+                            PendingConfirmation = Some pending },
+                    []
+                | _ -> executePickerAction action.Id model pickerState
+
+    and private executePickerAction actionId model pickerState =
+        match pickerState.Kind, actionId with
+        | PluginPicker, PickerActionId.PluginEnable ->
+            match trySelectedItem model pickerState with
+            | Some item -> togglePluginInPicker false item.Id model pickerState
+            | None -> model, Some pickerState, []
+        | PluginPicker, PickerActionId.PluginDisable ->
+            match trySelectedItem model pickerState with
+            | Some item -> togglePluginInPicker true item.Id model pickerState
+            | None -> model, Some pickerState, []
+        | PluginPicker, PickerActionId.PluginReloadAll ->
+            { model with
+                Notification = Some(Notification.info "Reloading plugins...") },
+            Some
+                { pickerState with
+                    PendingConfirmation = None },
+            [ scanPluginsEffect model ]
+        | PluginPicker, PickerActionId.PluginUninstall ->
+            match trySelectedItem model pickerState with
+            | Some item ->
+                { model with
+                    Notification = Some(Notification.info $"Removing {item.Id}...") },
+                Some
+                    { pickerState with
+                        PendingConfirmation = None },
+                [ RemovePluginDir item.Id ]
+            | None -> model, Some pickerState, []
+        | MacroPicker, PickerActionId.MacroReplay ->
+            match trySelectedRegister model pickerState with
+            | Some register ->
+                let next, effects = runAction (ReplayMacro(register, 1)) model
+                next, None, effects
+            | None -> model, Some pickerState, []
+        | MacroPicker, PickerActionId.MacroRecord ->
+            match trySelectedRegister model pickerState with
+            | Some register ->
+                let next, effects = runAction (RecordMacro register) model
+                next, None, effects
+            | None -> model, Some pickerState, []
+        | MacroPicker, PickerActionId.MacroMarkLast ->
+            match trySelectedRegister model pickerState with
+            | Some register ->
+                { model with
+                    LastMacro = Some register
+                    Notification = Some(Notification.info $"Last macro: @{register}") },
+                Some
+                    { pickerState with
+                        PendingConfirmation = None },
+                []
+            | None -> model, Some pickerState, []
+        | MacroPicker, PickerActionId.MacroClear ->
+            match trySelectedRegister model pickerState with
+            | Some register -> clearPickerMacro register model pickerState
+            | None -> model, Some pickerState, []
+        | _ -> model, Some pickerState, []
+
+    /// Toggle a plugin's enabled state in config, persist, and rescan. Used by
+    /// both the `:plugin enable/disable` commands and the picker action.
+    and private setPluginDisabled disabled pluginName model =
+        let nextDisabled =
+            if disabled then
+                model.Config.DisabledPlugins |> Set.add pluginName
+            else
+                model.Config.DisabledPlugins |> Set.remove pluginName
+
+        let nextConfig =
+            { model.Config with
+                DisabledPlugins = nextDisabled }
+
+        { model with
+            Config = nextConfig
+            Notification =
+                Some(
+                    Notification.info (
+                        if disabled then
+                            $"Disabled '{pluginName}'."
+                        else
+                            $"Enabled '{pluginName}'."
+                    )
+                ) },
+        [ SaveConfig nextConfig; ScanPlugins nextConfig.DisabledPlugins ]
+
+    and private togglePluginInPicker disabled pluginName model pickerState =
+        let model, effects = setPluginDisabled disabled pluginName model
+
+        let nextPicker =
+            pickerState
+            |> Pickers.clampSelection model
+            |> fun s -> { s with PendingConfirmation = None }
+
+        model, Some nextPicker, effects
+
+    and private clearPickerMacro register model pickerState =
+        let nextRegisters = model.Registers |> Map.remove register
+
+        let nextRecording =
+            match model.Recording with
+            | Some active when active = register -> None
+            | other -> other
+
+        let nextLast =
+            match model.LastMacro with
+            | Some last when last = register -> None
+            | other -> other
+
+        let nextPicker =
+            { pickerState with
+                PendingConfirmation = None }
+            |> Pickers.clampSelection
+                { model with
+                    Registers = nextRegisters
+                    Recording = nextRecording
+                    LastMacro = nextLast }
+
+        { model with
+            Registers = nextRegisters
+            Recording = nextRecording
+            LastMacro = nextLast
+            Notification = Some(Notification.info $"Cleared macro @{register}") },
+        Some nextPicker,
+        []
+
     and private executeCommand command model =
         match command with
         | Open path ->
@@ -706,28 +1084,9 @@ module Editor =
 
             updated |> notify (Some(Notification.info note)), [ SaveConfig nextConfig ]
 
-        | Plugin("list", _) ->
-            // Render plugin status into the dock via notification (multiline
-            // joined with newlines — View renders \n correctly in the dock).
-            let lines =
-                model.Plugins.Loaded
-                |> Map.toList
-                |> List.map (fun (_, plugin) ->
-                    let status =
-                        match plugin.Status with
-                        | Loaded -> $"ok ({plugin.Commands.Length} cmd, {plugin.Keybindings.Length} key)"
-                        | Disabled -> "disabled"
-                        | Failed reason -> $"FAIL: {reason}"
-
-                    sprintf "%-24s %s" plugin.Manifest.Name status)
-
-            let body =
-                if lines.IsEmpty then
-                    "(no plugins installed — ~/.config/fedit/plugins/)"
-                else
-                    String.concat "\n" lines
-
-            notify (Some(Notification.info body)) model, []
+        | Plugin("list", _)
+        | Command.Plugins -> openPromptSession PromptSessionKind.PluginsSession model
+        | Command.Macros -> openPromptSession PromptSessionKind.MacrosSession model
 
         | Plugin("install", arg) ->
             let source = Plugins.detectSource arg
@@ -735,17 +1094,12 @@ module Editor =
 
         | Plugin("remove", name) -> notify (Some(Notification.info $"Removing {name}…")) model, [ RemovePluginDir name ]
 
-        | Plugin("enable", _name) ->
-            // MVP: enable/disable persistence deferred. ScanPlugins reloads
-            // the directory; if the plugin is on disk it comes back enabled.
-            notify (Some(Notification.info "Enable/disable persistence is deferred to v2; scanning.")) model,
-            [ ScanPlugins ]
+        | Plugin("enable", name) -> setPluginDisabled false name model
 
-        | Plugin("disable", _name) ->
-            notify (Some(Notification.info "Enable/disable persistence is deferred to v2; scanning.")) model,
-            [ ScanPlugins ]
+        | Plugin("disable", name) -> setPluginDisabled true name model
 
-        | Plugin("reload", _) -> notify (Some(Notification.info "Reloading plugins…")) model, [ ScanPlugins ]
+        | Plugin("reload", _) ->
+            notify (Some(Notification.info "Reloading plugins...")) model, [ scanPluginsEffect model ]
 
         | Plugin("validate", path) ->
             let manifestPath = Path.Combine(path, "plugin.json")
@@ -773,33 +1127,7 @@ module Editor =
                 | Context.Prompt -> "prompt"
 
             match argument.Trim() with
-            | "" ->
-                // Open the full listing in a buffer — a single status line can't
-                // hold it, and a buffer is scrollable and searchable. Reuse an
-                // existing keybindings buffer (refresh in place) so repeated runs
-                // don't spawn duplicates; otherwise allocate the next id.
-                let name = "keybindings"
-                let doc = Keymap.renderDoc model.Keymap
-
-                let existingId =
-                    model.Editors.Buffers
-                    |> Map.tryPick (fun id b -> if b.Name = name then Some id else None)
-
-                let id = existingId |> Option.defaultValue model.Editors.NextBufferId
-                let buffer = Buffer.fromText id None name doc "\n"
-
-                { model with
-                    Editors =
-                        { model.Editors with
-                            Buffers = model.Editors.Buffers |> Map.add id buffer
-                            ActiveBufferId = id
-                            NextBufferId =
-                                match existingId with
-                                | Some _ -> model.Editors.NextBufferId
-                                | None -> id + 1 }
-                    Focus = Editor
-                    Notification = None },
-                []
+            | "" -> openPromptSession PromptSessionKind.KeybindingsSession model
             | "reload" -> notify (Some(Notification.info "Reloading keybinds…")) model, [ LoadKeybinds ]
             | strokeText ->
                 let chords =
@@ -1229,105 +1557,222 @@ module Editor =
                         { prompt with
                             HistoryIndex = Some index } }
 
+    let private pickerPendingOfPrompt (pending: PromptPendingConfirmation option) : PickerPendingConfirmation option =
+        pending
+        |> Option.map (fun pending ->
+            { ItemId = pending.ItemId
+              ActionId = pending.ActionId
+              Key = pending.Key
+              Label = pending.Label })
+
+    let private promptPendingOfPicker (pending: PickerPendingConfirmation option) : PromptPendingConfirmation option =
+        pending
+        |> Option.map (fun pending ->
+            { ItemId = pending.ItemId
+              ActionId = pending.ActionId
+              Key = pending.Key
+              Label = pending.Label })
+
+    let private pickerStateOfPrompt kind (prompt: PromptState) : PickerState =
+        { Kind = kind
+          SelectedItemId = prompt.SelectedItemId
+          Filter = prompt.Text
+          PendingConfirmation = pickerPendingOfPrompt prompt.PendingConfirmation }
+
+    let private promptFromPickerState session (prompt: PromptState) (pickerState: PickerState) =
+        { prompt with
+            Active = true
+            Session = session
+            Text = pickerState.Filter
+            Cursor = pickerState.Filter.Length
+            Mode = FilePicker
+            Parsed = Empty
+            Completions = []
+            SelectedCompletion = 0
+            SelectedItemId = pickerState.SelectedItemId
+            HistoryIndex = None
+            PendingConfirmation = promptPendingOfPicker pickerState.PendingConfirmation
+            SearchPreview = None }
+
+    let private applyPromptPickerState session pickerState model =
+        { model with
+            Focus = Prompt
+            Prompt = promptFromPickerState session model.Prompt pickerState },
+        []
+
+    let private runPromptSessionAction actionChord model kind pickerState =
+        let session = model.Prompt.Session
+        let next, nextPicker, effects = runPickerAction actionChord model pickerState
+
+        match nextPicker with
+        | Some nextPicker ->
+            { next with
+                Focus = Prompt
+                Prompt = promptFromPickerState session next.Prompt nextPicker },
+            effects
+        | None -> closePrompt next, effects
+
+    let private runPromptListSession chord model =
+        let prompt = model.Prompt
+
+        match pickerKindOfPromptSession prompt.Session with
+        | None -> model, []
+        | Some kind ->
+            let pickerState = pickerStateOfPrompt kind prompt
+
+            let actionKeys =
+                match kind with
+                | PickerKind.PluginPicker -> Set.ofList [ 'e'; 'd'; 'r'; 'u' ]
+                | PickerKind.MacroPicker -> Set.ofList [ 'r'; 'm'; 'c' ]
+                | PickerKind.KeyBindingPicker -> Set.empty
+
+            let hasActions =
+                match kind with
+                | PickerKind.KeyBindingPicker -> false
+                | _ -> true
+
+            match chord with
+            | c when c = Chord.bareNamed Escape -> closePrompt model, []
+            | c when c = Chord.bareNamed Up ->
+                applyPromptPickerState prompt.Session (pickerState |> Pickers.moveSelection -1 model) model
+            | c when c = Chord.bareNamed Down ->
+                applyPromptPickerState prompt.Session (pickerState |> Pickers.moveSelection 1 model) model
+            | c when c = Chord.bareNamed PageUp ->
+                applyPromptPickerState prompt.Session (pickerState |> Pickers.moveSelection -10 model) model
+            | c when c = Chord.bareNamed PageDown ->
+                applyPromptPickerState prompt.Session (pickerState |> Pickers.moveSelection 10 model) model
+            | c when c = Chord.bareNamed Home ->
+                applyPromptPickerState prompt.Session (pickerState |> Pickers.setSelection 0 model) model
+            | c when c = Chord.bareNamed End ->
+                let pickerView = Pickers.buildView model pickerState
+                let last = pickerView.Items.Length - 1
+                applyPromptPickerState prompt.Session (pickerState |> Pickers.setSelection last model) model
+            | c when c = Chord.bareNamed Enter ->
+                if hasActions then
+                    runPromptSessionAction (Chord.bareNamed Enter) model kind pickerState
+                else
+                    closePrompt model, []
+            | { Mods = m; Key = Named Backspace } when m.IsEmpty ->
+                applyPromptPickerState prompt.Session (pickerState |> Pickers.backspaceFilter model) model
+            | { Mods = m; Key = Named Space } when m.IsEmpty ->
+                applyPromptPickerState prompt.Session (pickerState |> Pickers.appendFilter " " model) model
+            | { Mods = m; Key = Char value } when m.IsEmpty && actionKeys.Contains(Char.ToLowerInvariant value) ->
+                let actionKey = Char.ToLowerInvariant value
+
+                if hasActions then
+                    runPromptSessionAction (Chord.ofChar actionKey) model kind pickerState
+                else
+                    model, []
+            | { Mods = m; Key = Char value } when m.IsEmpty ->
+                applyPromptPickerState prompt.Session (pickerState |> Pickers.appendFilter (string value) model) model
+            | _ -> model, []
+
     let private runPrompt (chord: Chord) model =
         let prompt = model.Prompt
 
-        match chord with
-        | c when c = nk Escape -> closePrompt model, []
-        | c when c = nk Left ->
-            { model with
-                Prompt =
-                    { prompt with
-                        Cursor = max 0 (prompt.Cursor - 1) } },
-            []
-        | c when c = nk Right ->
-            { model with
-                Prompt =
-                    { prompt with
-                        Cursor = min prompt.Text.Length (prompt.Cursor + 1) } },
-            []
-        | c when c = nk Home ->
-            { model with
-                Prompt = { prompt with Cursor = 0 } },
-            []
-        | c when c = nk End ->
-            { model with
-                Prompt =
-                    { prompt with
-                        Cursor = prompt.Text.Length } },
-            []
-        | { Mods = m; Key = Named Backspace } when m.IsEmpty -> deletePromptBackward model
-        | { Mods = m; Key = Named Delete } when m.IsEmpty -> deletePromptForward model
-        | { Mods = m; Key = Char value } when m.IsEmpty -> insertPromptText (string value) model
-        // Spacebar maps to `Named Space`, not `Char ' '`; insert it as text so
-        // command arguments (`:theme green`) can be typed.
-        | { Mods = m; Key = Named Space } when m.IsEmpty -> insertPromptText " " model
-        | c when c = nk Tab ->
-            // Tab fills the prompt with the highlighted completion so users
-            // can type `:o<Tab>` → `:open` and continue with arguments.
-            // Up/Down/ShiftTab still cycle the selection.
-            match prompt.Completions with
-            | [] -> model, []
-            | items ->
-                let idx = max 0 (min prompt.SelectedCompletion (items.Length - 1))
-                applyCompletion items[idx] model
-        | c when c = snk Tab -> cycleCompletion -1 model, []
-        | c when c = nk Up ->
-            match prompt.Mode with
-            | Search -> moveSearchMatch -1 model, []
-            | _ -> cycleCompletion -1 model, []
-        | c when c = nk Down ->
-            match prompt.Mode with
-            | Search -> moveSearchMatch 1 model, []
-            | _ -> cycleCompletion 1 model, []
-        | c when c = ank Up -> applyHistory -1 model
-        | c when c = ank Down -> applyHistory 1 model
-        | c when c = nk Enter ->
-            match prompt.Mode with
-            | Search -> moveSearchMatch 1 model, []
-            | FilePicker ->
-                match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
-                | Some item ->
-                    let remembered = pushHistory prompt.Text model
-                    let closed = closePrompt remembered
-                    executeCommand (Open item.ApplyText) closed
-                | None -> model, []
-            | Buffers ->
-                let bufferRefOf (text: string) =
-                    match Int32.TryParse text with
-                    | true, id -> ById id
-                    | _ -> ByName text
-
-                match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
-                | Some item ->
-                    let remembered = pushHistory prompt.Text model
-                    let closed = closePrompt remembered
-                    executeCommand (SwitchBuffer(bufferRefOf item.ApplyText)) closed
-                | None ->
-                    let argument = Prompt.argumentOf prompt.Text
-
-                    if String.IsNullOrWhiteSpace argument then
-                        model, []
-                    else
+        if isPromptListSession prompt.Session then
+            runPromptListSession chord model
+        else
+            match chord with
+            | c when c = nk Escape -> closePrompt model, []
+            | c when c = nk Left ->
+                { model with
+                    Prompt =
+                        { prompt with
+                            Cursor = max 0 (prompt.Cursor - 1) } },
+                []
+            | c when c = nk Right ->
+                { model with
+                    Prompt =
+                        { prompt with
+                            Cursor = min prompt.Text.Length (prompt.Cursor + 1) } },
+                []
+            | c when c = nk Home ->
+                { model with
+                    Prompt = { prompt with Cursor = 0 } },
+                []
+            | c when c = nk End ->
+                { model with
+                    Prompt =
+                        { prompt with
+                            Cursor = prompt.Text.Length } },
+                []
+            | { Mods = m; Key = Named Backspace } when m.IsEmpty -> deletePromptBackward model
+            | { Mods = m; Key = Named Delete } when m.IsEmpty -> deletePromptForward model
+            | { Mods = m; Key = Char value } when m.IsEmpty -> insertPromptText (string value) model
+            // Spacebar maps to `Named Space`, not `Char ' '`; insert it as text so
+            // command arguments (`:theme green`) can be typed.
+            | { Mods = m; Key = Named Space } when m.IsEmpty -> insertPromptText " " model
+            | c when c = nk Tab ->
+                // Tab fills the prompt with the highlighted completion so users
+                // can type `:o<Tab>` -> `:open` and continue with arguments.
+                // Up/Down/ShiftTab still cycle the selection.
+                match prompt.Completions with
+                | [] -> model, []
+                | items ->
+                    let idx = max 0 (min prompt.SelectedCompletion (items.Length - 1))
+                    applyCompletion items[idx] model
+            | c when c = snk Tab -> cycleCompletion -1 model, []
+            | c when c = nk Up ->
+                match prompt.Mode with
+                | Search -> moveSearchMatch -1 model, []
+                | _ -> cycleCompletion -1 model, []
+            | c when c = nk Down ->
+                match prompt.Mode with
+                | Search -> moveSearchMatch 1 model, []
+                | _ -> cycleCompletion 1 model, []
+            | c when c = ank Up -> applyHistory -1 model
+            | c when c = ank Down -> applyHistory 1 model
+            | c when c = nk Enter ->
+                match prompt.Mode with
+                | Search -> moveSearchMatch 1 model, []
+                | FilePicker ->
+                    match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
+                    | Some item ->
                         let remembered = pushHistory prompt.Text model
                         let closed = closePrompt remembered
-                        executeCommand (SwitchBuffer(bufferRefOf (argument.Trim()))) closed
-            | Command ->
-                match prompt.Parsed with
-                | Ready command ->
-                    let remembered = pushHistory prompt.Text model
-                    let closed = closePrompt remembered
-                    executeCommand command closed
-                | Pending _ when not prompt.Completions.IsEmpty ->
-                    match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
-                    | Some item -> applyCompletion item model
+                        executeCommand (Open item.ApplyText) closed
                     | None -> model, []
-                | Pending message -> notify (Some(Notification.warning message)) model, []
-                | Invalid message -> notify (Some(Notification.error message)) model, []
-                | Empty -> closePrompt model, []
-        | _ -> model, []
+                | Buffers ->
+                    let bufferRefOf (text: string) =
+                        match Int32.TryParse text with
+                        | true, id -> ById id
+                        | _ -> ByName text
 
-    let init rootPath size config userThemes (highlightRegistry: HighlightRegistry option) =
+                    match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
+                    | Some item ->
+                        let remembered = pushHistory prompt.Text model
+                        let closed = closePrompt remembered
+                        executeCommand (SwitchBuffer(bufferRefOf item.ApplyText)) closed
+                    | None ->
+                        let argument = Prompt.argumentOf prompt.Text
+
+                        if String.IsNullOrWhiteSpace argument then
+                            model, []
+                        else
+                            let remembered = pushHistory prompt.Text model
+                            let closed = closePrompt remembered
+                            executeCommand (SwitchBuffer(bufferRefOf (argument.Trim()))) closed
+                | Command ->
+                    match prompt.Parsed with
+                    | Ready command ->
+                        let remembered = pushHistory prompt.Text model
+                        let closed = closePrompt remembered
+                        executeCommand command closed
+                    | Pending message ->
+                        match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
+                        | Some item when (prefixOf prompt.Mode + item.ApplyText) <> prompt.Text ->
+                            applyCompletion item model
+                        | _ -> notify (Some(Notification.warning message)) model, []
+                    | Invalid message -> notify (Some(Notification.error message)) model, []
+                    | Empty -> closePrompt model, []
+            | _ -> model, []
+
+    let initWithInitialFile rootPath initialFile size config userThemes (highlightRegistry: HighlightRegistry option) =
+        let startupEffects =
+            [ ScanWorkspace rootPath; ScanPlugins config.DisabledPlugins; LoadKeybinds ]
+            @ (initialFile |> Option.map LoadFile |> Option.toList)
+
         { Workspace = Workspace.create rootPath
           Editors = initialEditors
           Prompt = emptyPrompt
@@ -1347,8 +1792,12 @@ module Editor =
           Registers = Map.empty
           Recording = None
           Replaying = false
-          LastMacro = None },
-        [ ScanWorkspace rootPath; ScanPlugins; LoadKeybinds ]
+          LastMacro = None
+          MouseDrag = None },
+        startupEffects
+
+    let init rootPath size config userThemes (highlightRegistry: HighlightRegistry option) =
+        initWithInitialFile rootPath None size config userThemes highlightRegistry
 
     let update msg model =
         match msg with
@@ -1524,18 +1973,43 @@ module Editor =
                 | [] -> model.Notification
                 | xs -> Some(Notification.warning (String.concat "; " xs))
 
-            { model with
-                Plugins = registry
-                Notification = conflictNotice },
-            []
+            let nextModel =
+                { model with
+                    Plugins = registry
+                    Notification = conflictNotice }
+
+            let nextModel =
+                if
+                    nextModel.Prompt.Active
+                    && nextModel.Prompt.Session = PromptSessionKind.PluginsSession
+                then
+                    let clamped =
+                        nextModel.Prompt
+                        |> pickerStateOfPrompt PickerKind.PluginPicker
+                        |> Pickers.clampSelection nextModel
+
+                    { nextModel with
+                        Prompt = promptFromPickerState PromptSessionKind.PluginsSession nextModel.Prompt clamped }
+                else
+                    nextModel
+
+            nextModel, []
         | PluginsScanned(Result.Error message) ->
             notify (Some(Notification.error $"Plugin scan failed: {message}")) model, []
         | PluginInstalled(name, Result.Ok()) ->
-            notify (Some(Notification.info $"Installed plugin '{name}'")) model, [ ScanPlugins ]
+            notify (Some(Notification.info $"Installed plugin '{name}'")) model, [ scanPluginsEffect model ]
         | PluginInstalled(_, Result.Error message) ->
             notify (Some(Notification.error $"Install failed: {message}")) model, []
         | PluginRemoved(name, Result.Ok()) ->
-            notify (Some(Notification.info $"Removed plugin '{name}'")) model, [ ScanPlugins ]
+            let nextConfig =
+                { model.Config with
+                    DisabledPlugins = model.Config.DisabledPlugins |> Set.remove name }
+
+            let nextModel =
+                { model with Config = nextConfig }
+                |> notify (Some(Notification.info $"Removed plugin '{name}'"))
+
+            nextModel, [ SaveConfig nextConfig; ScanPlugins nextConfig.DisabledPlugins ]
         | PluginRemoved(name, Result.Error message) ->
             notify (Some(Notification.error $"Remove '{name}' failed: {message}")) model, []
         | PluginBuildFinished(name, Result.Ok()) -> notify (Some(Notification.info $"Built '{name}'")) model, []
@@ -1550,110 +2024,153 @@ module Editor =
             match errors with
             | [] -> model, []
             | _ -> notify (Some(Notification.warning (String.concat "; " errors))) model, []
+        | MousePressed event ->
+            match event.Button with
+            | LeftButton ->
+                match mouseToBufferPosition event model with
+                | None -> model, []
+                | Some pos ->
+                    let buffer = activeBufferState model
+                    let idx = Buffer.positionToIndex pos buffer
+
+                    let nextModel =
+                        { model with Focus = Editor }
+                        |> updateActiveBuffer (Buffer.moveToOffset idx >> Buffer.setSelection idx)
+
+                    { nextModel with
+                        MouseDrag =
+                            Some
+                                { AnchorBufferId = buffer.Id
+                                  AnchorPosition = pos } },
+                    []
+            | _ -> model, []
+        | MouseDragged event ->
+            match model.MouseDrag with
+            | Some drag when drag.AnchorBufferId = model.Editors.ActiveBufferId ->
+                match mouseToBufferPosition event model with
+                | None -> model, []
+                | Some pos ->
+                    let buffer = activeBufferState model
+                    let idx = Buffer.positionToIndex pos buffer
+                    let anchorIdx = Buffer.positionToIndex drag.AnchorPosition buffer
+
+                    let nextModel =
+                        updateActiveBuffer (Buffer.setSelection anchorIdx >> Buffer.moveToOffset idx) model
+
+                    nextModel, []
+            | _ -> model, []
+        | MouseReleased _event -> { model with MouseDrag = None }, []
+        | FocusGained -> model, []
+        | FocusLost -> model, []
         | KeyPressed chord ->
-            let model =
-                if chord = cc 'q' then
-                    model
-                else
-                    { model with QuitArmed = false }
-
-            let ctx = contextOf model.Focus
-
-            // Record-append hook: while recording (and not replaying), capture
-            // each incoming chord into the active register, except the chord
-            // that toggles recording off (which `runAction RecordMacro`
-            // consumes). Recording captures chords, not Actions, so replay
-            // re-runs live keymap resolution and reassembles any sequences.
-            let model =
-                match model.Recording with
-                | Some r when not model.Replaying ->
-                    let isRecordToggle =
-                        match Keymap.resolve ctx [ chord ] model.Keymap with
-                        | Bound(RecordMacro _) -> true
-                        | _ -> false
-
-                    if isRecordToggle then
+            if model.Focus = Prompt && isPromptListSession model.Prompt.Session then
+                runPrompt chord model
+            else
+                let model =
+                    if chord = cc 'q' then
                         model
                     else
-                        let appended =
-                            (model.Registers |> Map.tryFind r |> Option.defaultValue []) @ [ chord ]
+                        { model with QuitArmed = false }
+
+                let ctx = contextOf model.Focus
+
+                // Record-append hook: while recording (and not replaying), capture
+                // each incoming chord into the active register, except the chord
+                // that toggles recording off (which `runAction RecordMacro`
+                // consumes). Recording captures chords, not Actions, so replay
+                // re-runs live keymap resolution and reassembles any sequences.
+                let model =
+                    match model.Recording with
+                    | Some r when not model.Replaying ->
+                        let isRecordToggle =
+                            match Keymap.resolve ctx [ chord ] model.Keymap with
+                            | Bound(RecordMacro _) -> true
+                            | _ -> false
+
+                        if isRecordToggle then
+                            model
+                        else
+                            let appended =
+                                (model.Registers |> Map.tryFind r |> Option.defaultValue []) @ [ chord ]
+
+                            { model with
+                                Registers = model.Registers |> Map.add r appended }
+                    | _ -> model
+
+                let pending = model.PendingPrefix |> Option.map fst |> Option.defaultValue []
+
+                let isPrefix (s: KeyStroke) =
+                    Keymap.isSequencePrefix ctx s model.Keymap
+
+                // Escape always cancels an in-flight prefix (spec §6.3).
+                if not (List.isEmpty pending) && chord = nk Escape then
+                    { model with PendingPrefix = None }, []
+                else
+                    match Sequence.step isPrefix pending chord with
+                    | Sequence.Pending candidate ->
+                        let deadline = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 1000L
 
                         { model with
-                            Registers = model.Registers |> Map.add r appended }
-                | _ -> model
+                            PendingPrefix = Some(candidate, deadline) },
+                        []
+                    | stepResult ->
+                        // Fire (pending was empty -> single chord) or Failed (a
+                        // completed or dead multi-chord candidate). Both resolve the
+                        // full candidate against the keymap; they differ only in the
+                        // NotBound fallthrough — a mid-sequence candidate must NOT
+                        // fall through to text insert.
+                        let candidate, wasSequence =
+                            match stepResult with
+                            | Sequence.Failed c -> c, true
+                            | _ -> [ chord ], false
 
-            let pending = model.PendingPrefix |> Option.map fst |> Option.defaultValue []
+                        let model = { model with PendingPrefix = None }
 
-            let isPrefix (s: KeyStroke) =
-                Keymap.isSequencePrefix ctx s model.Keymap
+                        match candidate with
+                        // Ctrl+Q two-stage quit stays bespoke — it owns QuitArmed
+                        // and is deliberately absent from the keymap defaults.
+                        | [ c ] when c = cc 'q' ->
+                            let hasDirty = model.Editors.Buffers |> Map.exists (fun _ buffer -> buffer.Dirty)
 
-            // Escape always cancels an in-flight prefix (spec §6.3).
-            if not (List.isEmpty pending) && chord = nk Escape then
-                { model with PendingPrefix = None }, []
-            else
-                match Sequence.step isPrefix pending chord with
-                | Sequence.Pending candidate ->
-                    let deadline = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 1000L
+                            if model.QuitArmed || not hasDirty then
+                                { model with
+                                    ShouldQuit = true
+                                    QuitArmed = false
+                                    Notification = None },
+                                [ SaveConfig model.Config ]
+                            else
+                                let dirtyCount =
+                                    model.Editors.Buffers
+                                    |> Map.toList
+                                    |> List.filter (fun (_, b) -> b.Dirty)
+                                    |> List.length
 
-                    { model with
-                        PendingPrefix = Some(candidate, deadline) },
-                    []
-                | stepResult ->
-                    // Fire (pending was empty → single chord) or Failed (a
-                    // completed or dead multi-chord candidate). Both resolve the
-                    // full candidate against the keymap; they differ only in the
-                    // NotBound fallthrough — a mid-sequence candidate must NOT
-                    // fall through to text insert.
-                    let candidate, wasSequence =
-                        match stepResult with
-                        | Sequence.Failed c -> c, true
-                        | _ -> [ chord ], false
+                                { model with
+                                    QuitArmed = true
+                                    Notification =
+                                        Some(
+                                            Notification.warning
+                                                $"Unsaved changes in {dirtyCount} buffer(s). Press Ctrl+Q again to discard."
+                                        ) },
+                                []
+                        | _ ->
+                            let model = { model with Notification = None }
 
-                    let model = { model with PendingPrefix = None }
-
-                    match candidate with
-                    // Ctrl+Q two-stage quit stays bespoke — it owns QuitArmed
-                    // and is deliberately absent from the keymap defaults.
-                    | [ c ] when c = cc 'q' ->
-                        let hasDirty = model.Editors.Buffers |> Map.exists (fun _ buffer -> buffer.Dirty)
-
-                        if model.QuitArmed || not hasDirty then
-                            { model with
-                                ShouldQuit = true
-                                QuitArmed = false
-                                Notification = None },
-                            [ SaveConfig model.Config ]
-                        else
-                            let dirtyCount =
-                                model.Editors.Buffers
-                                |> Map.toList
-                                |> List.filter (fun (_, b) -> b.Dirty)
-                                |> List.length
-
-                            { model with
-                                QuitArmed = true
-                                Notification =
-                                    Some(
-                                        Notification.warning
-                                            $"Unsaved changes in {dirtyCount} buffer(s). Press Ctrl+Q again to discard."
-                                    ) },
-                            []
-                    | _ ->
-                        let model = { model with Notification = None }
-
-                        match Keymap.resolve ctx candidate model.Keymap with
-                        | Bound action -> runAction action model
-                        | Unbound -> model, [] // explicitly freed: consume, do nothing
-                        | NotBound when wasSequence ->
-                            notify (Some(Notification.warning $"No binding for {Chord.renderStroke candidate}")) model,
-                            []
-                        | NotBound ->
-                            // single-chord fallthrough by focus: plugins (editor
-                            // only) → text/filter/prompt line-editing.
-                            match model.Focus with
-                            | Editor ->
-                                match dispatchViaPlugins chord model with
-                                | Some result -> result
-                                | None -> runEditor chord model
-                            | Sidebar -> runSidebar chord model
-                            | Prompt -> runPrompt chord model
+                            match Keymap.resolve ctx candidate model.Keymap with
+                            | Bound action -> runAction action model
+                            | Unbound -> model, [] // explicitly freed: consume, do nothing
+                            | NotBound when wasSequence ->
+                                notify
+                                    (Some(Notification.warning $"No binding for {Chord.renderStroke candidate}"))
+                                    model,
+                                []
+                            | NotBound ->
+                                // single-chord fallthrough by focus: plugins (editor
+                                // only) -> text/filter/prompt line-editing.
+                                match model.Focus with
+                                | Editor ->
+                                    match dispatchViaPlugins chord model with
+                                    | Some result -> result
+                                    | None -> runEditor chord model
+                                | Sidebar -> runSidebar chord model
+                                | Prompt -> runPrompt chord model

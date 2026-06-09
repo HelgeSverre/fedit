@@ -1,0 +1,262 @@
+namespace Fedit
+
+open System
+open System.IO
+open System.Text
+
+/// All mutable terminal state lives here. The editor core never sees this.
+type TerminalState =
+    { Writer: TextWriter
+      mutable Capabilities: TerminalCapabilities
+      mutable PreviousFrame: Screen voption
+      mutable CurrentStyle: Style voption
+      PendingKeys: System.Collections.Generic.Queue<ConsoleKeyInfo> }
+
+/// Private ANSI sequence helpers.
+[<RequireQualifiedAccess>]
+module private Ansi =
+    let esc = "\u001b"
+    let resetStyle = $"{esc}[0m"
+    let clearScreen = $"{esc}[2J"
+    let homeCursor = $"{esc}[H"
+    let cursorPosition row col = $"{esc}[{row + 1};{col + 1}H"
+    let showCursor = $"{esc}[?25h"
+    let hideCursor = $"{esc}[?25l"
+
+    // -----------------------------------------------------------------------
+    // Capability-driven enable / disable sequences.
+    // -----------------------------------------------------------------------
+
+    let enable (caps: TerminalCapabilities) : string =
+        let parts = ResizeArray<string>()
+
+        if caps.SupportsAlternateScreen then
+            parts.Add($"{esc}[?1049h")
+
+        match caps.KeyboardProtocol with
+        | KeyboardKittyBasic -> parts.Add($"{esc}[>1u")
+        | KeyboardKittyExtended -> parts.Add($"{esc}[>3u")
+        | KeyboardKittyFull -> parts.Add($"{esc}[>5u")
+        | KeyboardLegacy -> ()
+
+        match caps.MouseEventMode, caps.MouseEncoding with
+        | MouseNormal, MouseSgr -> parts.Add($"{esc}[?1000h{esc}[?1006h")
+        | MouseButton, MouseSgr -> parts.Add($"{esc}[?1002h{esc}[?1006h")
+        | MouseAll, MouseSgr -> parts.Add($"{esc}[?1003h{esc}[?1006h")
+        | _ -> ()
+
+        if caps.SupportsFocusEvents then
+            parts.Add($"{esc}[?1004h")
+
+        if caps.SupportsBracketedPaste then
+            parts.Add($"{esc}[?2004h")
+
+        parts.Add hideCursor
+        parts.Add clearScreen
+        String.concat "" parts
+
+    let disable (caps: TerminalCapabilities) : string =
+        let parts = ResizeArray<string>()
+
+        parts.Add resetStyle
+        parts.Add showCursor
+
+        if caps.SupportsBracketedPaste then
+            parts.Add($"{esc}[?2004l")
+
+        if caps.SupportsFocusEvents then
+            parts.Add($"{esc}[?1004l")
+
+        match caps.MouseEventMode, caps.MouseEncoding with
+        | MouseNormal, MouseSgr -> parts.Add($"{esc}[?1006l{esc}[?1000l")
+        | MouseButton, MouseSgr -> parts.Add($"{esc}[?1006l{esc}[?1002l")
+        | MouseAll, MouseSgr -> parts.Add($"{esc}[?1006l{esc}[?1003l")
+        | _ -> ()
+
+        match caps.KeyboardProtocol with
+        | KeyboardKittyBasic
+        | KeyboardKittyExtended
+        | KeyboardKittyFull -> parts.Add($"{esc}[<u")
+        | KeyboardLegacy -> ()
+
+        if caps.SupportsAlternateScreen then
+            parts.Add($"{esc}[?1049l")
+
+        String.concat "" parts
+
+/// The single abstraction over terminal input/output.
+/// Runtime owns the event loop; Terminal owns every byte that crosses
+/// the terminal boundary.
+[<RequireQualifiedAccess>]
+module Terminal =
+
+    let create () : TerminalState =
+        let caps = TerminalCapabilities.fromEnv ()
+
+        { Writer = Console.Out
+          Capabilities = caps
+          PreviousFrame = ValueNone
+          CurrentStyle = ValueNone
+          PendingKeys = System.Collections.Generic.Queue<ConsoleKeyInfo>() }
+
+    /// Test helper: construct a terminal with an explicit capability set
+    /// and a custom writer (e.g. StringWriter).
+    let createWithCapabilities (writer: TextWriter) (caps: TerminalCapabilities) : TerminalState =
+        { Writer = writer
+          Capabilities = caps
+          PreviousFrame = ValueNone
+          CurrentStyle = ValueNone
+          PendingKeys = System.Collections.Generic.Queue<ConsoleKeyInfo>() }
+
+    let enter (t: TerminalState) =
+        t.Writer.Write(Ansi.enable t.Capabilities)
+
+    let leave (t: TerminalState) =
+        t.Writer.Write(Ansi.disable t.Capabilities)
+
+    let logCapabilities (t: TerminalState) (log: string -> unit) =
+        log $"capabilities: {TerminalCapabilities.toLogString t.Capabilities}"
+
+    // -----------------------------------------------------------------------
+    // Startup capability query: DA1 + DA2
+    // -----------------------------------------------------------------------
+
+    let detectCapabilities (t: TerminalState) : TerminalCapabilities =
+        let writer = t.Writer
+        let timeout = TimeSpan.FromMilliseconds 500.0
+
+        // Send DA1 and DA2 queries.
+        writer.Write("\u001b[c\u001b[>0c")
+        writer.Flush()
+
+        let mutable da1: int list option = None
+        let mutable da2: (int * int * int) option = None
+        let sw = System.Diagnostics.Stopwatch.StartNew()
+
+        while (Option.isNone da1 || Option.isNone da2) && sw.Elapsed < timeout do
+            if Console.KeyAvailable then
+                let keyInfo = Console.ReadKey true
+
+                if keyInfo.Key = ConsoleKey.Escape then
+                    let sb = StringBuilder()
+                    sb.Append '\u001b' |> ignore
+
+                    let mutable terminated = false
+                    let mutable guard = 0
+
+                    while not terminated && guard < 64 do
+                        if Console.KeyAvailable then
+                            let c = Console.ReadKey true
+                            sb.Append c.KeyChar |> ignore
+                            let s = sb.ToString()
+
+                            if s.EndsWith("c", StringComparison.Ordinal) then
+                                terminated <- true
+
+                                match TerminalCapabilities.parseDa1Response s with
+                                | Some r -> da1 <- Some r
+                                | None ->
+                                    match TerminalCapabilities.parseDa2Response s with
+                                    | Some r -> da2 <- Some r
+                                    | None -> ()
+                        else
+                            Threading.Thread.Sleep 10
+
+                        guard <- guard + 1
+
+        let nextCaps = TerminalCapabilities.fromQueries da1 da2
+
+        // Replace capabilities in the terminal state.
+        t.Capabilities <- nextCaps
+        nextCaps
+
+    // -----------------------------------------------------------------------
+    // Output: delegates to the pure Renderer module.
+    // -----------------------------------------------------------------------
+
+    let writeFrame (t: TerminalState) (screen: Screen) =
+        Renderer.render t.Writer t.Capabilities.ColorSupport t.PreviousFrame screen
+        t.PreviousFrame <- ValueSome screen
+
+    // -----------------------------------------------------------------------
+    // Input: read one key or escape sequence and turn it into a domain event.
+    // -----------------------------------------------------------------------
+
+    let private hasPendingInput (t: TerminalState) =
+        t.PendingKeys.Count > 0 || Console.KeyAvailable
+
+    let private dequeueOrRead (t: TerminalState) =
+        if t.PendingKeys.Count > 0 then
+            t.PendingKeys.Dequeue()
+        else
+            Console.ReadKey true
+
+    let private replayKeys (t: TerminalState) (keys: ResizeArray<ConsoleKeyInfo>) =
+        keys |> Seq.iter t.PendingKeys.Enqueue
+
+    /// Read a single event from the terminal, if one is available.
+    /// Returns `None` when no input is waiting.
+    let tryReadEvent (t: TerminalState) : TerminalEvent option =
+        if not (hasPendingInput t) then
+            None
+        else
+            let keyInfo = dequeueOrRead t
+
+            // Drain a complete escape sequence when the first byte is ESC
+            // and more bytes are immediately available.
+            let escapeResult: Input.EscapeSequence option =
+                if keyInfo.Key = ConsoleKey.Escape && hasPendingInput t then
+                    let consumed = ResizeArray<ConsoleKeyInfo>()
+                    let sb = StringBuilder()
+                    sb.Append '\u001b' |> ignore
+
+                    let consume () =
+                        let c = dequeueOrRead t
+                        consumed.Add c
+                        sb.Append c.KeyChar |> ignore
+                        c
+
+                    let first = consume ()
+                    let mutable terminated = false
+
+                    if first.KeyChar = '[' then
+                        let mutable guard = 0
+
+                        while not terminated && hasPendingInput t && guard < 64 do
+                            let c = consume ()
+
+                            if c.KeyChar >= '@' && c.KeyChar <= '~' then
+                                terminated <- true
+
+                            guard <- guard + 1
+                    elif first.KeyChar = 'O' && hasPendingInput t then
+                        let second = consume ()
+
+                        if Char.IsDigit second.KeyChar && hasPendingInput t then
+                            consume () |> ignore
+
+                        terminated <- true
+                    else
+                        terminated <- true
+
+                    if terminated then
+                        let sequence = sb.ToString()
+
+                        match Input.classifyEscapeSequence t.Capabilities.MouseEncoding sequence with
+                        | Some esc -> Some esc
+                        | None ->
+                            replayKeys t consumed
+                            None
+                    else
+                        replayKeys t consumed
+                        None
+                else
+                    None
+
+            match escapeResult with
+            | Some(Input.EscapeSequence.MouseEvent event) -> Some(TerminalEvent.MouseEvent event)
+            | Some(Input.EscapeSequence.MouseIgnored) -> None
+            | Some(Input.EscapeSequence.Chord chord) -> Some(TerminalEvent.KeyEvent chord)
+            | Some(Input.EscapeSequence.FocusGained) -> Some(TerminalEvent.FocusIn)
+            | Some(Input.EscapeSequence.FocusLost) -> Some(TerminalEvent.FocusOut)
+            | None -> Input.tryMap keyInfo |> Option.map TerminalEvent.KeyEvent

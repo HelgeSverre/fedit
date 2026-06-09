@@ -129,15 +129,35 @@ module Program =
                     printfn "%s" (versionString ())
                     0
                 else
-                    let rootPath =
+                    let rootPath, initialFile =
                         match parsed.Workspace with
-                        | Some path -> Path.GetFullPath path
-                        | None -> Directory.GetCurrentDirectory()
+                        | Some path ->
+                            let fullPath = Path.GetFullPath path
+
+                            if File.Exists fullPath then
+                                let parent =
+                                    match Path.GetDirectoryName fullPath with
+                                    | null
+                                    | "" -> Directory.GetCurrentDirectory()
+                                    | directory -> directory
+
+                                parent, Some fullPath
+                            elif Directory.Exists fullPath then
+                                fullPath, None
+                            else
+                                let parent =
+                                    match Path.GetDirectoryName fullPath with
+                                    | null
+                                    | "" -> Directory.GetCurrentDirectory()
+                                    | directory -> directory
+
+                                parent, Some fullPath
+                        | None -> Directory.GetCurrentDirectory(), None
 
                     let absLogPath = parsed.LogPath |> Option.map Path.GetFullPath
 
                     try
-                        Runtime.run rootPath absLogPath
+                        Runtime.run rootPath initialFile absLogPath
                         0
                     with ex ->
                         eprintfn "fedit: unrecoverable error"
