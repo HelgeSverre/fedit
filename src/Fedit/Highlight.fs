@@ -150,7 +150,12 @@ type HighlightRegistry
           "dart", "tree-sitter-dart", "tree_sitter_dart"
           "just", "tree-sitter-just", "tree_sitter_just"
           "make", "tree-sitter-make", "tree_sitter_make"
-          "astro", "tree-sitter-astro", "tree_sitter_astro" ]
+          "astro", "tree-sitter-astro", "tree_sitter_astro"
+          "toml", "tree-sitter-toml", "tree_sitter_toml"
+          "sema", "tree-sitter-sema", "tree_sitter_sema"
+          "applescript", "tree-sitter-applescript", "tree_sitter_applescript"
+          "rescript", "tree-sitter-rescript", "tree_sitter_rescript"
+          "zig", "tree-sitter-zig", "tree_sitter_zig" ]
         |> List.iter (fun (id, lib, func) -> tryLoadExternal id lib func $"fedit.queries.{id}.highlights.scm")
 
         if anyLoaded then
@@ -380,6 +385,12 @@ module Highlight =
                     | ".just" -> Some "just"
                     | ".mk" -> Some "make"
                     | ".astro" -> Some "astro"
+                    | ".toml" -> Some "toml"
+                    | ".sema" -> Some "sema"
+                    | ".applescript" -> Some "applescript"
+                    | ".res"
+                    | ".resi" -> Some "rescript"
+                    | ".zig" -> Some "zig"
                     | _ -> None)
 
         match byPath with

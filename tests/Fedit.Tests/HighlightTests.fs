@@ -87,6 +87,16 @@ let ``detectLanguage maps bundled language extensions`` (path: string) (expected
 [<InlineData("GNUmakefile", "make")>]
 [<InlineData("rules.mk", "make")>]
 [<InlineData("index.astro", "astro")>]
+[<InlineData("Cargo.toml", "toml")>]
+[<InlineData("Pkg.toml", "toml")>]
+[<InlineData("config.toml", "toml")>]
+[<InlineData("script.sema", "sema")>]
+[<InlineData("main.sema", "sema")>]
+[<InlineData("script.applescript", "applescript")>]
+[<InlineData("component.res", "rescript")>]
+[<InlineData("interface.resi", "rescript")>]
+[<InlineData("main.zig", "zig")>]
+[<InlineData("build.zig", "zig")>]
 let ``detectLanguage maps vendored language extensions`` (path: string) (expected: string) =
     Assert.Equal(Some expected, Highlight.detectLanguage (Some path) "")
 
@@ -126,6 +136,9 @@ let ``detectLanguage detects shell scripts by shebang`` () =
 [<InlineData("make")>]
 [<InlineData("astro")>]
 [<InlineData("bash")>]
+[<InlineData("applescript")>]
+[<InlineData("rescript")>]
+[<InlineData("zig")>]
 let ``registry loads language without throwing`` (lang: string) =
     let registry = HighlightRegistry.tryCreate ()
     Assert.True(registry.IsSome, "HighlightRegistry.tryCreate returned None")
@@ -143,6 +156,9 @@ let ``registry loads language without throwing`` (lang: string) =
 [<InlineData("make", "all:\n\techo hi")>]
 [<InlineData("astro", "<h1>Hello</h1>")>]
 [<InlineData("bash", "#!/bin/bash\nif [ -f foo ]; then echo \"hi $HOME\"; fi")>]
+[<InlineData("applescript", "(* hello *)\ntell application \"Finder\"\n  set x to 42\nend tell")>]
+[<InlineData("rescript", "let name = \"fedit\"\nlet answer = 42")>]
+[<InlineData("zig", "const std = @import(\"std\");\npub fn main() void {\n    std.debug.print(\"hi\", .{});\n}")>]
 let ``parse produces non-empty spans for new languages`` (lang: string) (src: string) =
     let registry = HighlightRegistry.tryCreate ()
     Assert.True(registry.IsSome, "registry missing")

@@ -91,6 +91,21 @@
     <EmbeddedResource Include="Resources/queries/astro/highlights.scm">
       <LogicalName>fedit.queries.astro.highlights.scm</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/toml/highlights.scm">
+      <LogicalName>fedit.queries.toml.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/sema/highlights.scm">
+      <LogicalName>fedit.queries.sema.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/applescript/highlights.scm">
+      <LogicalName>fedit.queries.applescript.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/rescript/highlights.scm">
+      <LogicalName>fedit.queries.rescript.highlights.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/zig/highlights.scm">
+      <LogicalName>fedit.queries.zig.highlights.scm</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
     <!-- Keep the F# grammar OUT of the single-file bundle. .NET's
@@ -138,12 +153,11 @@
       <!-- Drop our own `runtimes/<rid>/native/` cross-builds that
            don't match the active RuntimeIdentifier — the local
            `<None Include="runtimes/**/*.*">` pulls every RID into
-           every publish output. Only the matching RID's native is
-           actually needed (and the matching one is already bundled
-           into the single-file binary when SelfContained is on). -->
+           every publish output. Only the matching RID's native sidecars
+           are needed next to the single-file host. -->
       <_OtherRidNatives
         Include="@(ResolvedFileToPublish)"
-        Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(ResolvedFileToPublish.RelativePath)', '^runtimes[\\/][^\\/]+[\\/]native[\\/](lib)?tree-sitter-fsharp\.(so|dylib|dll)$')) and !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes$([System.IO.Path]::DirectorySeparatorChar)$(RuntimeIdentifier)$([System.IO.Path]::DirectorySeparatorChar)'))" />
+        Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(ResolvedFileToPublish.RelativePath)', '^runtimes[\\/][^\\/]+[\\/]native[\\/].+$')) and !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes$([System.IO.Path]::DirectorySeparatorChar)$(RuntimeIdentifier)$([System.IO.Path]::DirectorySeparatorChar)'))" />
       <ResolvedFileToPublish Remove="@(_OtherRidNatives)" />
     </ItemGroup>
     <Message Text="Trimmed @(_DropGrammars->Count()) bundled tree-sitter grammars (kept libtree-sitter core + 14 languages)." Importance="high" />

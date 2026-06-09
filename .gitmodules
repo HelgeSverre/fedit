@@ -22,3 +22,15 @@
 [submodule "vendor/tree-sitter-toml"]
 	path = vendor/tree-sitter-toml
 	url = https://github.com/tree-sitter/tree-sitter-toml
+[submodule "vendor/tree-sitter-sema"]
+	path = vendor/tree-sitter-sema
+	url = https://github.com/helgesverre/tree-sitter-sema.git
+[submodule "vendor/tree-sitter-applescript"]
+	path = vendor/tree-sitter-applescript
+	url = https://github.com/helgesverre/tree-sitter-applescript.git
+[submodule "vendor/tree-sitter-rescript"]
+	path = vendor/tree-sitter-rescript
+	url = https://github.com/rescript-lang/tree-sitter-rescript.git
+[submodule "vendor/tree-sitter-zig"]
+	path = vendor/tree-sitter-zig
+	url = https://github.com/tree-sitter-grammars/tree-sitter-zig.git

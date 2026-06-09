@@ -156,6 +156,12 @@ download-queries:
     cp vendor/tree-sitter-just/queries/just/highlights.scm                      src/Fedit/Resources/queries/just/highlights.scm     && echo "Copied just"
     cp vendor/tree-sitter-make/queries/highlights.scm                           src/Fedit/Resources/queries/make/highlights.scm     && echo "Copied make"
     cp vendor/tree-sitter-astro/queries/highlights.scm                          src/Fedit/Resources/queries/astro/highlights.scm    && echo "Copied astro"
+    cp vendor/tree-sitter-toml/queries/highlights.scm                           src/Fedit/Resources/queries/toml/highlights.scm     && echo "Copied toml"
+    cp vendor/tree-sitter-sema/queries/highlights.scm                          src/Fedit/Resources/queries/sema/highlights.scm    && echo "Copied sema"
+    cp vendor/tree-sitter-rescript/queries/highlights.scm                      src/Fedit/Resources/queries/rescript/highlights.scm && echo "Copied rescript"
+    cp vendor/tree-sitter-zig/queries/highlights.scm                           src/Fedit/Resources/queries/zig/highlights.scm      && echo "Copied zig"
+    # tree-sitter-applescript does not ship a highlights query; fedit maintains
+    # src/Fedit/Resources/queries/applescript/highlights.scm.
 
 # Build all native grammars for the host machine (F# + all vendored).
 # Run this once after a fresh clone or after updating a grammar submodule.
@@ -182,7 +188,12 @@ build-grammars:
         "dart|vendor/tree-sitter-dart/src|parser.c scanner.c" \
         "just|vendor/tree-sitter-just/src|parser.c scanner.c" \
         "make|vendor/tree-sitter-make/src|parser.c" \
-        "astro|vendor/tree-sitter-astro/src|parser.c scanner.c"; do
+        "astro|vendor/tree-sitter-astro/src|parser.c scanner.c" \
+        "toml|vendor/tree-sitter-toml/src|parser.c scanner.c" \
+        "sema|vendor/tree-sitter-sema/src|parser.c scanner.c" \
+        "applescript|vendor/tree-sitter-applescript/src|parser.c scanner.c" \
+        "rescript|vendor/tree-sitter-rescript/src|parser.c scanner.c" \
+        "zig|vendor/tree-sitter-zig/src|parser.c"; do
       IFS='|' read -r name srcdir files <<< "$entry"
       srcs=""; for f in $files; do [ -f "$srcdir/$f" ] && srcs="$srcs $srcdir/$f"; done
       clang -O2 -shared -fPIC -I "$srcdir" -o "$dest/libtree-sitter-$name.$ext" $srcs
@@ -209,7 +220,12 @@ _build-grammar-osx-arm64:
         "dart|vendor/tree-sitter-dart/src|parser.c scanner.c" \
         "just|vendor/tree-sitter-just/src|parser.c scanner.c" \
         "make|vendor/tree-sitter-make/src|parser.c" \
-        "astro|vendor/tree-sitter-astro/src|parser.c scanner.c"; do
+        "astro|vendor/tree-sitter-astro/src|parser.c scanner.c" \
+        "toml|vendor/tree-sitter-toml/src|parser.c scanner.c" \
+        "sema|vendor/tree-sitter-sema/src|parser.c scanner.c" \
+        "applescript|vendor/tree-sitter-applescript/src|parser.c scanner.c" \
+        "rescript|vendor/tree-sitter-rescript/src|parser.c scanner.c" \
+        "zig|vendor/tree-sitter-zig/src|parser.c"; do
       IFS='|' read -r name srcdir files <<< "$entry"
       srcs=""; for f in $files; do [ -f "$srcdir/$f" ] && srcs="$srcs $srcdir/$f"; done
       clang -O2 -shared -fPIC -target arm64-apple-macos11 -I "$srcdir" -o "$dest/libtree-sitter-$name.dylib" $srcs
@@ -232,7 +248,12 @@ _build-grammar-osx-x64:
         "dart|vendor/tree-sitter-dart/src|parser.c scanner.c" \
         "just|vendor/tree-sitter-just/src|parser.c scanner.c" \
         "make|vendor/tree-sitter-make/src|parser.c" \
-        "astro|vendor/tree-sitter-astro/src|parser.c scanner.c"; do
+        "astro|vendor/tree-sitter-astro/src|parser.c scanner.c" \
+        "toml|vendor/tree-sitter-toml/src|parser.c scanner.c" \
+        "sema|vendor/tree-sitter-sema/src|parser.c scanner.c" \
+        "applescript|vendor/tree-sitter-applescript/src|parser.c scanner.c" \
+        "rescript|vendor/tree-sitter-rescript/src|parser.c scanner.c" \
+        "zig|vendor/tree-sitter-zig/src|parser.c"; do
       IFS='|' read -r name srcdir files <<< "$entry"
       srcs=""; for f in $files; do [ -f "$srcdir/$f" ] && srcs="$srcs $srcdir/$f"; done
       clang -O2 -shared -fPIC -target x86_64-apple-macos10.15 -I "$srcdir" -o "$dest/libtree-sitter-$name.dylib" $srcs
@@ -254,7 +275,12 @@ _build-grammar-linux-x64:
         "dart|vendor/tree-sitter-dart/src|parser.c scanner.c" \
         "just|vendor/tree-sitter-just/src|parser.c scanner.c" \
         "make|vendor/tree-sitter-make/src|parser.c" \
-        "astro|vendor/tree-sitter-astro/src|parser.c scanner.c"; do
+        "astro|vendor/tree-sitter-astro/src|parser.c scanner.c" \
+        "toml|vendor/tree-sitter-toml/src|parser.c scanner.c" \
+        "sema|vendor/tree-sitter-sema/src|parser.c scanner.c" \
+        "applescript|vendor/tree-sitter-applescript/src|parser.c scanner.c" \
+        "rescript|vendor/tree-sitter-rescript/src|parser.c scanner.c" \
+        "zig|vendor/tree-sitter-zig/src|parser.c"; do
       IFS='|' read -r name srcdir files <<< "$entry"
       srcs=""; for f in $files; do [ -f "$srcdir/$f" ] && srcs="$srcs $srcdir/$f"; done
       zig cc -O2 -UNDEBUG -shared -fPIC -target x86_64-linux-gnu -I "$srcdir" -o "$dest/libtree-sitter-$name.so" $srcs
@@ -276,7 +302,12 @@ _build-grammar-linux-arm64:
         "dart|vendor/tree-sitter-dart/src|parser.c scanner.c" \
         "just|vendor/tree-sitter-just/src|parser.c scanner.c" \
         "make|vendor/tree-sitter-make/src|parser.c" \
-        "astro|vendor/tree-sitter-astro/src|parser.c scanner.c"; do
+        "astro|vendor/tree-sitter-astro/src|parser.c scanner.c" \
+        "toml|vendor/tree-sitter-toml/src|parser.c scanner.c" \
+        "sema|vendor/tree-sitter-sema/src|parser.c scanner.c" \
+        "applescript|vendor/tree-sitter-applescript/src|parser.c scanner.c" \
+        "rescript|vendor/tree-sitter-rescript/src|parser.c scanner.c" \
+        "zig|vendor/tree-sitter-zig/src|parser.c"; do
       IFS='|' read -r name srcdir files <<< "$entry"
       srcs=""; for f in $files; do [ -f "$srcdir/$f" ] && srcs="$srcs $srcdir/$f"; done
       zig cc -O2 -UNDEBUG -shared -fPIC -target aarch64-linux-gnu -I "$srcdir" -o "$dest/libtree-sitter-$name.so" $srcs
@@ -298,7 +329,12 @@ _build-grammar-win-x64:
         "dart|vendor/tree-sitter-dart/src|parser.c scanner.c" \
         "just|vendor/tree-sitter-just/src|parser.c scanner.c" \
         "make|vendor/tree-sitter-make/src|parser.c" \
-        "astro|vendor/tree-sitter-astro/src|parser.c scanner.c"; do
+        "astro|vendor/tree-sitter-astro/src|parser.c scanner.c" \
+        "toml|vendor/tree-sitter-toml/src|parser.c scanner.c" \
+        "sema|vendor/tree-sitter-sema/src|parser.c scanner.c" \
+        "applescript|vendor/tree-sitter-applescript/src|parser.c scanner.c" \
+        "rescript|vendor/tree-sitter-rescript/src|parser.c scanner.c" \
+        "zig|vendor/tree-sitter-zig/src|parser.c"; do
       IFS='|' read -r name srcdir files <<< "$entry"
       srcs=""; for f in $files; do [ -f "$srcdir/$f" ] && srcs="$srcs $srcdir/$f"; done
       zig cc -O2 -UNDEBUG -shared -target x86_64-windows-gnu -I "$srcdir" -o "$dest/tree-sitter-$name.dll" $srcs
