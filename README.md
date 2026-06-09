@@ -12,7 +12,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 ![Project Type](https://img.shields.io/badge/language-F%23-blue.svg)
 
-Opens a workspace, shows a file tree, edits files, saves to disk. Multi-buffer, undo/redo, find, command palette, system clipboard. Ten color themes. Persists the last 20 opened files and your theme across sessions.
+Opens a workspace, shows a file tree, edits files, saves to disk. Multi-buffer, undo/redo, find, command palette, system clipboard. Click and drag to select. Twelve color themes. Persists the last 20 opened files and your theme across sessions.
 
 Brand assets and theme spec in [`brand/`](brand/). Marketing site in [`website/`](website/) — run with `just website::dev`.
 
@@ -221,6 +221,7 @@ Editor keys:
 - `Shift+Tab` unindents the current line.
 - `Enter`, `Backspace`, and `Delete` edit text normally; with a selection, they replace it.
 - The mouse wheel scrolls the viewport; the cursor follows only when it would cross the `scrollOff` margin. Set `scrollMode` to `line` to make the wheel move the cursor instead. While fedit runs it captures the mouse — hold `Shift` (or `Option` on macOS) for the terminal's own selection and scrollback.
+- **Click** in the editor to place the cursor. **Drag** to select text. Clicking also restores focus to the editor when the sidebar or prompt had it.
 
 Find keys (after `Ctrl+F`):
 
@@ -381,13 +382,13 @@ Color fields accept either a hex string (`#RGB` or `#RRGGBB`) or a named color (
 
 ## How It Works
 
-The project is an executable defined by `src/Fedit/Fedit.fsproj`. The bulk of the codebase sits under `namespace Fedit` (see `<Compile Include="…">` in the fsproj for the canonical order): `Primitives.fs` → `PieceTable.fs` → `Buffer.fs` → `Workspace.fs` → `Screen.fs` → `Color.fs` → `Themes.fs` → `Commands.fs` → `Plugins.fs` → `Model.fs` → `Config.fs` → `Prompt.fs` → `Editor.fs` → `Status.fs` → `Renderer.fs` → `Input.fs` → `View.fs` → `Runtime.fs` → `Program.fs`. The CLI surface lives under `namespace Fedit.Cli` per .NET convention: the parser at `Cli.fs` (`Fedit.Cli.Parser`) and the subcommand handlers under `Cli/Commands/{Plugins,Completions}.fs`. The test project lives in `tests/Fedit.Tests/` and the `Fedit.slnx` solution at the repo root ties both together. Startup reads the first non-flag command-line argument as the workspace root. If no argument is provided, it uses the current directory.
+The project is an executable defined by `src/Fedit/Fedit.fsproj`. The bulk of the codebase sits under `namespace Fedit` (see `<Compile Include="…">` in the fsproj for the canonical order): `Primitives.fs` → `Keys.fs` → `PieceTable.fs` → `Buffer.fs` → `Workspace.fs` → `Screen.fs` → `Color.fs` → `Themes.fs` → `Highlight.fs` → `Commands.fs` → `Actions.fs` → `Keymap.fs` → `Plugins.fs` → `Model.fs` → `Config.fs` → `KeymapIO.fs` → `Prompt.fs` → `Editor.fs` → `Status.fs` → `Renderer.fs` → `Input.fs` → `View.fs` → `Runtime.fs` → `Cli.fs` → `Cli/Commands/*.fs` → `Program.fs`. The CLI surface lives under `namespace Fedit.Cli` per .NET convention: the parser at `Cli.fs` (`Fedit.Cli.Parser`) and the subcommand handlers under `Cli/Commands/`. The test project lives in `tests/Fedit.Tests/` and the `Fedit.slnx` solution at the repo root ties both together. Startup reads the first non-flag command-line argument as a file or workspace path. Existing files open in their parent workspace; directories open as workspaces. If no argument is provided, it uses the current directory.
 
 At runtime, `fedit` scans the workspace into a tree model and skips `.DS_Store`, `.git`, `.dotnet`, `bin`, and `obj`. A `FileSystemWatcher` is installed on the same workspace root so external edits, creations, deletions, and renames trigger a debounced rescan (300ms) without `Ctrl+R`. The UI keeps a model containing the workspace tree, open buffers, focus target, terminal size, notifications, and panel state.
 
 Text buffers are stored with a piece table. The original file contents stay in one string, inserted text is appended to another string, and the visible document is represented as a list of pieces. This keeps inserts and deletes local to the piece list while preserving enough state for undo and redo snapshots. Each open buffer keeps its own undo and redo stacks, cursor position, and viewport.
 
-Files are read as UTF-8. The line ending of the loaded file (`LF` or `CRLF`) is detected and reused on save; the buffer always works in `\n` form internally. Saving writes UTF-8 without a byte-order mark.
+Files are read as UTF-8. The line ending of the loaded file (`LF` or `CRLF`) is detected and reused on save; the buffer always works in `\n` form internally. Saving writes UTF-8 without a byte-order mark. Rendering currently assumes one display cell per UTF-16 code unit; wide glyphs, emoji, and combining marks can misalign cursor placement until the display-width layer lands.
 
 The UI is split into a sidebar (file tree), an editor pane with a line-number gutter, a status line, a single-line prompt row at the bottom, and a dock panel that's hidden when the prompt is inactive. The dock appears automatically when the prompt is active — showing completions for file/command/buffer modes and a match counter or jump hint for search and goto. The status line is template-driven via `statusFormat` in config (see Configuration); the default layout puts the focus mode on the left, the current notification floating in the middle, and line/column / encoding / buffer-index pinned to the right edge.
 

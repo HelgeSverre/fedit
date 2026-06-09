@@ -22,11 +22,11 @@ KeyPressed / Resize → Msg → Editor.update (pure) → (Model', [Effect])
 - **Themes** own the full chrome surface — accent plus an explicit fg/bg per region (editor, gutter, prompt, dock, status, selection, active line). Bundled dark themes set `Default` backgrounds so they keep terminal-default chrome; a light theme supplies real backgrounds.
 
 Source file order (`<Compile>` in `src/Fedit/Fedit.fsproj` is canonical):
-`Primitives → PieceTable → Buffer → Workspace → Themes → Commands → Cli → Prompt → Model → Editor → Screen → Renderer → Input → View → Runtime → Program`.
+`Primitives → Keys → PieceTable → Buffer → Workspace → Screen → Color → Themes → Highlight → Commands → Actions → Keymap → Plugins → Model → Config → KeymapIO → Prompt → Editor → Status → Renderer → Input → View → Runtime → Cli → Cli/Commands/* → Program`.
 
 ## Building & testing
 
-The repo ships a pinned `.dotnet` SDK (9.0.x). Recipes prepend it to `PATH` — never `dotnet` directly outside a recipe; use `just` or invoke
+The repo ships a pinned `.dotnet` SDK (10.0.x). Recipes prepend it to `PATH` — never `dotnet` directly outside a recipe; use `just` or invoke
 the wrapper script `./fedit`.
 
 ```
@@ -38,13 +38,13 @@ just format       # fantomas + prettier on **/*.md
 just lint         # check-only of the same
 ```
 
-Website lives under `website/` (Astro 5 + bun) — see `just website::dev|build|check|lint|format`.
+Website lives under `website/` (Astro 6 + bun) — see `just website::dev|build|check|lint|format`.
 
 ## Brand & themes
 
 Source of truth: [`brand/`](brand/). One symbol (caret), one workhorse
 mono (Departure for brand, JetBrains Mono for code), one accent
-(`#00B86B`), 7 selectable themes. Brand bans purple/magenta and AI-slop
+(`#00B86B`), 12 selectable themes. Brand bans purple/magenta and AI-slop
 patterns (Inter, gradients, glassmorphism, bento, centered hero — see
 `brand/USAGE.md`).
 
@@ -83,7 +83,7 @@ Local dry-run of the formula renderer: `just release-formula-preview`.
 
 ## Common gotchas
 
-- `dotnet` outside `.dotnet/` resolves the system version (often 10.x) and trips `global.json`'s pin to `9.0.312`. Use `just` or `./fedit`.
+- `dotnet` outside `.dotnet/` may resolve a different system version and trip `global.json`'s pin to `10.0.100`. Use `just` or `./fedit`.
 - Adding files to `src/Fedit/`? Update `<Compile Include="…">` in the fsproj AND commit the file. CI build will fail with `FS0225: Source file could not be found` if either is missed (this has burned us before).
 - `prettier-plugin-astro` occasionally needs two passes to stabilize a file; if `lint` flags a freshly-formatted file, run `format` once more.
 - `git diff --quiet -- <path>` against an untracked file returns 0 (no diff). When checking for staged formula changes in CI, always `git add` first then check `--cached`.

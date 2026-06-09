@@ -31,6 +31,13 @@ sub-items (Lines→Offsets cache, delta-based undo) are explicitly
 deferred — each is a multi-day refactor better done in a dedicated
 session. See `CHANGELOG.md` for per-phase summaries.
 
+**Mouse, color, query, image (shipped to main):**
+
+- Click-to-place-cursor and drag-to-select in the editor.
+- Startup DA1/DA2 terminal capability query for more accurate detection than env vars.
+- `Renderer.render` downgrades colors based on `ColorSupport` (RGB → 256 → 16 → default).
+- Abstract `ImageProtocol` + Kitty APC graphics implementation (protocol layer ready, not yet wired into layout).
+
 Open architectural follow-ups worth tracking separately:
 
 - **Phase 16.2 — `Lines: string[]` → `Offsets: int[]` cache.** Needs
