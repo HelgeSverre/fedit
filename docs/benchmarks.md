@@ -127,3 +127,26 @@ standard-16 table on every quantize (15.6 KB for one color — hoist to a
 static), and `parseSpans` is linear at ~1 ms / 1k chars, which is the
 measured case for the planned debounce + size cap + incremental reparse
 (a 1M-char buffer pays ~1.1 s per keystroke today).
+
+### After — 2026-06-11 perf round
+
+Same machine, after the incremental line-cache splice, append-only add
+buffer, palette hoist, and highlight debounce/size-cap landed:
+
+| Bench                       | Baseline            | After             | Change      |
+| --------------------------- | ------------------- | ----------------- | ----------- |
+| BufferTyping 256            | 45,214 us / 166 MB  | 3,531 us / 6.1 MB | 12.8x / 27x |
+| BufferTyping 1024           | 182,280 us / 684 MB | 14,401 us / 28 MB | 12.7x / 25x |
+| PieceTableTyping 1024       | 128.5 us / 1.4 MB   | 81.8 us / 410 KB  | 1.6x / 3.5x |
+| QuantizeAccent              | 2.6 us / 15.6 KB    | 175 ns / 48 B     | 15x / 332x  |
+| Per keystroke at 100k chars | ~178 us / ~667 KB   | ~14 us / ~24 KB   | 13x / 28x   |
+
+The remaining BufferTyping cost is the O(lines) array splice plus
+`positionToIndex`'s line walk — both flatten further with a line-offset
+index if a future measurement justifies it. ToStringWhole at 10k pays
+~7 us more (per-piece lock on the shared add buffer) — the accepted
+price for thread-safe reads from effect tasks; at 100k it is faster
+than baseline. Highlight parses are unchanged per parse but now
+debounced 75 ms (a burst schedules many, only the newest parses),
+capped at `Highlight.maxParseChars` (2M chars), and grammar-less
+buffers no longer pay a full document materialization per keystroke.
