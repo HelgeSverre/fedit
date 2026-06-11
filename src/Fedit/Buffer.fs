@@ -202,7 +202,10 @@ module Buffer =
             Undo = snapshot original :: original.Undo |> List.truncate maxUndoDepth
             Redo = [] }
 
-    let private replaceRange startIndex count replacement buffer =
+    /// Replace `count` chars starting at `startIndex` with `replacement`
+    /// as a single edit: one undo entry, cursor just past the inserted
+    /// text. Backs `insertText` and the plugin `ReplaceRange` action.
+    let replaceRange startIndex count replacement buffer =
         let deleted = PieceTable.deleteRange startIndex count buffer.Document
         let inserted = PieceTable.insert startIndex replacement deleted
         let withDoc = buffer |> withDocument inserted

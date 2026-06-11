@@ -414,27 +414,26 @@ type Plugin =
             Directory.Delete(pluginsRoot, recursive = true)
 
 // ---------------------------------------------------------------------------
-// PluginContext snapshot: Selection field
+// Plugin dispatch plumbing
 // ---------------------------------------------------------------------------
 
-/// Drives a synthetic plugin binding through `Editor.update` so it can capture
-/// the `PluginContext` the host hands to the plugin's `Run`. Uses Ctrl+J,
-/// which is not reserved by the top-level KeyPressed handler and so falls
-/// through to plugin keybinding dispatch in `runEditor`.
-let private captureCtxFor (buffer: BufferState) =
+/// Drives a synthetic plugin binding through `Editor.update`. `setup` shapes
+/// the freshly-initialized model (root "/root", 80×24); `run` is the probe
+/// plugin's body. Dispatches Ctrl+J, which is not reserved by the top-level
+/// KeyPressed handler and so falls through to plugin keybinding dispatch in
+/// `runEditor`.
+let private dispatchProbe
+    (setup: Model -> Model)
+    (run: Fedit.PluginApi.PluginContext -> Fedit.PluginApi.PluginAction list)
+    : Model * Effect list =
     let model, _ =
         Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) []
-
-    let captured = ref None
 
     let spec: Fedit.PluginApi.PluginCommand =
         { Name = "probe"
           Usage = ""
           Summary = ""
-          Run =
-            fun ctx ->
-                captured.Value <- Some ctx
-                [] }
+          Run = run }
 
     let binding: PluginCommandBinding = { Source = "probe-plugin"; Spec = spec }
 
@@ -443,22 +442,42 @@ let private captureCtxFor (buffer: BufferState) =
             Commands = Map.ofList [ "probe", binding ]
             Keybindings = [ Fedit.PluginApi.KeyChord.Ctrl 'j', "probe" ] }
 
-    let modelWithBuffer =
-        { model with
-            Editors =
-                { model.Editors with
-                    Buffers = model.Editors.Buffers |> Map.add buffer.Id buffer
-                    ActiveBufferId = buffer.Id }
-            Plugins = registry }
+    let prepared = setup { model with Plugins = registry }
 
-    let _ =
-        Editor.update
-            (KeyPressed
-                { Mods = Set.ofList [ Ctrl ]
-                  Key = Key.Char 'j' })
-            modelWithBuffer
+    Editor.update
+        (KeyPressed
+            { Mods = Set.ofList [ Ctrl ]
+              Key = Key.Char 'j' })
+        prepared
+
+/// Add `buffer` to the model's open set and make it active.
+let private withActiveBuffer (buffer: BufferState) (model: Model) =
+    { model with
+        Editors =
+            { model.Editors with
+                Buffers = model.Editors.Buffers |> Map.add buffer.Id buffer
+                ActiveBufferId = buffer.Id } }
+
+/// Run a fixed plugin-action list with `buffer` active.
+let private runActionsFor buffer actions =
+    dispatchProbe (withActiveBuffer buffer) (fun _ -> actions)
+
+/// Capture the `PluginContext` the host hands to the probe's `Run`.
+let private captureCtx (setup: Model -> Model) =
+    let captured = ref None
+
+    dispatchProbe setup (fun ctx ->
+        captured.Value <- Some ctx
+        [])
+    |> ignore
 
     captured.Value
+
+let private captureCtxFor (buffer: BufferState) = captureCtx (withActiveBuffer buffer)
+
+// ---------------------------------------------------------------------------
+// PluginContext snapshot: Selection field
+// ---------------------------------------------------------------------------
 
 [<Fact>]
 let ``toPluginContext leaves Selection None when the buffer has no selection`` () =
@@ -527,4 +546,280 @@ let ``toPluginContext crosses line boundaries with 1-based line numbers`` () =
             Assert.Equal(2, endPos.Line)
             Assert.Equal(3, endPos.Column)
         | None -> Assert.Fail "expected Selection to be Some"
+    | None -> Assert.Fail "plugin Run was not invoked"
+
+// ---------------------------------------------------------------------------
+// Plugin actions (API v1.1): editing, buffers, workspace
+// ---------------------------------------------------------------------------
+
+let private pos line column : Fedit.PluginApi.CursorPosition = { Line = line; Column = column }
+
+let private activeBuffer (model: Model) =
+    model.Editors.Buffers[model.Editors.ActiveBufferId]
+
+[<Fact>]
+let ``ReplaceRange replaces between 1-based positions as one undo entry`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"
+
+    let next, _ =
+        runActionsFor buffer [ Fedit.PluginApi.ReplaceRange(pos 1 1, pos 1 6, "goodbye") ]
+
+    let result = activeBuffer next
+    Assert.Equal("goodbye world", Buffer.text result)
+    Assert.Equal(1, result.Undo.Length)
+    Assert.Equal(({ Line = 0; Column = 7 }: Position), result.Cursor)
+
+[<Fact>]
+let ``ReplaceRange clamps out-of-range coordinates`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello\nworld" "\n"
+
+    let next, _ =
+        runActionsFor buffer [ Fedit.PluginApi.ReplaceRange(pos 1 1, pos 99 99, "x") ]
+
+    Assert.Equal("x", Buffer.text (activeBuffer next))
+
+[<Fact>]
+let ``ReplaceRange swaps ends when from is after to`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"
+
+    let next, _ =
+        runActionsFor buffer [ Fedit.PluginApi.ReplaceRange(pos 1 6, pos 1 1, "bye") ]
+
+    Assert.Equal("bye world", Buffer.text (activeBuffer next))
+
+[<Fact>]
+let ``ClearSelection collapses the selection without editing`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"
+
+    let withSel =
+        { buffer with
+            Selection = Some { Anchor = 0; Head = 5 } }
+
+    let next, _ = runActionsFor withSel [ Fedit.PluginApi.ClearSelection ]
+
+    let result = activeBuffer next
+    Assert.Equal(None, result.Selection)
+    Assert.Equal("hello world", Buffer.text result)
+    Assert.Equal(buffer.EditTick, result.EditTick)
+
+[<Fact>]
+let ``ClearSelection is a no-op without a selection`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"
+
+    let next, _ = runActionsFor buffer [ Fedit.PluginApi.ClearSelection ]
+
+    let result = activeBuffer next
+    Assert.Equal(None, result.Selection)
+    Assert.Equal("hello world", Buffer.text result)
+    Assert.Equal(buffer.EditTick, result.EditTick)
+
+[<Fact>]
+let ``DeleteSelection removes the selected text`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"
+
+    let withSel =
+        { buffer with
+            Selection = Some { Anchor = 0; Head = 5 } }
+
+    let next, _ = runActionsFor withSel [ Fedit.PluginApi.DeleteSelection ]
+
+    let result = activeBuffer next
+    Assert.Equal(" world", Buffer.text result)
+    Assert.Equal(None, result.Selection)
+    Assert.Equal(1, result.Undo.Length)
+
+[<Fact>]
+let ``DeleteSelection is a no-op without a selection`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"
+
+    let next, _ = runActionsFor buffer [ Fedit.PluginApi.DeleteSelection ]
+
+    let result = activeBuffer next
+    Assert.Equal("hello world", Buffer.text result)
+    Assert.Equal(buffer.EditTick, result.EditTick)
+
+[<Fact>]
+let ``SwitchBuffer activates a known buffer id`` () =
+    // init seeds scratch buffer 1; the probe buffer (7) is active.
+    let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"
+
+    let next, _ = runActionsFor buffer [ Fedit.PluginApi.SwitchBuffer 1 ]
+
+    Assert.Equal(1, next.Editors.ActiveBufferId)
+
+[<Fact>]
+let ``SwitchBuffer notifies an error for an unknown id`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"
+
+    let next, _ = runActionsFor buffer [ Fedit.PluginApi.SwitchBuffer 99 ]
+
+    Assert.Equal(7, next.Editors.ActiveBufferId)
+
+    match next.Notification with
+    | Some notif ->
+        Assert.Equal(Severity.Error, notif.Severity)
+        Assert.Contains("Unknown buffer", notif.Message)
+    | None -> Assert.Fail "expected an error notification"
+
+[<Fact>]
+let ``NewBuffer creates an active scratch buffer and bumps NextBufferId`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"
+
+    let next, _ = runActionsFor buffer [ Fedit.PluginApi.NewBuffer("notes", "hi") ]
+
+    let result = activeBuffer next
+    Assert.Equal("notes", result.Name)
+    Assert.Equal(None, result.FilePath)
+    Assert.Equal("hi", Buffer.text result)
+    // init's NextBufferId is 2; the probe buffer is grafted in as id 7
+    // without bumping it, so the new buffer takes id 2 and bumps to 3.
+    Assert.Equal(2, result.Id)
+    Assert.Equal(3, next.Editors.NextBufferId)
+    Assert.Equal(None, next.Editors.PreviewBufferId)
+    Assert.Equal(3, next.Editors.Buffers.Count)
+
+[<Fact>]
+let ``NewBuffer defaults an empty name to plugin`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"
+
+    let next, _ = runActionsFor buffer [ Fedit.PluginApi.NewBuffer("  ", "") ]
+
+    Assert.Equal("plugin", (activeBuffer next).Name)
+
+[<Fact>]
+let ``NewBuffer makes later actions in the list target the new buffer`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "original" "\n"
+
+    let next, _ =
+        runActionsFor buffer [ Fedit.PluginApi.NewBuffer("notes", ""); Fedit.PluginApi.InsertText "hello" ]
+
+    Assert.Equal("hello", Buffer.text (activeBuffer next))
+    Assert.Equal("original", Buffer.text next.Editors.Buffers[7])
+
+[<Fact>]
+let ``OpenFilePreview emits LoadFile with preview intent for a new path`` () =
+    let tree: FileNode =
+        { Path = "/root"
+          Name = "root"
+          IsDirectory = true
+          Children =
+            [ { Path = "/root/src"
+                Name = "src"
+                IsDirectory = true
+                Children =
+                  [ { Path = "/root/src/a.fs"
+                      Name = "a.fs"
+                      IsDirectory = false
+                      Children = [] } ] } ] }
+
+    let buffer = Buffer.fromText 7 None "scratch" "hello" "\n"
+
+    let setup model =
+        { withActiveBuffer buffer model with
+            Workspace = Workspace.setTree tree model.Workspace }
+
+    let _, effects =
+        dispatchProbe setup (fun _ -> [ Fedit.PluginApi.OpenFilePreview "src/a.fs" ])
+
+    Assert.Contains(LoadFile("/root/src/a.fs", OpenPreview), effects)
+
+[<Fact>]
+let ``OpenFilePreview activates an already-open buffer without loading`` () =
+    let probe = Buffer.fromText 7 None "scratch" "hello" "\n"
+    let opened = Buffer.fromText 9 (Some "/root/a.fs") "a.fs" "contents" "\n"
+
+    let setup model =
+        let withProbe = withActiveBuffer probe model
+
+        { withProbe with
+            Editors =
+                { withProbe.Editors with
+                    Buffers = withProbe.Editors.Buffers |> Map.add opened.Id opened } }
+
+    let next, effects =
+        dispatchProbe setup (fun _ -> [ Fedit.PluginApi.OpenFilePreview "a.fs" ])
+
+    Assert.Equal(9, next.Editors.ActiveBufferId)
+
+    Assert.True(
+        effects
+        |> List.forall (fun effect ->
+            match effect with
+            | LoadFile _ -> false
+            | _ -> true),
+        "expected no LoadFile effect for an already-open buffer"
+    )
+
+[<Fact>]
+let ``RevealPath shows the sidebar and selects the path without stealing focus`` () =
+    let tree: FileNode =
+        { Path = "/root"
+          Name = "root"
+          IsDirectory = true
+          Children =
+            [ { Path = "/root/src"
+                Name = "src"
+                IsDirectory = true
+                Children =
+                  [ { Path = "/root/src/a.fs"
+                      Name = "a.fs"
+                      IsDirectory = false
+                      Children = [] } ] } ] }
+
+    let buffer = Buffer.fromText 7 None "scratch" "hello" "\n"
+
+    let setup model =
+        { withActiveBuffer buffer model with
+            Workspace = Workspace.setTree tree model.Workspace
+            Panels =
+                { model.Panels with
+                    SidebarVisible = false } }
+
+    let next, _ =
+        dispatchProbe setup (fun _ -> [ Fedit.PluginApi.RevealPath "src/a.fs" ])
+
+    Assert.True next.Panels.SidebarVisible
+    Assert.Equal(Some "/root/src/a.fs", next.Workspace.SelectedPath)
+    Assert.Contains("/root/src", next.Workspace.Expanded)
+    Assert.Equal(FocusTarget.Editor, next.Focus)
+
+[<Fact>]
+let ``RevealPath outside the workspace is a no-op`` () =
+    let tree: FileNode =
+        { Path = "/root"
+          Name = "root"
+          IsDirectory = true
+          Children = [] }
+
+    let buffer = Buffer.fromText 7 None "scratch" "hello" "\n"
+
+    let setup model =
+        { withActiveBuffer buffer model with
+            Workspace = Workspace.setTree tree model.Workspace
+            Panels =
+                { model.Panels with
+                    SidebarVisible = false } }
+
+    let next, _ =
+        dispatchProbe setup (fun _ -> [ Fedit.PluginApi.RevealPath "/elsewhere/x.fs" ])
+
+    Assert.False next.Panels.SidebarVisible
+    // setTree auto-selects the root; the failed reveal must not move it.
+    Assert.Equal(Some "/root", next.Workspace.SelectedPath)
+
+[<Fact>]
+let ``toPluginContext carries workspace SelectedPath and Files`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello" "\n"
+
+    let setup model =
+        { withActiveBuffer buffer model with
+            Workspace =
+                { model.Workspace with
+                    SelectedPath = Some "/root/picked.fs"
+                    Files = [ "a.fs"; "sub/b.fs" ] } }
+
+    match captureCtx setup with
+    | Some ctx ->
+        Assert.Equal(Some "/root/picked.fs", ctx.Workspace.SelectedPath)
+        Assert.Equal<string list>([ "a.fs"; "sub/b.fs" ], ctx.Workspace.Files)
     | None -> Assert.Fail "plugin Run was not invoked"

@@ -538,6 +538,27 @@ module Editor =
                 Workspace = selectOrReveal absolutePath model model.Workspace
                 Focus = Editor })
 
+    /// Open `path` into the preview slot. Already-open normal buffers are
+    /// activated instead (VSCode behavior); re-previewing the file already
+    /// in the slot is a no-op activation. Focus is preserved — Space peeks
+    /// from the sidebar.
+    let private openPreview (path: string) (model: Model) : Model * Effect list =
+        let previewSlot =
+            model.Editors.PreviewBufferId
+            |> Option.bind (fun id -> model.Editors.Buffers |> Map.tryFind id |> Option.map (fun buffer -> id, buffer))
+
+        match previewSlot with
+        | Some(previewId, buffer) when buffer.FilePath = Some path ->
+            { model with
+                Editors =
+                    { model.Editors with
+                        ActiveBufferId = previewId } },
+            []
+        | _ ->
+            match tryActivateExisting path model with
+            | Some activated -> { activated with Focus = model.Focus }, []
+            | None -> model, [ LoadFile(path, OpenPreview) ]
+
     /// Build a read-only snapshot of the world for a plugin command. The
     /// plugin sees text, cursor, file path, all open buffers, and the
     /// workspace root — never any mutable handle into the host's model.
@@ -565,7 +586,17 @@ module Editor =
 
         { ActiveBuffer = toView active activeBuffer
           AllBuffers = model.Editors.Buffers |> Map.toList |> List.map (fun (id, b) -> toView id b)
-          Workspace = { RootPath = model.Workspace.RootPath } }
+          Workspace =
+            { RootPath = model.Workspace.RootPath
+              SelectedPath = model.Workspace.SelectedPath
+              Files = model.Workspace.Files } }
+
+    /// Translate the plugin API's 1-based CursorPosition to fedit's
+    /// 0-based Position. Negative inputs clamp to 0 here;
+    /// `Buffer.positionToIndex` clamps the rest to the document.
+    let private toHostPosition (pos: Fedit.PluginApi.CursorPosition) : Position =
+        { Line = max 0 (pos.Line - 1)
+          Column = max 0 (pos.Column - 1) }
 
     /// Translate a plugin's `PluginAction list` return into core model
     /// updates + effects. Each action is applied in declaration order;
@@ -605,14 +636,10 @@ module Editor =
                 current <- updateActiveBuffer transform current
             | Fedit.PluginApi.MoveCursor pos ->
                 // Plugin API is 1-based to mirror the UI's `Ln N` indicator.
-                let target =
-                    { Line = max 0 (pos.Line - 1)
-                      Column = max 0 (pos.Column - 1) }
-
                 current <-
                     updateActiveBuffer
                         (fun buffer ->
-                            let idx = Buffer.positionToIndex target buffer
+                            let idx = Buffer.positionToIndex (toHostPosition pos) buffer
                             Buffer.moveToOffset idx buffer)
                         current
             | Fedit.PluginApi.SelectRange(anchorPos, cursorPos) ->
@@ -620,15 +647,11 @@ module Editor =
                 // the caret lands on `cursor` (the live end), so the result
                 // matches a shift+motion selection. `positionToIndex` clamps,
                 // so out-of-range plugin coords are safe.
-                let toTarget (pos: Fedit.PluginApi.CursorPosition) =
-                    { Line = max 0 (pos.Line - 1)
-                      Column = max 0 (pos.Column - 1) }
-
                 current <-
                     updateActiveBuffer
                         (fun buffer ->
-                            let anchorIdx = Buffer.positionToIndex (toTarget anchorPos) buffer
-                            let cursorIdx = Buffer.positionToIndex (toTarget cursorPos) buffer
+                            let anchorIdx = Buffer.positionToIndex (toHostPosition anchorPos) buffer
+                            let cursorIdx = Buffer.positionToIndex (toHostPosition cursorPos) buffer
 
                             Buffer.selectRange anchorIdx cursorIdx buffer)
                         current
@@ -647,6 +670,71 @@ module Editor =
                     effects.AddRange fx
                 | _ -> current <- notify (Some(Notification.error $"Plugin RunCommand: invalid '{name}'")) current
             | Fedit.PluginApi.SetClipboard text -> effects.Add(ClipboardCopy text)
+            | Fedit.PluginApi.OpenFilePreview path ->
+                let absolutePath = resolvePath current.Workspace.RootPath path
+                let nextModel, fx = openPreview absolutePath current
+                current <- nextModel
+                effects.AddRange fx
+            | Fedit.PluginApi.RevealPath path ->
+                // Reveal without stealing focus: the plugin ran while the
+                // user was editing, and the next keystroke should still go
+                // to the buffer. Paths the index doesn't know are a full
+                // no-op (the sidebar doesn't even pop open).
+                let absolutePath = resolvePath current.Workspace.RootPath path
+
+                if current.Workspace.ByPath.ContainsKey absolutePath then
+                    current <-
+                        { current with
+                            Panels =
+                                { current.Panels with
+                                    SidebarVisible = true }
+                            Workspace = Workspace.revealPath absolutePath (Workspace.clearSearch current.Workspace) }
+            | Fedit.PluginApi.ReplaceRange(fromPos, toPos, text) ->
+                // One undo entry: Buffer.replaceRange composes delete +
+                // insert through a single finalizeEdit. Ends normalize so
+                // from > to_ still works; positionToIndex clamps.
+                let text = fst (normalizeNewlines text)
+
+                current <-
+                    updateActiveBuffer
+                        (fun buffer ->
+                            let fromIdx = Buffer.positionToIndex (toHostPosition fromPos) buffer
+                            let toIdx = Buffer.positionToIndex (toHostPosition toPos) buffer
+                            let startIdx = min fromIdx toIdx
+
+                            Buffer.replaceRange startIdx (abs (toIdx - fromIdx)) text buffer
+                            |> Buffer.clearSelection)
+                        current
+            | Fedit.PluginApi.ClearSelection -> current <- updateActiveBuffer Buffer.clearSelection current
+            | Fedit.PluginApi.DeleteSelection -> current <- updateActiveBuffer Buffer.deleteSelection current
+            | Fedit.PluginApi.SwitchBuffer id ->
+                // Same path as `:buffer <id>`: validates the id, notifies
+                // "Unknown buffer" on a miss, changes nothing else.
+                let nextModel, fx = executeCommand (Command.SwitchBuffer(ById id)) current
+                current <- nextModel
+                effects.AddRange fx
+            | Fedit.PluginApi.NewBuffer(name, text) ->
+                let displayName =
+                    if String.IsNullOrWhiteSpace name then
+                        "plugin"
+                    else
+                        name.Trim()
+
+                let normalized, newline = normalizeNewlines text
+
+                let buffer =
+                    Buffer.fromText current.Editors.NextBufferId None displayName normalized newline
+
+                // Mirrors the FileOpened OpenPermanent construction minus
+                // the path/recent bookkeeping. PreviewBufferId is untouched;
+                // the host stays silent — the plugin owns messaging.
+                current <-
+                    { current with
+                        Editors =
+                            { current.Editors with
+                                Buffers = current.Editors.Buffers |> Map.add buffer.Id buffer
+                                ActiveBufferId = buffer.Id
+                                NextBufferId = buffer.Id + 1 } }
 
         current, List.ofSeq effects
 
@@ -1341,27 +1429,6 @@ module Editor =
         | FocusTarget.Editor -> Context.Editor
         | FocusTarget.Sidebar -> Context.Sidebar
         | FocusTarget.Prompt -> Context.Prompt
-
-    /// Open `path` into the preview slot. Already-open normal buffers are
-    /// activated instead (VSCode behavior); re-previewing the file already
-    /// in the slot is a no-op activation. Focus is preserved — Space peeks
-    /// from the sidebar.
-    let private openPreview (path: string) (model: Model) : Model * Effect list =
-        let previewSlot =
-            model.Editors.PreviewBufferId
-            |> Option.bind (fun id -> model.Editors.Buffers |> Map.tryFind id |> Option.map (fun buffer -> id, buffer))
-
-        match previewSlot with
-        | Some(previewId, buffer) when buffer.FilePath = Some path ->
-            { model with
-                Editors =
-                    { model.Editors with
-                        ActiveBufferId = previewId } },
-            []
-        | _ ->
-            match tryActivateExisting path model with
-            | Some activated -> { activated with Focus = model.Focus }, []
-            | None -> model, [ LoadFile(path, OpenPreview) ]
 
     /// Sidebar fallthrough core: the incremental filter. All navigation is
     /// keymap-driven (Context.Sidebar) and resolves before this is reached.
