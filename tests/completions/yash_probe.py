@@ -35,4 +35,7 @@ def check(label, typed, expected):
 
 ok1 = check("fedit plugins", "fedit plugins ", ["install", "remove", "validate"])
 ok2 = check("fedit completions", "fedit completions ", ["zsh", "fish", "murex"])
-sys.exit(0 if (ok1 and ok2) else 1)
+# root positional file completion (`complete -f`): TAB on a real path
+# prefix must surface the fixture file.
+ok3 = check("root file", "fedit /tmp/feditc/som", ["somefile.txt"])
+sys.exit(0 if (ok1 and ok2 and ok3) else 1)

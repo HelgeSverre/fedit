@@ -4,6 +4,7 @@
 ARG NU_VER=0.113.0
 ARG ELV_VER=0.21.0
 ARG OILS_VER=0.37.0
+ARG PWSH_VER=7.4.6
 # Host arch by default; override for amd64 CI: --build-arg ARCH=x86_64 --build-arg ELVARCH=amd64
 ARG ARCH=aarch64
 ARG ELVARCH=arm64
@@ -26,10 +27,12 @@ RUN curl -fsSL "https://oils.pub/download/oils-for-unix-${OILS_VER}.tar.gz" -o /
 FROM debian:bookworm-slim
 ARG NU_VER
 ARG ELV_VER
+ARG PWSH_VER
 ARG ARCH
 ARG ELVARCH
+# libicu72 is a pwsh runtime dependency.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      bash zsh fish yash curl ca-certificates xz-utils tar python3 python3-pip \
+      bash zsh fish yash curl ca-certificates xz-utils tar python3 python3-pip libicu72 \
     && rm -rf /var/lib/apt/lists/*
 
 # Nushell + Elvish (static release binaries)
@@ -42,9 +45,18 @@ RUN curl -fsSL "https://dl.elv.sh/linux-${ELVARCH}/elvish-v${ELV_VER}.tar.gz" -o
     && chmod +x /usr/local/bin/elvish
 RUN pip install --break-system-packages --no-cache-dir xonsh
 
+# PowerShell (official tar.gz; arch token derives from ARCH: aarch64→arm64, x86_64→x64)
+RUN case "$ARCH" in x86_64) pwsharch=x64 ;; *) pwsharch=arm64 ;; esac \
+    && curl -fsSL "https://github.com/PowerShell/PowerShell/releases/download/v${PWSH_VER}/powershell-${PWSH_VER}-linux-${pwsharch}.tar.gz" -o /tmp/pwsh.tgz \
+    && mkdir -p /opt/microsoft/powershell \
+    && tar -xzf /tmp/pwsh.tgz -C /opt/microsoft/powershell \
+    && chmod +x /opt/microsoft/powershell/pwsh \
+    && ln -s /opt/microsoft/powershell/pwsh /usr/local/bin/pwsh \
+    && rm /tmp/pwsh.tgz
+
 COPY --from=murexbuild /go/bin/murex /usr/local/bin/murex
 COPY --from=oilsbuild  /usr/local/bin/oils-for-unix /usr/local/bin/oils-for-unix
 RUN ln -s /usr/local/bin/oils-for-unix /usr/local/bin/osh
 
-COPY run-tests.sh bash_probe.sh osh_probe.sh xonsh_probe.xsh elv_probe.py yash_probe.py /
+COPY run-tests.sh bash_probe.sh osh_probe.sh xonsh_probe.xsh elv_probe.py yash_probe.py zsh_probe.py pwsh_probe.ps1 /
 CMD ["bash", "/run-tests.sh"]

@@ -1,0 +1,57 @@
+name: completions
+
+# Functional smoke-tests for the generated shell-completion scripts:
+# generates every script, builds the Docker harness in tests/completions/,
+# and drives each shell's real completion machinery against them.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+  pull_request:
+    paths:
+      - src/Fedit/Cli.fs
+      - src/Fedit/Cli/Commands/Completions.fs
+      - tests/completions/**
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  ContinuousIntegrationBuild: true
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', '**/Directory.Packages.props', 'global.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+      # Inline equivalent of the `just test-completions` recipe (which
+      # builds for the host arch); runners are amd64, so the docker build
+      # args pin x86_64.
+      - name: Generate completion scripts
+        run: |
+          out=$(mktemp -d)
+          echo "COMPLETIONS_DIR=$out" >> "$GITHUB_ENV"
+          dotnet build src/Fedit/Fedit.fsproj --nologo
+          for sh in bash zsh fish pwsh nu elvish xonsh yash murex; do
+            case $sh in
+              nu) f=fedit.nu ;; elvish) f=fedit.elv ;; xonsh) f=fedit.xsh ;; pwsh) f=fedit.ps1 ;;
+              zsh) f=_fedit ;; fish) f=fedit.fish ;; yash) f=fedit.yash ;; murex) f=fedit.mx ;; *) f=fedit.$sh ;;
+            esac
+            dotnet run --project src/Fedit/Fedit.fsproj --no-build -- completions "$sh" > "$out/$f"
+          done
+      - name: Build harness image
+        run: docker build --build-arg ARCH=x86_64 --build-arg ELVARCH=amd64 -t fedit-comp-test tests/completions
+      - name: Run harness
+        run: docker run --rm -v "$COMPLETIONS_DIR:/completions:ro" fedit-comp-test

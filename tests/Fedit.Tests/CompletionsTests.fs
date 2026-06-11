@@ -171,12 +171,38 @@ let ``zsh emits _files -/ for directory positionals`` () =
     s |> should haveSubstring "_files -/"
 
 [<Fact>]
-let ``zsh does not call _fedit at end (fpath-autoload contract)`` () =
-    // Calling the function at the bottom breaks `source`ing and is
-    // not how fpath-installed completions work.
+let ``zsh root cmd state offers files alongside the subcommand menu`` () =
+    // Position-sensitive: `_files` must sit inside the root's cmd arm
+    // (between its `_values 'command'` line and that arm's `;;`), not
+    // just in the args-state fallback, so `fedit path/to/fi<TAB>`
+    // completes files in word 1.
+    let s = Completions.emit Completions.Zsh root
+    let cmdIdx = s.IndexOf "_values 'command'"
+    cmdIdx >= 0 |> should equal true
+    let arm = s.Substring(cmdIdx, s.IndexOf(";;", cmdIdx) - cmdIdx)
+    arm |> should haveSubstring "_files"
+
+[<Fact>]
+let ``zsh branch nodes without a file positional stay menu-only`` () =
+    // `plugins` is a branch with no positional — its cmd state must not
+    // gain file completion just because the root has one.
+    let s = Completions.emit Completions.Zsh root
+    let start = s.IndexOf "_fedit__plugins() {"
+    let stop = s.IndexOf "_fedit__plugins__install() {"
+    s.Substring(start, stop - start) |> should not' (haveSubstring "_files")
+
+[<Fact>]
+let ``zsh ends with a guarded call, never a bare one (autoload contract)`` () =
+    // The file defines several functions, so autoload's first
+    // invocation only defines them — a trailing call is required for
+    // first-TAB completion. It must be guarded on funcstack[1] so a
+    // plain `source` never runs completion builtins outside
+    // completion (a bare trailing call breaks sourcing).
     let s = Completions.emit Completions.Zsh root
     let trimmed = s.TrimEnd('\n', '\r')
     trimmed.EndsWith("_fedit \"$@\"") |> should equal false
+    s |> should haveSubstring "if [ \"$funcstack[1]\" = \"_fedit\" ]; then"
+    s |> should haveSubstring "    _fedit \"$@\""
 
 // ─────────────────────────────────────────────────────────────────────
 // Bash
@@ -215,6 +241,36 @@ let ``bash normalizes hidden aliases to the canonical path`` () =
     let s = Completions.emit Completions.Bash root
     s |> should haveSubstring "\"|plugin\") path=\"plugins\""
 
+[<Fact>]
+let ``bash reads file candidates line-by-line with a guarded compopt`` () =
+    // `-o filenames` keeps the trailing `/` on directories and stops
+    // the appended space; the guard matters because the script is also
+    // sourced by OSH and the probes call `_fedit` outside a real
+    // completion session, where compopt errors.
+    let s = Completions.emit Completions.Bash root
+
+    s
+    |> should haveSubstring "type compopt >/dev/null 2>&1 && compopt -o filenames 2>/dev/null || true"
+
+    s
+    |> should haveSubstring """while IFS= read -r f; do COMPREPLY+=("$f"); done < <(compgen -f -- "$cur")"""
+
+[<Fact>]
+let ``bash uses compgen -d for directory positionals`` () =
+    let s = Completions.emit Completions.Bash root
+
+    s
+    |> should haveSubstring """while IFS= read -r f; do COMPREPLY+=("$f"); done < <(compgen -d -- "$cur")"""
+
+[<Fact>]
+let ``bash never word-splits file candidates into COMPREPLY`` () =
+    // Regression guard: `COMPREPLY+=( $(compgen -f …) )` splits
+    // filenames containing spaces; file/dir kinds must go through the
+    // read loop instead.
+    let s = Completions.emit Completions.Bash root
+    s |> should not' (haveSubstring "( $(compgen -f")
+    s |> should not' (haveSubstring "( $(compgen -d")
+
 // ─────────────────────────────────────────────────────────────────────
 // Fish
 // ─────────────────────────────────────────────────────────────────────
@@ -252,6 +308,46 @@ let ``fish uses __fish_complete_directories for DirectoryPath`` () =
     let s = Completions.emit Completions.Fish root
     s |> should haveSubstring "(__fish_complete_directories)"
 
+[<Fact>]
+let ``fish completes the root file positional with -F`` () =
+    let s = Completions.emit Completions.Fish root
+    s |> should haveSubstring "complete -c fedit -n __fish_use_subcommand -F"
+
+// No real option takes these value kinds yet — guard the fishOption
+// mapping so future options don't silently get nothing.
+let private optionValueRoot: CliCommandDescriptor =
+    { Name = "fedit"
+      Aliases = []
+      HiddenAliases = []
+      Summary = "option-value tree"
+      Positionals = []
+      Options =
+        [ { Short = None
+            Long = "dir"
+            Value = RequiredValue "dir"
+            Description = "d"
+            Completion = DirectoryPath }
+          { Short = None
+            Long = "shell"
+            Value = RequiredValue "shell"
+            Description = "s"
+            Completion = Choices [ "zsh"; "bash" ] }
+          { Short = None
+            Long = "name"
+            Value = RequiredValue "name"
+            Description = "n"
+            Completion = DynamicCommand [ "plugins"; "list"; "--names" ] } ]
+      Subcommands = [] }
+
+[<Fact>]
+let ``fish completes option values for directory choices and dynamic kinds`` () =
+    let s = Completions.emit Completions.Fish optionValueRoot
+    s |> should haveSubstring "-l dir -r -a '(__fish_complete_directories)'"
+    s |> should haveSubstring "-l shell -r -a 'zsh bash'"
+
+    s
+    |> should haveSubstring "-l name -r -a '(fedit plugins list --names 2>/dev/null)'"
+
 // ─────────────────────────────────────────────────────────────────────
 // PowerShell
 // ─────────────────────────────────────────────────────────────────────
@@ -284,6 +380,15 @@ let ``pwsh defers to filename completion for FilePath`` () =
     let s = Completions.emit Completions.Pwsh root
     s |> should haveSubstring "CompleteFilename($wordToComplete)"
 
+[<Fact>]
+let ``pwsh keeps only containers for DirectoryPath positionals`` () =
+    // CompleteFilename has no directories-only mode, so the directory
+    // kind filters its results down to ProviderContainer entries.
+    let s = Completions.emit Completions.Pwsh root
+
+    s
+    |> should haveSubstring "if ($r.ResultType -eq [CompletionResultType]::ProviderContainer) { $extra.Add($r) }"
+
 // ─────────────────────────────────────────────────────────────────────
 // Nushell
 // ─────────────────────────────────────────────────────────────────────
@@ -310,6 +415,12 @@ let ``nu defines a lines-based completer for DynamicCommand`` () =
 let ``nu defines a list completer for Choices kind`` () =
     let s = Completions.emit Completions.Nushell root
     s |> should haveSubstring "[zsh bash fish]"
+
+[<Fact>]
+let ``nu types the root file positional as path`` () =
+    // `path`-shaped positionals get nushell's built-in file completion.
+    let s = Completions.emit Completions.Nushell root
+    s |> should haveSubstring "path?: path  # ws"
 
 // ─────────────────────────────────────────────────────────────────────
 // Elvish
@@ -338,6 +449,16 @@ let ``elvish slurps and splits DynamicCommand output`` () =
     s
     |> should haveSubstring "str:split \"\\n\" (fedit plugins list --names 2>/dev/null | slurp)"
 
+[<Fact>]
+let ``elvish completes filenames for the root positional`` () =
+    // The root arm of fedit-args (`''` key) must offer both the
+    // subcommand menu and filename completion.
+    let s = Completions.emit Completions.Elvish root
+    let arm = s.Substring(s.IndexOf "&''={|cur|")
+    let body = arm.Substring(0, arm.IndexOf "}")
+    body |> should haveSubstring "put plugins completions"
+    body |> should haveSubstring "edit:complete-filename $cur"
+
 // ─────────────────────────────────────────────────────────────────────
 // Xonsh
 // ─────────────────────────────────────────────────────────────────────
@@ -360,6 +481,22 @@ let ``xonsh shells out via subprocess for DynamicCommand`` () =
     let s = Completions.emit Completions.Xonsh root
     s |> should haveSubstring "subprocess.run(kind[len('dynamic:'):].split()"
     s |> should haveSubstring "'dynamic:fedit plugins list --names'"
+
+[<Fact>]
+let ``xonsh merges file completions instead of short-circuiting`` () =
+    // Path completion goes through xonsh's own completer and is unioned
+    // with subcommand matches — a non-empty subcommand set must not
+    // suppress files for `fedit path/to/fi<TAB>`.
+    let s = Completions.emit Completions.Xonsh root
+    s |> should haveSubstring "from xonsh.completers.path import"
+    s |> should haveSubstring "complete_path(command)"
+    // The file-kind branch must run before subcommand matches can
+    // short-circuit the completer.
+    let kindIdx = s.IndexOf "kind = _FEDIT_POS.get(path)"
+    let outIdx = s.IndexOf "if out:"
+    kindIdx >= 0 |> should equal true
+    outIdx >= 0 |> should equal true
+    kindIdx < outIdx |> should equal true
 
 // ─────────────────────────────────────────────────────────────────────
 // Yash
@@ -390,6 +527,13 @@ let ``yash uses complete -d for directory and a subshell for DynamicCommand`` ()
     s
     |> should haveSubstring "complete -- $(fedit plugins list --names 2>/dev/null)"
 
+[<Fact>]
+let ``yash offers files alongside subcommands at the root`` () =
+    // Root is both a branch and a file-taking command: the non-flag arm
+    // must list subcommands and fall through to file completion.
+    let s = Completions.emit Completions.Yash root
+    s |> should haveSubstring "complete -- plugins completions; complete -f"
+
 // ─────────────────────────────────────────────────────────────────────
 // Murex
 // ─────────────────────────────────────────────────────────────────────
@@ -409,6 +553,14 @@ let ``murex marks file positionals and dynamic completers`` () =
     let s = Completions.emit Completions.Murex root
     s |> should haveSubstring "\"IncFiles\": true"
     s |> should haveSubstring "\"Dynamic\": \"^fedit plugins list --names\""
+
+[<Fact>]
+let ``murex includes directories only for directory positionals`` () =
+    // `validate` takes a DirectoryPath — IncDirs, not IncFiles.
+    let s = Completions.emit Completions.Murex root
+
+    s
+    |> should haveSubstring "\"validate\": [{ \"Flags\": [\"-h\", \"--help\"], \"IncDirs\": true }]"
 
 // ─────────────────────────────────────────────────────────────────────
 // installPath
