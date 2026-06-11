@@ -4,8 +4,14 @@
 in two tiers — cheap additive `PluginAction` cases first, then the structural
 work (events, async, storage) that unlocks real tooling plugins.
 
-**Status:** Forward-looking. `SelectRange` shipped as the first post-MVP
-action (2026-06-04); everything below is proposed, not built.
+**Status:** Tier 1 shipped 2026-06-11 — `ReplaceRange`, `ClearSelection`,
+`DeleteSelection`, `NewBuffer`, and `SwitchBuffer` are live, except
+`ShowDock` (deferred until the dock panel work settles). `SetStatusMessage`
+is also deferred — `Notify` covers status text. Beyond the original table,
+the same release shipped `OpenFilePreview`, `RevealPath`, and the
+`WorkspaceView` expansion (`SelectedPath`, `Files`). `SelectRange` shipped
+as the first post-MVP action (2026-06-04). Tier 2 remains proposed, not
+built.
 
 **Reference:** Original contract in
 [`docs/archived/plans/2026-05-19-plugin-api.md`](../archived/plans/2026-05-19-plugin-api.md)
@@ -54,14 +60,16 @@ redesign, no versioning hazard. Ordered by value.
 | `SwitchBuffer of id: int`                                                   | `Editor.jumpToBuffer`    | Act across the buffers already exposed in `AllBuffers`.                                                                                 |
 | `ShowDock of title: string * lines: string list`                            | `DockInfo`               | Structured panel output; today multi-line `Notify` is overloaded for this.                                                              |
 
-Open questions for Tier 1:
+Open questions for Tier 1 (resolved at ship):
 
-- `ReplaceRange` undo granularity — one undo step per action, or coalesce a
-  whole `PluginAction list` into one? (Today each action is its own edit;
-  `ReplaceSelection` already composes two primitives into one step.)
-- `NewBuffer`/`SwitchBuffer` mutate buffer lifecycle the snapshot can't see.
-  Decide whether subsequent actions in the same list observe the new buffer
-  (they currently re-read `activeBufferState current` each arm, so yes).
+- `ReplaceRange` undo granularity — **resolved: one undo entry per action,
+  no list coalescing.** `Buffer.replaceRange` composes delete + insert
+  through a single `finalizeEdit`, mirroring `ReplaceSelection`; a
+  `PluginAction list` is not collapsed into one step.
+- `NewBuffer`/`SwitchBuffer` mutate buffer lifecycle the snapshot can't see —
+  **resolved: later actions in the same list DO observe the new/switched
+  buffer.** Every arm re-reads the active buffer from the threaded model, so
+  `NewBuffer` followed by `InsertText` targets the fresh buffer.
 - `SetClipboard` and `SelectAll` already have `RunCommand` equivalents for
   some cases; avoid shipping redundant actions where a built-in command
   already covers it cleanly.

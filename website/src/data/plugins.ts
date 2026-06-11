@@ -1,7 +1,7 @@
 /**
  * Sample plugin catalog for the /plugins page.
  *
- * THIS IS A PREVIEW CATALOG. There is no public plugin registry yet. The five
+ * THIS IS A PREVIEW CATALOG. There is no public plugin registry yet. The six
  * entries with `bundled: true` are the real reference plugins under
  * `examples/` (manifest data mirrored from examples/<name>/plugin.json); the
  * rest are plausible placeholders to show what a registry listing would look
@@ -26,7 +26,7 @@ export interface Plugin {
   downloads: number;
   /** ISO date (YYYY-MM-DD) of the last update. */
   updated: string;
-  /** True for the five real bundled reference plugins. */
+  /** True for the six real bundled reference plugins. */
   bundled?: boolean;
 }
 
@@ -95,6 +95,19 @@ export const plugins: Plugin[] = [
     source: "https://github.com/HelgeSverre/fedit",
     downloads: 803,
     updated: "2025-05-19",
+    bundled: true,
+  },
+  {
+    name: "jot",
+    version: "0.1.0",
+    apiVersion: "1",
+    description: "Session scratchpad: jot code locations, check them off, jump back.",
+    author: "fedit maintainers",
+    homepage: "https://github.com/HelgeSverre/fedit",
+    tags: ["workspace", "navigation", "official"],
+    source: "https://github.com/HelgeSverre/fedit",
+    downloads: 0,
+    updated: "2026-06-11",
     bundled: true,
   },
 

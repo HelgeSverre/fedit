@@ -3,10 +3,13 @@ namespace TodoList
 open System.IO
 open Fedit.PluginApi
 
-/// Reports every `TODO:` site as `relative/path.fs:line: text` in the dock.
+/// Reports every `TODO:` site as `path:line  text` in an editable scratch
+/// buffer named "todos".
 ///
-/// Reference plugin #2 of the TODO trio. Demonstrates: multiline Notify
-/// (joined with newlines — the dock renders them as separate rows).
+/// Reference plugin #2 of the TODO trio. Demonstrates: deriving the
+/// candidate files from `Workspace.Files` (the host's cached index — no
+/// directory walk), reading file contents from disk, and `NewBuffer` for
+/// output that outgrows a notification.
 module Plugin =
     let private extensions =
         Set.ofList
@@ -32,58 +35,31 @@ module Plugin =
               ".css"
               ".html" ]
 
-    let private skipDirs =
-        Set.ofList
-            [ "bin"
-              "obj"
-              "node_modules"
-              ".git"
-              ".dotnet"
-              ".astro"
-              "dist"
-              ".vercel"
-              ".cache" ]
-
-    /// Cap output so a workspace with thousands of TODOs doesn't drown the
-    /// dock. The terminal can scroll a notification but very large strings
-    /// stress the renderer.
+    /// Cap output so a workspace with thousands of TODOs stays readable.
     let private maxResults = 50
 
-    let private scan (root: string) =
+    let private scan (root: string) (files: string list) =
         let results = System.Collections.Generic.List<string>()
-        let queue = System.Collections.Generic.Queue<string>()
-        queue.Enqueue root
+        let hitFiles = System.Collections.Generic.HashSet<string>()
 
-        while queue.Count > 0 && results.Count < maxResults do
-            let dir = queue.Dequeue()
+        for rel in files do
+            if results.Count < maxResults then
+                let ext = (Path.GetExtension rel).ToLowerInvariant()
 
-            try
-                for sub in Directory.EnumerateDirectories dir do
-                    if not (skipDirs.Contains(Path.GetFileName sub)) then
-                        queue.Enqueue sub
+                if extensions.Contains ext then
+                    try
+                        let mutable lineNo = 0
 
-                for file in Directory.EnumerateFiles dir do
-                    if results.Count >= maxResults then
+                        for line in File.ReadLines(Path.Combine(root, rel)) do
+                            lineNo <- lineNo + 1
+
+                            if line.Contains "TODO:" && results.Count < maxResults then
+                                results.Add $"{rel}:{lineNo}  {line.Trim()}"
+                                hitFiles.Add rel |> ignore
+                    with _ ->
                         ()
-                    else
-                        let ext = (Path.GetExtension file).ToLowerInvariant()
 
-                        if extensions.Contains ext then
-                            try
-                                let mutable lineNo = 0
-
-                                for line in File.ReadLines file do
-                                    lineNo <- lineNo + 1
-
-                                    if line.Contains "TODO:" && results.Count < maxResults then
-                                        let rel = Path.GetRelativePath(root, file)
-                                        results.Add $"{rel}:{lineNo}: {line.Trim()}"
-                            with _ ->
-                                ()
-            with _ ->
-                ()
-
-        List.ofSeq results
+        List.ofSeq results, hitFiles.Count
 
     let register (host: IPluginHost) =
         host.RegisterCommand
@@ -92,12 +68,10 @@ module Plugin =
               Summary = $"List `TODO:` markers in the workspace (max {maxResults})."
               Run =
                 fun ctx ->
-                    let items = scan ctx.Workspace.RootPath
+                    let items, fileCount = scan ctx.Workspace.RootPath ctx.Workspace.Files
 
-                    let body =
-                        if items.IsEmpty then
-                            "(no TODOs found)"
-                        else
-                            System.String.Join("\n", items)
-
-                    [ Notify(Info, body) ] }
+                    if items.IsEmpty then
+                        [ Notify(Info, "No todos.") ]
+                    else
+                        [ NewBuffer("todos", String.concat "\n" items)
+                          Notify(Info, $"{items.Length} todos in {fileCount} files") ] }

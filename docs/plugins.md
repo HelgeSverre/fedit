@@ -15,13 +15,13 @@ see [the plugins page on fedit.dev](https://fedit.dev/plugins).
 
 ## At a glance
 
-| What plugins can do                                      | What's not in scope yet                                |
-| -------------------------------------------------------- | ------------------------------------------------------ |
-| Register named commands (`:wc`, `:todocount`, …)         | Async handlers — runs on the UI thread, target < 50 ms |
-| Bind chords to commands (`Ctrl+T`, `Alt+x`, `F5`, …)     | Custom panels, themes, file types, LSP                 |
-| Read text, cursor, file path, workspace root             | Plugin sandbox / capability restriction (full trust)   |
-| Emit `Notify`, `InsertText`, `MoveCursor`, `OpenFile`, … | Cross-language plugins — F# only                       |
-| Chain into built-ins via `RunCommand "open foo.fs"`      | Per-plugin settings — no `IPluginHost.Config<T>()` yet |
+| What plugins can do                                       | What's not in scope yet                                |
+| --------------------------------------------------------- | ------------------------------------------------------ |
+| Register named commands (`:wc`, `:todocount`, …)          | Async handlers — runs on the UI thread, target < 50 ms |
+| Bind chords to commands (`Ctrl+T`, `Alt+x`, `F5`, …)      | Custom panels, themes, file types, LSP                 |
+| Read text, cursor, file path, workspace root + file index | Plugin sandbox / capability restriction (full trust)   |
+| Emit `Notify`, `InsertText`, `MoveCursor`, `OpenFile`, …  | Cross-language plugins — F# only                       |
+| Chain into built-ins via `RunCommand "open foo.fs"`       | Per-plugin settings — no `IPluginHost.Config<T>()` yet |
 
 ## Five-minute quickstart
 
@@ -141,6 +141,15 @@ manifest fails to parse show up in `:plugin list` as `FAIL: <reason>`.
 | `entryAssembly` | yes      | DLL filename produced by `dotnet build`. Loaded from `bin/Release/net10.0/<entryAssembly>`. |
 | `entryType`     | yes      | Fully-qualified F# module containing a `register : IPluginHost -> unit` function.           |
 
+Compatibility within `apiVersion` `"1"` is **append-only**: new
+`PluginAction` cases are appended at the end of the union (never
+inserted or reordered — union tags are binary), and new fields land
+only on host-constructed records (`WorkspaceView`, `PluginContext`,
+`BufferView`). A plugin compiled against an older 1.x contract keeps
+loading and running; one compiled against a newer contract that
+constructs a case the host doesn't know simply won't load. Anything
+that breaks this rule bumps `apiVersion`.
+
 ### Entry contract
 
 The host calls one function per plugin at load time:
@@ -172,7 +181,12 @@ type BufferView =
       Cursor: CursorPosition
       Selection: (CursorPosition * CursorPosition) option }   // (start, end) when a selection is active
 
-type WorkspaceView = { RootPath: string }
+type WorkspaceView =
+    { RootPath: string
+      SelectedPath: string option   // sidebar's selected entry (absolute path)
+      Files: string list }          // root-relative paths of every indexed file,
+                                    // sorted tree order — the file picker's list.
+                                    // Empty until the workspace scan completes.
 
 type PluginContext =
     { ActiveBuffer: BufferView
@@ -183,22 +197,46 @@ type PluginContext =
 `PluginContext` is a snapshot. Plugins never see live state — the host
 builds a fresh context each time the command fires.
 
+These context records are host-constructed: plugins only ever receive
+them and never build one, which is what lets the host append new fields
+(like `SelectedPath` and `Files`) without breaking plugins compiled
+against an older contract.
+
 ### Changing the world
 
 Plugin commands return a `PluginAction list`. The host applies each
 action in order. Pick the right action for the effect you want:
 
-| Action                               | Use it when                                       | Example                          |
-| ------------------------------------ | ------------------------------------------------- | -------------------------------- |
-| `Notify(Info, "…")`                  | Reporting a result; no side effect on the buffer  | Word count, TODO summary         |
-| `InsertText "abc"`                   | Add text at the cursor                            | Timestamp, UUID, snippet         |
-| `ReplaceSelection "abc"`             | Replace the current selection (insert if no sel.) | Surround, reformat, kebabify     |
-| `MoveCursor { Line = …; Column = …}` | Jump the cursor (1-based coords)                  | "Next TODO", "match brace"       |
-| `SelectRange(anchor, cursor)`        | Select a range; caret lands on `cursor`           | "Select word", "expand to line"  |
-| `OpenFile "path"`                    | Open an existing file (workspace-root relative)   | "Jump to definition"             |
-| `SaveActiveBuffer`                   | Trigger the same save path as `:write`            | Auto-save after a rewrite        |
-| `RunCommand "open foo.fs"`           | Chain into a built-in command by name             | Open the file you just generated |
-| `SetClipboard "abc"`                 | Copy text to the system clipboard                 | "Yank current line"              |
+| Action                               | Use it when                                                                                                                                                                                                      | Example                                          |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `Notify(Info, "…")`                  | Reporting a result; no side effect on the buffer                                                                                                                                                                 | Word count, TODO summary                         |
+| `InsertText "abc"`                   | Add text at the cursor                                                                                                                                                                                           | Timestamp, UUID, snippet                         |
+| `ReplaceSelection "abc"`             | Replace the current selection (insert if no sel.)                                                                                                                                                                | Surround, reformat, kebabify                     |
+| `MoveCursor { Line = …; Column = …}` | Jump the cursor (1-based coords)                                                                                                                                                                                 | "Next TODO", "match brace"                       |
+| `SelectRange(anchor, cursor)`        | Select a range; caret lands on `cursor`                                                                                                                                                                          | "Select word", "expand to line"                  |
+| `OpenFile "path"`                    | Open an existing file (workspace-root relative)                                                                                                                                                                  | "Jump to definition"                             |
+| `SaveActiveBuffer`                   | Trigger the same save path as `:write`                                                                                                                                                                           | Auto-save after a rewrite                        |
+| `RunCommand "open foo.fs"`           | Chain into a built-in command by name                                                                                                                                                                            | Open the file you just generated                 |
+| `SetClipboard "abc"`                 | Copy text to the system clipboard                                                                                                                                                                                | "Yank current line"                              |
+| `OpenFilePreview "path"`             | Open into the preview slot (the sidebar's Space behavior); an already-open file is activated instead                                                                                                             | Peek at a search hit                             |
+| `RevealPath "path"`                  | Expand ancestors + select in the sidebar, showing it without stealing focus; paths outside the workspace are a no-op                                                                                             | Sidebar follows plugin output                    |
+| `ReplaceRange(from, to_, text)`      | Replace the span between two 1-based positions as a single edit — one undo entry. Ends swap when `from` is after `to_`; out-of-range coords clamp. Cursor lands after the inserted text; any selection collapses | Formatters, codemods, surround                   |
+| `ClearSelection`                     | Collapse the selection to a caret (no-op without one)                                                                                                                                                            | Tidy up after `SelectRange`                      |
+| `DeleteSelection`                    | Delete the selected text as one undo entry (no-op without one)                                                                                                                                                   | Cut without replacement text                     |
+| `SwitchBuffer id`                    | Activate the buffer with this `BufferView.Id`; unknown ids raise an error notification                                                                                                                           | Act across `AllBuffers`                          |
+| `NewBuffer(name, text)`              | Create a scratch buffer (empty `name` defaults to `"plugin"`) and make it active; later actions in the same list target it                                                                                       | Show generated output as a real, editable buffer |
+
+Two coordination notes:
+
+- **Batched `ReplaceRange`s see post-edit coordinates.** Each edit
+  shifts the line/column positions of everything after it, and later
+  actions in the list run against the already-edited buffer — emit
+  multiple edits bottom-up so earlier spans stay where the snapshot
+  said they were.
+- **Editing a previewed buffer promotes it.** A buffer opened via
+  `OpenFilePreview` sits in the preview slot and is replaced by the
+  next preview — unless it's edited, which promotes it to a regular
+  buffer.
 
 ### Registration
 
@@ -241,18 +279,19 @@ type IPluginHost =
   plugin's own chord and any built-in. See the
   [Keybindings section of the README](../README.md#keybindings).
 
-## Five reference plugins
+## Six reference plugins
 
-The repo ships five plugins under [`examples/`](../examples) — each
+The repo ships six plugins under [`examples/`](../examples) — each
 demonstrates a different combination of actions.
 
-| Plugin                                 | Command      | Actions used                                             | What it shows                                 |
-| -------------------------------------- | ------------ | -------------------------------------------------------- | --------------------------------------------- |
-| [`wordcount`](../examples/wordcount)   | `:wc`        | `Notify`                                                 | Smallest possible plugin                      |
-| [`journal`](../examples/journal)       | `:journal`   | `InsertText` + `Notify`                                  | Insert at cursor, confirm via dock            |
-| [`todo-count`](../examples/todo-count) | `:todocount` | `Notify`                                                 | Walk the workspace via `Workspace.RootPath`   |
-| [`todo-list`](../examples/todo-list)   | `:todolist`  | `Notify` (multi-line)                                    | Dock multi-line output as a file:line listing |
-| [`todo-next`](../examples/todo-next)   | `:todonext`  | `MoveCursor` + `Notify` + `RegisterKeybinding(Ctrl 't')` | Read cursor, jump elsewhere, bind to a chord  |
+| Plugin                                 | Command                    | Actions used                                                                                                   | What it shows                                                  |
+| -------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| [`wordcount`](../examples/wordcount)   | `:wc`                      | `Notify`                                                                                                       | Smallest possible plugin                                       |
+| [`journal`](../examples/journal)       | `:journal`                 | `InsertText` + `RevealPath` + `Notify`                                                                         | Insert at cursor; the sidebar follows the stamped file         |
+| [`todo-count`](../examples/todo-count) | `:todocount`               | `Notify`                                                                                                       | Walk the workspace via `Workspace.RootPath`                    |
+| [`todo-list`](../examples/todo-list)   | `:todolist`                | `NewBuffer` + `Notify`                                                                                         | Scan `Workspace.Files`, report into an editable scratch buffer |
+| [`todo-next`](../examples/todo-next)   | `:todonext`                | `MoveCursor` + `SwitchBuffer` + `Notify` + `RegisterKeybinding(Ctrl 't')`                                      | Jump to the next match, continuing across every open buffer    |
+| [`jot`](../examples/jot)               | `:jot` `:jotdone` `:jotgo` | `NewBuffer` + `SwitchBuffer` + `MoveCursor` + `InsertText` + `ReplaceRange` + `RevealPath` + `OpenFilePreview` | Session scratchpad exercising the full post-MVP action set     |
 
 ## The `:plugin` command
 

@@ -3,7 +3,7 @@ import Site from "../layouts/Site.astro";
 import TuiFrame from "../components/TuiFrame.astro";
 
 const stats = [
-  { value: "5", label: "reference plugins" },
+  { value: "6", label: "reference plugins" },
   { value: "16", label: "lines for the smallest" },
   { value: "0", label: "IPC or message schemas" },
   { value: "1", label: ".fs file required" },
@@ -64,6 +64,48 @@ const actions = [
     use: "Select between two positions — the anchor pins one end, the caret lands on the cursor, like a shift+motion selection.",
     sample: `[ SelectRange(anchor, cursor) ]`,
   },
+  {
+    name: "OpenFilePreview",
+    arg: "string",
+    use: "Open a file into the preview slot — the sidebar's Space behavior. Already-open files are activated instead.",
+    sample: `[ OpenFilePreview "docs/plan.md" ]`,
+  },
+  {
+    name: "RevealPath",
+    arg: "string",
+    use: "Expand and select a path in the sidebar without stealing focus. Paths outside the workspace are a no-op.",
+    sample: `[ RevealPath "src/Main.fs" ]`,
+  },
+  {
+    name: "ReplaceRange",
+    arg: "CursorPosition * CursorPosition * string",
+    use: "Replace the span between two 1-based positions as one undo entry. Ends swap if reversed; coordinates clamp.",
+    sample: `[ ReplaceRange(from, to_, "text") ]`,
+  },
+  {
+    name: "ClearSelection",
+    arg: "—",
+    use: "Collapse the selection to a caret. No-op without a selection.",
+    sample: `[ ClearSelection ]`,
+  },
+  {
+    name: "DeleteSelection",
+    arg: "—",
+    use: "Delete the selected text as one undo entry. No-op without a selection.",
+    sample: `[ DeleteSelection ]`,
+  },
+  {
+    name: "SwitchBuffer",
+    arg: "int",
+    use: "Activate a buffer by its BufferView.Id. Unknown ids raise an error notification.",
+    sample: `[ SwitchBuffer buffer.Id ]`,
+  },
+  {
+    name: "NewBuffer",
+    arg: "string * string",
+    use: "Create a scratch buffer holding text and make it active. Later actions in the list target it.",
+    sample: `[ NewBuffer("todos", report) ]`,
+  },
 ];
 
 const lifecycle = [
@@ -104,11 +146,12 @@ const examples = [
   {
     name: "journal",
     command: ":journal",
-    blurb: "Insert a [YYYY-MM-DD HH:MM] stamp at the cursor.",
-    uses: "InsertText + Notify",
+    blurb: "Insert a [YYYY-MM-DD HH:MM] stamp at the cursor; the sidebar follows the stamped file.",
+    uses: "InsertText + RevealPath + Notify",
     preview: `let stamp =
     DateTime.Now.ToString("yyyy-MM-dd HH:mm")
 [ InsertText $"[\\(stamp)\\] "
+  RevealPath path
   Notify(Info, $"Stamped \\(stamp)") ]`,
   },
   {
@@ -124,23 +167,35 @@ const examples = [
   {
     name: "todo-list",
     command: ":todolist",
-    blurb: "List every TODO: as path:line: text in the dock (cap 50).",
-    uses: "Notify (multi-line)",
-    preview: `let rel = Path.GetRelativePath(root, file)
-results.Add $"{rel}:{lineNo}: {line.Trim()}"
-...
-let body = String.Join("\\n", results)
-[ Notify(Info, body) ]`,
+    blurb: "List every TODO: as path:line in an editable todos scratch buffer (cap 50).",
+    uses: "NewBuffer + Notify",
+    preview: `for rel in ctx.Workspace.Files do
+    // read the file, collect hits
+    results.Add $"{rel}:{lineNo}  {line.Trim()}"
+[ NewBuffer("todos", report)
+  Notify(Info, $"{n} todos in {files} files") ]`,
   },
   {
     name: "todo-next",
     command: ":todonext",
-    blurb: "Jump cursor to the next TODO: in the buffer; wraps.",
-    uses: "MoveCursor + RegisterKeybinding",
-    preview: `[ MoveCursor { Line = lineNo; Column = col }
-  Notify(Info, $"TODO at line {lineNo}") ]
+    blurb: "Jump cursor to the next TODO:; wraps, then continues into other open buffers.",
+    uses: "MoveCursor + SwitchBuffer + RegisterKeybinding",
+    preview: `[ SwitchBuffer buffer.Id
+  MoveCursor { Line = lineNo; Column = col }
+  Notify(Info, $"TODO in {buffer.Name}") ]
 // at register time:
 host.RegisterKeybinding(KeyChord.Ctrl 't', "todonext")`,
+  },
+  {
+    name: "jot",
+    command: ":jot",
+    blurb: "Session scratchpad: jot code locations, check them off, jump back.",
+    uses: "NewBuffer + ReplaceRange + OpenFilePreview",
+    preview: `let entry = $"[ ] {location}:{line}  {text}"
+[ SwitchBuffer notes.Id
+  MoveCursor { Line = 999999; Column = 999999 }
+  InsertText(entry + "\\n")
+  SwitchBuffer ctx.ActiveBuffer.Id ]`,
   },
 ];
 
@@ -165,7 +220,7 @@ const verbs = [
 
 <Site
   title="extend"
-  description="Build fedit plugins in F#. Five-minute quickstart, the nine PluginAction types you can return, and five reference implementations under examples/."
+  description="Build fedit plugins in F#. Five-minute quickstart, the sixteen PluginAction types you can return, and six reference implementations under examples/."
   image="/og/extend.png"
 >
   <!-- =============================================================== -->
@@ -466,7 +521,7 @@ const verbs = [
   <section class="section section--alt">
     <div class="container stack stack--lg">
       <div class="section__head">
-        <h2>five reference plugins</h2>
+        <h2>six reference plugins</h2>
         <p class="section__lede">
           Each demonstrates a different combination of actions. Source under
           <code>examples/</code> — copy any folder to <code>~/.config/fedit/plugins/</code> and it'll
@@ -560,7 +615,7 @@ const verbs = [
         <a class="finale-card" href="https://github.com/HelgeSverre/fedit/tree/main/examples">
           <h3>The examples</h3>
           <p>
-            Five plugins ranging from 16 to ~100 lines. Copy any one as your starting skeleton —
+            Six plugins ranging from 16 to ~100 lines. Copy any one as your starting skeleton —
             they're all MIT-licensed.
           </p>
           <span class="finale-link">examples/ →</span>

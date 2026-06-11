@@ -30,6 +30,10 @@ const shipped = (version: string, item: string): ChangelogEntry => ({
 });
 
 export const changelog: ChangelogEntry[] = [
+  shipped(
+    "Actions",
+    'Seven append-only PluginAction cases: OpenFilePreview, RevealPath, ReplaceRange(from, to_, text), ClearSelection, DeleteSelection, SwitchBuffer(id), NewBuffer(name, text). WorkspaceView grows SelectedPath (sidebar selection, absolute) and Files (root-relative sorted index); Buffer.replaceRange becomes public as the ReplaceRange primitive. apiVersion stays "1" under the now-documented append-only rule — new DU cases append at the end, new fields land only on host-constructed records. New examples/jot session scratchpad (:jot/:jotdone/:jotgo) exercises the set; todo-list reports into a NewBuffer scratch driven by Workspace.Files, todo-next continues into other buffers via SwitchBuffer, journal reveals the stamped file with RevealPath. Fedit.PluginApi 1.1.0.',
+  ),
   shipped("Site", "Upgraded the website from Astro 5 to Astro 6."),
   shipped(
     "Format",

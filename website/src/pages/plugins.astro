@@ -12,7 +12,7 @@ const bundledCount = plugins.filter((p) => p.bundled).length;
 
 <Site
   title="plugins"
-  description="A preview catalog of fedit plugins. Search, sort, and filter, then copy a fedit plugins install command. No public registry yet — the listing is a sample plus the five bundled reference plugins."
+  description="A preview catalog of fedit plugins. Search, sort, and filter, then copy a fedit plugins install command. No public registry yet — the listing is a sample plus the six bundled reference plugins."
   image="/og/plugins.png"
 >
   <section class="section" x-data="pluginRegistry" x-init="init()" @keydown.escape.window="close()">
@@ -86,7 +86,8 @@ const bundledCount = plugins.filter((p) => p.bundled).length;
       <section>
         <p class="muted-p">
           Build your own in F# — the <a href="/extend">extend guide</a> walks the wordcount plugin skeleton,
-          the nine actions you can return, and the load lifecycle. Source for the bundled five lives under
+          the sixteen actions you can return, and the load lifecycle. Source for the bundled six lives
+          under
           <code>examples/</code>.
         </p>
       </section>

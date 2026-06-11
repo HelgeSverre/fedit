@@ -57,6 +57,48 @@ const actions = [
     use: "Select between two positions — the anchor pins one end, the caret lands on the cursor, like a shift+motion selection.",
     sample: `[ SelectRange(anchor, cursor) ]`,
   },
+  {
+    name: "OpenFilePreview",
+    arg: "string",
+    use: "Open a file into the preview slot — the sidebar's Space behavior. Already-open files are activated instead.",
+    sample: `[ OpenFilePreview "docs/plan.md" ]`,
+  },
+  {
+    name: "RevealPath",
+    arg: "string",
+    use: "Expand and select a path in the sidebar without stealing focus. Paths outside the workspace are a no-op.",
+    sample: `[ RevealPath "src/Main.fs" ]`,
+  },
+  {
+    name: "ReplaceRange",
+    arg: "CursorPosition * CursorPosition * string",
+    use: "Replace the span between two 1-based positions as one undo entry. Ends swap if reversed; coordinates clamp.",
+    sample: `[ ReplaceRange(from, to_, "text") ]`,
+  },
+  {
+    name: "ClearSelection",
+    arg: "—",
+    use: "Collapse the selection to a caret. No-op without a selection.",
+    sample: `[ ClearSelection ]`,
+  },
+  {
+    name: "DeleteSelection",
+    arg: "—",
+    use: "Delete the selected text as one undo entry. No-op without a selection.",
+    sample: `[ DeleteSelection ]`,
+  },
+  {
+    name: "SwitchBuffer",
+    arg: "int",
+    use: "Activate a buffer by its BufferView.Id. Unknown ids raise an error notification.",
+    sample: `[ SwitchBuffer buffer.Id ]`,
+  },
+  {
+    name: "NewBuffer",
+    arg: "string * string",
+    use: "Create a scratch buffer holding text and make it active. Later actions in the list target it.",
+    sample: `[ NewBuffer("todos", report) ]`,
+  },
 ];
 
 const lifecycle = [
@@ -92,8 +134,8 @@ const examples = [
   {
     name: "journal",
     command: ":journal",
-    blurb: "Insert a [YYYY-MM-DD HH:MM] stamp at the cursor.",
-    uses: "InsertText + Notify",
+    blurb: "Insert a [YYYY-MM-DD HH:MM] stamp at the cursor; the sidebar follows the stamped file.",
+    uses: "InsertText + RevealPath + Notify",
   },
   {
     name: "todo-count",
@@ -104,14 +146,20 @@ const examples = [
   {
     name: "todo-list",
     command: ":todolist",
-    blurb: "List every TODO: as path:line: text in the dock (cap 50).",
-    uses: "Notify (multi-line)",
+    blurb: "List every TODO: as path:line in an editable todos scratch buffer (cap 50).",
+    uses: "NewBuffer + Notify",
   },
   {
     name: "todo-next",
     command: ":todonext",
-    blurb: "Jump cursor to the next TODO: in the buffer; wraps.",
-    uses: "MoveCursor + RegisterKeybinding",
+    blurb: "Jump cursor to the next TODO:; wraps, then continues into other open buffers.",
+    uses: "MoveCursor + SwitchBuffer + RegisterKeybinding",
+  },
+  {
+    name: "jot",
+    command: ":jot",
+    blurb: "Session scratchpad: jot code locations, check them off, jump back.",
+    uses: "NewBuffer + SwitchBuffer + ReplaceRange + RevealPath + OpenFilePreview",
   },
 ];
 
@@ -136,7 +184,7 @@ const verbs = [
 
 <DocsLayout
   title="plugins"
-  description="Build fedit plugins in F#. A five-minute quickstart, the nine PluginAction types you can return, and five reference implementations under examples/."
+  description="Build fedit plugins in F#. A five-minute quickstart, the sixteen PluginAction types you can return, and six reference implementations under examples/."
   image="/og/extend.png"
 >
   <div class="section__head">
@@ -297,7 +345,7 @@ const verbs = [
   </section>
 
   <section>
-    <h2>five reference plugins</h2>
+    <h2>six reference plugins</h2>
     <p class="doc-p">
       Each demonstrates a different combination of actions. Source under <code>examples/</code> — copy
       any folder to <code>~/.config/fedit/plugins/</code> and it'll build on the next launch.
@@ -363,7 +411,7 @@ const verbs = [
         the author guide: manifest reference, every type, conflict policy, debugging, distribution.
       </li>
       <li>
-        <a href="https://github.com/HelgeSverre/fedit/tree/main/examples">examples/</a> — five plugins
+        <a href="https://github.com/HelgeSverre/fedit/tree/main/examples">examples/</a> — six plugins
         from 16 to ~100 lines. Copy any one as your starting skeleton; all MIT-licensed.
       </li>
       <li>

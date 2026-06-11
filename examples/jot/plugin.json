@@ -1,0 +1,10 @@
+{
+  "name": "jot",
+  "version": "0.1.0",
+  "apiVersion": "1",
+  "description": "Session scratchpad: jot code locations, check them off, jump back.",
+  "author": "fedit maintainers",
+  "homepage": "https://github.com/HelgeSverre/fedit",
+  "entryAssembly": "jot.dll",
+  "entryType": "Jot.Plugin"
+}
