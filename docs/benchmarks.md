@@ -72,3 +72,58 @@ The fsharp grammar native is built locally (`just build-grammars`); without
 it the manual harness falls back to a bundled grammar (javascript/json) and
 says so. Fallback numbers are still valid for before/after comparison on the
 same machine, but not comparable across grammars.
+
+## Baseline — 2026-06-11
+
+Apple M2 Max, macOS 15.6, .NET 10.0.0, ShortRun in-process. Commit
+`c61357b`. Recorded to anchor the planned piece-table/line-cache work;
+rerun the same filters on the same machine to compare.
+
+### Edit path (the headline)
+
+| Method           | Keystrokes | Mean       | Allocated |
+| ---------------- | ---------- | ---------- | --------- |
+| PieceTableTyping | 256        | 23.4 us    | 166 KB    |
+| BufferTyping     | 256        | 45,214 us  | 166 MB    |
+| PieceTableTyping | 1024       | 128.5 us   | 1.4 MB    |
+| BufferTyping     | 1024       | 182,280 us | 684 MB    |
+
+Buffer-level typing on a 100k-char buffer costs ~178 us and ~667 KB
+allocated per keystroke — ~1,900x the piece-table op underneath it. The
+gap is `computeLines` (full toString + Split per edit) plus the
+add-buffer copy. This is the measured case for the incremental
+line-cache splice and append-only add-buffer.
+
+### PieceTable / Buffer micro
+
+| Method          | 10k     | 100k     | 1M       |
+| --------------- | ------- | -------- | -------- |
+| InsertMiddle    | 11.6 us | 11.6 us  | 11.6 us  |
+| DeleteMiddle    | 17.8 us | 17.5 us  | 17.4 us  |
+| ToStringWhole   | 23.0 us | 106.2 us | 1,211 us |
+| LengthWhole     | 0.94 us | 0.93 us  | 0.94 us  |
+| PositionToIndex | 1.1 us  | 9.8 us   | 96.9 us  |
+| IndexToPosition | 0.09 us | 0.77 us  | 10.8 us  |
+
+Piece-table ops are size-independent (good); `PositionToIndex` scans
+lines linearly and is on the motion/selection/mouse path — a line-offset
+index would flatten it.
+
+### Render / highlight / color
+
+| Scenario                       | Value                        |
+| ------------------------------ | ---------------------------- |
+| Renderer DiffOneCell 80x24     | 37 us, ~1 KB alloc           |
+| Renderer DiffOneCell 250x70    | 326 us, ~1 KB alloc          |
+| Renderer FullRepaint 250x70    | 898 us                       |
+| spanAt overlay row (200 cols)  | 2.0-2.9 us                   |
+| Color QuantizeAccent (1 color) | 2.6 us, 15.6 KB alloc        |
+| Frame p95, 250x70 highlight on | 2.1 ms (budget 16.6 ms)      |
+| parseSpans fsharp              | ~11 ms + ~3 MB per 10k chars |
+
+The render diff is healthy (near-zero allocation on small diffs). The
+two cheap wins visible here: `Color.cubeRgb` re-allocates its
+standard-16 table on every quantize (15.6 KB for one color — hoist to a
+static), and `parseSpans` is linear at ~1 ms / 1k chars, which is the
+measured case for the planned debounce + size cap + incremental reparse
+(a 1M-char buffer pays ~1.1 s per keystroke today).
