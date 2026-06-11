@@ -78,6 +78,11 @@ jobs:
             "just|vendor/tree-sitter-just/src|parser.c scanner.c"
             "make|vendor/tree-sitter-make/src|parser.c"
             "astro|vendor/tree-sitter-astro/src|parser.c scanner.c"
+            "toml|vendor/tree-sitter-toml/src|parser.c scanner.c"
+            "sema|vendor/tree-sitter-sema/src|parser.c scanner.c"
+            "applescript|vendor/tree-sitter-applescript/src|parser.c scanner.c"
+            "rescript|vendor/tree-sitter-rescript/src|parser.c scanner.c"
+            "zig|vendor/tree-sitter-zig/src|parser.c"
           )
           for entry in "${grammars[@]}"; do
             IFS='|' read -r name srcdir files <<< "$entry"
@@ -105,7 +110,7 @@ jobs:
             linux-*) ext="so"; pfx="lib" ;;
             *) ext="dylib"; pfx="lib" ;;
           esac
-          for grammar in fsharp markdown xml dart just make astro; do
+          for grammar in fsharp markdown xml dart just make astro toml sema applescript rescript zig; do
             test -f "dist/${{ matrix.rid }}/runtimes/${{ matrix.rid }}/native/${pfx}tree-sitter-${grammar}.${ext}"
           done
 
