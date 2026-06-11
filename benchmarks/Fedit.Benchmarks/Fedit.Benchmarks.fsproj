@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <!-- Fedit.fsproj is SelfContained in Release; the bench exe only
+         consumes its assembly, never its publish output, so the
+         NETSDK1151 executable-reference check is noise here. -->
+    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Corpus.fs" />
+    <Compile Include="Manual.fs" />
+    <Compile Include="Grammar.fs" />
+    <Compile Include="BenchConfig.fs" />
+    <Compile Include="MicroBenchmarks.fs" />
+    <Compile Include="FrameBench.fs" />
+    <Compile Include="ParseBench.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Fedit\Fedit.fsproj" />
+  </ItemGroup>
+</Project>

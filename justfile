@@ -1,5 +1,6 @@
 project := "src/Fedit/Fedit.fsproj"
 tests := "tests/Fedit.Tests/Fedit.Tests.fsproj"
+benchmarks := "benchmarks/Fedit.Benchmarks/Fedit.Benchmarks.fsproj"
 solution := "Fedit.slnx"
 dotnet := "PATH=\"$PWD/.dotnet:$PATH\" dotnet"
 
@@ -81,6 +82,19 @@ coverage open="":
 # Pre-commit gate.
 [group('test')]
 check: lint build test
+
+# Micro benchmarks (BenchmarkDotNet, ShortRun, in-process). Full run ~4 min;
+# filter to a class, e.g. `just bench '*PieceTable*'` (~1 min). Results land
+# in BenchmarkDotNet.Artifacts/ (gitignored). See docs/benchmarks.md.
+[group('bench')]
+bench filter="*":
+    {{dotnet}} run --project {{benchmarks}} -c Release -p:SelfContained=false -- --filter "{{filter}}"
+
+# Manual harness: full-frame render pipeline + tree-sitter parse (~1-2 min).
+# Scope: empty for both, or `frames` / `parse`.
+[group('bench')]
+bench-manual scope="":
+    {{dotnet}} run --project {{benchmarks}} -c Release -p:SelfContained=false -- manual {{scope}}
 
 # Publish and install fedit.
 [unix]
