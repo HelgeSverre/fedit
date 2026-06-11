@@ -69,7 +69,7 @@ let ``github-light fills the editor with its white background end-to-end`` () =
     // reaches actual screen cells — proves the theme slot drives the renderer,
     // not just the record.
     let model, _ =
-        Editor.init "/root" { Width = 40; Height = 10 } (Config.defaults Themes.githubLight) [] None
+        Editor.init "/root" { Width = 40; Height = 10 } (Config.defaults Themes.githubLight) []
 
     let screen = Layout.render model
     let white = Color.ofHex "#FFFFFF"

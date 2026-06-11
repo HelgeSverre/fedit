@@ -192,12 +192,118 @@ let ``MouseProtocol tryParseSgr decodes a plain button press`` () =
     event.Value.Action |> should equal Press
 
 [<Fact>]
-let ``MouseProtocol tryParseSgr decodes the horizontal wheel`` () =
-    let event = MouseProtocol.tryParseSgr "[<66;10;5M"
-    // 66 = 64 + 2; the &&& 0b1100_0011 mask gives 66 which is not a standard wheel
-    // but our decoder treats 96/97 as horizontal. 66 falls through.
-    event |> Option.isNone |> should equal true
+let ``MouseProtocol tryParseSgr decodes horizontal wheel codes`` () =
+    // 66/67 are the conventional SGR horizontal-wheel codes (64+2 / 64+3).
+    let left = MouseProtocol.tryParseSgr "[<66;10;5M"
+    left |> Option.isSome |> should equal true
+    left.Value.Button |> should equal ScrollLeft
+    left.Value.Action |> should equal Press
+
+    let right = MouseProtocol.tryParseSgr "[<67;10;5M"
+    right |> Option.isSome |> should equal true
+    right.Value.Button |> should equal ScrollRight
+    right.Value.Action |> should equal Press
+
+[<Fact>]
+let ``MouseProtocol tryParseSgr keeps modifier bits on horizontal wheel`` () =
+    // 66 + shift(4) = 70 is still wheel-left, with Shift in the modifiers.
+    let event = MouseProtocol.tryParseSgr "[<70;1;1M"
+    event |> Option.isSome |> should equal true
+    event.Value.Button |> should equal ScrollLeft
+    event.Value.Modifiers |> should equal (Set.ofList [ Shift ])
+
+[<Fact>]
+let ``MouseProtocol toWheelTicks ignores horizontal wheel events`` () =
+    // Horizontal wheel must not scroll vertically. Without a tick mapping
+    // the press flows to MousePressed, where the editor matches LeftButton
+    // only — a harmless no-op.
+    let wheelEvent button : MouseEvent =
+        { Button = button
+          Action = Press
+          Position = { Line = 0; Column = 0 }
+          Modifiers = Set.empty }
+
+    MouseProtocol.toWheelTicks (wheelEvent ScrollLeft) |> should equal None
+    MouseProtocol.toWheelTicks (wheelEvent ScrollRight) |> should equal None
+    // Vertical mapping is unchanged.
+    MouseProtocol.toWheelTicks (wheelEvent ScrollUp) |> should equal (Some -1)
+    MouseProtocol.toWheelTicks (wheelEvent ScrollDown) |> should equal (Some 1)
+
+[<Fact>]
+let ``MouseProtocol tryParseSgr rejects buttons with the high bit`` () =
+    // Codes 128+ are the extended buttons 8-11 (browser back/forward etc.);
+    // without the guard they misdecode as left/middle/right via `&&& 3`.
+    MouseProtocol.tryParseSgr "[<128;10;5M" |> should equal None
+    MouseProtocol.tryParseSgr "[<129;10;5M" |> should equal None
 
 [<Fact>]
 let ``MouseProtocol tryParseSgr rejects malformed input`` () =
     MouseProtocol.tryParseSgr "garbage" |> should equal None
+
+// --- classifyEscapeSequence: focus events + bracketed-paste markers ---
+
+[<Fact>]
+let ``classifyEscapeSequence decodes focus in and out`` () =
+    Input.classifyEscapeSequence MouseEncoding.MouseSgr "\u001b[I"
+    |> should equal (Some Input.EscapeSequence.FocusGained)
+
+    Input.classifyEscapeSequence MouseEncoding.MouseSgr "\u001b[O"
+    |> should equal (Some Input.EscapeSequence.FocusLost)
+
+[<Fact>]
+let ``classifyEscapeSequence decodes bracketed paste markers`` () =
+    Input.classifyEscapeSequence MouseEncoding.MouseSgr "\u001b[200~"
+    |> should equal (Some Input.EscapeSequence.PasteBegin)
+
+    Input.classifyEscapeSequence MouseEncoding.MouseSgr "\u001b[201~"
+    |> should equal (Some Input.EscapeSequence.PasteEnd)
+
+[<Fact>]
+let ``classifyEscapeSequence swallows high-bit mouse buttons as handled input`` () =
+    // The SGR shape still parses, so the report is consumed (MouseIgnored)
+    // rather than replayed into the buffer as text.
+    Input.classifyEscapeSequence MouseEncoding.MouseSgr "\u001b[<128;10;5M"
+    |> should equal (Some Input.EscapeSequence.MouseIgnored)
+
+// --- Terminal.tryReadEvent over a preloaded PendingKeys queue. Console is
+// never consulted: hasPendingInput short-circuits on the queue count, and
+// each scenario completes its event exactly when the queue empties. ---
+
+let private terminalWithKeys (text: string) =
+    let writer = new IO.StringWriter()
+    let term = Terminal.createWithCapabilities writer TerminalCapabilities.modern
+
+    for ch in text do
+        let key =
+            match ch with
+            | '\u001b' -> ConsoleKey.Escape
+            | '\r' -> ConsoleKey.Enter
+            | c when c >= 'a' && c <= 'z' -> enum<ConsoleKey> (int ConsoleKey.A + int c - int 'a')
+            | _ -> enum<ConsoleKey> 0
+
+        term.PendingKeys.Enqueue(ConsoleKeyInfo(ch, key, false, false, false))
+
+    term
+
+[<Fact>]
+let ``tryReadEvent accumulates a bracketed paste into one event`` () =
+    let term = terminalWithKeys "\u001b[200~ab\rc\u001b[201~"
+
+    Terminal.tryReadEvent term |> should equal (Some(TerminalEvent.Paste "ab\rc"))
+
+    term.PendingKeys.Count |> should equal 0
+    term.PasteAccumulator |> should equal (None: Text.StringBuilder option)
+
+[<Fact>]
+let ``tryReadEvent swallows an unknown complete CSI without replaying`` () =
+    let term = terminalWithKeys "\u001b[1;2Xa"
+
+    // First read consumes and swallows the unknown report.
+    Terminal.tryReadEvent term |> should equal (None: TerminalEvent option)
+    term.PendingKeys.Count |> should equal 1
+
+    // Second read sees the trailing 'a' as an ordinary key event.
+    Terminal.tryReadEvent term
+    |> should equal (Some(TerminalEvent.KeyEvent { Mods = Set.empty; Key = Key.Char 'a' }))
+
+    term.PendingKeys.Count |> should equal 0

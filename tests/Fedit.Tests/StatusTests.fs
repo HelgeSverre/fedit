@@ -9,7 +9,7 @@ open FsUnit.Xunit
 /// resolve against.
 let private freshModel () =
     let model, _ =
-        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) [] None
+        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) []
 
     model
 
@@ -71,6 +71,23 @@ let ``[DIRTY] shows the marker when the buffer is dirty`` () =
         |> withFormat "x[DIRTY]y"
 
     Status.render 10 dirtied |> should haveSubstring "[+]"
+
+[<Fact>]
+let ``current_file appends the preview marker when the active buffer is the preview`` () =
+    let baseModel = freshModel ()
+    let preview = Buffer.fromText 2 (Some "/root/a.fs") "a.fs" "x" "\n"
+
+    let model =
+        { baseModel with
+            Editors =
+                { baseModel.Editors with
+                    Buffers = baseModel.Editors.Buffers |> Map.add 2 preview
+                    ActiveBufferId = 2
+                    NextBufferId = 3
+                    PreviewBufferId = Some 2 } }
+        |> withFormat "[CURRENT_FILE]"
+
+    Status.render 30 model |> should haveSubstring "a.fs [preview]"
 
 [<Fact>]
 let ``unknown tokens render literally so typos are visible`` () =

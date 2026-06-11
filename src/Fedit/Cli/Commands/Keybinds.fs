@@ -67,6 +67,7 @@ let actionName (action: Action) : string =
     | ToggleSidebar -> "toggle-sidebar"
     | FocusSidebar -> "focus-sidebar"
     | FocusEditor -> "focus-editor"
+    | RevealInSidebar -> "reveal-in-sidebar"
     | SidebarUp -> "sidebar-up"
     | SidebarDown -> "sidebar-down"
     | SidebarPageUp -> "sidebar-page-up"
@@ -135,6 +136,7 @@ let actionMeta (action: Action) : string * string =
     | ToggleSidebar -> "panel", "Toggle the sidebar"
     | FocusSidebar -> "panel", "Move focus to the sidebar"
     | FocusEditor -> "panel", "Move focus to the editor"
+    | RevealInSidebar -> "tree", "Reveal the active file in the sidebar"
     | SidebarUp -> "tree", "Move the tree selection up"
     | SidebarDown -> "tree", "Move the tree selection down"
     | SidebarPageUp -> "tree", "Move the tree selection up one page"
@@ -203,6 +205,7 @@ let allActions: Action list =
       ToggleSidebar
       FocusSidebar
       FocusEditor
+      RevealInSidebar
       SidebarUp
       SidebarDown
       SidebarPageUp

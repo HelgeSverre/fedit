@@ -117,7 +117,7 @@ module Status =
         // composable alternative).
         let pending =
             match model.PendingPrefix with
-            | Some(chords, _) -> Chord.renderStroke chords + "… "
+            | Some chords -> Chord.renderStroke chords + "… "
             | None -> ""
 
         // Active macro recording prefixes the mode so it shows under the
@@ -152,22 +152,34 @@ module Status =
     let private resolveToken (model: Model) (name: string) (modifier: string option) =
         let buffer = model.Editors.Buffers[model.Editors.ActiveBufferId]
 
+        // Appended to the rendered path, never stored in the buffer's Name —
+        // promotion just clears the slot without rewriting buffer state.
+        let previewSuffix =
+            if model.Editors.PreviewBufferId = Some model.Editors.ActiveBufferId then
+                " [preview]"
+            else
+                ""
+
         match name, modifier with
         | "mode", _ -> focusText model
         | "line", _ -> string (buffer.Cursor.Line + 1)
         | "column", _ -> string (buffer.Cursor.Column + 1)
         | "line_ending", _ -> if buffer.Newline = "\r\n" then "CRLF" else "LF"
         | "buffer", _ -> bufferIndicator model
-        | "current_file", Some "full" -> buffer.FilePath |> Option.defaultValue "[scratch]"
-        | "current_file", Some "short" -> buffer.FilePath |> Option.map tildify |> Option.defaultValue "[scratch]"
-        | "current_file", _ -> buffer.FilePath |> Option.map fileNameOf |> Option.defaultValue "[scratch]"
+        | "current_file", Some "full" -> (buffer.FilePath |> Option.defaultValue "[scratch]") + previewSuffix
+        | "current_file", Some "short" ->
+            (buffer.FilePath |> Option.map tildify |> Option.defaultValue "[scratch]")
+            + previewSuffix
+        | "current_file", _ ->
+            (buffer.FilePath |> Option.map fileNameOf |> Option.defaultValue "[scratch]")
+            + previewSuffix
         // Dirty includes its own leading space so the marker vanishes
         // cleanly when the buffer is clean.
         | "dirty", _ -> if buffer.Dirty then " [+]" else ""
         | "notification", _ -> model.Notification |> Option.map (fun n -> n.Message) |> Option.defaultValue ""
         | "pending", _ ->
             match model.PendingPrefix with
-            | Some(chords, _) -> Chord.renderStroke chords + " …"
+            | Some chords -> Chord.renderStroke chords + " …"
             | None -> ""
         | _ ->
             // Surface typos by rendering the token literally.

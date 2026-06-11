@@ -70,7 +70,10 @@ let ``undo is a text revision and clears stale selection`` () =
 
     let withSelection =
         { edited with
-            Selection = Some(PieceTable.length edited.Document) }
+            Selection =
+                Some
+                    { Anchor = PieceTable.length edited.Document
+                      Head = 0 } }
 
     let undone = Buffer.undo withSelection
     Buffer.line 0 undone |> should equal "hello"
@@ -81,16 +84,69 @@ let ``undo is a text revision and clears stale selection`` () =
 let ``selectionRange clamps stale anchors`` () =
     let buffer =
         { Buffer.fromText 1 None "test" "ab" "\n" with
-            Selection = Some 99
+            Selection = Some { Anchor = 99; Head = 0 }
             Cursor = Position.zero }
 
     Buffer.selectionText buffer |> should equal "ab"
+
+[<Fact>]
+let ``selectRange places the cursor at head`` () =
+    let buffer = newBuffer () |> Buffer.selectRange 1 4
+    buffer.Cursor |> should equal (Buffer.indexToPosition 4 buffer)
+    Buffer.selectionRange buffer |> should equal (Some(1, 4))
+
+[<Fact>]
+let ``extendWith keeps the anchor across consecutive extends`` () =
+    let buffer =
+        newBuffer ()
+        |> Buffer.extendWith Buffer.moveRight
+        |> Buffer.extendWith Buffer.moveRight
+
+    Buffer.selectionRange buffer |> should equal (Some(0, 2))
+
+[<Fact>]
+let ``extendWith after a detached cursor move snaps back to head`` () =
+    let selected = newBuffer () |> Buffer.selectRange 0 1
+
+    // A viewport-led scroll may move the cursor without touching the span;
+    // simulate the drift by force-setting the cursor away from Head.
+    let drifted =
+        { selected with
+            Cursor = Buffer.indexToPosition 8 selected }
+
+    let extended = drifted |> Buffer.extendWith Buffer.moveRight
+    Buffer.selectionRange extended |> should equal (Some(0, 2))
+    extended.Cursor |> should equal (Buffer.indexToPosition 2 extended)
+
+[<Fact>]
+let ``moveToOffset leaves the selection span untouched`` () =
+    // Search nav / :goto are span-neutral — only selection ops move the span.
+    let buffer = newBuffer () |> Buffer.selectRange 1 4 |> Buffer.moveToOffset 8
+    Buffer.selectionRange buffer |> should equal (Some(1, 4))
 
 [<Fact>]
 let ``stale save completion keeps buffer dirty`` () =
     let buffer = newBuffer () |> Buffer.insertText "X"
     let saved = Buffer.markSaved 0 "/tmp/test.txt" buffer
     saved.Dirty |> should equal true
+
+[<Fact>]
+let ``save preserves undo history`` () =
+    let edited = newBuffer () |> Buffer.insertText "X"
+    let saved = Buffer.markSaved edited.EditTick "/tmp/test.txt" edited
+    saved.Dirty |> should equal false
+
+    let undone = Buffer.undo saved
+    Buffer.line 0 undone |> should equal "hello"
+    undone.Dirty |> should equal true
+
+[<Fact>]
+let ``redo back to the saved revision is clean`` () =
+    let edited = newBuffer () |> Buffer.insertText "X"
+    let saved = Buffer.markSaved edited.EditTick "/tmp/test.txt" edited
+    let redone = saved |> Buffer.undo |> Buffer.redo
+    Buffer.line 0 redone |> should equal "Xhello"
+    redone.Dirty |> should equal false
 
 [<Fact>]
 let ``redo reapplies the change`` () =

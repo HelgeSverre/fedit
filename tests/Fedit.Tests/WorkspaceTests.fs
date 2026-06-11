@@ -23,6 +23,19 @@ let private sampleTree () =
         [ leaf "/root/a.fs" "a.fs"
           dir "/root/sub" "sub" [ leaf "/root/sub/b.fs" "b.fs"; leaf "/root/sub/c.fs" "c.fs" ] ]
 
+/// sampleTree plus a deeper branch: /root/sub/deep/d.fs sits two collapsed
+/// directories below the auto-expanded root.
+let private deepTree () =
+    dir
+        "/root"
+        "root"
+        [ leaf "/root/a.fs" "a.fs"
+          dir
+              "/root/sub"
+              "sub"
+              [ leaf "/root/sub/b.fs" "b.fs"
+                dir "/root/sub/deep" "deep" [ leaf "/root/sub/deep/d.fs" "d.fs" ] ] ]
+
 [<Fact>]
 let ``create yields empty workspace`` () =
     let ws = Workspace.create "/root"
@@ -37,10 +50,44 @@ let ``setTree populates and auto-selects root`` () =
     ws.SelectedPath.IsSome |> should equal true
 
 [<Fact>]
-let ``visibleEntries returns just the root when collapsed`` () =
+let ``setTree caches the flat relative file list in tree order`` () =
+    // preSort puts directories first, so the cached list follows the
+    // sorted tree exactly as the old per-keystroke flatten did.
     let ws = Workspace.create "/root" |> Workspace.setTree (sampleTree ())
-    let entries = Workspace.visibleEntries ws
-    entries |> List.length |> should be (greaterThan 0)
+    ws.Files |> should equal [ "sub/b.fs"; "sub/c.fs"; "a.fs" ]
+
+[<Fact>]
+let ``create starts with an empty file list`` () =
+    (Workspace.create "/root").Files |> should be Empty
+
+[<Fact>]
+let ``visibleEntries lists the auto-expanded root and its collapsed children`` () =
+    // setTree expands and selects the root, so its direct children are
+    // visible (directories sorted first); `sub` stays collapsed, hiding
+    // b.fs and c.fs.
+    let ws = Workspace.create "/root" |> Workspace.setTree (sampleTree ())
+
+    Workspace.visibleEntries ws
+    |> should
+        equal
+        [ { Path = "/root"
+            Name = "root"
+            Depth = 0
+            IsDirectory = true
+            IsExpanded = true
+            IsSelected = true }
+          { Path = "/root/sub"
+            Name = "sub"
+            Depth = 1
+            IsDirectory = true
+            IsExpanded = false
+            IsSelected = false }
+          { Path = "/root/a.fs"
+            Name = "a.fs"
+            Depth = 1
+            IsDirectory = false
+            IsExpanded = false
+            IsSelected = false } ]
 
 [<Fact>]
 let ``moveSelection moves down then up`` () =
@@ -57,6 +104,41 @@ let ``tryCollapseSelected only succeeds on expanded directories`` () =
     // root is expanded automatically
     let collapsed = Workspace.tryCollapseSelected ws
     collapsed.IsSome |> should equal true
+
+[<Fact>]
+let ``revealPath expands collapsed ancestors and selects the file`` () =
+    let ws =
+        Workspace.create "/root"
+        |> Workspace.setTree (deepTree ())
+        |> Workspace.revealPath "/root/sub/deep/d.fs"
+
+    Set.isSubset (Set.ofList [ "/root"; "/root/sub"; "/root/sub/deep" ]) ws.Expanded
+    |> should equal true
+
+    ws.SelectedPath |> should equal (Some "/root/sub/deep/d.fs")
+
+    Workspace.visibleEntries ws
+    |> List.exists (fun entry -> entry.Path = "/root/sub/deep/d.fs")
+    |> should equal true
+
+[<Fact>]
+let ``revealPath outside the root is a no-op`` () =
+    let ws = Workspace.create "/root" |> Workspace.setTree (deepTree ())
+    Workspace.revealPath "/elsewhere/x.fs" ws |> should equal ws
+
+[<Fact>]
+let ``revealPath of the root selects it without new expansions`` () =
+    let ws = Workspace.create "/root" |> Workspace.setTree (deepTree ())
+    let revealed = ws |> Workspace.moveSelection 1 |> Workspace.revealPath "/root"
+    revealed.SelectedPath |> should equal (Some "/root")
+    revealed.Expanded |> should equal ws.Expanded
+
+[<Fact>]
+let ``revealPath of a top-level file needs no expansion`` () =
+    let ws = Workspace.create "/root" |> Workspace.setTree (deepTree ())
+    let revealed = Workspace.revealPath "/root/a.fs" ws
+    revealed.SelectedPath |> should equal (Some "/root/a.fs")
+    revealed.Expanded |> should equal ws.Expanded
 
 [<Fact>]
 let ``appendSearch jumps to first prefix match`` () =

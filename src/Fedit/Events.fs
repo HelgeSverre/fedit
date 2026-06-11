@@ -42,3 +42,6 @@ type TerminalEvent =
     | MouseEvent of MouseEvent
     | FocusIn
     | FocusOut
+    /// A complete bracketed-paste payload (DECSET 2004): everything the
+    /// terminal sent between ESC[200~ and ESC[201~, raw and unnormalized.
+    | Paste of string

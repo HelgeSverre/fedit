@@ -7,7 +7,7 @@ open FsUnit.Xunit
 
 let private initModel () =
     let model, _ =
-        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) [] None
+        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) []
 
     model
 
@@ -42,7 +42,7 @@ let ``init produces a model with the scratch buffer`` () =
 [<Fact>]
 let ``init returns a ScanWorkspace startup effect`` () =
     let _, effects =
-        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) [] None
+        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) []
 
     effects
     |> List.exists (fun e ->
@@ -60,9 +60,8 @@ let ``initWithInitialFile queues the file open after startup effects`` () =
             { Width = 80; Height = 24 }
             (Config.defaults Themes.defaultTheme)
             []
-            None
 
-    effects |> List.last |> should equal (LoadFile "/root/file.fs")
+    effects |> List.last |> should equal (LoadFile("/root/file.fs", OpenPermanent))
 
 [<Fact>]
 let ``keybind command opens the keybinding prompt session`` () =
@@ -81,6 +80,66 @@ let ``keybind command opens the keybinding prompt session`` () =
     submitted.Prompt.PendingConfirmation |> should equal None
     submitted.Focus |> should equal Prompt
     submitted.Editors.Buffers.Count |> should equal 1
+
+[<Fact>]
+let ``typing in the search prompt emits RunSearch carrying the document`` () =
+    let press chord m =
+        fst (Editor.update (KeyPressed chord) m)
+
+    let withText = initModel () |> press (chr 'a') |> press (chr 'b')
+    let inSearch = withText |> press (ck 'f')
+    let _, effects = Editor.update (KeyPressed(chr 'a')) inSearch
+
+    effects
+    |> List.exists (fun e ->
+        match e with
+        | RunSearch(1, "a", document) -> PieceTable.toString document = "ab"
+        | _ -> false)
+    |> should equal true
+
+[<Fact>]
+let ``FileOpened schedules a highlight parse for the new buffer`` () =
+    let _, effects =
+        Editor.update (FileOpened("/root/x.fs", OpenPermanent, Result.Ok "let x = 1")) (initModel ())
+
+    effects
+    |> List.exists (fun e ->
+        match e with
+        | ParseHighlight(_, "fsharp", _, 0) -> true
+        | _ -> false)
+    |> should equal true
+
+[<Fact>]
+let ``editing a highlighted buffer schedules a fresh parse at the new tick`` () =
+    let opened, _ =
+        Editor.update (FileOpened("/root/x.fs", OpenPermanent, Result.Ok "let x = 1")) (initModel ())
+
+    let _, effects = Editor.update (KeyPressed(chr 'y')) opened
+
+    effects
+    |> List.exists (fun e ->
+        match e with
+        | ParseHighlight(id, "fsharp", _, 1) -> id = opened.Editors.ActiveBufferId
+        | _ -> false)
+    |> should equal true
+
+[<Fact>]
+let ``HighlightParsed stores spans only for the current edit tick`` () =
+    let opened, _ =
+        Editor.update (FileOpened("/root/x.fs", OpenPermanent, Result.Ok "let x = 1")) (initModel ())
+
+    let bufferId = opened.Editors.ActiveBufferId
+
+    let spans: HighlightSpan array =
+        [| { Capture = Keyword
+             StartByte = 0
+             EndByte = 3 } |]
+
+    let stale, _ = Editor.update (HighlightParsed(bufferId, 99, spans)) opened
+    stale.HighlightStates.ContainsKey bufferId |> should equal false
+
+    let fresh, _ = Editor.update (HighlightParsed(bufferId, 0, spans)) opened
+    fresh.HighlightStates[bufferId] |> should equal spans
 
 [<Fact>]
 let ``KeyPressed Ctrl+q with clean buffers quits immediately`` () =
@@ -110,6 +169,10 @@ let ``Resize updates Terminal size on the model`` () =
     next.Terminal.Height |> should equal 40
 
 // --- Mouse wheel: viewport-led (default) vs line mode ---
+
+/// Wheel position inside the editor text area: column 40 is right of the
+/// sidebar (width 26 on the default 80x24 model) and its gutter.
+let private inEditor: Position = { Line = 0; Column = 40 }
 
 let private modelWithLines n =
     let model = initModel ()
@@ -153,13 +216,13 @@ let private testPlugin name status =
 let ``MouseScrolled down in viewport mode moves the viewport`` () =
     // default config: ScrollViewport, scrolloff 5, 3 lines/tick; height 24-8-2 = 14
     let model = modelWithLines 100
-    let next, _ = Editor.update (MouseScrolled 1) model
+    let next, _ = Editor.update (MouseScrolled(1, inEditor)) model
     (activeBuffer next).ViewportTop |> should equal 3
 
 [<Fact>]
 let ``MouseScrolled up at the top of the file is a no-op in viewport mode`` () =
     let model = modelWithLines 100
-    let next, _ = Editor.update (MouseScrolled -1) model
+    let next, _ = Editor.update (MouseScrolled(-1, inEditor)) model
     (activeBuffer next).ViewportTop |> should equal 0
     (activeBuffer next).Cursor.Line |> should equal 0
 
@@ -173,7 +236,7 @@ let ``MouseScrolled down in line mode moves the cursor`` () =
                 { baseModel.Config with
                     ScrollMode = ScrollLine } }
 
-    let next, _ = Editor.update (MouseScrolled 1) model
+    let next, _ = Editor.update (MouseScrolled(1, inEditor)) model
     (activeBuffer next).Cursor.Line |> should equal 3
 
 [<Fact>]
@@ -628,7 +691,10 @@ let ``Ctrl+N where N exceeds buffer count is a silent no-op`` () =
 [<Fact>]
 let ``FileOpened with CRLF normalizes to LF and remembers CRLF preference`` () =
     let model = initModel ()
-    let next, _ = Editor.update (FileOpened("/x.txt", Result.Ok "a\r\nb\r\n")) model
+
+    let next, _ =
+        Editor.update (FileOpened("/x.txt", OpenPermanent, Result.Ok "a\r\nb\r\n")) model
+
     let buffer = next.Editors.Buffers[next.Editors.ActiveBufferId]
     (Buffer.text buffer).Contains "\r" |> should equal false
     Buffer.line 0 buffer |> should equal "a"
@@ -638,7 +704,10 @@ let ``FileOpened with CRLF normalizes to LF and remembers CRLF preference`` () =
 [<Fact>]
 let ``FileOpened with lone CR normalizes to LF and saves as LF`` () =
     let model = initModel ()
-    let next, _ = Editor.update (FileOpened("/x.txt", Result.Ok "a\rb\r")) model
+
+    let next, _ =
+        Editor.update (FileOpened("/x.txt", OpenPermanent, Result.Ok "a\rb\r")) model
+
     let buffer = next.Editors.Buffers[next.Editors.ActiveBufferId]
     (Buffer.text buffer).Contains "\r" |> should equal false
     Buffer.line 0 buffer |> should equal "a"
@@ -740,10 +809,32 @@ let ``Ctrl+R requests a workspace rescan`` () =
 
 [<Fact>]
 let ``Down in the focused sidebar moves the tree selection`` () =
+    let tree: FileNode =
+        { Path = "/root"
+          Name = "root"
+          IsDirectory = true
+          Children =
+            [ { Path = "/root/a.fs"
+                Name = "a.fs"
+                IsDirectory = false
+                Children = [] }
+              { Path = "/root/b.fs"
+                Name = "b.fs"
+                IsDirectory = false
+                Children = [] } ] }
+
     let model = initModel ()
-    let inSidebar, _ = Editor.update (KeyPressed(ck 'b')) model
+
+    let withTree =
+        { model with
+            Workspace = Workspace.setTree tree model.Workspace }
+
+    let inSidebar, _ = Editor.update (KeyPressed(ck 'b')) withTree
     inSidebar.Focus |> should equal Sidebar
+    // setTree selects the root; Down moves to the first child.
+    inSidebar.Workspace.SelectedPath |> should equal (Some "/root")
     let moved, _ = Editor.update (KeyPressed(nk Down)) inSidebar
+    moved.Workspace.SelectedPath |> should equal (Some "/root/a.fs")
     moved.Focus |> should equal Sidebar
 
 [<Fact>]
@@ -822,6 +913,132 @@ let ``Ctrl+E focuses the editor (FocusEditor action)`` () =
     focused.Focus |> should equal Editor
 
 // ─────────────────────────────────────────────────────────────────────
+// reveal-in-sidebar + autoReveal
+// ─────────────────────────────────────────────────────────────────────
+
+/// /root/sub/deep/d.fs sits two collapsed directories below the
+/// auto-expanded root.
+let private nestedTree () : FileNode =
+    { Path = "/root"
+      Name = "root"
+      IsDirectory = true
+      Children =
+        [ { Path = "/root/sub"
+            Name = "sub"
+            IsDirectory = true
+            Children =
+              [ { Path = "/root/sub/deep"
+                  Name = "deep"
+                  IsDirectory = true
+                  Children =
+                    [ { Path = "/root/sub/deep/d.fs"
+                        Name = "d.fs"
+                        IsDirectory = false
+                        Children = [] } ] } ] } ] }
+
+let private withNestedTree () =
+    let model = initModel ()
+
+    { model with
+        Workspace = Workspace.setTree (nestedTree ()) model.Workspace }
+
+[<Fact>]
+let ``FileOpened reveals collapsed ancestors when autoReveal is on`` () =
+    let opened, _ =
+        Editor.update (FileOpened("/root/sub/deep/d.fs", OpenPermanent, Result.Ok "x")) (withNestedTree ())
+
+    opened.Workspace.SelectedPath |> should equal (Some "/root/sub/deep/d.fs")
+    opened.Workspace.Expanded |> Set.contains "/root/sub" |> should equal true
+
+    opened.Workspace.Expanded |> Set.contains "/root/sub/deep" |> should equal true
+
+[<Fact>]
+let ``FileOpened with autoReveal off keeps ancestors collapsed`` () =
+    let model = withNestedTree ()
+
+    let model =
+        { model with
+            Config = { model.Config with AutoReveal = false } }
+
+    let opened, _ =
+        Editor.update (FileOpened("/root/sub/deep/d.fs", OpenPermanent, Result.Ok "x")) model
+
+    opened.Workspace.Expanded |> should equal model.Workspace.Expanded
+    // selectPath's ensureSelected falls back to the first visible entry (the
+    // root) because the deep path stays hidden under collapsed ancestors —
+    // today's select-only behaviour, pinned.
+    opened.Workspace.SelectedPath |> should equal (Some "/root")
+
+[<Fact>]
+let ``reveal-in-sidebar reveals the active file and focuses the sidebar`` () =
+    let opened, _ =
+        Editor.update (FileOpened("/root/sub/deep/d.fs", OpenPermanent, Result.Ok "x")) (withNestedTree ())
+
+    // Collapse everything back and hide the panel so the action has work to do.
+    let collapsed =
+        { opened with
+            Panels =
+                { opened.Panels with
+                    SidebarVisible = false }
+            Workspace =
+                { opened.Workspace with
+                    Expanded = Set.singleton "/root"
+                    SelectedPath = Some "/root" } }
+
+    let revealed, _ = Editor.update (KeyPressed(csk 'e')) collapsed
+    revealed.Panels.SidebarVisible |> should equal true
+    revealed.Focus |> should equal Sidebar
+    revealed.Workspace.SelectedPath |> should equal (Some "/root/sub/deep/d.fs")
+
+    revealed.Workspace.Expanded
+    |> Set.contains "/root/sub/deep"
+    |> should equal true
+
+[<Fact>]
+let ``reveal-in-sidebar on a scratch buffer notifies and changes nothing else`` () =
+    let model = initModel ()
+    let next, effects = Editor.runAction RevealInSidebar model
+    effects |> should equal ([]: Effect list)
+
+    next.Notification
+    |> should equal (Some(Notification.info "Scratch buffer has no file to reveal."))
+
+    // Only the notification changed — focus, panels, workspace, and buffers
+    // are intact. (Model itself has no structural equality — the plugin
+    // registry carries functions — so the fields are pinned one by one.)
+    next.Focus |> should equal model.Focus
+    next.Panels |> should equal model.Panels
+    next.Workspace |> should equal model.Workspace
+    next.Editors |> should equal model.Editors
+
+[<Fact>]
+let ``:reveal dispatches the action`` () =
+    let press chord m =
+        fst (Editor.update (KeyPressed chord) m)
+
+    let opened, _ =
+        Editor.update (FileOpened("/root/sub/deep/d.fs", OpenPermanent, Result.Ok "x")) (withNestedTree ())
+
+    let collapsed =
+        { opened with
+            Workspace =
+                { opened.Workspace with
+                    Expanded = Set.singleton "/root"
+                    SelectedPath = Some "/root" } }
+
+    let submitted =
+        "reveal"
+        |> Seq.fold (fun m c -> press (chr c) m) (press (ck 'p') collapsed)
+        |> press (nk Enter)
+
+    submitted.Focus |> should equal Sidebar
+    submitted.Workspace.SelectedPath |> should equal (Some "/root/sub/deep/d.fs")
+
+    submitted.Workspace.Expanded
+    |> Set.contains "/root/sub/deep"
+    |> should equal true
+
+// ─────────────────────────────────────────────────────────────────────
 // wip #8 — Ctrl+arrows word motion (added alongside Alt+arrows)
 // ─────────────────────────────────────────────────────────────────────
 
@@ -830,7 +1047,9 @@ let ``Ctrl+Right moves forward by a word`` () =
     let model = withText "hello world"
     let home, _ = Editor.update (KeyPressed(nk Home)) model
     let viaCtrl, _ = Editor.update (KeyPressed(cnk Right)) home
-    (Editor.activeBufferState viaCtrl).Cursor.Column |> should be (greaterThan 0)
+    // Default WordMotion is WordEnd: from column 0 the cursor lands at the
+    // end of "hello".
+    (Editor.activeBufferState viaCtrl).Cursor.Column |> should equal 5
 
 // ─────────────────────────────────────────────────────────────────────
 // Sequence engine (Sequence.step) — pure, tested against a synthetic
@@ -870,10 +1089,10 @@ let ``Sequence.step Fails (does not insert) when a pending prefix is not extende
 let ``SequenceTimedOut clears any pending prefix`` () =
     let model =
         { initModel () with
-            PendingPrefix = Some([ kc 'k' ], 1L) }
+            PendingPrefix = Some [ kc 'k' ] }
 
     let next, _ = Editor.update SequenceTimedOut model
-    next.PendingPrefix |> should equal (None: (Chord list * int64) option)
+    next.PendingPrefix |> should equal (None: Chord list option)
 
 // ─────────────────────────────────────────────────────────────────────
 // Chord.toKeyChord — bridge to the frozen plugin-API KeyChord
@@ -1120,4 +1339,568 @@ let ``Tab then Enter on open command shows pending message instead of silent no-
     entered.Notification
     |> should equal (Some(Notification.warning "Path is required."))
 
+    effects |> should equal ([]: Effect list)
+
+// ─────────────────────────────────────────────────────────────────────
+// Config-file and plugin-validate effects — the I/O moved out of
+// `update` into the EnsureConfigFile / ValidatePlugin interpreters.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``config command emits EnsureConfigFile instead of writing inline`` () =
+    let press chord m =
+        fst (Editor.update (KeyPressed chord) m)
+
+    let opened = initModel () |> press (ck 'p')
+    let typed = "config" |> Seq.fold (fun m c -> press (chr c) m) opened
+    let _, effects = Editor.update (KeyPressed(nk Enter)) typed
+    effects |> should equal [ EnsureConfigFile typed.Config ]
+
+[<Fact>]
+let ``ConfigFileReady Ok focuses the editor and loads the config file`` () =
+    let model = initModel ()
+
+    let next, effects =
+        Editor.update (ConfigFileReady(Result.Ok "/root/config.json")) model
+
+    next.Focus |> should equal Editor
+    effects |> should equal [ LoadFile("/root/config.json", OpenPermanent) ]
+
+[<Fact>]
+let ``ConfigFileReady Error surfaces a warning notification`` () =
+    let model = initModel ()
+    let next, effects = Editor.update (ConfigFileReady(Result.Error "disk full")) model
+
+    next.Notification
+    |> should equal (Some(Notification.warning "Could not create config file: disk full"))
+
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``plugin validate command emits a ValidatePlugin effect`` () =
+    let press chord m =
+        fst (Editor.update (KeyPressed chord) m)
+
+    let opened = initModel () |> press (ck 'p')
+
+    let typed =
+        "plugin validate /tmp/demo"
+        |> Seq.fold (fun m c -> press (if c = ' ' then nk Space else chr c) m) opened
+
+    let _, effects = Editor.update (KeyPressed(nk Enter)) typed
+    effects |> should equal [ ValidatePlugin "/tmp/demo" ]
+
+[<Fact>]
+let ``PluginValidated Ok surfaces the report as an info notification`` () =
+    let report = "OK: demo 1.0.0 (apiVersion 1); entryType=Demo.Plugin"
+    let next, effects = Editor.update (PluginValidated(Result.Ok report)) (initModel ())
+    next.Notification |> should equal (Some(Notification.info report))
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``PluginValidated Error surfaces the report as an error notification`` () =
+    let report = "No plugin.json found in /tmp/demo."
+
+    let next, effects =
+        Editor.update (PluginValidated(Result.Error report)) (initModel ())
+
+    next.Notification |> should equal (Some(Notification.error report))
+    effects |> should equal ([]: Effect list)
+
+// ─────────────────────────────────────────────────────────────────────
+// Mouse pipeline — click-to-position, drag-to-select, release. Editor
+// coordinates derive from Dock.metrics so the tests can't drift from
+// the painted layout.
+// ─────────────────────────────────────────────────────────────────────
+
+let private mouseEvent button action line column : MouseEvent =
+    { Button = button
+      Action = action
+      Position = { Line = line; Column = column }
+      Modifiers = Set.empty }
+
+/// Screen column of the first text cell (right of sidebar + gutter).
+let private textAreaX (model: Model) =
+    (Dock.metrics model).EditorX + Buffer.gutterWidth (activeBuffer model)
+
+[<Fact>]
+let ``MousePressed in the text area moves the cursor to the clicked cell`` () =
+    let model = modelWithLines 10 // lines "line0".."line9"
+    let contentX = textAreaX model
+
+    let next, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 2 (contentX + 3))) model
+
+    (activeBuffer next).Cursor |> should equal { Line = 2; Column = 3 }
+    next.Focus |> should equal Editor
+
+    let expectedDrag =
+        { AnchorBufferId = 1
+          AnchorPosition = { Line = 2; Column = 3 } }
+
+    next.MouseDrag |> should equal (Some expectedDrag)
+
+[<Fact>]
+let ``MousePressed then MouseDragged selects between press and drag cells`` () =
+    let model = modelWithLines 10
+    let contentX = textAreaX model
+
+    let pressed, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX)) model
+
+    let dragged, _ =
+        Editor.update (MouseDragged(mouseEvent LeftButton Drag 1 (contentX + 2))) pressed
+
+    let buffer = activeBuffer dragged
+    buffer.Cursor |> should equal { Line = 1; Column = 2 }
+    // Anchor at the press cell (index 0), cursor at the drag cell ("line0\n" = 6 chars, +2).
+    Buffer.selectionRange buffer |> should equal (Some(0, 8))
+
+[<Fact>]
+let ``MouseReleased clears the drag anchor so later drags do not extend`` () =
+    let model = modelWithLines 10
+    let contentX = textAreaX model
+
+    let pressed, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX)) model
+
+    pressed.MouseDrag |> Option.isSome |> should equal true
+
+    let released, _ =
+        Editor.update (MouseReleased(mouseEvent LeftButton Release 0 contentX)) pressed
+
+    released.MouseDrag |> should equal (None: MouseDragState option)
+
+    // With no anchor a drag is a no-op — the selection cannot extend.
+    let draggedAfter, _ =
+        Editor.update (MouseDragged(mouseEvent LeftButton Drag 2 (contentX + 3))) released
+
+    draggedAfter |> should equal released
+
+[<Fact>]
+let ``MousePressed in the gutter or empty sidebar leaves the model unchanged`` () =
+    let model = modelWithLines 10
+    let contentX = textAreaX model
+
+    // Last gutter cell, just left of the text area.
+    let inGutter, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 (contentX - 1))) model
+
+    inGutter |> should equal model
+
+    // Inside the sidebar with no workspace tree (no entry under the click):
+    // no cursor move, no focus change, no drag anchor.
+    let inSidebar, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 0)) model
+
+    inSidebar |> should equal model
+
+// ─────────────────────────────────────────────────────────────────────
+// Detached selection — the span lives independently of the cursor, so a
+// viewport-led wheel scroll (which drags the cursor for scrolloff) can
+// never silently grow a selection.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``wheel scroll preserves an existing selection exactly`` () =
+    // default config: ScrollViewport, scrolloff 5, 3 lines/tick; height 24-8-2 = 14
+    let model = modelWithLines 100
+
+    let selected =
+        [ snk Down; snk Down ]
+        |> List.fold (fun m c -> fst (Editor.update (KeyPressed c) m)) model
+
+    let before = Buffer.selectionRange (activeBuffer selected)
+    before |> should equal (Some(0, 12)) // two "lineN\n" rows of 6 chars
+
+    let scrolled, _ = Editor.update (MouseScrolled(2, inEditor)) selected
+    let buffer = activeBuffer scrolled
+    buffer.ViewportTop |> should equal 6
+    // The cursor was dragged into the scrolloff band (top + 5)...
+    buffer.Cursor.Line |> should equal 11
+    // ...but the selection span did not move with it.
+    Buffer.selectionRange buffer |> should equal before
+
+[<Fact>]
+let ``wheel scroll while dragging keeps the drag anchor`` () =
+    let model = modelWithLines 100
+    let contentX = textAreaX model
+
+    let pressed, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX)) model
+
+    let scrolled, _ = Editor.update (MouseScrolled(1, inEditor)) pressed
+    (activeBuffer scrolled).ViewportTop |> should equal 3
+
+    // Drag onto visible row 2 → buffer line 3 + 2 = 5, column 3.
+    let dragged, _ =
+        Editor.update (MouseDragged(mouseEvent LeftButton Drag 2 (contentX + 3))) scrolled
+
+    let buffer = activeBuffer dragged
+    buffer.Cursor |> should equal { Line = 5; Column = 3 }
+    // Press anchor (index 0) → drag cell: five "lineN\n" rows of 6 chars + 3.
+    Buffer.selectionRange buffer |> should equal (Some(0, 33))
+
+[<Fact>]
+let ``shift+motion after a detached scroll extends from the selection head`` () =
+    let model = modelWithLines 100
+    let sel1, _ = Editor.update (KeyPressed(snk Right)) model
+    Buffer.selectionRange (activeBuffer sel1) |> should equal (Some(0, 1))
+
+    // One wheel tick: viewport to 3, cursor dragged to the scrolloff band.
+    let scrolled, _ = Editor.update (MouseScrolled(1, inEditor)) sel1
+    (activeBuffer scrolled).Cursor.Line |> should equal 8
+
+    let sel2, _ = Editor.update (KeyPressed(snk Right)) scrolled
+    let buffer = activeBuffer sel2
+    Buffer.selectionRange buffer |> should equal (Some(0, 2))
+    // The cursor snapped back to the head before extending — it did not
+    // extend from the drifted line-8 position.
+    buffer.Cursor |> should equal { Line = 0; Column = 2 }
+
+[<Fact>]
+let ``typing after a detached scroll replaces the selection`` () =
+    let model = modelWithLines 100
+    let sel, _ = Editor.update (KeyPressed(snk Right)) model
+    let scrolled, _ = Editor.update (MouseScrolled(1, inEditor)) sel
+    (activeBuffer scrolled).Cursor.Line |> should equal 8
+
+    let typed, _ = Editor.update (KeyPressed(chr 'x')) scrolled
+    let buffer = activeBuffer typed
+    // The span (0,1) was replaced — not a range up to the drifted cursor.
+    Buffer.line 0 buffer |> should equal "xine0"
+    Buffer.line 1 buffer |> should equal "line1"
+    buffer.Selection |> should equal None
+    buffer.Cursor |> should equal { Line = 0; Column = 1 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Preview buffer — the single VSCode-style reusable slot. Space in the
+// sidebar peeks a file (focus stays put); editing or Enter promotes it;
+// a second preview replaces the slot's content under the same id.
+// ─────────────────────────────────────────────────────────────────────
+
+/// Sidebar-focused model whose workspace tree holds `files` under /root,
+/// with the first file selected. Mirrors the Space-in-sidebar fixture.
+let private sidebarModelWithFiles (files: string list) =
+    let tree: FileNode =
+        { Path = "/root"
+          Name = "root"
+          IsDirectory = true
+          Children =
+            files
+            |> List.map (fun name ->
+                { Path = $"/root/{name}"
+                  Name = name
+                  IsDirectory = false
+                  Children = [] }) }
+
+    let model = initModel ()
+
+    { model with
+        Focus = Sidebar
+        Workspace =
+            model.Workspace
+            |> Workspace.setTree tree
+            |> Workspace.selectPath $"/root/{List.head files}" }
+
+[<Fact>]
+let ``space on a sidebar file emits a preview load`` () =
+    let model = sidebarModelWithFiles [ "a.fs" ]
+    let _, effects = Editor.update (KeyPressed(nk Space)) model
+    effects |> should equal [ LoadFile("/root/a.fs", OpenPreview) ]
+
+[<Fact>]
+let ``space with a type-ahead query stays a search character`` () =
+    let model = sidebarModelWithFiles [ "my file.fs" ]
+    let m, _ = Editor.update (KeyPressed(chr 'm')) model
+    let y, _ = Editor.update (KeyPressed(chr 'y')) m
+    let spaced, effects = Editor.update (KeyPressed(nk Space)) y
+    spaced.Workspace.SearchBuffer |> should equal "my "
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``preview FileOpened creates the preview buffer and keeps focus`` () =
+    let model = sidebarModelWithFiles [ "a.fs" ]
+
+    let next, _ =
+        Editor.update (FileOpened("/root/a.fs", OpenPreview, Result.Ok "x")) model
+
+    next.Editors.PreviewBufferId |> should equal (Some next.Editors.ActiveBufferId)
+
+    next.Editors.ActiveBufferId |> should not' (equal model.Editors.ActiveBufferId)
+    next.Focus |> should equal Sidebar
+
+[<Fact>]
+let ``a second preview reuses the buffer id`` () =
+    let model = sidebarModelWithFiles [ "a.fs"; "b.fs" ]
+
+    let first, _ =
+        Editor.update (FileOpened("/root/a.fs", OpenPreview, Result.Ok "alpha")) model
+
+    let previewId = first.Editors.ActiveBufferId
+
+    // Seed a highlight entry so the slot-reuse path provably drops it.
+    let seeded =
+        { first with
+            HighlightStates = first.HighlightStates |> Map.add previewId [||] }
+
+    let second, _ =
+        Editor.update (FileOpened("/root/b.fs", OpenPreview, Result.Ok "beta")) seeded
+
+    second.Editors.ActiveBufferId |> should equal previewId
+    second.Editors.PreviewBufferId |> should equal (Some previewId)
+    second.Editors.Buffers.Count |> should equal first.Editors.Buffers.Count
+
+    let buffer = second.Editors.Buffers[previewId]
+    buffer.FilePath |> should equal (Some "/root/b.fs")
+    Buffer.text buffer |> should equal "beta"
+    Assert.Empty buffer.Undo
+    second.HighlightStates.ContainsKey previewId |> should equal false
+
+[<Fact>]
+let ``editing the preview promotes it`` () =
+    let model = sidebarModelWithFiles [ "a.fs" ]
+
+    let previewed, _ =
+        Editor.update (FileOpened("/root/a.fs", OpenPreview, Result.Ok "x")) model
+
+    let typed, _ = Editor.update (KeyPressed(chr 'y')) { previewed with Focus = Editor }
+
+    typed.Editors.PreviewBufferId |> should equal (None: int option)
+
+[<Fact>]
+let ``enter on the previewed file promotes it without reloading`` () =
+    let model = sidebarModelWithFiles [ "a.fs" ]
+
+    let previewed, _ =
+        Editor.update (FileOpened("/root/a.fs", OpenPreview, Result.Ok "x")) model
+
+    previewed.Focus |> should equal Sidebar
+    let next, effects = Editor.update (KeyPressed(nk Enter)) previewed
+
+    next.Editors.PreviewBufferId |> should equal (None: int option)
+    next.Editors.ActiveBufferId |> should equal previewed.Editors.ActiveBufferId
+    next.Focus |> should equal Editor
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``space on a file open in a normal buffer activates it without previewing`` () =
+    let model = sidebarModelWithFiles [ "a.fs" ]
+
+    let opened, _ =
+        Editor.update (FileOpened("/root/a.fs", OpenPermanent, Result.Ok "x")) model
+
+    let inSidebar = { opened with Focus = Sidebar }
+    let next, effects = Editor.update (KeyPressed(nk Space)) inSidebar
+
+    next.Editors.PreviewBufferId |> should equal (None: int option)
+    next.Editors.ActiveBufferId |> should equal opened.Editors.ActiveBufferId
+    next.Focus |> should equal Sidebar
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``space on the previewed file is a no-op activation`` () =
+    let model = sidebarModelWithFiles [ "a.fs" ]
+
+    let previewed, _ =
+        Editor.update (FileOpened("/root/a.fs", OpenPreview, Result.Ok "x")) model
+
+    let next, effects = Editor.update (KeyPressed(nk Space)) previewed
+
+    next.Editors.PreviewBufferId |> should equal previewed.Editors.PreviewBufferId
+    next.Editors.ActiveBufferId |> should equal previewed.Editors.ActiveBufferId
+    next.Focus |> should equal Sidebar
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``FileOpened OpenPermanent of an already-open path activates instead of duplicating`` () =
+    let model = sidebarModelWithFiles [ "a.fs" ]
+
+    let opened, _ =
+        Editor.update (FileOpened("/root/a.fs", OpenPermanent, Result.Ok "x")) model
+
+    let again, _ =
+        Editor.update (FileOpened("/root/a.fs", OpenPermanent, Result.Ok "x")) opened
+
+    again.Editors.Buffers.Count |> should equal opened.Editors.Buffers.Count
+    again.Editors.ActiveBufferId |> should equal opened.Editors.ActiveBufferId
+
+// ─────────────────────────────────────────────────────────────────────
+// Sidebar mouse — click selects, click-on-selected activates (dir →
+// toggle expand, file → preview peek), wheel moves the tree selection.
+// Row→entry mapping goes through Dock.sidebarRows, the same pass the
+// painter uses, so hit-testing can't drift from what's on screen.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``wheel over the sidebar moves the tree selection by ticks times mouseScrollLines`` () =
+    // Five root files, all visible: root row 0, a.fs..e.fs rows 1..5.
+    let model =
+        { sidebarModelWithFiles [ "a.fs"; "b.fs"; "c.fs"; "d.fs"; "e.fs" ] with
+            Focus = Editor }
+
+    let before = activeBuffer model
+
+    let next, effects = Editor.update (MouseScrolled(1, { Line = 2; Column = 1 })) model
+
+    // a.fs (entry 1) + 1 tick × 3 lines/tick (default) = d.fs (entry 4).
+    next.Workspace.SelectedPath |> should equal (Some "/root/d.fs")
+    // The wheel routed to the tree: the editor viewport did not move...
+    (activeBuffer next).ViewportTop |> should equal before.ViewportTop
+    // ...and the focus stayed where it was.
+    next.Focus |> should equal Editor
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``click on an unselected sidebar row selects it and focuses the sidebar`` () =
+    let model =
+        { sidebarModelWithFiles [ "a.fs"; "b.fs"; "c.fs" ] with
+            Focus = Editor }
+
+    let entries, startIndex = Dock.sidebarRows model (Dock.metrics model).MainHeight
+    let idx = entries |> List.findIndex (fun entry -> entry.Path = "/root/c.fs")
+
+    let next, effects =
+        Editor.update (MousePressed(mouseEvent LeftButton Press (idx - startIndex) 1)) model
+
+    next.Workspace.SelectedPath |> should equal (Some "/root/c.fs")
+    next.Focus |> should equal Sidebar
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``click on the selected directory row toggles its expansion`` () =
+    let tree: FileNode =
+        { Path = "/root"
+          Name = "root"
+          IsDirectory = true
+          Children =
+            [ { Path = "/root/src"
+                Name = "src"
+                IsDirectory = true
+                Children =
+                  [ { Path = "/root/src/a.fs"
+                      Name = "a.fs"
+                      IsDirectory = false
+                      Children = [] } ] } ] }
+
+    let model = initModel ()
+
+    let model =
+        { model with
+            Workspace = model.Workspace |> Workspace.setTree tree |> Workspace.selectPath "/root/src" }
+
+    model.Workspace.Expanded |> Set.contains "/root/src" |> should equal false
+
+    let entries, startIndex = Dock.sidebarRows model (Dock.metrics model).MainHeight
+
+    let row =
+        (entries |> List.findIndex (fun entry -> entry.Path = "/root/src")) - startIndex
+
+    let expanded, effects =
+        Editor.update (MousePressed(mouseEvent LeftButton Press row 1)) model
+
+    expanded.Workspace.Expanded |> Set.contains "/root/src" |> should equal true
+    expanded.Focus |> should equal Sidebar
+    effects |> should equal ([]: Effect list)
+
+    // The row is still selected, so a second click collapses it again.
+    let collapsed, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press row 1)) expanded
+
+    collapsed.Workspace.Expanded |> Set.contains "/root/src" |> should equal false
+
+[<Fact>]
+let ``click on the selected file row opens it as a preview`` () =
+    let model = sidebarModelWithFiles [ "a.fs" ]
+    let entries, startIndex = Dock.sidebarRows model (Dock.metrics model).MainHeight
+
+    let row =
+        (entries |> List.findIndex (fun entry -> entry.Path = "/root/a.fs"))
+        - startIndex
+
+    let next, effects =
+        Editor.update (MousePressed(mouseEvent LeftButton Press row 1)) model
+
+    effects |> should equal [ LoadFile("/root/a.fs", OpenPreview) ]
+    next.Focus |> should equal Sidebar
+
+[<Fact>]
+let ``sidebar row mapping honours the centered scroll origin`` () =
+    // Enough entries that the selection-centering scroll kicks in: 41
+    // visible entries on a 22-row main area with a deep selection pins
+    // the window to the tree's tail (startIndex > 0).
+    let files = [ for i in 0..39 -> sprintf "f%02d.fs" i ]
+
+    let model =
+        let m = sidebarModelWithFiles files
+
+        { m with
+            Workspace = Workspace.selectPath "/root/f35.fs" m.Workspace }
+
+    let entries, startIndex = Dock.sidebarRows model (Dock.metrics model).MainHeight
+    startIndex > 0 |> should equal true
+
+    // Screen row 0 is the entry painted at the scroll origin, not entry 0.
+    let next, _ = Editor.update (MousePressed(mouseEvent LeftButton Press 0 1)) model
+    next.Workspace.SelectedPath |> should equal (Some entries[startIndex].Path)
+
+[<Fact>]
+let ``click below the last sidebar entry does nothing`` () =
+    // Two entries (root + a.fs); row 20 is inside the sidebar but past
+    // the last painted row.
+    let model = sidebarModelWithFiles [ "a.fs" ]
+
+    let next, effects =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 20 1)) model
+
+    next |> should equal model
+    effects |> should equal ([]: Effect list)
+
+// ─────────────────────────────────────────────────────────────────────
+// Bracketed paste (PastedText): one undo entry, selection replacement,
+// focus-aware routing (editor / prompt first line / sidebar ignored).
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``PastedText inserts as a single undo entry`` () =
+    let next, _ = Editor.update (PastedText "a\r\nb") (initModel ())
+
+    // Newlines normalize to the LF-only document invariant.
+    Buffer.text (activeBuffer next) |> should equal "a\nb"
+
+    // One insertText call = one undo entry: a single undo restores empty.
+    let undone, _ = Editor.update (KeyPressed(ck 'z')) next
+    Buffer.text (activeBuffer undone) |> should equal ""
+
+[<Fact>]
+let ``PastedText replaces a selection`` () =
+    let model = withText "abc"
+    let selected, _ = Editor.update (KeyPressed(ck 'a')) model
+    let next, _ = Editor.update (PastedText "xy") selected
+
+    Buffer.text (activeBuffer next) |> should equal "xy"
+    (activeBuffer next).Selection |> should equal (None: SelectionSpan option)
+
+[<Fact>]
+let ``PastedText into the prompt inserts only the first line`` () =
+    let opened, _ = Editor.update (KeyPressed(ck 'p')) (initModel ())
+    opened.Focus |> should equal Prompt
+
+    let next, _ = Editor.update (PastedText "theme x\nquit") opened
+
+    // Single-line input: only the first line lands in the prompt text; the
+    // newline must not act as Enter, so nothing executes and the prompt
+    // stays open.
+    next.Prompt.Active |> should equal true
+    next.Prompt.Text |> should equal (opened.Prompt.Text + "theme x")
+    next.ShouldQuit |> should equal false
+    Buffer.text (activeBuffer next) |> should equal ""
+
+[<Fact>]
+let ``PastedText with sidebar focus is ignored`` () =
+    let model = { initModel () with Focus = Sidebar }
+    let next, effects = Editor.update (PastedText "hello") model
+
+    Buffer.text (activeBuffer next) |> should equal ""
+    next.Focus |> should equal Sidebar
     effects |> should equal ([]: Effect list)

@@ -149,6 +149,12 @@ module ConfigIO =
                     |> Option.defaultValue defaults.MouseScrollLines
                     |> clampInt 1 20
 
+                let autoReveal =
+                    match root.TryGetProperty "autoReveal" with
+                    | true, e when e.ValueKind = System.Text.Json.JsonValueKind.False -> false
+                    | true, e when e.ValueKind = System.Text.Json.JsonValueKind.True -> true
+                    | _ -> defaults.AutoReveal
+
                 let config =
                     { Theme = theme
                       Recent = recent
@@ -166,7 +172,8 @@ module ConfigIO =
                       SyntaxHighlightingEnabled = syntaxHighlightingEnabled
                       ScrollMode = scrollMode
                       ScrollOff = scrollOff
-                      MouseScrollLines = mouseScrollLines }
+                      MouseScrollLines = mouseScrollLines
+                      AutoReveal = autoReveal }
 
                 config, None
             else
@@ -352,6 +359,7 @@ module ConfigIO =
         root["icons"] <- System.Text.Json.Nodes.JsonValue.Create iconsStr
         root["statusFormat"] <- System.Text.Json.Nodes.JsonValue.Create config.StatusFormat
         root["syntaxHighlighting"] <- System.Text.Json.Nodes.JsonValue.Create config.SyntaxHighlightingEnabled
+        root["autoReveal"] <- System.Text.Json.Nodes.JsonValue.Create config.AutoReveal
         root["scrollMode"] <- System.Text.Json.Nodes.JsonValue.Create scrollModeStr
         root["scrollOff"] <- System.Text.Json.Nodes.JsonValue.Create config.ScrollOff
         root["mouseScrollLines"] <- System.Text.Json.Nodes.JsonValue.Create config.MouseScrollLines

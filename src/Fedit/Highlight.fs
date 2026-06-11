@@ -36,14 +36,6 @@ type HighlightSpan =
       StartByte: int
       EndByte: int }
 
-/// Per-buffer parse state. The parser is owned (one per buffer); the
-/// tree is owned and re-allocated on every Phase 1 reparse.
-type HighlightState =
-    { Language: string
-      Parser: TreeSitter.Parser
-      Tree: TreeSitter.Tree option
-      Spans: HighlightSpan array }
-
 /// Process-wide singleton: one `Language` + one compiled `Query` per
 /// supported language name. Parsers are per-buffer, not in here.
 type HighlightRegistry
@@ -397,48 +389,21 @@ module Highlight =
         | Some _ -> byPath
         | None -> detectShebang source
 
-    let dispose (state: HighlightState) =
-        state.Tree
-        |> Option.iter (fun t ->
-            try
-                (t :> IDisposable).Dispose()
-            with _ ->
-                ())
-
-        try
-            (state.Parser :> IDisposable).Dispose()
-        with _ ->
-            ()
-
-    /// Build a fresh `HighlightState`. If `previous` is `Some`, dispose
-    /// its tree + parser first. Returns `None` when the language isn't
-    /// available in the registry or the parser failed to allocate.
-    let parse
-        (registry: HighlightRegistry)
-        (language: string)
-        (source: string)
-        (previous: HighlightState option)
-        : HighlightState option =
-        previous |> Option.iter dispose
-
+    /// One-shot parse for the effect interpreter: parse `source`, project
+    /// the spans, and dispose the parser and tree before returning. No
+    /// native state escapes — the Model carries only the span array.
+    /// `None` when the language isn't in the registry or parsing failed.
+    let parseSpans (registry: HighlightRegistry) (language: string) (source: string) : HighlightSpan array option =
         match registry.TryGetLanguage language, registry.TryGetQuery language with
         | Some lang, Some query ->
             try
-                let parser = new TreeSitter.Parser(lang)
+                use parser = new TreeSitter.Parser(lang)
 
                 match parser.Parse source with
-                | null ->
-                    Some
-                        { Language = language
-                          Parser = parser
-                          Tree = None
-                          Spans = Array.empty }
+                | null -> Some Array.empty
                 | tree ->
-                    Some
-                        { Language = language
-                          Parser = parser
-                          Tree = Some tree
-                          Spans = computeSpans query tree }
+                    use tree = tree
+                    Some(computeSpans query tree)
             with _ ->
                 None
         | _ -> None

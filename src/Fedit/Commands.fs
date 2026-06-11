@@ -19,6 +19,9 @@ type Command =
     | ToggleSidebar
     | FocusTree
     | FocusEditor
+    /// Reveal the active buffer's file in the sidebar (expand ancestors,
+    /// select it, focus the tree).
+    | Reveal
     | ReloadWorkspace
     | NextBuffer
     | PreviousBuffer
@@ -140,6 +143,11 @@ module Commands =
             Summary = "Focus the editor."
             Hidden = true
             Constructor = simple FocusEditor }
+          { Name = "reveal"
+            Usage = "reveal"
+            Summary = "Reveal the active file in the sidebar."
+            Hidden = false
+            Constructor = simple Reveal }
           { Name = "reload"
             Usage = "reload"
             Summary = "Reload the workspace tree."

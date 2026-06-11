@@ -122,7 +122,7 @@ module Renderer =
                 | ValueSome p -> p.Cells[row, col] = next.Cells[row, col]
                 | ValueNone -> false
 
-        let mutable currentStyle: string voption = ValueNone
+        let mutable currentStyle: Style voption = ValueNone
         let mutable lastRow = -2
         let mutable lastCol = -2
 
@@ -130,14 +130,16 @@ module Renderer =
             for col in 0 .. next.Width - 1 do
                 if not (sameAsPrev row col) then
                     let cell = next.Cells[row, col]
-                    let style = styleToAnsiSequence colorSupport cell.Style
 
                     if row <> lastRow || col <> lastCol + 1 then
                         append builder (cursorPosition row col)
 
-                    if currentStyle <> ValueSome style then
-                        append builder style
-                        currentStyle <- ValueSome style
+                    // Compare the Style struct, not a rendered SGR string —
+                    // a full-screen diff (scroll, theme change) would
+                    // otherwise build width × height strings per frame.
+                    if currentStyle <> ValueSome cell.Style then
+                        append builder (styleToAnsiSequence colorSupport cell.Style)
+                        currentStyle <- ValueSome cell.Style
 
                     appendChar builder cell.Glyph
                     lastRow <- row

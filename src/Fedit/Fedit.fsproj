@@ -198,6 +198,7 @@
     <Compile Include="Pickers.fs" />
     <Compile Include="KeymapIO.fs" />
     <Compile Include="Prompt.fs" />
+    <Compile Include="Dock.fs" />
     <Compile Include="Editor.fs" />
     <Compile Include="Status.fs" />
     <Compile Include="Renderer.fs" />

@@ -57,7 +57,7 @@ let ``a multi-line notification renders without control glyphs`` () =
     // [NOTIFICATION] status token. Pre-fix, the embedded newlines land in the
     // status row as control glyphs and corrupt the terminal.
     let model, _ =
-        Editor.init "/root" { Width = 120; Height = 12 } (Config.defaults Themes.defaultTheme) [] None
+        Editor.init "/root" { Width = 120; Height = 12 } (Config.defaults Themes.defaultTheme) []
 
     let model =
         { model with
@@ -78,7 +78,7 @@ let ``a multi-line notification renders without control glyphs`` () =
 [<Fact>]
 let ``plugin prompt session renders the selected item title, badge, version, path, and prompt label`` () =
     let model, _ =
-        Editor.init "/root" { Width = 100; Height = 24 } (Config.defaults Themes.defaultTheme) [] None
+        Editor.init "/root" { Width = 100; Height = 24 } (Config.defaults Themes.defaultTheme) []
 
     let manifest =
         { Name = "alpha"

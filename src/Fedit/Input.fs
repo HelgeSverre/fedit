@@ -14,6 +14,8 @@ module Input =
         | MouseIgnored
         | FocusGained
         | FocusLost
+        | PasteBegin
+        | PasteEnd
 
     let private modifierSet (value: int) : Set<Modifier> =
         // XTerm / CSI-u modifier values are 1-based bitmasks:
@@ -271,13 +273,22 @@ module Input =
         if String.IsNullOrEmpty sequence || sequence[0] <> escape then
             None
         else
+            // Helper conventions differ: `FocusEvents` constants are full
+            // ESC-prefixed sequences, while the `MouseProtocol` parsers and
+            // `PasteEvents` markers expect the body with the ESC stripped.
             let body = sequence.Substring 1
 
             // Focus events: very short sequences, check first.
-            if FocusEvents.isFocusIn body then
+            if FocusEvents.isFocusIn sequence then
                 Some FocusGained
-            elif FocusEvents.isFocusOut body then
+            elif FocusEvents.isFocusOut sequence then
                 Some FocusLost
+            // Bracketed-paste markers (DECSET 2004); the terminal layer
+            // accumulates the payload between Begin and End.
+            elif PasteEvents.isBegin body then
+                Some PasteBegin
+            elif PasteEvents.isEnd body then
+                Some PasteEnd
             // Mouse events: try the configured encoding first, then SGR as fallback.
             elif MouseProtocol.isMouseSequence mouseEncoding body then
                 MouseProtocol.tryParse mouseEncoding body

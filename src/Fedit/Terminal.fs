@@ -6,11 +6,17 @@ open System.Text
 
 /// All mutable terminal state lives here. The editor core never sees this.
 type TerminalState =
-    { Writer: TextWriter
-      mutable Capabilities: TerminalCapabilities
-      mutable PreviousFrame: Screen voption
-      mutable CurrentStyle: Style voption
-      PendingKeys: System.Collections.Generic.Queue<ConsoleKeyInfo> }
+    {
+        Writer: TextWriter
+        mutable Capabilities: TerminalCapabilities
+        mutable PreviousFrame: Screen voption
+        mutable CurrentStyle: Style voption
+        PendingKeys: System.Collections.Generic.Queue<ConsoleKeyInfo>
+        /// `Some` while a bracketed paste is in flight: everything read between
+        /// the ESC[200~ and ESC[201~ markers accumulates here instead of being
+        /// dispatched as key events. `None` when no paste is active.
+        mutable PasteAccumulator: System.Text.StringBuilder option
+    }
 
 /// Private ANSI sequence helpers.
 [<RequireQualifiedAccess>]
@@ -97,7 +103,8 @@ module Terminal =
           Capabilities = caps
           PreviousFrame = ValueNone
           CurrentStyle = ValueNone
-          PendingKeys = System.Collections.Generic.Queue<ConsoleKeyInfo>() }
+          PendingKeys = System.Collections.Generic.Queue<ConsoleKeyInfo>()
+          PasteAccumulator = None }
 
     /// Test helper: construct a terminal with an explicit capability set
     /// and a custom writer (e.g. StringWriter).
@@ -106,7 +113,8 @@ module Terminal =
           Capabilities = caps
           PreviousFrame = ValueNone
           CurrentStyle = ValueNone
-          PendingKeys = System.Collections.Generic.Queue<ConsoleKeyInfo>() }
+          PendingKeys = System.Collections.Generic.Queue<ConsoleKeyInfo>()
+          PasteAccumulator = None }
 
     let enter (t: TerminalState) =
         t.Writer.Write(Ansi.enable t.Capabilities)
@@ -194,69 +202,154 @@ module Terminal =
     let private replayKeys (t: TerminalState) (keys: ResizeArray<ConsoleKeyInfo>) =
         keys |> Seq.iter t.PendingKeys.Enqueue
 
+    /// Drain the remainder of an ESC-initiated sequence from pending input.
+    /// The caller has already read the ESC key and verified more input is
+    /// available. Returns the full sequence text (ESC included), the keys
+    /// consumed after the ESC (for replay), and whether the sequence reached
+    /// a recognized terminator.
+    let private drainEscape (t: TerminalState) : string * ResizeArray<ConsoleKeyInfo> * bool =
+        let consumed = ResizeArray<ConsoleKeyInfo>()
+        let sb = StringBuilder()
+        sb.Append '\u001b' |> ignore
+
+        let consume () =
+            let c = dequeueOrRead t
+            consumed.Add c
+            sb.Append c.KeyChar |> ignore
+            c
+
+        let first = consume ()
+        let mutable terminated = false
+
+        if first.KeyChar = '[' then
+            let mutable guard = 0
+
+            while not terminated && hasPendingInput t && guard < 64 do
+                let c = consume ()
+
+                if c.KeyChar >= '@' && c.KeyChar <= '~' then
+                    terminated <- true
+
+                guard <- guard + 1
+        elif first.KeyChar = 'O' && hasPendingInput t then
+            let second = consume ()
+
+            if Char.IsDigit second.KeyChar && hasPendingInput t then
+                consume () |> ignore
+
+            terminated <- true
+        else
+            terminated <- true
+
+        sb.ToString(), consumed, terminated
+
+    /// Soft cap on a single paste payload (8 MiB). Beyond it the accumulated
+    /// text is flushed as one `Paste` event and accumulation restarts, so a
+    /// runaway (or end-marker-less) paste degrades into chunked Paste events
+    /// instead of unbounded memory growth.
+    let private pasteSoftCap = 8 * 1024 * 1024
+
+    let private pasteEndMarker = "\u001b" + PasteEvents.pasteEnd
+
+    /// Consume input into the active bracketed-paste payload. Plain keys
+    /// append verbatim; an ESC run that decodes to the ESC[201~ end marker
+    /// finishes the paste; any other complete ESC run is appended VERBATIM
+    /// to the payload (a terminal report inside a paste is payload, never
+    /// input). An incomplete run that could still become the end marker is
+    /// re-queued so the next call resumes it. Returns `None` and KEEPS the
+    /// accumulator when input dries up mid-paste.
+    let private readPasteTail (t: TerminalState) : TerminalEvent option =
+        match t.PasteAccumulator with
+        | None -> None
+        | Some accumulator ->
+            let mutable sb = accumulator
+            let mutable result: TerminalEvent option = None
+            let mutable finished = false
+
+            while not finished && hasPendingInput t do
+                let keyInfo = dequeueOrRead t
+
+                if keyInfo.Key = ConsoleKey.Escape then
+                    if hasPendingInput t then
+                        let sequence, consumed, terminated = drainEscape t
+
+                        if terminated && sequence = pasteEndMarker then
+                            result <- Some(TerminalEvent.Paste(sb.ToString()))
+                            t.PasteAccumulator <- None
+                            finished <- true
+                        elif not terminated && pasteEndMarker.StartsWith(sequence, StringComparison.Ordinal) then
+                            // Possibly a split end marker: put the run back
+                            // (input dried up, so the queue is empty and
+                            // order is preserved) and resume next call.
+                            t.PendingKeys.Enqueue keyInfo
+                            replayKeys t consumed
+                            finished <- true
+                        else
+                            // Any other ESC run - complete or not - is paste
+                            // payload; it must never replay as input.
+                            sb.Append sequence |> ignore
+                    else
+                        // Lone ESC at the end of available input: it may be
+                        // the start of the end marker. Put it back (queue is
+                        // empty here) and resume on the next call.
+                        t.PendingKeys.Enqueue keyInfo
+                        finished <- true
+                else
+                    sb.Append keyInfo.KeyChar |> ignore
+
+                if not finished && sb.Length > pasteSoftCap then
+                    // Chunked paste: flush what we have and keep going.
+                    result <- Some(TerminalEvent.Paste(sb.ToString()))
+                    sb <- StringBuilder()
+                    t.PasteAccumulator <- Some sb
+                    finished <- true
+
+            result
+
     /// Read a single event from the terminal, if one is available.
     /// Returns `None` when no input is waiting.
     let tryReadEvent (t: TerminalState) : TerminalEvent option =
-        if not (hasPendingInput t) then
+        // A paste in flight resumes first: every byte belongs to the payload
+        // until the end marker arrives.
+        if t.PasteAccumulator.IsSome then
+            readPasteTail t
+        elif not (hasPendingInput t) then
             None
         else
             let keyInfo = dequeueOrRead t
 
             // Drain a complete escape sequence when the first byte is ESC
             // and more bytes are immediately available.
-            let escapeResult: Input.EscapeSequence option =
-                if keyInfo.Key = ConsoleKey.Escape && hasPendingInput t then
-                    let consumed = ResizeArray<ConsoleKeyInfo>()
-                    let sb = StringBuilder()
-                    sb.Append '\u001b' |> ignore
+            if keyInfo.Key = ConsoleKey.Escape && hasPendingInput t then
+                let sequence, consumed, terminated = drainEscape t
 
-                    let consume () =
-                        let c = dequeueOrRead t
-                        consumed.Add c
-                        sb.Append c.KeyChar |> ignore
-                        c
-
-                    let first = consume ()
-                    let mutable terminated = false
-
-                    if first.KeyChar = '[' then
-                        let mutable guard = 0
-
-                        while not terminated && hasPendingInput t && guard < 64 do
-                            let c = consume ()
-
-                            if c.KeyChar >= '@' && c.KeyChar <= '~' then
-                                terminated <- true
-
-                            guard <- guard + 1
-                    elif first.KeyChar = 'O' && hasPendingInput t then
-                        let second = consume ()
-
-                        if Char.IsDigit second.KeyChar && hasPendingInput t then
-                            consume () |> ignore
-
-                        terminated <- true
-                    else
-                        terminated <- true
-
-                    if terminated then
-                        let sequence = sb.ToString()
-
-                        match Input.classifyEscapeSequence t.Capabilities.MouseEncoding sequence with
-                        | Some esc -> Some esc
-                        | None ->
-                            replayKeys t consumed
-                            None
-                    else
-                        replayKeys t consumed
+                if terminated then
+                    match Input.classifyEscapeSequence t.Capabilities.MouseEncoding sequence with
+                    | Some(Input.EscapeSequence.MouseEvent event) -> Some(TerminalEvent.MouseEvent event)
+                    | Some Input.EscapeSequence.MouseIgnored -> None
+                    | Some(Input.EscapeSequence.Chord chord) -> Some(TerminalEvent.KeyEvent chord)
+                    | Some Input.EscapeSequence.FocusGained -> Some TerminalEvent.FocusIn
+                    | Some Input.EscapeSequence.FocusLost -> Some TerminalEvent.FocusOut
+                    | Some Input.EscapeSequence.PasteBegin ->
+                        t.PasteAccumulator <- Some(StringBuilder())
+                        readPasteTail t
+                    | Some Input.EscapeSequence.PasteEnd ->
+                        // Stray end marker with no paste in flight: swallow.
                         None
+                    | None when sequence.Length >= 2 && (sequence[1] = '[' || sequence[1] = 'O') ->
+                        // Unknown but COMPLETE CSI/SS3 report (cursor position,
+                        // DA responses, exotic keys): swallow it. Replaying
+                        // would type the report's bytes into the buffer.
+                        None
+                    | None ->
+                        // Not CSI/SS3 (e.g. ESC + control char): keep the
+                        // legacy behavior - replay and surface the Escape.
+                        replayKeys t consumed
+                        Input.tryMap keyInfo |> Option.map TerminalEvent.KeyEvent
                 else
-                    None
-
-            match escapeResult with
-            | Some(Input.EscapeSequence.MouseEvent event) -> Some(TerminalEvent.MouseEvent event)
-            | Some(Input.EscapeSequence.MouseIgnored) -> None
-            | Some(Input.EscapeSequence.Chord chord) -> Some(TerminalEvent.KeyEvent chord)
-            | Some(Input.EscapeSequence.FocusGained) -> Some(TerminalEvent.FocusIn)
-            | Some(Input.EscapeSequence.FocusLost) -> Some(TerminalEvent.FocusOut)
-            | None -> Input.tryMap keyInfo |> Option.map TerminalEvent.KeyEvent
+                    // Incomplete drain (input dried up mid-sequence): keep
+                    // the legacy replay/Escape behavior.
+                    replayKeys t consumed
+                    Input.tryMap keyInfo |> Option.map TerminalEvent.KeyEvent
+            else
+                Input.tryMap keyInfo |> Option.map TerminalEvent.KeyEvent

@@ -13,7 +13,7 @@ open FsUnit.Xunit
 
 let private baseModel () =
     let model, _ =
-        Editor.init "/root" { Width = 100; Height = 24 } (Config.defaults Themes.defaultTheme) [] None
+        Editor.init "/root" { Width = 100; Height = 24 } (Config.defaults Themes.defaultTheme) []
 
     model
 
@@ -284,7 +284,7 @@ let ``plugin picker dock shrinks to fit a single item instead of filling the con
     // shorter than the cap and its title sits below the would-be full-height top
     // (full height would place the title at 40 - 8 - 1 = 31).
     let model, _ =
-        Editor.init "/root" { Width = 100; Height = 40 } (Config.defaults Themes.defaultTheme) [] None
+        Editor.init "/root" { Width = 100; Height = 40 } (Config.defaults Themes.defaultTheme) []
 
     let model =
         model
@@ -311,7 +311,7 @@ let ``command completion dock shrinks to the number of completions`` () =
             Kind = CompletionKind.Command } ]
 
     let model, _ =
-        Editor.init "/root" { Width = 100; Height = 40 } (Config.defaults Themes.defaultTheme) [] None
+        Editor.init "/root" { Width = 100; Height = 40 } (Config.defaults Themes.defaultTheme) []
 
     let model =
         { model with

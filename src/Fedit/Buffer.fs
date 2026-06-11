@@ -12,11 +12,23 @@ type WordMotionLanding =
     /// run (matches vim's `w` motion).
     | NextWordStart
 
+/// An explicit selection span in char-index space. `Anchor` is the fixed
+/// end; `Head` is the live end. Selection-producing operations keep
+/// `Head` equal to the cursor; pure-view movements (viewport scrolling)
+/// may move the cursor without touching the span.
+[<Struct>]
+type SelectionSpan = { Anchor: int; Head: int }
+
 type BufferRevision =
-    { Document: PieceTable
-      Cursor: Position
-      PreferredColumn: int option
-      Dirty: bool }
+    {
+        Document: PieceTable
+        Cursor: Position
+        PreferredColumn: int option
+        /// The `EditTick` the buffer carried when this snapshot was current.
+        /// Restoring a revision derives `Dirty` by comparing this against
+        /// `SavedTick`, so undoing back to the last-saved revision shows clean.
+        Tick: int
+    }
 
 type BufferState =
     {
@@ -34,8 +46,9 @@ type BufferState =
         Cursor: Position
         /// Preferred column for vertical movement (maintains horizontal position when moving up/down)
         PreferredColumn: int option
-        /// Optional anchor position for text selection
-        Selection: int option
+        /// The active selection span, if any. Lives in char-index space and
+        /// is independent of the cursor — `selectionRange` reads only this.
+        Selection: SelectionSpan option
         /// Top line of the visible viewport
         ViewportTop: int
         /// Left column of the visible viewport
@@ -52,6 +65,11 @@ type BufferState =
         /// edit. Used by `SaveBuffer` to detect concurrent edits and avoid
         /// marking the buffer clean for changes the writer didn't capture.
         EditTick: int
+        /// The `EditTick` whose contents were last written to disk (0 =
+        /// never saved; the initial contents). `Dirty` is maintained as
+        /// "current revision differs from `SavedTick`" so undo history can
+        /// survive saves.
+        SavedTick: int
     }
 
 [<RequireQualifiedAccess>]
@@ -70,7 +88,7 @@ module Buffer =
         { Document = buffer.Document
           Cursor = buffer.Cursor
           PreferredColumn = buffer.PreferredColumn
-          Dirty = buffer.Dirty }
+          Tick = buffer.EditTick }
 
     let private maxUndoDepth = 200
 
@@ -89,7 +107,8 @@ module Buffer =
           Newline = "\n"
           Undo = []
           Redo = []
-          EditTick = 0 }
+          EditTick = 0
+          SavedTick = 0 }
 
     let fromText id filePath name text newline =
         let document = PieceTable.ofString text
@@ -108,43 +127,44 @@ module Buffer =
           Newline = newline
           Undo = []
           Redo = []
-          EditTick = 0 }
+          EditTick = 0
+          SavedTick = 0 }
 
     let text buffer = PieceTable.toString buffer.Document
 
     let serialize (buffer: BufferState) =
         (text buffer).Replace("\n", buffer.Newline)
 
-    let private rawLines (buffer: BufferState) = buffer.Lines
-
-    let lines buffer = rawLines buffer |> Array.toList
+    /// The cached per-line array. Callers must treat it as read-only — it is
+    /// shared with the buffer, not a copy (the renderer reads it every frame).
+    let lines (buffer: BufferState) : string[] = buffer.Lines
 
     let line lineIndex buffer =
-        rawLines buffer |> Array.tryItem lineIndex |> Option.defaultValue ""
+        lines buffer |> Array.tryItem lineIndex |> Option.defaultValue ""
 
-    let lineCount buffer = rawLines buffer |> Array.length
+    let lineCount buffer = lines buffer |> Array.length
 
     let gutterWidth buffer =
         let digits = max 3 (string (lineCount buffer)).Length
         digits + 2
 
     let private clamp position buffer =
-        let rows = rawLines buffer
+        let rows = lines buffer
         let lineIndex = max 0 (min position.Line (rows.Length - 1))
 
         { Line = lineIndex
           Column = max 0 (min position.Column rows[lineIndex].Length) }
 
     let positionToIndex position buffer =
-        let rows = rawLines buffer
+        let rows = lines buffer
         let safe = clamp position buffer
 
         (rows |> Seq.take safe.Line |> Seq.sumBy (fun lineText -> lineText.Length + 1))
         + safe.Column
 
     let indexToPosition index buffer =
-        let bounded = max 0 (min index (text buffer).Length)
-        let rows = rawLines buffer
+        let bounded = max 0 (min index (PieceTable.length buffer.Document))
+        let rows = lines buffer
 
         let rec loop remaining lineIndex =
             let lineLength = rows[lineIndex].Length
@@ -332,29 +352,49 @@ module Buffer =
             let nextCursor = indexToPosition target withDoc
             finalizeEdit buffer nextCursor withDoc
 
-    let setSelection anchor (buffer: BufferState) = { buffer with Selection = Some anchor }
+    /// Establish a selection with the cursor at `head`. The one constructor
+    /// for selections — mouse, select-all, and plugin SelectRange all route
+    /// through here, so a future multi-caret list changes one function.
+    let selectRange anchor head (buffer: BufferState) =
+        { moveToIndex head buffer with
+            Selection = Some { Anchor = anchor; Head = head } }
 
     let clearSelection (buffer: BufferState) = { buffer with Selection = None }
 
-    let extendSelectionToCursor (buffer: BufferState) =
-        match buffer.Selection with
-        | Some _ -> buffer
-        | None ->
-            let anchor = positionToIndex buffer.Cursor buffer
-            { buffer with Selection = Some anchor }
+    let hasSelection (buffer: BufferState) = buffer.Selection.IsSome
+
+    /// Shift+motion: pin the anchor (when no selection), run the motion,
+    /// then sync the span's Head to the new cursor. If a detached scroll
+    /// moved the cursor away from Head, snap it back first so extension
+    /// continues from the visible selection end, not the drifted cursor.
+    let extendWith (motion: BufferState -> BufferState) (buffer: BufferState) =
+        let basis =
+            match buffer.Selection with
+            | Some span when positionToIndex buffer.Cursor buffer <> span.Head -> moveToIndex span.Head buffer
+            | _ -> buffer
+
+        let anchor =
+            match basis.Selection with
+            | Some span -> span.Anchor
+            | None -> positionToIndex basis.Cursor basis
+
+        let moved = motion basis
+
+        { moved with
+            Selection =
+                Some
+                    { Anchor = anchor
+                      Head = positionToIndex moved.Cursor moved } }
 
     let selectionRange (buffer: BufferState) =
         buffer.Selection
-        |> Option.map (fun anchor ->
+        |> Option.map (fun span ->
             let len = PieceTable.length buffer.Document
             let clampIndex index = index |> max 0 |> min len
-            let safeAnchor = clampIndex anchor
-            let cur = positionToIndex buffer.Cursor buffer |> clampIndex
+            let a = clampIndex span.Anchor
+            let h = clampIndex span.Head
 
-            if safeAnchor <= cur then
-                safeAnchor, cur
-            else
-                cur, safeAnchor)
+            if a <= h then a, h else h, a)
 
     let selectionText (buffer: BufferState) =
         match selectionRange buffer with
@@ -364,12 +404,7 @@ module Buffer =
         | _ -> ""
 
     let selectAll (buffer: BufferState) =
-        let len = PieceTable.length buffer.Document
-
-        { buffer with
-            Selection = Some 0
-            Cursor = indexToPosition len buffer
-            PreferredColumn = None }
+        selectRange 0 (PieceTable.length buffer.Document) buffer
 
     let deleteSelection (buffer: BufferState) =
         match selectionRange buffer with
@@ -566,27 +601,20 @@ module Buffer =
               Column = targetColumn }
         |> withPreferredColumn (Some targetColumn)
 
-    /// Mark a buffer as saved. If `expectedTick` matches the buffer's
-    /// current `EditTick`, the write captured the latest content so
-    /// `Dirty` is cleared and undo/redo discarded. If the user typed while
-    /// the async write was in flight (`expectedTick < buffer.EditTick`),
-    /// only the FilePath / Name are updated; the buffer stays dirty and
-    /// undo history is preserved.
+    /// Mark a buffer as saved. `SavedTick` records which revision the disk
+    /// now holds; `Dirty` follows from comparing it with `EditTick`. Undo
+    /// history always survives — undoing back to the saved revision shows
+    /// clean again via the `Tick` comparison in `undo`/`redo`. If the user
+    /// typed while the async write was in flight
+    /// (`expectedTick < buffer.EditTick`), the buffer stays dirty.
     let markSaved (expectedTick: int) (filePath: string) (buffer: BufferState) =
         let name = Path.GetFileName filePath |> Option.ofObj |> Option.defaultValue filePath
 
-        if expectedTick = buffer.EditTick then
-            { buffer with
-                FilePath = Some filePath
-                Name = name
-                Dirty = false
-                Undo = []
-                Redo = [] }
-        else
-            { buffer with
-                FilePath = Some filePath
-                Name = name
-                Dirty = true }
+        { buffer with
+            FilePath = Some filePath
+            Name = name
+            SavedTick = expectedTick
+            Dirty = expectedTick <> buffer.EditTick }
 
     let undo buffer =
         match buffer.Undo with
@@ -599,7 +627,7 @@ module Buffer =
                 Cursor = previous.Cursor
                 PreferredColumn = previous.PreferredColumn
                 Selection = None
-                Dirty = previous.Dirty
+                Dirty = previous.Tick <> buffer.SavedTick
                 Undo = rest
                 Redo = current :: buffer.Redo
                 EditTick = buffer.EditTick + 1 }
@@ -616,7 +644,7 @@ module Buffer =
                 Cursor = next.Cursor
                 PreferredColumn = next.PreferredColumn
                 Selection = None
-                Dirty = next.Dirty
+                Dirty = next.Tick <> buffer.SavedTick
                 Undo = current :: buffer.Undo
                 Redo = rest
                 EditTick = buffer.EditTick + 1 }

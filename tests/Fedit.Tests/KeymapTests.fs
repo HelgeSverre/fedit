@@ -195,7 +195,7 @@ let ``the user keymap takes precedence over a plugin chord on the same stroke`` 
     // ctrl+k is bound in the keymap (to write/Save) AND in the plugin registry
     // (to open). The keymap must win.
     let model, _ =
-        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) [] None
+        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) []
 
     let pathed = Buffer.fromText 1 (Some "/root/file.txt") "file.txt" "x" "\n"
 

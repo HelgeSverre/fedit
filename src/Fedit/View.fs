@@ -90,66 +90,6 @@ module Layout =
     let private effectiveTheme model =
         previewTheme model |> Option.defaultValue model.Config.Theme
 
-    let dockPanel model =
-        let prompt = model.Prompt
-
-        if prompt.Active then
-            match prompt.Mode with
-            | FilePicker when not prompt.Completions.IsEmpty ->
-                DockCompletions("Files", prompt.Completions, prompt.SelectedCompletion)
-            | FilePicker -> DockInfo("Files", [ "Type to filter recent + workspace files." ])
-            | Command when not prompt.Completions.IsEmpty ->
-                DockCompletions("Commands", prompt.Completions, prompt.SelectedCompletion)
-            | Command ->
-                let lines =
-                    match prompt.Parsed with
-                    | Ready(Command.Goto(line, None)) -> [ $"Press Enter to jump to line {line}." ]
-                    | Ready(Command.Goto(line, Some col)) -> [ $"Press Enter to jump to line {line}, column {col}." ]
-                    | Ready _ -> [ "Press Enter to run the command." ]
-                    | Pending message -> [ message ]
-                    | Invalid message -> [ message ]
-                    | Empty -> Commands.helpLines () |> List.truncate (max 0 (model.Panels.DockHeight - 1))
-
-                DockInfo("Commands", lines)
-            | Buffers when not prompt.Completions.IsEmpty ->
-                DockCompletions("Buffers", prompt.Completions, prompt.SelectedCompletion)
-            | Buffers -> DockInfo("Buffers", [ "Type buffer id or name." ])
-            | Search ->
-                let line =
-                    match prompt.SearchPreview with
-                    | Some preview when preview.Matches.IsEmpty -> "no matches"
-                    | Some preview -> $"match {preview.Current + 1}/{preview.Matches.Length}"
-                    | None -> "Type to search the active buffer."
-
-                DockInfo("Find", [ line ])
-        else
-            NoDock
-
-    let private pickerKindOfPromptSession =
-        function
-        | PromptSessionKind.PluginsSession -> Some PickerKind.PluginPicker
-        | PromptSessionKind.MacrosSession -> Some PickerKind.MacroPicker
-        | PromptSessionKind.KeybindingsSession -> Some PickerKind.KeyBindingPicker
-        | _ -> None
-
-    let private pickerPendingOfPrompt (pending: PromptPendingConfirmation option) : PickerPendingConfirmation option =
-        pending
-        |> Option.map (fun pending ->
-            { ItemId = pending.ItemId
-              ActionId = pending.ActionId
-              Key = pending.Key
-              Label = pending.Label })
-
-    let private pickerViewOfPromptSession model =
-        pickerKindOfPromptSession model.Prompt.Session
-        |> Option.map (fun kind ->
-            Pickers.buildView
-                model
-                { Kind = kind
-                  SelectedItemId = model.Prompt.SelectedItemId
-                  Filter = model.Prompt.Text
-                  PendingConfirmation = pickerPendingOfPrompt model.Prompt.PendingConfirmation })
-
     let private promptDisplayPrefix =
         function
         | PromptSessionKind.PluginsSession -> "Plugins: "
@@ -174,13 +114,9 @@ module Layout =
         let surface = surfaceOf theme
         Screen.fillRect 0 0 width height surface ' ' screen
 
-        let entries = Workspace.visibleEntries model.Workspace
-
-        let selectedIndex =
-            entries |> List.tryFindIndex _.IsSelected |> Option.defaultValue 0
-
-        let startIndex =
-            max 0 (min (max 0 (entries.Length - height)) (selectedIndex - (height / 2)))
+        // Scroll origin comes from the same pass the mouse hit-testing in
+        // `Editor.sidebarEntryAt` uses, so paint and input can't drift.
+        let entries, startIndex = Dock.sidebarRows model height
 
         let icons = model.Config.Icons
 
@@ -217,17 +153,25 @@ module Layout =
         let currentLineBg = activeLineOf theme
         let gutterWidth = Buffer.gutterWidth buffer
         let digits = gutterWidth - 2
-        let rows = Buffer.lines buffer |> List.toArray
+        let rows = Buffer.lines buffer
         let contentWidth = max 1 (width - gutterWidth)
 
         Screen.fillRect x 0 width height surface ' ' screen
 
-        let lineStarts = Array.zeroCreate rows.Length
+        // Absolute char offset of each line start, computed only as far as
+        // the viewport needs — not an O(file) walk of the tail every frame.
+        let lastVisible = min (rows.Length - 1) (buffer.ViewportTop + height - 1)
+        let lineStarts = Array.zeroCreate (lastVisible + 1)
         let mutable accum = 0
 
-        for i in 0 .. rows.Length - 1 do
+        for i in 0..lastVisible do
             lineStarts[i] <- accum
             accum <- accum + rows[i].Length + 1
+
+        // Hoisted out of the row loop: selectionRange runs positionToIndex,
+        // which walks the line array up to the cursor — once per frame is
+        // plenty.
+        let selection = Buffer.selectionRange buffer
 
         let searchInfo =
             match model.Prompt.SearchPreview with
@@ -276,14 +220,14 @@ module Layout =
                 // matching the design spec.
                 if model.Config.SyntaxHighlightingEnabled then
                     match Map.tryFind buffer.Id model.HighlightStates with
-                    | Some highlight when highlight.Spans.Length > 0 ->
+                    | Some spans when spans.Length > 0 ->
                         let lineStart = lineStarts[lineIndex]
                         let lineLen = rows[lineIndex].Length
                         let visibleStart = buffer.ViewportLeft
                         let visibleEnd = min lineLen (buffer.ViewportLeft + contentWidth)
 
                         for col in visibleStart .. visibleEnd - 1 do
-                            match Highlight.spanAt highlight.Spans (lineStart + col) with
+                            match Highlight.spanAt spans (lineStart + col) with
                             | Some span ->
                                 let fg = Highlight.colorFor theme span.Capture
 
@@ -303,7 +247,7 @@ module Layout =
                             | None -> ()
                     | _ -> ()
 
-                match Buffer.selectionRange buffer with
+                match selection with
                 | Some(selStart, selEnd) when selEnd > selStart ->
                     let lineStart = lineStarts[lineIndex]
                     let lineEnd = lineStart + rows[lineIndex].Length
@@ -576,41 +520,19 @@ module Layout =
         let width = max 1 model.Terminal.Width
         let height = max 1 model.Terminal.Height
 
-        let pickerView = pickerViewOfPromptSession model
-
-        // The picker takes over the dock when open; otherwise the prompt panel does.
-        let panel =
-            match pickerView with
-            | Some _ -> NoDock
-            | None -> dockPanel model
-
-        // Menu-style list surfaces (the picker and the completion lists) size to
-        // their content, capped at the configured dock height, so a filter that
-        // leaves few rows yields a short dock that grows back up to the cap. The
-        // dock is bottom-anchored, so a smaller height hands the freed rows to
-        // the editor. The prose info/help dock keeps the full configured height.
-        let configuredMax = min model.Panels.DockHeight (max 3 (height / 3))
-
-        let dockHeight =
-            match pickerView, panel with
-            | Some view, _ -> min configuredMax (Pickers.desiredRows view)
-            | None, DockCompletions(_, items, _) -> min configuredMax (1 + max 1 items.Length)
-            | None, DockInfo _ -> configuredMax
-            | None, NoDock -> 0
-
-        let statusY = max 0 (height - dockHeight - 2)
-        let dockY = max 0 (height - dockHeight - 1)
-        let commandY = height - 1
-        let mainHeight = max 1 statusY
-
-        let sidebarWidth =
-            if model.Panels.SidebarVisible && width >= 40 then
-                min model.Panels.SidebarWidth (max 18 (width / 3))
-            else
-                0
-
-        let editorX = if sidebarWidth > 0 then sidebarWidth + 1 else 0
-        let editorWidth = max 1 (width - editorX)
+        // All dock/editor geometry comes from the same pass that the mouse
+        // hit-testing in `Editor` uses, so paint and input can't drift.
+        let metrics = Dock.metrics model
+        let pickerView = metrics.PickerView
+        let panel = metrics.Panel
+        let dockHeight = metrics.DockHeight
+        let statusY = metrics.StatusY
+        let dockY = metrics.DockY
+        let commandY = metrics.CommandY
+        let mainHeight = metrics.MainHeight
+        let sidebarWidth = metrics.SidebarWidth
+        let editorX = metrics.EditorX
+        let editorWidth = metrics.EditorWidth
         let screen = Screen.create width height
         let mutable current = screen
 

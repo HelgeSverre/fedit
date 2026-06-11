@@ -67,6 +67,9 @@ type Action =
     | ToggleSidebar
     | FocusSidebar
     | FocusEditor
+    /// Reveal the active buffer's file in the sidebar: show the panel,
+    /// expand its ancestor directories, select it, and focus the tree.
+    | RevealInSidebar
     // sidebar navigation
     | SidebarUp
     | SidebarDown
@@ -102,4 +105,5 @@ module Action =
         | Command.ReloadWorkspace -> Some Action.ReloadWorkspace
         | Command.ToggleSidebar -> Some Action.ToggleSidebar
         | Command.FocusTree -> Some Action.FocusSidebar
+        | Command.Reveal -> Some Action.RevealInSidebar
         | _ -> None

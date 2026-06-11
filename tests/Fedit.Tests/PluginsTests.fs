@@ -423,7 +423,7 @@ type Plugin =
 /// through to plugin keybinding dispatch in `runEditor`.
 let private captureCtxFor (buffer: BufferState) =
     let model, _ =
-        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) [] None
+        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) []
 
     let captured = ref None
 
@@ -474,7 +474,7 @@ let ``toPluginContext surfaces forward selection as 1-based start->end`` () =
     // Anchor at offset 0, cursor at offset 5 (just past "hello"). Forward drag.
     let withSel =
         { buffer with
-            Selection = Some 0
+            Selection = Some { Anchor = 0; Head = 5 }
             Cursor = { Line = 0; Column = 5 } }
 
     match captureCtxFor withSel with
@@ -495,7 +495,7 @@ let ``toPluginContext orders selection start->end regardless of drag direction``
     // the anchor. The plugin should still see (0, 5) in document order.
     let withSel =
         { buffer with
-            Selection = Some 5
+            Selection = Some { Anchor = 5; Head = 0 }
             Cursor = { Line = 0; Column = 0 } }
 
     match captureCtxFor withSel with
@@ -515,7 +515,7 @@ let ``toPluginContext crosses line boundaries with 1-based line numbers`` () =
 
     let withSel =
         { buffer with
-            Selection = Some 1
+            Selection = Some { Anchor = 1; Head = 5 }
             Cursor = { Line = 1; Column = 2 } }
 
     match captureCtxFor withSel with

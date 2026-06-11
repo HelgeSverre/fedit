@@ -70,10 +70,33 @@ module PieceTable =
                   Start = table.Added.Length
                   Length = text.Length }
 
+            // Sequential typing inserts at the end of the piece written by the
+            // previous keystroke. When that piece is also the tail of `Added`,
+            // the appended text is contiguous with it — grow the piece in
+            // place instead of adding one piece per keystroke.
+            let extendsAddedTail piece =
+                piece.Source = Added && piece.Start + piece.Length = table.Added.Length
+
+            let withExtendedHead acc =
+                match acc with
+                | last :: before when extendsAddedTail last ->
+                    Some(
+                        { last with
+                            Length = last.Length + text.Length }
+                        :: before
+                    )
+                | _ -> None
+
             let rec loop remaining acc pieces =
                 match pieces with
-                | [] -> List.rev acc @ [ insertedPiece ]
-                | piece :: rest when remaining = 0 -> List.rev acc @ (insertedPiece :: piece :: rest)
+                | [] ->
+                    match withExtendedHead acc with
+                    | Some extended -> List.rev extended
+                    | None -> List.rev acc @ [ insertedPiece ]
+                | piece :: rest when remaining = 0 ->
+                    match withExtendedHead acc with
+                    | Some extended -> List.rev extended @ (piece :: rest)
+                    | None -> List.rev acc @ (insertedPiece :: piece :: rest)
                 | piece :: rest when remaining < piece.Length ->
                     let left = trim piece 0 (piece.Length - remaining)
                     let right = trim piece remaining 0

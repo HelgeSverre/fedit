@@ -4,11 +4,6 @@ open System.IO
 open Xunit
 open Fedit
 
-[<Fact>]
-let ``TreeSitter.DotNet types are reachable`` () =
-    let parserType = typeof<TreeSitter.Parser>
-    Assert.Equal("Parser", parserType.Name)
-
 [<Theory>]
 [<InlineData("keyword", "Keyword")>]
 [<InlineData("keyword.control", "KeywordControl")>]
@@ -135,6 +130,8 @@ let ``detectLanguage detects shell scripts by shebang`` () =
 [<InlineData("just")>]
 [<InlineData("make")>]
 [<InlineData("astro")>]
+[<InlineData("toml")>]
+[<InlineData("sema")>]
 [<InlineData("bash")>]
 [<InlineData("applescript")>]
 [<InlineData("rescript")>]
@@ -155,20 +152,22 @@ let ``registry loads language without throwing`` (lang: string) =
 [<InlineData("just", "build:\n    cargo build")>]
 [<InlineData("make", "all:\n\techo hi")>]
 [<InlineData("astro", "<h1>Hello</h1>")>]
+[<InlineData("toml", "title = \"x\"\n[owner]\nname = \"y\"")>]
+[<InlineData("sema", "(define x \"hello\") ; note")>]
 [<InlineData("bash", "#!/bin/bash\nif [ -f foo ]; then echo \"hi $HOME\"; fi")>]
 [<InlineData("applescript", "(* hello *)\ntell application \"Finder\"\n  set x to 42\nend tell")>]
 [<InlineData("rescript", "let name = \"fedit\"\nlet answer = 42")>]
 [<InlineData("zig", "const std = @import(\"std\");\npub fn main() void {\n    std.debug.print(\"hi\", .{});\n}")>]
-let ``parse produces non-empty spans for new languages`` (lang: string) (src: string) =
+let ``parseSpans produces non-empty spans for new languages`` (lang: string) (src: string) =
     let registry = HighlightRegistry.tryCreate ()
     Assert.True(registry.IsSome, "registry missing")
-    let state = Highlight.parse registry.Value lang src None
-    Assert.True(state.IsSome, $"parse returned None for '{lang}'")
-    Assert.True(state.Value.Spans.Length > 0, $"no spans produced for '{lang}'")
+    let spans = Highlight.parseSpans registry.Value lang src
+    Assert.True(spans.IsSome, $"parseSpans returned None for '{lang}'")
+    Assert.True(spans.Value.Length > 0, $"no spans produced for '{lang}'")
 
 [<Fact>]
 [<Trait("Category", "Smoke")>]
-let ``parse yields keyword, string, and comment captures for bash`` () =
+let ``parseSpans yields keyword, string, and comment captures for bash`` () =
     use registry =
         match HighlightRegistry.tryCreate () with
         | Some r -> r
@@ -176,14 +175,12 @@ let ``parse yields keyword, string, and comment captures for bash`` () =
 
     let source = "#!/bin/bash\n# deploy\nif [ -f foo ]; then\n  echo \"hi $HOME\"\nfi"
 
-    match Highlight.parse registry "bash" source None with
-    | None -> Assert.Fail "parse returned None — bash query likely failed to compile"
-    | Some state ->
-        Assert.Equal("bash", state.Language)
-        Assert.Contains(state.Spans, fun (s: HighlightSpan) -> s.Capture = Keyword)
-        Assert.Contains(state.Spans, fun (s: HighlightSpan) -> s.Capture = String)
-        Assert.Contains(state.Spans, fun (s: HighlightSpan) -> s.Capture = Comment)
-        Highlight.dispose state
+    match Highlight.parseSpans registry "bash" source with
+    | None -> Assert.Fail "parseSpans returned None — bash query likely failed to compile"
+    | Some spans ->
+        Assert.Contains(spans, fun (s: HighlightSpan) -> s.Capture = Keyword)
+        Assert.Contains(spans, fun (s: HighlightSpan) -> s.Capture = String)
+        Assert.Contains(spans, fun (s: HighlightSpan) -> s.Capture = Comment)
 
 [<Fact>]
 let ``spanAt returns covering span via binary search`` () =
@@ -275,7 +272,7 @@ let ``computeSpans returns keyword + string spans for sample.fs`` () =
         Assert.Contains(spans, fun (s: HighlightSpan) -> s.Capture = String)
 
 [<Fact>]
-let ``parse builds HighlightState from F# source`` () =
+let ``parseSpans projects spans from F# source`` () =
     use registry =
         match HighlightRegistry.tryCreate () with
         | Some r -> r
@@ -283,11 +280,38 @@ let ``parse builds HighlightState from F# source`` () =
 
     let source = "let x = 42\nlet name = \"hello\""
 
-    match Highlight.parse registry "fsharp" source None with
-    | None -> Assert.Fail "parse returned None"
-    | Some state ->
-        Assert.Equal("fsharp", state.Language)
-        Assert.True(state.Tree.IsSome, "tree should be present")
-        Assert.Contains(state.Spans, fun s -> s.Capture = Keyword)
-        Assert.Contains(state.Spans, fun s -> s.Capture = String)
-        Highlight.dispose state
+    match Highlight.parseSpans registry "fsharp" source with
+    | None -> Assert.Fail "parseSpans returned None"
+    | Some spans ->
+        Assert.Contains(spans, fun (s: HighlightSpan) -> s.Capture = Keyword)
+        Assert.Contains(spans, fun (s: HighlightSpan) -> s.Capture = String)
+
+[<Fact>]
+let ``parseSpans reports UTF-16 char offsets after an astral-plane char`` () =
+    use registry =
+        match HighlightRegistry.tryCreate () with
+        | Some r -> r
+        | None -> failwith "no registry"
+
+    // "🚀" is one codepoint but two UTF-16 chars (and four UTF-8 bytes).
+    // Span offsets are .NET char indices — TreeSitter.DotNet parses UTF-16
+    // and divides byte offsets by two — so the literal after the emoji must
+    // land exactly where the .NET string says it does.
+    let source = "let a = \"🚀\"\nlet b = \"plain\""
+    let literal = "\"plain\""
+    let expectedStart = source.IndexOf(literal, System.StringComparison.Ordinal)
+    let expectedEnd = expectedStart + literal.Length
+
+    match Highlight.parseSpans registry "fsharp" source with
+    | None -> Assert.Fail "parseSpans returned None"
+    | Some spans ->
+        let covering =
+            spans
+            |> Array.filter (fun s -> s.Capture = String)
+            |> Array.tryFind (fun s -> s.StartByte < expectedEnd && s.EndByte > expectedStart)
+
+        match covering with
+        | None -> Assert.Fail "no String span overlaps the second string literal"
+        | Some span ->
+            Assert.Equal(expectedStart, span.StartByte)
+            Assert.Equal(expectedEnd, span.EndByte)

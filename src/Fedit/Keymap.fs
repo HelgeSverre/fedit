@@ -52,6 +52,8 @@ module Keymap =
           single (chord [ Ctrl ] (Key.Char 'o')) OpenFilePicker |> inCtx Context.Global
           single (chord [ Ctrl ] (Key.Char 'f')) OpenSearch |> inCtx Context.Global
           single (chord [ Ctrl ] (Key.Char 'e')) FocusEditor |> inCtx Context.Global
+          single (chord [ Ctrl; Shift ] (Key.Char 'e')) RevealInSidebar
+          |> inCtx Context.Global
           single (chord [ Ctrl ] (Key.Char 'r')) ReloadWorkspace |> inCtx Context.Global
           single (chord [ Ctrl ] (Key.Char 'z')) Undo |> inCtx Context.Global
           single (chord [ Ctrl ] (Key.Char 'y')) Redo |> inCtx Context.Global
@@ -320,6 +322,7 @@ module Keymap =
         | "hide-sidebar" -> Ok HideSidebar
         | "focus-editor" -> Ok FocusEditor
         | "focus-sidebar" -> Ok FocusSidebar
+        | "reveal-in-sidebar" -> Ok RevealInSidebar
         | "sidebar-up" -> Ok SidebarUp
         | "sidebar-down" -> Ok SidebarDown
         | "sidebar-page-up" -> Ok SidebarPageUp

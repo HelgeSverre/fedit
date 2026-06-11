@@ -82,12 +82,15 @@ module Runtime =
 
     let private renderMsg msg =
         match msg with
-        | FileOpened(path, result) -> $"FileOpened({path}, {renderTextResult result})"
+        | FileOpened(path, intent, result) -> $"FileOpened({path}, {intent}, {renderTextResult result})"
         | BufferSaved(bufferId, path, revision, result) ->
             $"BufferSaved(buffer={bufferId}, path={path}, revision={revision}, {renderUnitResult result})"
         | ClipboardPasted result -> $"ClipboardPasted({renderTextResult result})"
+        | PastedText text -> $"PastedText(<len={text.Length}>)"
         | SearchCompleted(bufferId, query, matches) ->
             $"SearchCompleted(buffer={bufferId}, queryLen={query.Length}, matches={matches.Length})"
+        | HighlightParsed(bufferId, editTick, spans) ->
+            $"HighlightParsed(buffer={bufferId}, tick={editTick}, spans={spans.Length})"
         | _ -> $"{msg}"
 
     let private renderEffect effect =
@@ -96,8 +99,10 @@ module Runtime =
             $"SaveBuffer(buffer={bufferId}, path={path}, revision={revision}, contentsLen={contents.Length})"
         | SaveConfig _ -> "SaveConfig(<config>)"
         | ClipboardCopy text -> $"ClipboardCopy(<len={text.Length}>)"
-        | RunSearch(bufferId, query, haystack) ->
-            $"RunSearch(buffer={bufferId}, queryLen={query.Length}, haystackLen={haystack.Length})"
+        | RunSearch(bufferId, query, document) ->
+            $"RunSearch(buffer={bufferId}, queryLen={query.Length}, haystackLen={PieceTable.length document})"
+        | ParseHighlight(bufferId, language, document, editTick) ->
+            $"ParseHighlight(buffer={bufferId}, lang={language}, tick={editTick}, docLen={PieceTable.length document})"
         | _ -> $"{effect}"
 
     let private makeNode (path: string) isDirectory children : FileNode =
@@ -194,6 +199,13 @@ module Runtime =
         let bufferSaveChains = System.Collections.Generic.Dictionary<string, Task>()
         // Phase 12.3: cancel previous incremental search before starting the next.
         let mutable searchCts: CancellationTokenSource option = None
+        // Latest-wins highlight parse per buffer: a keystroke during a parse
+        // cancels the stale one; `update` also drops stale results by tick.
+        let highlightCts =
+            System.Collections.Generic.Dictionary<int, CancellationTokenSource>()
+        // The interpreter owns all native tree-sitter objects; the Model only
+        // ever sees span arrays posted back as `HighlightParsed`.
+        let highlightRegistry = HighlightRegistry.tryCreate ()
 
         let cancelAndReplace (existing: CancellationTokenSource option) =
             existing
@@ -227,7 +239,7 @@ module Runtime =
 
                     enqueueUnlessCancelled token msg)
                 |> ignore
-            | LoadFile path ->
+            | LoadFile(path, intent) ->
                 let cts = cancelAndReplace loadCts
                 loadCts <- Some cts
                 let token = cts.Token
@@ -235,9 +247,9 @@ module Runtime =
                 Task.Run(fun () ->
                     let msg =
                         try
-                            FileOpened(path, Result.Ok(File.ReadAllText path))
+                            FileOpened(path, intent, Result.Ok(File.ReadAllText path))
                         with ex ->
-                            FileOpened(path, Result.Error ex.Message)
+                            FileOpened(path, intent, Result.Error ex.Message)
 
                     enqueueUnlessCancelled token msg)
                 |> ignore
@@ -286,6 +298,21 @@ module Runtime =
                                 queue.Enqueue msg),
                             TaskContinuationOptions.None
                         ))
+            | EnsureConfigFile config ->
+                Task.Run(fun () ->
+                    let msg =
+                        try
+                            let configPath = ConfigIO.path ()
+
+                            if not (File.Exists configPath) then
+                                ConfigIO.save config
+
+                            ConfigFileReady(Result.Ok configPath)
+                        with ex ->
+                            ConfigFileReady(Result.Error ex.Message)
+
+                    queue.Enqueue msg)
+                |> ignore
             | ClipboardCopy text ->
                 Task.Run(fun () ->
                     let msg =
@@ -297,13 +324,16 @@ module Runtime =
 
                     queue.Enqueue msg)
                 |> ignore
-            | RunSearch(bufferId, query, haystack) ->
+            | RunSearch(bufferId, query, document) ->
                 // Cancel any in-flight search; the latest query wins.
                 let cts = cancelAndReplace searchCts
                 searchCts <- Some cts
                 let token = cts.Token
 
                 Task.Run(fun () ->
+                    // Materialize the haystack here, off the UI thread; the
+                    // effect carries only the shared piece table.
+                    let haystack = PieceTable.toString document
                     // Plain IndexOf loop — same logic as the old in-update
                     // `Buffer.findAll`, just off the UI thread.
                     let mutable matches: int list = []
@@ -330,6 +360,34 @@ module Runtime =
 
                     queue.Enqueue msg)
                 |> ignore
+            | ParseHighlight(bufferId, language, document, editTick) ->
+                match highlightRegistry with
+                | None -> ()
+                | Some registry ->
+                    let existing =
+                        match highlightCts.TryGetValue bufferId with
+                        | true, cts -> Some cts
+                        | false, _ -> None
+
+                    let cts = cancelAndReplace existing
+                    highlightCts[bufferId] <- cts
+                    let token = cts.Token
+
+                    Task.Run(fun () ->
+                        if not token.IsCancellationRequested then
+                            try
+                                let source = PieceTable.toString document
+
+                                match Highlight.parseSpans registry language source with
+                                | Some spans ->
+                                    enqueueUnlessCancelled token (HighlightParsed(bufferId, editTick, spans))
+                                | None ->
+                                    // Post an empty result so previously-stored
+                                    // spans stop painting at stale offsets.
+                                    enqueueUnlessCancelled token (HighlightParsed(bufferId, editTick, [||]))
+                            with ex ->
+                                log $"highlight: parse failed for buffer {bufferId} ({language}): {ex.Message}")
+                    |> ignore
             | ScanPlugins disabledPlugins ->
                 Task.Run(fun () ->
                     let msg =
@@ -397,6 +455,27 @@ module Runtime =
 
                     queue.Enqueue msg)
                 |> ignore
+            | ValidatePlugin path ->
+                Task.Run(fun () ->
+                    let msg =
+                        try
+                            let manifestPath = Path.Combine(path, "plugin.json")
+
+                            if not (File.Exists manifestPath) then
+                                PluginValidated(Result.Error $"No plugin.json found in {path}.")
+                            else
+                                match Plugins.tryParseManifest manifestPath with
+                                | Result.Ok manifest ->
+                                    PluginValidated(
+                                        Result.Ok
+                                            $"OK: {manifest.Name} {manifest.Version} (apiVersion {manifest.ApiVersion}); entryType={manifest.EntryType}"
+                                    )
+                                | Result.Error reason -> PluginValidated(Result.Error reason)
+                        with ex ->
+                            PluginValidated(Result.Error ex.Message)
+
+                    queue.Enqueue msg)
+                |> ignore
             | LoadKeybinds ->
                 Task.Run(fun () ->
                     let keymap, errors = KeymapIO.load ()
@@ -415,24 +494,35 @@ module Runtime =
 
                 queue.Enqueue MacroReplayEnd
 
+        // The pure update layer records only the pending chords; the
+        // wall-clock deadline lives here so `update` stays deterministic.
+        // Reset whenever a dispatch produces a new pending prefix.
+        let mutable prefixDeadline: DateTime voption = ValueNone
+
         let dispatch model msg =
             log $"msg: {renderMsg msg}"
             let nextModel, effects = Editor.update msg model
             effects |> List.iter (fun e -> log $"effect: {renderEffect e}")
             effects |> List.iter startEffect
+
+            prefixDeadline <-
+                match nextModel.PendingPrefix with
+                | Some _ when nextModel.PendingPrefix <> model.PendingPrefix ->
+                    ValueSome(DateTime.UtcNow.AddSeconds 1.0)
+                | Some _ -> prefixDeadline
+                | None -> ValueNone
+
             nextModel
 
         let userThemes, themeErrors = ConfigIO.loadUserThemes ()
         let config, configError = ConfigIO.load userThemes
-
-        let highlightRegistry = HighlightRegistry.tryCreate ()
 
         match highlightRegistry with
         | None -> log "highlight: failed to load tree-sitter — F# files will render plain"
         | Some _ -> log "highlight: loaded tree-sitter F# grammar"
 
         let initialModel, startupEffects =
-            Editor.initWithInitialFile rootPath initialFile (consoleSize ()) config userThemes highlightRegistry
+            Editor.initWithInitialFile rootPath initialFile (consoleSize ()) config userThemes
 
         // Replace the default welcome notification with a warning if any
         // startup loaders failed. Otherwise leave the welcome in place.
@@ -516,8 +606,8 @@ module Runtime =
                     needsRender <- true
                 | _ -> ()
 
-                match model.PendingPrefix with
-                | Some(_, deadline) when DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() > deadline ->
+                match prefixDeadline with
+                | ValueSome deadline when DateTime.UtcNow > deadline ->
                     model <- dispatch model SequenceTimedOut
                     needsRender <- true
                 | _ -> ()
@@ -535,7 +625,7 @@ module Runtime =
                     match event.Action with
                     | Press ->
                         match MouseProtocol.toWheelTicks event with
-                        | Some ticks -> model <- dispatch model (MouseScrolled ticks)
+                        | Some ticks -> model <- dispatch model (MouseScrolled(ticks, event.Position))
                         | None -> model <- dispatch model (MousePressed event)
                     | Release -> model <- dispatch model (MouseReleased event)
                     | Drag -> model <- dispatch model (MouseDragged event)
@@ -547,8 +637,27 @@ module Runtime =
                 | Some(TerminalEvent.FocusOut) ->
                     model <- dispatch model FocusLost
                     needsRender <- true
+                | Some(TerminalEvent.Paste text) ->
+                    model <- dispatch model (PastedText text)
+                    needsRender <- true
                 | None -> Thread.Sleep 16
         finally
+            // Wait briefly for in-flight disk writes: ShouldQuit can flip
+            // while a save chain is still running on the pool (Ctrl+S then
+            // Ctrl+Q), and process exit would otherwise kill the write
+            // mid-file. Bounded so a wedged disk can't hang quit forever.
+            let pendingWrites =
+                let bufferChains =
+                    lock bufferSaveLock (fun () -> bufferSaveChains.Values |> Seq.toArray)
+
+                let configChain = lock configSaveLock (fun () -> configSaveChain)
+                Array.append bufferChains [| configChain |]
+
+            try
+                Task.WaitAll(pendingWrites, TimeSpan.FromSeconds 5.0) |> ignore
+            with _ ->
+                ()
+
             scanCts
             |> Option.iter (fun cts ->
                 try
@@ -569,11 +678,17 @@ module Runtime =
 
             watcher |> Option.iter (fun w -> w.Dispose())
 
-            // Dispose per-buffer highlight parsers/trees, then the
-            // registry that owns the compiled queries. Languages
-            // themselves are not disposed — they wrap loaded dylibs
-            // which the OS reclaims on exit.
-            model.HighlightStates |> Map.iter (fun _ s -> Highlight.dispose s)
+            // Cancel in-flight highlight parses, then dispose the registry
+            // that owns the compiled queries. Languages themselves are not
+            // disposed — they wrap loaded dylibs which the OS reclaims on
+            // exit. Parsers and trees never outlive their parse task.
+            for cts in highlightCts.Values do
+                try
+                    cts.Cancel()
+                with _ ->
+                    ()
+
+                cts.Dispose()
 
             highlightRegistry
             |> Option.iter (fun r ->

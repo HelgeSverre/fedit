@@ -3,20 +3,26 @@ module Fedit.Tests.SnapshotTests
 open Fedit
 open Xunit
 
-// Phase 7: Tier 2 frame snapshots. Each scenario builds a model, renders
-// it, projects via `Snapshot.render`, and compares to a checked-in
-// expected string. A failing test prints actual vs expected — review the
-// diff like a schema change before "accepting" by editing the literal.
+// Tier 2 render checks, two kinds in one file. Every scenario builds a
+// model, renders it, and projects via `Snapshot.render`:
+//
+// - Render smokes: assert that key markers (mode labels, prompt prefixes,
+//   the dirty marker) appear somewhere in the projected frame. Most tests
+//   are smokes because their frames carry incidental content we don't
+//   want to lock down.
+// - Full-frame goldens: `assertSnapshot` compares the entire projected
+//   frame against a checked-in literal for small deterministic scenarios.
+//   A failing test prints actual vs expected — review the diff like a
+//   schema change before "accepting" by editing the literal.
 //
 // Goldens are intentionally inline rather than .verified.txt files: the
-// terminal sizes used here are small (40x10 typical) so the snapshot
+// terminal sizes used here are small (30x6 typical) so the snapshot
 // content fits next to the assertion. Easier to review in PRs.
 
 let private size width height = { Width = width; Height = height }
 
 let private baseModel terminal =
-    let model, _ =
-        Editor.init "/root" terminal (Config.defaults Themes.defaultTheme) [] None
+    let model, _ = Editor.init "/root" terminal (Config.defaults Themes.defaultTheme) []
 
     model
 
@@ -29,6 +35,52 @@ let private assertSnapshot (expected: string) (actual: string) =
         let header = "--- expected ---\n"
         let mid = "\n--- actual ---\n"
         Assert.Fail(header + expected + mid + actual)
+
+// ── Full-frame goldens ──────────────────────────────────────────────────
+// At 30x6 the sidebar is hidden (width < 40) and the dock is empty, so the
+// frame is: editor rows (gutter + content, active line styled), status bar
+// (truncated at the inner width), and the empty command bar.
+
+[<Fact>]
+let ``golden frame: empty scratch buffer at 30x6`` () =
+    let expected =
+        """
+=== 30x6 cursor=0,5 visible ===
+[35/_ ..]  1 [252/_ ..] [252/236 ..]
+[241/_ ..]~    [252/_ ..]
+[241/_ ..]~    [252/_ ..]
+[241/_ ..]~    [252/_ ..]
+[15/22 ..] EDIT  [scratch]  Ctrl+P prom
+[230/237 ..]
+"""
+
+    assertSnapshot expected (renderOf (baseModel (size 30 6)))
+
+[<Fact>]
+let ``golden frame: two-line buffer at 30x6`` () =
+    let model = baseModel (size 30 6)
+    let buf = Buffer.fromText 1 None "scratch" "ab\ncd" "\n"
+
+    let withLines =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers = Map.ofList [ 1, buf ] } }
+
+    let expected =
+        """
+=== 30x6 cursor=0,5 visible ===
+[35/_ ..]  1 [252/_ ..] [252/236 ..]ab
+[241/_ ..]  2 [252/_ ..] cd
+[241/_ ..]~    [252/_ ..]
+[241/_ ..]~    [252/_ ..]
+[15/22 ..] EDIT  [scratch]  Ctrl+P prom
+[230/237 ..]
+"""
+
+    assertSnapshot expected (renderOf withLines)
+
+// ── Render smokes ───────────────────────────────────────────────────────
 
 [<Fact>]
 let ``cold start with no buffer opens to the scratch view`` () =

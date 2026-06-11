@@ -3,12 +3,25 @@ namespace Fedit
 open System
 
 /// Statically-known escape sequences for focus events.
+/// NOTE: these constants include the leading ESC — callers must pass the
+/// FULL sequence (unlike `MouseProtocol`/`PasteEvents`, which take the
+/// body with the ESC stripped).
 [<RequireQualifiedAccess>]
 module FocusEvents =
     let focusIn = "\u001b[I"
     let focusOut = "\u001b[O"
     let isFocusIn (sequence: string) = sequence = focusIn
     let isFocusOut (sequence: string) = sequence = focusOut
+
+/// Statically-known bracketed-paste markers (DECSET 2004).
+/// Like `MouseProtocol`, these expect the sequence body WITHOUT the
+/// leading ESC.
+[<RequireQualifiedAccess>]
+module PasteEvents =
+    let pasteBegin = "[200~"
+    let pasteEnd = "[201~"
+    let isBegin (sequence: string) = sequence = pasteBegin
+    let isEnd (sequence: string) = sequence = pasteEnd
 
 /// Mouse event parsing for the three common encodings.
 /// All functions are total and pure (string → option).
@@ -58,36 +71,45 @@ module MouseProtocol =
         |> Set.ofList
 
     let private decodeSgrButton (code: int) : (MouseButton * MouseAction) option =
-        let motion = (code &&& 32) <> 0
-        let wheel = (code &&& 64) <> 0
-        let btn = code &&& 3
-
-        if wheel then
-            // Wheel events are instantaneous (no separate release).
-            match code &&& 0b1100_0011 with
-            | 64 -> Some(ScrollUp, Press)
-            | 65 -> Some(ScrollDown, Press)
-            | 96 -> Some(ScrollLeft, Press)
-            | 97 -> Some(ScrollRight, Press)
-            | _ -> None
-        elif motion then
-            match btn with
-            | 0 -> Some(LeftButton, Drag)
-            | 1 -> Some(MiddleButton, Drag)
-            | 2 -> Some(RightButton, Drag)
-            | _ -> None
+        // Bit 7 (128) marks the extended buttons 8-11 (browser back/forward
+        // and friends). We don't map them; without this guard they would
+        // misdecode as left/middle/right through the `&&& 3` mask below.
+        if code &&& 128 <> 0 then
+            None
         else
-            match btn with
-            | 0 -> Some(LeftButton, Press)
-            | 1 -> Some(MiddleButton, Press)
-            | 2 -> Some(RightButton, Press)
-            | 3 ->
-                // Code 3 means "release", but we don't know which button.
-                // Many applications track button state externally. For now,
-                // report as Left release — the runtime can refine this if it
-                // keeps a "last pressed button" variable.
-                Some(LeftButton, Release)
-            | _ -> None
+            let motion = (code &&& 32) <> 0
+            let wheel = (code &&& 64) <> 0
+            let btn = code &&& 3
+
+            if wheel then
+                // Wheel events are instantaneous (no separate release).
+                // Mask keeps bit 6 plus the two direction bits, dropping the
+                // modifier bits (4/8/16) and the motion bit (32): the
+                // conventional horizontal-wheel codes are 66/67 (64+2 / 64+3).
+                match code &&& 0b0100_0011 with
+                | 64 -> Some(ScrollUp, Press)
+                | 65 -> Some(ScrollDown, Press)
+                | 66 -> Some(ScrollLeft, Press)
+                | 67 -> Some(ScrollRight, Press)
+                | _ -> None
+            elif motion then
+                match btn with
+                | 0 -> Some(LeftButton, Drag)
+                | 1 -> Some(MiddleButton, Drag)
+                | 2 -> Some(RightButton, Drag)
+                | _ -> None
+            else
+                match btn with
+                | 0 -> Some(LeftButton, Press)
+                | 1 -> Some(MiddleButton, Press)
+                | 2 -> Some(RightButton, Press)
+                | 3 ->
+                    // Code 3 means "release", but we don't know which button.
+                    // Many applications track button state externally. For now,
+                    // report as Left release — the runtime can refine this if it
+                    // keeps a "last pressed button" variable.
+                    Some(LeftButton, Release)
+                | _ -> None
 
     let tryParseSgr (sequence: string) : MouseEvent option =
         tryParseSgrParts sequence
@@ -200,6 +222,9 @@ module MouseProtocol =
         match event.Button, event.Action with
         | ScrollUp, Press -> Some -1
         | ScrollDown, Press -> Some 1
-        | ScrollLeft, Press -> Some -1
-        | ScrollRight, Press -> Some 1
+        // Horizontal wheel must NOT scroll vertically: no tick mapping.
+        // The press then flows to `MousePressed`, where the editor matches
+        // LeftButton only and ignores the rest — a harmless no-op.
+        | ScrollLeft, Press
+        | ScrollRight, Press -> None
         | _ -> None

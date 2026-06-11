@@ -4,9 +4,16 @@ open System
 open Fedit.PromptTypes
 
 type EditorsState =
-    { Buffers: Map<int, BufferState>
-      ActiveBufferId: int
-      NextBufferId: int }
+    {
+        Buffers: Map<int, BufferState>
+        ActiveBufferId: int
+        NextBufferId: int
+        /// The single VSCode-style preview slot: `Some id` while the buffer
+        /// holds an unpromoted preview. Editing the buffer or opening its
+        /// file permanently promotes it (clears this). A new preview reuses
+        /// the same buffer id, replacing its content.
+        PreviewBufferId: int option
+    }
 
 type PromptMode =
     /// Empty Text, or any first character that isn't a recognised prefix.
@@ -91,6 +98,10 @@ type Config =
         /// Lines moved per mouse-wheel tick. Default 3 (matches nvim's
         /// `mousescroll` ver:3).
         MouseScrollLines: int
+        /// Reveal (expand ancestors + select) a file in the sidebar when it is
+        /// opened. Persisted as `autoReveal`. Manual `:reveal` /
+        /// reveal-in-sidebar always works regardless.
+        AutoReveal: bool
     }
 
 [<RequireQualifiedAccess>]
@@ -113,7 +124,8 @@ module Config =
           SyntaxHighlightingEnabled = true
           ScrollMode = ScrollViewport
           ScrollOff = 5
-          MouseScrollLines = 3 }
+          MouseScrollLines = 3
+          AutoReveal = true }
 
 /// Tracks an in-progress mouse drag for click-to-select.
 type MouseDragState =
@@ -132,27 +144,24 @@ type Model =
         Config: Config
         UserThemes: Theme list
         Plugins: PluginRegistry
-        /// Process-wide tree-sitter registry. `None` if the native
-        /// `libtree-sitter-fsharp.*` failed to load at startup; in that
-        /// case `HighlightStates` stays empty and the renderer skips the
-        /// color overlay.
-        HighlightRegistry: HighlightRegistry option
-        /// Per-buffer parse state, keyed by `BufferState.Id`. Owned: the
-        /// runtime disposes every value on shutdown.
-        HighlightStates: Map<int, HighlightState>
+        /// Per-buffer syntax spans, keyed by `BufferState.Id`. Pure data —
+        /// produced by the `ParseHighlight` effect interpreter (which owns
+        /// the native tree-sitter objects); stale completions are dropped
+        /// by edit tick in `update`. Empty when the grammar registry failed
+        /// to load — the renderer just skips the color overlay.
+        HighlightStates: Map<int, HighlightSpan array>
         QuitArmed: bool
         ShouldQuit: bool
         /// Effective keymap: `Keymap.defaults` overlaid by the user's
         /// `~/.config/fedit/keybinds` file. Carries defaults from `init` so the
         /// editor is fully functional before the async `LoadKeybinds` lands.
         Keymap: Keymap
-        /// In-flight multi-key sequence: the chords accumulated so far and the
-        /// deadline (UTC unix ms) after which the engine abandons the sequence.
+        /// In-flight multi-key sequence: the chords accumulated so far.
         /// `None` when no sequence is pending. Rendered in the status bar.
-        /// Phase 2: only ever set by the (currently dormant) sequence engine;
-        /// no built-in sequence is bound until the keymap lands, so in practice
-        /// this stays `None` on the shipped key set.
-        PendingPrefix: (Chord list * int64) option
+        /// The abandon-after-1s deadline lives in the Runtime (it owns the
+        /// clock — `update` stays deterministic); the runtime posts
+        /// `SequenceTimedOut` when it expires.
+        PendingPrefix: Chord list option
         /// Named macro registers. Key is the register char (e.g. 'a'); value is
         /// the chords recorded into it, in press order. In-memory only this
         /// phase — not persisted to the keybinds file.
@@ -172,26 +181,42 @@ type Model =
         MouseDrag: MouseDragState option
     }
 
+/// Why a file is being loaded: a normal open, or a preview into the
+/// single reusable preview slot. Travels with the LoadFile effect and
+/// returns on FileOpened so intent can never decouple from the result.
+type OpenIntent =
+    | OpenPermanent
+    | OpenPreview
+
 type Msg =
     | KeyPressed of Chord
     /// The pending multi-key sequence prefix timed out; clear it.
     | SequenceTimedOut
     | Resize of Size
-    /// Mouse wheel scrolled by N ticks (signed; negative = up). An ambient
-    /// input event like `Resize` — handled in `update`, not a keystroke, so
-    /// it stays outside the keybinding / `Action` layer.
-    | MouseScrolled of int
+    /// Mouse wheel scrolled by N ticks (signed; negative = up) at a screen
+    /// position. An ambient input event like `Resize` — handled in `update`,
+    /// not a keystroke, so it stays outside the keybinding / `Action` layer.
+    /// The position routes the scroll to the surface under the pointer
+    /// (sidebar vs editor).
+    | MouseScrolled of ticks: int * position: Position
     | MousePressed of MouseEvent
     | MouseReleased of MouseEvent
     | MouseDragged of MouseEvent
     | FocusGained
     | FocusLost
     | WorkspaceLoaded of Result<FileNode * int, string>
-    | FileOpened of path: string * Result<string, string>
+    | FileOpened of path: string * intent: OpenIntent * Result<string, string>
     | BufferSaved of bufferId: int * path: string * revision: int * Result<unit, string>
     | ConfigSaved of Result<unit, string>
+    /// The config file is on disk (written if missing): Ok carries its path
+    /// for the follow-up open; Error carries the write failure.
+    | ConfigFileReady of Result<string, string>
     | ClipboardCopied of Result<unit, string>
     | ClipboardPasted of Result<string, string>
+    /// A bracketed-paste payload arrived from the terminal (DECSET 2004).
+    /// Unlike `ClipboardPasted` it is not the result of an effect — the
+    /// terminal pushes it when the user pastes natively.
+    | PastedText of string
     | SearchCompleted of bufferId: int * query: string * matches: int list
     | WorkspaceChangedExternally
     /// Brackets a macro replay batch so the record-append hook can suppress
@@ -199,26 +224,44 @@ type Msg =
     /// the `ReplayKeys` effect interpreter around the injected `KeyPressed`s.
     | MacroReplayStart
     | MacroReplayEnd
+    /// Spans for `bufferId` as of `editTick`. Stale ticks are dropped —
+    /// a newer `ParseHighlight` is already in flight for the newer text.
+    | HighlightParsed of bufferId: int * editTick: int * spans: HighlightSpan array
     | PluginsScanned of Result<PluginRegistry, string>
     | PluginInstalled of name: string * Result<unit, string>
     | PluginRemoved of name: string * Result<unit, string>
     | PluginBuildFinished of name: string * Result<unit, string>
+    /// `:plugin validate` finished: Ok and Error both carry the report text.
+    | PluginValidated of Result<string, string>
     /// The user keybinds file was (re)loaded: the effective keymap plus any
     /// parse/conflict errors to surface as a notification.
     | KeybindsLoaded of Keymap * string list
 
 type Effect =
     | ScanWorkspace of string
-    | LoadFile of string
+    | LoadFile of path: string * intent: OpenIntent
     | SaveBuffer of bufferId: int * path: string * revision: int * contents: string
     | SaveConfig of Config
+    /// Write the default config file if it doesn't exist yet, posting
+    /// `ConfigFileReady` with the path so the editor can open it.
+    | EnsureConfigFile of Config
     | ClipboardCopy of string
     | ClipboardPaste
-    | RunSearch of bufferId: int * query: string * haystack: string
+    /// Carries the (immutable, cheap-to-share) piece table rather than the
+    /// rendered text: the interpreter does the `toString` on a pool thread,
+    /// so a search keystroke costs the pure update loop nothing.
+    | RunSearch of bufferId: int * query: string * document: PieceTable
+    /// Parse syntax spans off the UI thread. Carries the piece table
+    /// (immutable, cheap to share); the interpreter materializes the text,
+    /// parses, and posts `HighlightParsed` tagged with `editTick`.
+    | ParseHighlight of bufferId: int * language: string * document: PieceTable * editTick: int
     | ScanPlugins of disabledPlugins: Set<string>
     | InstallPluginFromSource of source: PluginSource
     | RemovePluginDir of name: string
     | BuildPlugin of pluginPath: string
+    /// Check a plugin folder's manifest (existence + parse) and post the
+    /// report as `PluginValidated`.
+    | ValidatePlugin of path: string
     | LoadKeybinds
     /// Replay a recorded macro: re-enqueue these chords as `KeyPressed` msgs
     /// `count` times. Interpreted in `Runtime.startEffect` (it owns the queue),
