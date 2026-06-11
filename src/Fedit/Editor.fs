@@ -1008,18 +1008,26 @@ module Editor =
                     SyntaxHighlightingEnabled = newValue }
 
             // Turning on: request a parse for every open buffer with a
-            // known language; spans land asynchronously. Turning off: drop
+            // known language at or under `Highlight.maxParseChars`; spans
+            // land asynchronously. Oversized buffers are skipped and
+            // counted so the notification stays honest. Turning off: drop
             // the span overlays — the interpreter holds no per-buffer
             // native state, so there is nothing to dispose here.
-            let parseEffects =
+            let parseEffects, skippedForSize =
                 if newValue then
-                    model.Editors.Buffers
-                    |> Map.toList
-                    |> List.choose (fun (id, buffer) ->
-                        languageFor buffer
-                        |> Option.map (fun lang -> ParseHighlight(id, lang, buffer.Document, buffer.EditTick)))
+                    let parseable, oversized =
+                        model.Editors.Buffers
+                        |> Map.toList
+                        |> List.choose (fun (id, buffer) ->
+                            languageFor buffer |> Option.map (fun lang -> id, buffer, lang))
+                        |> List.partition (fun (_, buffer, _) ->
+                            PieceTable.length buffer.Document <= Highlight.maxParseChars)
+
+                    parseable
+                    |> List.map (fun (id, buffer, lang) -> ParseHighlight(id, lang, buffer.Document, buffer.EditTick)),
+                    List.length oversized
                 else
-                    []
+                    [], 0
 
             let updated =
                 { model with
@@ -1027,10 +1035,12 @@ module Editor =
                     HighlightStates = if newValue then model.HighlightStates else Map.empty }
 
             let note =
-                if newValue then
+                if not newValue then
+                    "Syntax highlighting off."
+                elif skippedForSize = 0 then
                     "Syntax highlighting on."
                 else
-                    "Syntax highlighting off."
+                    $"Syntax highlighting on ({skippedForSize} buffer(s) too large to parse)."
 
             updated |> notify (Some(Notification.info note)), SaveConfig nextConfig :: parseEffects
 
@@ -2291,27 +2301,48 @@ module Editor =
                                 | Sidebar -> runSidebar chord model
                                 | Prompt -> runPrompt chord model
 
-    /// Schedule highlight reparses for every buffer whose text changed
-    /// during this dispatch — the EditTick diff also catches buffers that
-    /// didn't exist before (file open). One chokepoint after `updateCore`,
-    /// so no individual handler can forget to request a reparse.
-    let private highlightEffects (before: Model) (after: Model) =
+    /// Schedule highlight reparses for every buffer that changed during
+    /// this dispatch. A buffer counts as changed when its EditTick moved,
+    /// when it didn't exist before (file open), or when its FilePath
+    /// changed — save-as/writeas can flip the detected language without an
+    /// edit, so a scratch buffer saved as `x.fs` must reschedule. One
+    /// chokepoint after `updateCore`, so no individual handler can forget
+    /// to request a reparse. Changed buffers with no detected language or
+    /// above `Highlight.maxParseChars` get their stored spans pruned
+    /// instead of an effect: stale spans must never paint, and oversized
+    /// documents aren't worth a multi-second parse.
+    let private highlightEffects (before: Model) (after: Model) : Model * Effect list =
         if not after.Config.SyntaxHighlightingEnabled then
-            []
+            after, []
         else
-            after.Editors.Buffers
-            |> Map.toList
-            |> List.choose (fun (id, buffer) ->
-                let changed =
-                    match Map.tryFind id before.Editors.Buffers with
-                    | Some old -> old.EditTick <> buffer.EditTick
-                    | None -> true
+            let pruned, effects =
+                after.Editors.Buffers
+                |> Map.toList
+                |> List.fold
+                    (fun (model: Model, effects) (id, buffer) ->
+                        let changed =
+                            match Map.tryFind id before.Editors.Buffers with
+                            | Some old -> old.EditTick <> buffer.EditTick || old.FilePath <> buffer.FilePath
+                            | None -> true
 
-                if not changed then
-                    None
-                else
-                    languageFor buffer
-                    |> Option.map (fun language -> ParseHighlight(id, language, buffer.Document, buffer.EditTick)))
+                        if not changed then
+                            model, effects
+                        else
+                            let language =
+                                if PieceTable.length buffer.Document <= Highlight.maxParseChars then
+                                    languageFor buffer
+                                else
+                                    None
+
+                            match language with
+                            | Some lang -> model, ParseHighlight(id, lang, buffer.Document, buffer.EditTick) :: effects
+                            | None ->
+                                { model with
+                                    HighlightStates = Map.remove id model.HighlightStates },
+                                effects)
+                    (after, [])
+
+            pruned, List.rev effects
 
     /// Preview invariant: the preview buffer is never Dirty. Any edit (typing,
     /// paste, plugin action, macro replay) promotes it to a normal buffer.
@@ -2333,4 +2364,5 @@ module Editor =
     let update msg model =
         let next, effects = updateCore msg model
         let next = promoteDirtyPreview next
-        next, effects @ highlightEffects model next
+        let next, highlightFx = highlightEffects model next
+        next, effects @ highlightFx

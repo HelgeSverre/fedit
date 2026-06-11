@@ -203,6 +203,11 @@ module Runtime =
         // cancels the stale one; `update` also drops stale results by tick.
         let highlightCts =
             System.Collections.Generic.Dictionary<int, CancellationTokenSource>()
+        // Every scheduled parse naps this long before touching the document:
+        // a keystroke burst schedules one effect per dispatch, each cancelling
+        // the previous, so only the newest survives its nap and pays for the
+        // `toString` + full parse.
+        let highlightDebounceMs = 75
         // The interpreter owns all native tree-sitter objects; the Model only
         // ever sees span arrays posted back as `HighlightParsed`.
         let highlightRegistry = HighlightRegistry.tryCreate ()
@@ -361,21 +366,39 @@ module Runtime =
                     queue.Enqueue msg)
                 |> ignore
             | ParseHighlight(bufferId, language, document, editTick) ->
-                match highlightRegistry with
-                | None -> ()
+                // Cancel any in-flight parse (or its debounce nap) first so
+                // a stale-language result can never outrun this request.
+                let existing =
+                    match highlightCts.TryGetValue bufferId with
+                    | true, cts -> Some cts
+                    | false, _ -> None
+
+                let cts = cancelAndReplace existing
+                highlightCts[bufferId] <- cts
+                let token = cts.Token
+
+                // Grammar lookup is a pair of cheap dictionary probes — check
+                // before materializing the document so a missing registry or
+                // unloaded grammar never pays `PieceTable.toString`. The empty
+                // result still posts so previously-stored spans stop painting
+                // at stale offsets.
+                let grammar =
+                    highlightRegistry
+                    |> Option.filter (fun registry ->
+                        (registry.TryGetLanguage language).IsSome
+                        && (registry.TryGetQuery language).IsSome)
+
+                match grammar with
+                | None -> queue.Enqueue(HighlightParsed(bufferId, editTick, [||]))
                 | Some registry ->
-                    let existing =
-                        match highlightCts.TryGetValue bufferId with
-                        | true, cts -> Some cts
-                        | false, _ -> None
-
-                    let cts = cancelAndReplace existing
-                    highlightCts[bufferId] <- cts
-                    let token = cts.Token
-
-                    Task.Run(fun () ->
-                        if not token.IsCancellationRequested then
+                    Task.Run<unit>(fun () ->
+                        task {
                             try
+                                // Debounce: only the newest request for this
+                                // buffer survives the nap; earlier ones are
+                                // cancelled above before they parse.
+                                do! Task.Delay(highlightDebounceMs, token)
+
                                 let source = PieceTable.toString document
 
                                 match Highlight.parseSpans registry language source with
@@ -385,8 +408,13 @@ module Runtime =
                                     // Post an empty result so previously-stored
                                     // spans stop painting at stale offsets.
                                     enqueueUnlessCancelled token (HighlightParsed(bufferId, editTick, [||]))
-                            with ex ->
-                                log $"highlight: parse failed for buffer {bufferId} ({language}): {ex.Message}")
+                            with
+                            | :? OperationCanceledException ->
+                                // A cancelled nap or parse is the debounce
+                                // working as intended, not a failure.
+                                ()
+                            | ex -> log $"highlight: parse failed for buffer {bufferId} ({language}): {ex.Message}"
+                        })
                     |> ignore
             | ScanPlugins disabledPlugins ->
                 Task.Run(fun () ->

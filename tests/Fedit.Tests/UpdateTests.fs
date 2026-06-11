@@ -141,6 +141,100 @@ let ``HighlightParsed stores spans only for the current edit tick`` () =
     let fresh, _ = Editor.update (HighlightParsed(bufferId, 0, spans)) opened
     fresh.HighlightStates[bufferId] |> should equal spans
 
+// "let x = 1\n" is 10 chars, so this lands just past the parse cap.
+let private overCapText () =
+    String.replicate (Highlight.maxParseChars / 10 + 1) "let x = 1\n"
+
+let private dummySpans: HighlightSpan array =
+    [| { Capture = Keyword
+         StartByte = 0
+         EndByte = 3 } |]
+
+[<Fact>]
+let ``editing a buffer over the parse cap emits no highlight effect and clears its spans`` () =
+    let big = Buffer.fromText 1 (Some "/root/big.fs") "big.fs" (overCapText ()) "\n"
+    let model = initModel ()
+
+    let seeded =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers = Map.ofList [ 1, big ] }
+            HighlightStates = Map.ofList [ 1, dummySpans ] }
+
+    let next, effects = Editor.update (KeyPressed(chr 'y')) seeded
+
+    effects
+    |> List.forall (fun e ->
+        match e with
+        | ParseHighlight _ -> false
+        | _ -> true)
+    |> should equal true
+
+    next.HighlightStates.ContainsKey 1 |> should equal false
+
+[<Fact>]
+let ``a file path change reschedules highlighting without an edit`` () =
+    // The scratch buffer has no path and EditTick 0; saving it as a .fs file
+    // flips the detected language without an edit, so the chokepoint must
+    // reschedule on the FilePath diff alone.
+    let _, effects =
+        Editor.update (BufferSaved(1, "/root/scratch.fs", 0, Result.Ok())) (initModel ())
+
+    effects
+    |> List.exists (fun e ->
+        match e with
+        | ParseHighlight(1, "fsharp", _, 0) -> true
+        | _ -> false)
+    |> should equal true
+
+[<Fact>]
+let ``a rename to an unsupported extension clears stored spans`` () =
+    let buf = Buffer.fromText 1 (Some "/root/x.fs") "x.fs" "let x = 1" "\n"
+    let model = initModel ()
+
+    let seeded =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers = Map.ofList [ 1, buf ] }
+            HighlightStates = Map.ofList [ 1, dummySpans ] }
+
+    let next, effects =
+        Editor.update (BufferSaved(1, "/root/x.xyz", 0, Result.Ok())) seeded
+
+    next.HighlightStates.ContainsKey 1 |> should equal false
+
+    effects
+    |> List.forall (fun e ->
+        match e with
+        | ParseHighlight _ -> false
+        | _ -> true)
+    |> should equal true
+
+[<Fact>]
+let ``syntax on reports buffers skipped for size`` () =
+    let press chord m =
+        fst (Editor.update (KeyPressed chord) m)
+
+    let big = Buffer.fromText 2 (Some "/root/big.fs") "big.fs" (overCapText ()) "\n"
+    let model = initModel ()
+
+    let seeded =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers = model.Editors.Buffers |> Map.add 2 big } }
+
+    let final =
+        "syntax on"
+        |> Seq.fold (fun m c -> press (chr c) m) (seeded |> press (ck 'p'))
+        |> press (nk Enter)
+
+    final.Notification
+    |> Option.map (fun n -> n.Message)
+    |> should equal (Some "Syntax highlighting on (1 buffer(s) too large to parse).")
+
 [<Fact>]
 let ``KeyPressed Ctrl+q with clean buffers quits immediately`` () =
     let model = initModel ()

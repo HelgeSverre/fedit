@@ -34,6 +34,13 @@ let ``resolveCapture returns None for unknown capture`` () =
     Assert.Equal(None, Highlight.resolveCapture "")
 
 [<Fact>]
+let ``maxParseChars bounds worst-case parse time`` () =
+    // ~1 ms per 1k chars measured: the cap must stay in the low-seconds
+    // range so an oversized buffer never schedules a multi-second parse.
+    // Cap-enforcement itself is exercised at the chokepoint in UpdateTests.
+    Assert.InRange(Highlight.maxParseChars, 100_000, 10_000_000)
+
+[<Fact>]
 let ``detectLanguage maps F# extensions`` () =
     Assert.Equal(Some "fsharp", Highlight.detectLanguage (Some "foo.fs") "")
     Assert.Equal(Some "fsharp", Highlight.detectLanguage (Some "Bar.FSI") "")

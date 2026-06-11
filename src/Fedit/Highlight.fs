@@ -158,6 +158,12 @@ type HighlightRegistry
 [<RequireQualifiedAccess>]
 module Highlight =
 
+    /// Documents above this size are not parsed: a full tree-sitter parse
+    /// costs ~1 ms per 1k chars (measured, docs/benchmarks.md), so a cap
+    /// keeps worst-case keystroke cost bounded until incremental reparse
+    /// lands. 2M chars ~= 2 seconds of parse — already past tolerable.
+    let maxParseChars = 2_000_000
+
     /// Map a tree-sitter capture name onto our `HighlightCapture` DU.
     /// Resolution is longest-prefix-first against the standard
     /// `category.subcategory` naming convention. Unknown captures
