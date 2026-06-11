@@ -15,13 +15,13 @@ see [the plugins page on fedit.dev](https://fedit.dev/plugins).
 
 ## At a glance
 
-| What plugins can do                                      | What's not in scope yet                                    |
-| -------------------------------------------------------- | ---------------------------------------------------------- |
-| Register named commands (`:wc`, `:todocount`, …)         | Async handlers — runs on the UI thread, target < 50 ms     |
-| Bind chords to commands (`Ctrl+T`, `Alt+x`, `F5`, …)     | Custom panels, themes, file types, LSP                     |
-| Read text, cursor, file path, workspace root             | Plugin sandbox / capability restriction (full trust)       |
-| Emit `Notify`, `InsertText`, `MoveCursor`, `OpenFile`, … | Cross-language plugins — F# only                           |
-| Chain into built-ins via `RunCommand "open foo.fs"`      | Persistent per-plugin enable/disable (rescan only for MVP) |
+| What plugins can do                                      | What's not in scope yet                                |
+| -------------------------------------------------------- | ------------------------------------------------------ |
+| Register named commands (`:wc`, `:todocount`, …)         | Async handlers — runs on the UI thread, target < 50 ms |
+| Bind chords to commands (`Ctrl+T`, `Alt+x`, `F5`, …)     | Custom panels, themes, file types, LSP                 |
+| Read text, cursor, file path, workspace root             | Plugin sandbox / capability restriction (full trust)   |
+| Emit `Notify`, `InsertText`, `MoveCursor`, `OpenFile`, … | Cross-language plugins — F# only                       |
+| Chain into built-ins via `RunCommand "open foo.fs"`      | Per-plugin settings — no `IPluginHost.Config<T>()` yet |
 
 ## Five-minute quickstart
 
@@ -37,14 +37,23 @@ Inside fedit:
 2. Type `plugin reload` — the host rescans, builds, and loads.
 3. Type `wc` — the active buffer's word count appears in the dock.
 
-The `examples/wordcount/` plugin you just installed is 12 lines:
+The `examples/wordcount/` plugin you just installed fits on one screen:
 
 ```fsharp
 namespace Wordcount
 
 open Fedit.PluginApi
 
+/// Counts whitespace-separated tokens in the active buffer.
+/// Demonstrates: reading `ActiveBuffer.Text`; returning a single `Notify` action.
 module Plugin =
+    let private countWords (text: string) =
+        if System.String.IsNullOrWhiteSpace text then
+            0
+        else
+            text.Split([| ' '; '\t'; '\n'; '\r' |], System.StringSplitOptions.RemoveEmptyEntries)
+            |> Array.length
+
     let register (host: IPluginHost) =
         host.RegisterCommand
             { Name = "wc"
@@ -52,13 +61,7 @@ module Plugin =
               Summary = "Count words in the active buffer."
               Run =
                 fun ctx ->
-                    let n =
-                        ctx.ActiveBuffer.Text.Split(
-                            [| ' '; '\t'; '\n'; '\r' |],
-                            System.StringSplitOptions.RemoveEmptyEntries
-                        )
-                        |> Array.length
-
+                    let n = countWords ctx.ActiveBuffer.Text
                     [ Notify(Info, $"{n} words") ] }
 ```
 
@@ -106,9 +109,11 @@ Triggered manually via `:plugin reload` after editing a plugin.
 └── bin/Release/net10.0/ # build output (auto-managed)
 ```
 
-The folder name **must** match the `name` field in `plugin.json`.
-Folders without a manifest are silently skipped. Folders whose manifest
-fails to parse show up in `:plugin list` as `FAIL: <reason>`.
+Match the folder name to the `name` field in `plugin.json` — a
+convention, not an enforced rule: discovery keys plugins by manifest
+name, and `:plugin install` normalizes the folder to the declared name
+for you. Folders without a manifest are silently skipped. Folders whose
+manifest fails to parse show up in `:plugin list` as `FAIL: <reason>`.
 
 ### `plugin.json`
 
@@ -127,7 +132,7 @@ fails to parse show up in `:plugin list` as `FAIL: <reason>`.
 
 | Field           | Required | Notes                                                                                       |
 | --------------- | -------- | ------------------------------------------------------------------------------------------- |
-| `name`          | yes      | Kebab-case. Must match the folder name on disk.                                             |
+| `name`          | yes      | Kebab-case. By convention matches the folder name on disk.                                  |
 | `version`       | yes      | Semver. Informational only in MVP.                                                          |
 | `apiVersion`    | yes      | Plugin-API major version. MVP is `"1"`; mismatches refuse to load.                          |
 | `description`   | no       | Shown in `:plugin list`.                                                                    |
@@ -165,7 +170,7 @@ type BufferView =
       FilePath: string option
       Text: string
       Cursor: CursorPosition
-      Selection: (CursorPosition * CursorPosition) option }   // None in MVP
+      Selection: (CursorPosition * CursorPosition) option }   // (start, end) when a selection is active
 
 type WorkspaceView = { RootPath: string }
 
@@ -190,7 +195,7 @@ action in order. Pick the right action for the effect you want:
 | `ReplaceSelection "abc"`             | Replace the current selection (insert if no sel.) | Surround, reformat, kebabify     |
 | `MoveCursor { Line = …; Column = …}` | Jump the cursor (1-based coords)                  | "Next TODO", "match brace"       |
 | `SelectRange(anchor, cursor)`        | Select a range; caret lands on `cursor`           | "Select word", "expand to line"  |
-| `OpenFile "path"`                    | Open a file relative to the workspace root        | "Jump to definition"             |
+| `OpenFile "path"`                    | Open an existing file (workspace-root relative)   | "Jump to definition"             |
 | `SaveActiveBuffer`                   | Trigger the same save path as `:write`            | Auto-save after a rewrite        |
 | `RunCommand "open foo.fs"`           | Chain into a built-in command by name             | Open the file you just generated |
 | `SetClipboard "abc"`                 | Copy text to the system clipboard                 | "Yank current line"              |
@@ -251,17 +256,20 @@ demonstrates a different combination of actions.
 
 ## The `:plugin` command
 
-| Invocation                      | Behavior                                                                |
-| ------------------------------- | ----------------------------------------------------------------------- |
-| `:plugin list`                  | Show plugins with status (`ok`, `disabled`, `FAIL: ...`).               |
-| `:plugin install <url-or-path>` | Detect kind, install, rescan. Sources: folder path, git URL, `.zip`.    |
-| `:plugin remove <name>`         | Delete the plugin folder and re-scan.                                   |
-| `:plugin reload`                | Re-scan disk; rebuilds stale plugins.                                   |
-| `:plugin validate <path>`       | Parse-only check: does the manifest read, what would be registered.     |
-| `:plugin enable <name>`         | (MVP no-op beyond rescan — per-plugin disable persistence lands in v2.) |
-| `:plugin disable <name>`        | (Same as above.)                                                        |
+| Invocation                      | Behavior                                                             |
+| ------------------------------- | -------------------------------------------------------------------- |
+| `:plugin list`                  | Show plugins with status (`ok`, `disabled`, `FAIL: ...`).            |
+| `:plugin install <url-or-path>` | Detect kind, install, rescan. Sources: folder path, git URL, `.zip`. |
+| `:plugin remove <name>`         | Delete the plugin folder and re-scan.                                |
+| `:plugin reload`                | Re-scan disk; rebuilds stale plugins.                                |
+| `:plugin validate <path>`       | Parse-only check: does the manifest read, what would be registered.  |
+| `:plugin enable <name>`         | Remove the plugin from `disabledPlugins` in config, persist, rescan. |
+| `:plugin disable <name>`        | Add the plugin to `disabledPlugins` in config, persist, rescan.      |
 
 Tab completion suggests verbs first, then arguments.
+
+`:plugins` (plural, no argument) opens the plugin manager picker — the
+same list/enable/disable surface as a navigable dock session.
 
 ## Distributing a plugin
 
@@ -309,8 +317,6 @@ declared `name`. Zip and folder sources work the same way.
 
 This is the MVP. Concretely deferred to v2:
 
-- **Per-plugin disable persistence** — `:plugin disable` rescans but
-  doesn't write to `~/.config/fedit/config.json`.
 - **Async / long-running commands** — handlers block the UI thread.
   Plugins doing real I/O need to keep work brief.
 - **Per-plugin settings** — no `IPluginHost.Config<T>()` yet. Plugins

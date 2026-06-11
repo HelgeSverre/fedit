@@ -12,7 +12,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 ![Project Type](https://img.shields.io/badge/language-F%23-blue.svg)
 
-Opens a workspace, shows a file tree, edits files, saves to disk. Multi-buffer, undo/redo, find, command palette, system clipboard. Click and drag to select. Twelve color themes. Persists the last 20 opened files and your theme across sessions.
+Opens a workspace, shows a file tree, edits files, saves to disk. Multi-buffer, undo/redo, find, command palette, system clipboard. Click and drag to select. Thirteen color themes. Persists the last 20 opened files and your theme across sessions.
 
 Brand assets and theme spec in [`brand/`](brand/). Marketing site in [`website/`](website/) — run with `just website::dev`.
 
@@ -62,17 +62,21 @@ Pass a file or directory path as the first argument. If no path is provided, `fe
 
 ### Command-line flags
 
+- `-h` / `--help`: Show usage and exit.
+- `-V` / `--version`: Print the version and exit.
 - `--log <path>`: Append a UTC-timestamped trace of every `Msg` and `Effect` to `<path>`. Useful for debugging without polluting the TUI.
 
 ### Subcommands
 
-`fedit` also exposes non-interactive subcommands for plugin management and shell-completion installation:
+`fedit` also exposes non-interactive subcommands for plugin management, shell-completion installation, and introspection:
 
 - `fedit plugins install <path-or-url-or-zip>`: Install a plugin from a local folder, a git URL, or a `.zip`. Wraps the same code path as in-editor `:plugin install`.
 - `fedit plugins remove <name>`: Uninstall a plugin by its `plugin.json` name.
 - `fedit plugins list [--build] [--names] [--plain]`: Manifest-only listing by default — prints the install dir once, then `name` + status per row (npm/pipx style). `--build` compiles + loads each plugin (slower, mirrors `:plugin list`); `--plain` emits tab-separated `name<TAB>version<TAB>status<TAB>path` for scripts (silent when empty); `--names` prints one name per line for shell-completion scripts.
 - `fedit plugins validate <path>`: Parse a `plugin.json` and report whether it's a valid manifest.
-- `fedit completions <zsh|bash|fish|pwsh|nu|elvish|xonsh|yash|murex> [--install]`: Generate a shell-completion script. Without `--install`, prints to stdout. With `--install`, writes to the shell's standard location (fpath / XDG / `~/.config/<shell>/…`; yash to `$YASH_LOADPATH/completion/fedit`) and prints next-step instructions. Homebrew installs the bash/zsh/fish scripts automatically; pwsh/nu/xonsh/murex users source the generated file from their rc, elvish users `use fedit-completions`, yash autoloads it. OSH (Oils) is not a separate target — it reuses the bash script. The bash/zsh/fish/pwsh/xonsh emitters parse-check in CI; all nine plus OSH are exercised in a Docker harness via `just test-completions`.
+- `fedit completions <zsh|bash|fish|pwsh|nu|elvish|xonsh|yash|murex> [--install]`: Generate a shell-completion script. Without `--install`, prints to stdout. With `--install`, writes to the shell's standard location (fpath / XDG / `~/.config/<shell>/…`; yash to `~/.local/share/yash/completion/fedit` — the printed instructions tell you to add `~/.local/share/yash` to `$YASH_LOADPATH`; murex to `~/.config/fedit/completions/fedit.mx`, sourced from `~/.murex_profile`) and prints next-step instructions. Homebrew installs the bash/zsh/fish scripts automatically; pwsh/nu/xonsh/murex users source the generated file from their rc, elvish users `use fedit-completions`, yash autoloads it. OSH (Oils) is not a separate target — it reuses the bash script. The bash/zsh/fish/pwsh/xonsh emitters parse-check in CI; all nine plus OSH are exercised in a Docker harness via `just test-completions`. The generated scripts also complete file paths for the `fedit <path>` positional.
+- `fedit keybinds [--json]`: Print the compiled-in default keybindings as an aligned table, or as a JSON array with `--json`.
+- `fedit themes [--json]`: Print the bundled themes (name, appearance, accent) as a table, or as a JSON array with every chrome surface resolved to hex with `--json`.
 
 `fedit plugin <verb>` (singular) is a hidden alias for `fedit plugins <verb>` so muscle memory from the in-editor `:plugin` verb keeps working.
 
@@ -170,7 +174,7 @@ capture map and palette tuning.
 
 Contributors: the native grammar lives in
 `vendor/tree-sitter-fsharp/` as a git submodule. Run `git submodule
-update --init` after cloning, then `just build-grammar` for the host
+update --init` after cloning, then `just build-grammars` for the host
 RID or `just build-grammars-all` for all five. The compiled `.dylib` /
 `.so` / `.dll` files are not tracked — CI builds the matching RID on
 each matrix leg.
@@ -268,10 +272,13 @@ Named commands (typed after `:`):
 - `config`: Open `~/.config/fedit/config.json` in a buffer; creates it from the running config on first call.
 - `reload`: Reload the workspace tree.
 - `next` / `prev`: Cycle buffers (also bound to `Ctrl+PageDown` / `Ctrl+PageUp`).
-- `theme <name>`: Switch the accent color. Tab through `green` (default), `blue`, `orange`, `cyan`, `teal`, `yellow`, `red`, `graphite`, `evergreen`, or `mono-amber`; the UI live-previews each highlight as you cycle. The choice persists to `~/.config/fedit/config.json` and is restored on next launch.
+- `theme <name>`: Switch the theme. The accent themes — `green` (default), `blue`, `orange`, `cyan`, `teal`, `yellow`, `red`, `graphite`, `evergreen`, `mono-amber` — swap the accent family and keep the terminal-default chrome; `github-light`, `github-dark`, and `ayu` repaint the full surface. The UI live-previews each highlight as you cycle. The choice persists to `~/.config/fedit/config.json` and is restored on next launch.
 - `recent <path>`: Pick a recently opened file. Tab to cycle through the last 20 files; the list persists in the same config file.
 - `buffers <id-or-name>`: Switch to an open buffer by numeric id or name. Completion shows `{id} {name}` with the file path as detail.
+- `syntax <on|off|toggle>`: Toggle syntax highlighting; persists to config under `syntaxHighlighting`.
 - `plugin <verb> [arg]`: In-editor plugin manager. See `docs/plugins.md` for the verbs.
+- `plugins`: Open the plugin manager picker.
+- `macros`: Open the macro manager picker.
 - `keybind [reload | <stroke>]`: List the effective keybindings, reload the keybinds file (`keybind reload`), or show what a stroke resolves to in each context (`keybind ctrl+s`).
 
 A few keyboard-first verbs (`sidebar`, `tree`, `editor`) still parse if typed, but are hidden from the completion menu since `Ctrl+B` / `Ctrl+E` cover the same ground more richly.
@@ -317,25 +324,27 @@ memory for the session; they are not yet persisted to the keybinds file.
 
 ## Configuration
 
-`fedit` reads `~/.config/fedit/config.json` at startup. The file is created automatically the first time the editor persists state (`:theme` or opening a file updates `recent`). Hand-edited values are preserved on every save — unknown keys you add to the file are kept intact.
+`fedit` reads `~/.config/fedit/config.json` at startup. The file is created automatically the first time the editor persists state (`:theme`, `:syntax`, plugin enable/disable, or quitting after opening files — `recent` is written at quit, not per open). Hand-edited values are preserved on every save — unknown keys you add to the file are kept intact.
 
-| Key                | Type     | Default    | Range                        | What it controls                                                                                                                                                                                 |
-| ------------------ | -------- | ---------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `theme`            | string   | `green`    | —                            | Accent palette name (bundled — `green` / `blue` / `orange` / `cyan` / `teal` / `yellow` / `red` / `graphite` / `evergreen` / `mono-amber` — or user theme from `~/.config/fedit/themes/*.json`). |
-| `recent`           | string[] | `[]`       | up to 20                     | Recently opened files; managed automatically.                                                                                                                                                    |
-| `completionLimit`  | int      | `8`        | 1–64                         | Max items considered for `:open`, `:writeas`, `:recent`, `:buffers` completions.                                                                                                                 |
-| `sidebarIndent`    | int      | `2`        | 0–16                         | Spaces per depth level in the file tree.                                                                                                                                                         |
-| `sidebarWidth`     | int      | `30`       | 10–200                       | Initial sidebar width in columns.                                                                                                                                                                |
-| `dockHeight`       | int      | `8`        | 1–40                         | Dock panel height in rows (used for prompt completions and mode hints).                                                                                                                          |
-| `wordMotion`       | string   | `wordEnd`  | `wordEnd` or `nextWordStart` | Where `Alt+Right` / `Ctrl+Delete` land — end of current word (default) or start of next word (vim `w`).                                                                                          |
-| `pageOverlap`      | int      | `2`        | 0–32                         | Lines kept on screen between `PageUp` / `PageDown` jumps in the editor. Editor jumps by `viewportHeight - pageOverlap`. Matches Zed / VSCode / token-editor defaults.                            |
-| `scrollMode`       | string   | `viewport` | `viewport` or `line`         | What the mouse wheel does. `viewport` (default) scrolls the view, dragging the cursor only to honour `scrollOff`; `line` keeps the legacy behaviour where the wheel moves the cursor line.       |
-| `scrollOff`        | int      | `5`        | 0–50                         | Lines kept between the cursor and the top/bottom edge (vim/helix `scrolloff`). Applies to all cursor movement, not just the wheel.                                                               |
-| `mouseScrollLines` | int      | `3`        | 1–20                         | Lines moved per mouse-wheel tick (matches nvim `mousescroll` `ver:3`).                                                                                                                           |
-| `treePageJump`     | int      | `10`       | 1–500                        | Entries jumped on `PageUp` / `PageDown` in the file-tree sidebar.                                                                                                                                |
-| `tabWidth`         | int      | `4`        | 1–16                         | Spaces inserted by `Tab` and removed by `Shift+Tab`.                                                                                                                                             |
-| `icons`            | string   | `off`      | `off` or `nerd`              | File-tree icon style. `nerd` swaps in Nerd Font PUA glyphs (requires a Nerd Font in your terminal); `off` keeps the ASCII `[+] / [-] / 4-space` markers.                                         |
-| `statusFormat`     | string   | see below  | —                            | Status bar layout template. Tokens like `[MODE]`, `[LINE]`, `[BUFFER]` resolve against the model; `<EXPAND>` is a flex spacer that absorbs leftover width.                                       |
+| Key                  | Type     | Default    | Range                        | What it controls                                                                                                                                                                                                                 |
+| -------------------- | -------- | ---------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `theme`              | string   | `green`    | —                            | Theme name (bundled — `green` / `blue` / `orange` / `cyan` / `teal` / `yellow` / `red` / `graphite` / `evergreen` / `mono-amber` / `github-light` / `github-dark` / `ayu` — or user theme from `~/.config/fedit/themes/*.json`). |
+| `recent`             | string[] | `[]`       | up to 20                     | Recently opened files; managed automatically.                                                                                                                                                                                    |
+| `disabledPlugins`    | string[] | `[]`       | —                            | Plugins skipped at scan time. Managed by `:plugin enable` / `:plugin disable` and the `:plugins` picker.                                                                                                                         |
+| `syntaxHighlighting` | bool     | `true`     | —                            | Tree-sitter syntax highlighting. Toggled by `:syntax on\|off\|toggle`.                                                                                                                                                           |
+| `completionLimit`    | int      | `8`        | 1–64                         | Max items considered for `:open`, `:writeas`, `:recent`, `:buffers` completions.                                                                                                                                                 |
+| `sidebarIndent`      | int      | `2`        | 0–16                         | Spaces per depth level in the file tree.                                                                                                                                                                                         |
+| `sidebarWidth`       | int      | `30`       | 10–200                       | Initial sidebar width in columns.                                                                                                                                                                                                |
+| `dockHeight`         | int      | `8`        | 1–40                         | Dock panel height in rows (used for prompt completions and mode hints).                                                                                                                                                          |
+| `wordMotion`         | string   | `wordEnd`  | `wordEnd` or `nextWordStart` | Where `Alt+Right` / `Ctrl+Delete` land — end of current word (default) or start of next word (vim `w`).                                                                                                                          |
+| `pageOverlap`        | int      | `2`        | 0–32                         | Lines kept on screen between `PageUp` / `PageDown` jumps in the editor. Editor jumps by `viewportHeight - pageOverlap`. Matches Zed / VSCode / token-editor defaults.                                                            |
+| `scrollMode`         | string   | `viewport` | `viewport` or `line`         | What the mouse wheel does. `viewport` (default) scrolls the view, dragging the cursor only to honour `scrollOff`; `line` keeps the legacy behaviour where the wheel moves the cursor line.                                       |
+| `scrollOff`          | int      | `5`        | 0–50                         | Lines kept between the cursor and the top/bottom edge (vim/helix `scrolloff`). Applies to all cursor movement, not just the wheel.                                                                                               |
+| `mouseScrollLines`   | int      | `3`        | 1–20                         | Lines moved per mouse-wheel tick (matches nvim `mousescroll` `ver:3`).                                                                                                                                                           |
+| `treePageJump`       | int      | `10`       | 1–500                        | Entries jumped on `PageUp` / `PageDown` in the file-tree sidebar.                                                                                                                                                                |
+| `tabWidth`           | int      | `4`        | 1–16                         | Spaces inserted by `Tab` and removed by `Shift+Tab`.                                                                                                                                                                             |
+| `icons`              | string   | `off`      | `off` or `nerd`              | File-tree icon style. `nerd` swaps in Nerd Font PUA glyphs (requires a Nerd Font in your terminal); `off` keeps the ASCII `[+] / [-] / 4-space` markers.                                                                         |
+| `statusFormat`       | string   | see below  | —                            | Status bar layout template. Tokens like `[MODE]`, `[LINE]`, `[BUFFER]` resolve against the model; `<EXPAND>` is a flex spacer that absorbs leftover width.                                                                       |
 
 Changes take effect on next launch. Out-of-range values clamp to the nearest valid bound rather than failing.
 
@@ -382,7 +391,7 @@ Color fields accept either a hex string (`#RGB` or `#RRGGBB`) or a named color (
 
 ## How It Works
 
-The project is an executable defined by `src/Fedit/Fedit.fsproj`. The bulk of the codebase sits under `namespace Fedit` (see `<Compile Include="…">` in the fsproj for the canonical order): `Primitives.fs` → `Keys.fs` → `PieceTable.fs` → `Buffer.fs` → `Workspace.fs` → `Screen.fs` → `Color.fs` → `Themes.fs` → `Highlight.fs` → `Commands.fs` → `Actions.fs` → `Keymap.fs` → `Plugins.fs` → `Model.fs` → `Config.fs` → `KeymapIO.fs` → `Prompt.fs` → `Editor.fs` → `Status.fs` → `Renderer.fs` → `Input.fs` → `View.fs` → `Runtime.fs` → `Cli.fs` → `Cli/Commands/*.fs` → `Program.fs`. The CLI surface lives under `namespace Fedit.Cli` per .NET convention: the parser at `Cli.fs` (`Fedit.Cli.Parser`) and the subcommand handlers under `Cli/Commands/`. The test project lives in `tests/Fedit.Tests/` and the `Fedit.slnx` solution at the repo root ties both together. Startup reads the first non-flag command-line argument as a file or workspace path. Existing files open in their parent workspace; directories open as workspaces. If no argument is provided, it uses the current directory.
+The project is an executable defined by `src/Fedit/Fedit.fsproj`. The bulk of the codebase sits under `namespace Fedit` (see `<Compile Include="…">` in the fsproj for the canonical order): `Primitives.fs` → `Keys.fs` → `Events.fs` → `TerminalCapabilities.fs` → `MouseProtocol.fs` → `ImageProtocol.fs` → `KittyImage.fs` → `PieceTable.fs` → `Buffer.fs` → `Workspace.fs` → `Screen.fs` → `Color.fs` → `Themes.fs` → `Highlight.fs` → `Commands.fs` → `Actions.fs` → `Keymap.fs` → `Plugins.fs` → `PickerTypes.fs` → `PromptTypes.fs` → `Model.fs` → `Config.fs` → `Pickers.fs` → `KeymapIO.fs` → `Prompt.fs` → `Dock.fs` → `Editor.fs` → `Status.fs` → `Renderer.fs` → `Input.fs` → `View.fs` → `Terminal.fs` → `Runtime.fs` → `Cli.fs` → `Cli/Commands/*.fs` → `Program.fs`. The CLI surface lives under `namespace Fedit.Cli` per .NET convention: the parser at `Cli.fs` (`Fedit.Cli.Parser`) and the subcommand handlers under `Cli/Commands/`. The test project lives in `tests/Fedit.Tests/` and the `Fedit.slnx` solution at the repo root ties both together. Startup reads the first non-flag command-line argument as a file or workspace path. Existing files open in their parent workspace; directories open as workspaces. If no argument is provided, it uses the current directory.
 
 At runtime, `fedit` scans the workspace into a tree model and skips `.DS_Store`, `.git`, `.dotnet`, `bin`, and `obj`. A `FileSystemWatcher` is installed on the same workspace root so external edits, creations, deletions, and renames trigger a debounced rescan (300ms) without `Ctrl+R`. The UI keeps a model containing the workspace tree, open buffers, focus target, terminal size, notifications, and panel state.
 
@@ -392,7 +401,7 @@ Files are read as UTF-8. The line ending of the loaded file (`LF` or `CRLF`) is 
 
 The UI is split into a sidebar (file tree), an editor pane with a line-number gutter, a status line, a single-line prompt row at the bottom, and a dock panel that's hidden when the prompt is inactive. The dock appears automatically when the prompt is active — showing completions for file/command/buffer modes and a match counter or jump hint for search and goto. The status line is template-driven via `statusFormat` in config (see Configuration); the default layout puts the focus mode on the left, the current notification floating in the middle, and line/column / encoding / buffer-index pinned to the right edge.
 
-Themes are pure accent palettes — the dock title, status bar, selection highlight, and current-line gutter all swap together while the grayscale chrome stays constant across themes. The chosen theme, the most recent 20 opened files, and the runtime tunables described in [Configuration](#configuration) all live in `~/.config/fedit/config.json` and are restored on the next launch; the default theme is `green` (phosphor green, the brand accent).
+Themes own the full chrome surface — each `Theme` record carries an explicit fg/bg per region (editor, gutter, prompt, dock, status, selection, active line) on top of the accent family. The accent themes set `Default` backgrounds so the terminal's own background shows through; `github-light`, `github-dark`, and `ayu` supply real backgrounds and repaint everything. The chosen theme, the most recent 20 opened files, and the runtime tunables described in [Configuration](#configuration) all live in `~/.config/fedit/config.json` and are restored on the next launch; the default theme is `green` (phosphor green, the brand accent).
 
 ### Architecture
 

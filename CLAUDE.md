@@ -22,7 +22,11 @@ KeyPressed / Resize → Msg → Editor.update (pure) → (Model', [Effect])
 - **Themes** own the full chrome surface — accent plus an explicit fg/bg per region (editor, gutter, prompt, dock, status, selection, active line). Bundled dark themes set `Default` backgrounds so they keep terminal-default chrome; a light theme supplies real backgrounds.
 
 Source file order (`<Compile>` in `src/Fedit/Fedit.fsproj` is canonical):
-`Primitives → Keys → PieceTable → Buffer → Workspace → Screen → Color → Themes → Highlight → Commands → Actions → Keymap → Plugins → Model → Config → KeymapIO → Prompt → Editor → Status → Renderer → Input → View → Runtime → Cli → Cli/Commands/* → Program`.
+`Primitives → Keys → Events → TerminalCapabilities → MouseProtocol → ImageProtocol → KittyImage → PieceTable → Buffer → Workspace → Screen → Color → Themes → Highlight → Commands → Actions → Keymap → Plugins → PickerTypes → PromptTypes → Model → Config → Pickers → KeymapIO → Prompt → Dock → Editor → Status → Renderer → Input → View → Terminal → Runtime → Cli → Cli/Commands/* → Program`.
+
+`Dock.fs` owns the dock/editor layout geometry (`Dock.metrics`) shared by
+`Editor` (mouse hit-testing) and `View.Layout.render` (painting) — change
+layout arithmetic there, never in just one consumer.
 
 ## Building & testing
 
@@ -34,7 +38,9 @@ just check        # lint + build + test — pre-commit gate
 just dev .        # dotnet watch on src/Fedit
 just run .        # one-shot run
 just test         # xUnit + FsCheck (Tier 1)
-just format       # fantomas + prettier on **/*.md
+just bench        # BenchmarkDotNet micro suite (Release, ~4 min; filterable)
+just bench-manual # frame-pipeline + tree-sitter parse harness (~1-2 min)
+just format       # fantomas + oxfmt on **/*.md
 just lint         # check-only of the same
 ```
 
@@ -44,7 +50,7 @@ Website lives under `website/` (Astro 6 + bun) — see `just website::dev|build|
 
 Source of truth: [`brand/`](brand/). One symbol (caret), one workhorse
 mono (Departure for brand, JetBrains Mono for code), one accent
-(`#00B86B`), 12 selectable themes. Brand bans purple/magenta and AI-slop
+(`#00B86B`), 13 selectable themes. Brand bans purple/magenta and AI-slop
 patterns (Inter, gradients, glassmorphism, bento, centered hero — see
 `brand/USAGE.md`).
 
@@ -78,14 +84,14 @@ Local dry-run of the formula renderer: `just release-formula-preview`.
 - **Mono everywhere** in the website (`.tui` class forces `font-feature-settings: "calt" 0, "liga" 0` to keep box-drawing aligned).
 - **Focus rings** use `--accent-soft` (25% accent) at 3px; nav links don't animate underlines on focus (instant outline only — see `Header.astro` comment).
 - **Don't bundle fonts into the running TUI** — defer to terminal config. Document JetBrains Mono as the recommendation in README.
-- **`NO_COLOR=1` must work** — themes are bypassed, neutrals + typography carry hierarchy.
+- **`NO_COLOR` is intentionally unsupported** in the TUI — themes always render; color fidelity follows the terminal's detected `ColorSupport` (RGB → 256 → 16 → default) instead. (Decision from the theme-system scope cut; older brand docs claiming otherwise are stale.)
 - **Don't `cd` in `just` recipes** — use the `{{dotnet}}` prefix; the recipe's working dir is the project root.
 
 ## Common gotchas
 
 - `dotnet` outside `.dotnet/` may resolve a different system version and trip `global.json`'s pin to `10.0.100`. Use `just` or `./fedit`.
 - Adding files to `src/Fedit/`? Update `<Compile Include="…">` in the fsproj AND commit the file. CI build will fail with `FS0225: Source file could not be found` if either is missed (this has burned us before).
-- `prettier-plugin-astro` occasionally needs two passes to stabilize a file; if `lint` flags a freshly-formatted file, run `format` once more.
+- `prettier-plugin-astro` occasionally needs two passes to stabilize a file; if `just website::lint` flags a freshly-formatted file, run `just website::format` once more.
 - `git diff --quiet -- <path>` against an untracked file returns 0 (no diff). When checking for staged formula changes in CI, always `git add` first then check `--cached`.
 - macOS Intel runners (`macos-13`) in GitHub Actions can queue for 20+ minutes during peak. Cross-compile from `macos-14` instead — `.NET publish` cross-targets by RID without issue.
 

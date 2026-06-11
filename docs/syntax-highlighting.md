@@ -46,28 +46,33 @@ needs edit-records plumbed through `Buffer.fs`).
 `Highlight.detectLanguage` maps files to grammars by filename, then
 extension, then `#!` shebang line (for extensionless scripts):
 
-| Language     | Detected by                                                                                                                                 |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fsharp`     | `.fs`, `.fsi`, `.fsx`                                                                                                                       |
-| `javascript` | `.js`, `.mjs`, `.cjs`                                                                                                                       |
-| `typescript` | `.ts`                                                                                                                                       |
-| `tsx`        | `.tsx`                                                                                                                                      |
-| `python`     | `.py`                                                                                                                                       |
-| `json`       | `.json`                                                                                                                                     |
-| `c-sharp`    | `.cs`                                                                                                                                       |
-| `go`         | `.go`                                                                                                                                       |
-| `rust`       | `.rs`                                                                                                                                       |
-| `html`       | `.html`, `.htm`                                                                                                                             |
-| `css`        | `.css`                                                                                                                                      |
-| `c`          | `.c`, `.h`                                                                                                                                  |
-| `php`        | `.php`, `.phtml`                                                                                                                            |
-| `bash`       | `.sh`, `.bash`, `.zsh`, `.ksh`, `.command`; shell dotfiles (`.bashrc`, `.zshrc`, `.profile`, `PKGBUILD`, …); or a `#!/bin/sh`-style shebang |
-| `markdown`   | `.md`, `.mdx`, `.markdown`                                                                                                                  |
-| `xml`        | `.xml`, `.svg`, `.xsl`, `.xslt`                                                                                                             |
-| `dart`       | `.dart`                                                                                                                                     |
-| `just`       | `.just`, `Justfile`                                                                                                                         |
-| `make`       | `.mk`, `Makefile`, `GNUmakefile`                                                                                                            |
-| `astro`      | `.astro`                                                                                                                                    |
+| Language      | Detected by                                                                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fsharp`      | `.fs`, `.fsi`, `.fsx`                                                                                                                       |
+| `javascript`  | `.js`, `.mjs`, `.cjs`                                                                                                                       |
+| `typescript`  | `.ts`                                                                                                                                       |
+| `tsx`         | `.tsx`                                                                                                                                      |
+| `python`      | `.py`                                                                                                                                       |
+| `json`        | `.json`                                                                                                                                     |
+| `c-sharp`     | `.cs`                                                                                                                                       |
+| `go`          | `.go`                                                                                                                                       |
+| `rust`        | `.rs`                                                                                                                                       |
+| `html`        | `.html`, `.htm`                                                                                                                             |
+| `css`         | `.css`                                                                                                                                      |
+| `c`           | `.c`, `.h`                                                                                                                                  |
+| `php`         | `.php`, `.phtml`                                                                                                                            |
+| `bash`        | `.sh`, `.bash`, `.zsh`, `.ksh`, `.command`; shell dotfiles (`.bashrc`, `.zshrc`, `.profile`, `PKGBUILD`, …); or a `#!/bin/sh`-style shebang |
+| `markdown`    | `.md`, `.mdx`, `.markdown`                                                                                                                  |
+| `xml`         | `.xml`, `.svg`, `.xsl`, `.xslt`                                                                                                             |
+| `dart`        | `.dart`                                                                                                                                     |
+| `just`        | `.just`, `Justfile`                                                                                                                         |
+| `make`        | `.mk`, `Makefile`, `GNUmakefile`                                                                                                            |
+| `astro`       | `.astro`                                                                                                                                    |
+| `toml`        | `.toml`                                                                                                                                     |
+| `sema`        | `.sema`                                                                                                                                     |
+| `applescript` | `.applescript`                                                                                                                              |
+| `rescript`    | `.res`, `.resi`                                                                                                                             |
+| `zig`         | `.zig`                                                                                                                                      |
 
 Grammars come from two places. Most are **bundled** inside
 `TreeSitter.DotNet` (loaded via the string-id constructor); F# and a
@@ -93,7 +98,7 @@ cd -
 cp vendor/tree-sitter-fsharp/queries/highlights.scm \
    src/Fedit/Resources/queries/fsharp/highlights.scm
 
-just build-grammar          # host RID
+just build-grammars         # host RID
 # or for cross-RID coverage:
 just build-grammars-all     # requires `brew install zig`
 
@@ -168,7 +173,7 @@ Check the startup log (`fedit --log fedit.log .`) for one of:
 - `highlight: failed to load tree-sitter — F# files will render plain`
   → the native lib isn't where the loader expects it. Confirm
   `src/Fedit/runtimes/<rid>/native/libtree-sitter-fsharp.{dylib|so|dll}`
-  exists next to the binary, or run `just build-grammar` to build it.
+  exists next to the binary, or run `just build-grammars` to build it.
 - `highlight: loaded tree-sitter F# grammar` followed by no styling →
   check `:syntax` status. Run `:syntax on`.
 
@@ -190,9 +195,9 @@ parse via `Tree.Edit` + `GetChangedRanges`).
 - **Phase 2 — incremental parse.** Plumb edit records through
   `Buffer.fs` and call `tree.Edit(edit)` + `parser.Parse(text, oldTree)`
     - `GetChangedRanges` instead of full reparse.
-- **More languages.** C#, JSON, Markdown, TOML are likely first
-  additions. Architecture is set up — needs grammar vendoring + theme
-  picks.
+- **More languages.** Add a bundled or vendored grammar per the recipe
+  under [Supported languages](#supported-languages) — the registry,
+  detection, and theme plumbing are already in place.
 - **Plugin-installed grammars.** Extend the plugin API so plugins can
   ship their own `Language` + `highlights.scm`.
 - **Semantic highlighting.** Eventually layer LSP semantic tokens on

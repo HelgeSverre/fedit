@@ -1,6 +1,6 @@
 # fedit roadmap
 
-Active work and future ideas. Shipped phases (0–6) live in
+Active work and future ideas. Shipped phases (0–21) live in
 [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Status
@@ -52,6 +52,16 @@ Open architectural follow-ups worth tracking separately:
 - **`pad` / `crop` allocations in `View.fs`** (Phase 11 follow-up).
   Once a `ReadOnlySpan<char>` `Screen.writeText` exists, drop both
   helpers; per-row string allocations go away.
+- **Pin GitHub Actions to commit SHAs** (carried from the security
+  review; the one finding there still open). `ci.yml` / `release.yml`
+  use mutable tags (`@v6`, `@v5`, …) in workflows that hold release
+  privileges and `HOMEBREW_TAP_TOKEN`. Pin third-party actions to
+  full SHAs; keep `contents: write` scoped to the publish job.
+- **Unicode display width** (carried from the UX review). `Screen.Cell`
+  holds one UTF-16 `char` and layout crops by `.Length`, so CJK, emoji,
+  and combining marks corrupt alignment and cursor placement. Needs a
+  wcwidth/grapheme layer with continuation cells — or a documented
+  limitation + placeholder rendering in the interim.
 
 ---
 
@@ -151,12 +161,13 @@ Each is `init → fold msgs → render → snapshot`:
 
 ### Implementation checklist
 
-- [ ] Add `Verify.Xunit` package reference to `Fedit.Tests.fsproj`.
-- [ ] Build `Snapshot.fs` with `styleMarker` + `render` helpers.
-- [ ] Write 8–10 baseline scenario tests in `SnapshotTests.fs`.
-- [ ] Run, inspect `*.received.txt` files, accept via `dotnet verify
-accept` or rename to `*.verified.txt`.
-- [ ] Confirm `dotnet test` runs them as part of the normal suite —
+- [x] ~~Add `Verify.Xunit` package reference~~ — dropped; shipped with
+      inline goldens instead, no Verify dependency.
+- [x] Build `Snapshot.fs` with `styleMarker` + `render` helpers.
+- [x] Write baseline scenario tests in `SnapshotTests.fs` (8 scenarios).
+- [x] ~~Inspect `*.received.txt` / `*.verified.txt` files~~ — moot with
+      inline goldens; diffs review in the test source.
+- [x] Confirm `dotnet test` runs them as part of the normal suite —
       no new wiring required.
 
 ### Why not Model assertions instead?
@@ -219,15 +230,16 @@ let ``binary launches and exits cleanly`` () =
 
 ### Implementation checklist
 
-- [ ] Add `BinarySmokeTests.fs` to `tests/Fedit.Tests/`.
-- [ ] Helper that locates the freshly built `fedit` binary in
+- [x] Add `BinarySmokeTests.fs` to `tests/Fedit.Tests/`.
+- [x] Helper that locates the freshly built `fedit` binary in
       `src/Fedit/bin/Debug/<TFM>/` (read TFM from the project to stay
       stable across Phase 17's `net9.0 → net10.0` bump) and spawns it
       with stdin/stdout redirected.
-- [ ] 3–5 scenarios from the list above.
-- [ ] Mark tests `[<Trait("Category", "slow")>]` if they take >500ms
+- [x] 3 scenarios (`--help` / `-h` / `--version` short-circuits);
+      interactive scenarios deferred.
+- [x] Mark tests `[<Trait("Category", "slow")>]` if they take >500ms
       so the inner-loop `just test` stays snappy (run them only in CI).
-- [ ] No new CI wiring — same `dotnet test Fedit.slnx` job picks them
+- [x] No new CI wiring — same `dotnet test Fedit.slnx` job picks them
       up.
 
 ### Why not vhs now
@@ -1398,12 +1410,12 @@ jobs:
 
 ### Implementation checklist
 
-- [ ] Add `.github/workflows/release.yml` from the template above.
-- [ ] First release: tag `v0.1.0` (or whatever the project decides),
-      verify the matrix completes, inspect attached assets.
-- [ ] Update `README.md` install section: prefer the GitHub Release
-      tarball over `just install` for non-contributors.
-- [ ] Cross out the "Release automation" line under `Open questions`
+- [x] Add `.github/workflows/release.yml` from the template above.
+- [x] First release: tagged, matrix completed, assets attached
+      (`v1.1.0` onward; Homebrew tap installs from them).
+- [x] Update `README.md` install section: leads with Homebrew;
+      build-from-source demoted.
+- [x] Cross out the "Release automation" line under `Open questions`
       once this lands.
 
 ### Rejected alternatives
@@ -1522,12 +1534,12 @@ file that scans nothing useful.
 
 ### Implementation checklist
 
-- [ ] 20.1 — Add `.github/dependabot.yml`.
-- [ ] 20.2 — Add NuGet cache step to `ci.yml`.
-- [ ] 20.3 — Add `concurrency` block to `ci.yml`.
-- [ ] 20.4 — Add `ContinuousIntegrationBuild` conditional to
+- [x] 20.1 — Add `.github/dependabot.yml`.
+- [x] 20.2 — Add NuGet cache step to `ci.yml`.
+- [x] 20.3 — Add `concurrency` block to `ci.yml`.
+- [x] 20.4 — Add `ContinuousIntegrationBuild` conditional to
       `Directory.Build.props` + env vars in both workflows.
-- [ ] 20.5 — Enable GitHub default code scanning in repo Settings →
+- [x] 20.5 — Enable GitHub default code scanning in repo Settings →
       Security; no workflow YAML needed.
 
 ---
@@ -1622,38 +1634,28 @@ motion, "find all" mode that highlights without moving the cursor).
 - Is multi-cursor in scope long-term? It changes
   `BufferState.Cursor : Position` into `Cursors : Position list` and
   ripples through every motion + edit primitive.
-- Plugin / scripting surface — stays out of scope unless someone asks.
+- Plugin / scripting surface — shipped (MVP plugin API; see the
+  `Plugin` row in `CHANGELOG.md` and `docs/plugins.md`). Remaining
+  v2 items (async handlers, per-plugin settings) tracked in the
+  roadmap section of `docs/plugins.md`.
 - Release automation: see **Phase 19** (promoted out of Open questions
   into a concrete workflow shape).
 
 ---
 
-## Deferred — Unified prompt / modal redesign
+## Unified prompt / modal redesign — Direction A shipped
 
-Captured from a design session 2026-05-20. Not in any phase yet; pending
-a decision driven by the comparison page at
+Captured from a design session 2026-05-20; comparison page at
 [`design/modality-explorer.html`](design/modality-explorer.html).
 
-- **The lying glyph.** `View.fs:369,372` glues `:` and `/` onto the
-  rendered prompt; neither prefix is in `CommandBar.Text` or
-  `Search.Query`. Users can't backspace through them, can't type the
-  other prefix to switch modes, and the two prompts have asymmetric
-  backspace-on-empty behaviour (search closes; command bar no-ops).
-- **Direction A — Unified Quick Open** (VS Code / Sublime model).
-  One prompt with prefix dispatch: `(empty)` = file picker, `>` =
-  commands, `/` = search, `:` = goto line, `!` / `!!` = shell, `@` =
-  buffers. Phased: honest-prefix → unified `Prompt` state → full
-  vocabulary.
-- **Direction B — Modal redesign.** Helix-lite with Esc-driven
-  prompt entry. Subsumes Direction A's prefix dispatch as a side-
-  effect of unification.
-- **Shell integration ladder.** `!cmd` async to dock (MVP-1, ~2d);
-  `!!cmd` to read-only output buffer (MVP-2, +1–2d); SGR colour
-  rendering (MVP-3, +2–3d); interactive PTY buffer (Full, 2–4 weeks).
-  See the explorer for per-rung demos and the existing-pattern
-  references in `Runtime.fs:76-109` (Process.Start) and
-  `Runtime.fs:275-348` (async effect plumbing).
-- **Recommendation in the explorer:** Helix-lite + Esc-as-universal-
-  back + ship MVP-1 → 2 → 3 (defer Full). Ship the prompt
-  unification first so both modality and shell features land on top
-  of a consistent prompt.
+**Shipped:** Direction A (unified Quick Open) — one `PromptState` with
+honest prefix dispatch (`:` command/goto, `/` search, `@` buffers,
+empty = file picker), real backspace-through-prefix mode switching.
+See the `Prompt` row in `CHANGELOG.md`. Direction B (Helix-lite modal
+redesign) was not pursued.
+
+**Still deferred — shell integration ladder.** `!cmd` async to dock
+(MVP-1, ~2d); `!!cmd` to read-only output buffer (MVP-2, +1–2d); SGR
+colour rendering (MVP-3, +2–3d); interactive PTY buffer (Full, 2–4
+weeks). See the explorer for per-rung demos and the existing-pattern
+references in `Runtime.fs` (Process.Start, async effect plumbing).
