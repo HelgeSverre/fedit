@@ -3,6 +3,7 @@ module Fedit.Tests.BufferTests
 open Fedit
 open Xunit
 open FsUnit.Xunit
+open FsCheck
 
 let private newBuffer () =
     Buffer.fromText 1 None "test" "hello\nworld\n" "\n"
@@ -385,3 +386,88 @@ let ``scrollViewport clamps the viewport at the bottom of the document`` () =
             ViewportTop = 88 }
 
     (Buffer.scrollViewport 4 10 20 buffer).ViewportTop |> should equal 90
+
+// --- Line-cache splice: the cache must always equal a fresh full split ---
+
+let private linesInvariant buffer =
+    Buffer.lines buffer = (Buffer.text buffer).Split('\n')
+
+/// One random edit through the public API (so the splice path is what runs):
+/// a non-negative `pick` inserts `payload` at a clamped offset; a negative
+/// one selects a clamped range and deletes it.
+let private editStep (buffer: BufferState) (pick: int, offset: int, count: int, payload: string) =
+    let len = PieceTable.length buffer.Document
+    let at = ((offset % (len + 1)) + (len + 1)) % (len + 1)
+
+    if pick >= 0 then
+        let text = if isNull payload then "" else payload
+        buffer |> Buffer.moveToOffset at |> Buffer.insertText text
+    else
+        let hi = min len (at + ((count % 7 + 7) % 7))
+        buffer |> Buffer.selectRange at hi |> Buffer.deleteSelection
+
+[<Fact>]
+let ``the line cache equals a fresh split after every edit`` () =
+    // Driven through Check from a plain fact: FsCheck.Xunit's
+    // [<Property>] discoverer is silently skipped by this project's
+    // runner combination (xunit 2.9.3 + xunit.runner.visualstudio 3.x).
+    Check.QuickThrowOnFailure(fun (ops: (int * int * int * string) list) ->
+        ops
+        |> List.truncate 12
+        |> List.scan editStep (newBuffer ())
+        |> List.forall linesInvariant)
+
+[<Fact>]
+let ``the line cache survives undo redo and divergent edits`` () =
+    Check.QuickThrowOnFailure(fun (ops: (int * int * int * string) list) ->
+        let edited = ops |> List.truncate 8 |> List.fold editStep (newBuffer ())
+
+        let undoStates =
+            [ 1 .. edited.Undo.Length ] |> List.scan (fun b _ -> Buffer.undo b) edited
+
+        let unwound = List.last undoStates
+
+        let redoStates =
+            [ 1 .. unwound.Redo.Length ] |> List.scan (fun b _ -> Buffer.redo b) unwound
+
+        // A divergent edit off the unwound state appends to the same shared
+        // add buffer the redo stack still references.
+        let divergent = unwound |> Buffer.moveToOffset 0 |> Buffer.insertText "x\ny"
+
+        undoStates @ redoStates @ [ divergent ] |> List.forall linesInvariant)
+
+[<Fact>]
+let ``backspace at column zero joins lines in the cache`` () =
+    let buffer =
+        Buffer.fromText 1 None "test" "ab\ncd" "\n"
+        |> Buffer.moveToOffset 3
+        |> Buffer.backspace
+
+    Buffer.lines buffer |> should equal [| "abcd" |]
+
+[<Fact>]
+let ``deleteForward at end of line joins lines in the cache`` () =
+    let buffer =
+        Buffer.fromText 1 None "test" "ab\ncd" "\n"
+        |> Buffer.moveToOffset 2
+        |> Buffer.deleteForward
+
+    Buffer.lines buffer |> should equal [| "abcd" |]
+
+[<Fact>]
+let ``inserting a multi-line string splices new rows into the cache`` () =
+    let buffer =
+        Buffer.fromText 1 None "test" "ab" "\n"
+        |> Buffer.moveToOffset 1
+        |> Buffer.insertText "x\ny\nz"
+
+    Buffer.lines buffer |> should equal [| "ax"; "y"; "zb" |]
+
+[<Fact>]
+let ``deleting a multi-line selection collapses cache rows`` () =
+    let buffer =
+        Buffer.fromText 1 None "test" "one\ntwo\nthree" "\n"
+        |> Buffer.selectRange 2 9
+        |> Buffer.deleteSelection
+
+    Buffer.lines buffer |> should equal [| "onhree" |]

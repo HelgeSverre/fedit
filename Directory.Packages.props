@@ -9,7 +9,11 @@
     <PackageVersion Include="xunit"                       Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio"   Version="3.1.5" />
     <PackageVersion Include="FsUnit.xUnit"                Version="7.1.1" />
-    <PackageVersion Include="FsCheck.Xunit"               Version="3.3.3" />
+    <!-- FsCheck core only: the FsCheck.Xunit adapter's [<Property>]
+         discoverer is silently skipped under xunit 2.9.3 +
+         xunit.runner.visualstudio 3.x, so properties run via
+         Check.QuickThrowOnFailure inside plain facts instead. -->
+    <PackageVersion Include="FsCheck"                     Version="3.3.3" />
     <PackageVersion Include="coverlet.collector"          Version="10.0.1" />
     <PackageVersion Include="BenchmarkDotNet"             Version="0.15.2" />
     <PackageVersion Include="TreeSitter.DotNet"           Version="1.3.0" />

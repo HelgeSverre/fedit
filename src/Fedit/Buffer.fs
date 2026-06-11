@@ -183,16 +183,59 @@ module Buffer =
 
     let moveToOffset index buffer = moveToIndex index buffer
 
-    let private withDocument document (buffer: BufferState) =
+    /// Incrementally update the cached line array for an edit that, in the
+    /// PRE-edit document, replaced `removedLen` chars at `offset` with
+    /// `inserted`. Clamping mirrors `PieceTable.deleteRange`/`insert`: the
+    /// start clamps into [0, length]; the removed end clamps to the document
+    /// end. Only the lines overlapping the edit are re-split; every other
+    /// line is shared (same string references) with the previous array.
+    let private spliceLines (offset: int) (removedLen: int) (inserted: string) (lines: string[]) : string[] =
+        // Defensive: a runtime null can still arrive across the plugin
+        // boundary despite the non-null type (FS3261 bars a plain isNull).
+        let inserted = if String.IsNullOrEmpty inserted then "" else inserted
+        let lastLine = lines.Length - 1
+
+        // Line i spans document offsets [start_i, start_i + length_i]; the
+        // upper bound is its '\n' (or EOF) slot, so containment is
+        // unambiguous — line i+1 starts at start_i + length_i + 1. Running
+        // past the last line clamps to it.
+        let rec locate lineIdx lineStart (target: int) =
+            let lineEnd = lineStart + lines[lineIdx].Length
+
+            if target <= lineEnd || lineIdx = lastLine then
+                lineIdx, lineStart
+            else
+                locate (lineIdx + 1) (lineEnd + 1) target
+
+        let startOff = max 0 offset
+        let startLine, startLineOff = locate 0 0 startOff
+        let startCol = min (startOff - startLineOff) lines[startLine].Length
+        let endTarget = startLineOff + startCol + max 0 removedLen
+        let endLine, endLineOff = locate startLine startLineOff endTarget
+        let endCol = min (endTarget - endLineOff) lines[endLine].Length
+
+        let region =
+            String.Concat(lines[startLine].Substring(0, startCol), inserted, lines[endLine].Substring(endCol))
+
+        let middle = region.Split('\n')
+        let result = Array.zeroCreate (startLine + middle.Length + (lastLine - endLine))
+        Array.blit lines 0 result 0 startLine
+        Array.blit middle 0 result startLine middle.Length
+        Array.blit lines (endLine + 1) result (startLine + middle.Length) (lastLine - endLine)
+        result
+
+    /// Apply an edited document plus the edit's shape so the line cache is
+    /// spliced instead of rebuilt from a full `toString`.
+    let private withEdit (offset: int) (removedLen: int) (inserted: string) document (buffer: BufferState) =
         { buffer with
             Document = document
-            Lines = computeLines document }
+            Lines = spliceLines offset removedLen inserted buffer.Lines }
 
     /// Finalize an edit. Caller passes the pre-edit `original` (for undo),
-    /// the already-updated `withDoc` buffer (Lines computed once via
-    /// `withDocument`), and the new cursor position. Sets cursor, marks
+    /// the already-updated `withDoc` buffer (Lines spliced once via
+    /// `withEdit`), and the new cursor position. Sets cursor, marks
     /// dirty, pushes undo, clears redo, bumps EditTick. No second
-    /// `computeLines`.
+    /// line-cache pass.
     let private finalizeEdit (original: BufferState) (newCursor: Position) (withDoc: BufferState) =
         { withDoc with
             Cursor = newCursor
@@ -208,7 +251,8 @@ module Buffer =
     let replaceRange startIndex count replacement buffer =
         let deleted = PieceTable.deleteRange startIndex count buffer.Document
         let inserted = PieceTable.insert startIndex replacement deleted
-        let withDoc = buffer |> withDocument inserted
+        // `inserted` is the post-edit DOCUMENT; `replacement` is the text.
+        let withDoc = buffer |> withEdit startIndex count replacement inserted
         let nextCursor = indexToPosition (startIndex + replacement.Length) withDoc
         finalizeEdit buffer nextCursor withDoc
 
@@ -224,7 +268,7 @@ module Buffer =
             buffer
         else
             let nextDocument = PieceTable.deleteRange (index - 1) 1 buffer.Document
-            let withDoc = buffer |> withDocument nextDocument
+            let withDoc = buffer |> withEdit (index - 1) 1 "" nextDocument
             let nextCursor = indexToPosition (index - 1) withDoc
             finalizeEdit buffer nextCursor withDoc
 
@@ -235,7 +279,7 @@ module Buffer =
             buffer
         else
             let nextDocument = PieceTable.deleteRange index 1 buffer.Document
-            let withDoc = buffer |> withDocument nextDocument
+            let withDoc = buffer |> withEdit index 1 "" nextDocument
             let nextCursor = indexToPosition index withDoc
             finalizeEdit buffer nextCursor withDoc
 
@@ -351,7 +395,7 @@ module Buffer =
             let target = wordIndexLeft (text buffer) startIdx
             let count = startIdx - target
             let nextDocument = PieceTable.deleteRange target count buffer.Document
-            let withDoc = buffer |> withDocument nextDocument
+            let withDoc = buffer |> withEdit target count "" nextDocument
             let nextCursor = indexToPosition target withDoc
             finalizeEdit buffer nextCursor withDoc
 
@@ -414,7 +458,7 @@ module Buffer =
         | Some(s, e) when e > s ->
             let count = e - s
             let nextDocument = PieceTable.deleteRange s count buffer.Document
-            let withDoc = buffer |> withDocument nextDocument
+            let withDoc = buffer |> withEdit s count "" nextDocument
             let nextCursor = indexToPosition s withDoc
 
             { finalizeEdit buffer nextCursor withDoc with
@@ -446,7 +490,7 @@ module Buffer =
             let target = wordIndexRight landing txt startIdx
             let count = target - startIdx
             let nextDocument = PieceTable.deleteRange startIdx count buffer.Document
-            let withDoc = buffer |> withDocument nextDocument
+            let withDoc = buffer |> withEdit startIdx count "" nextDocument
             let nextCursor = indexToPosition startIdx withDoc
             finalizeEdit buffer nextCursor withDoc
 
@@ -540,7 +584,7 @@ module Buffer =
                     else
                         buffer.Cursor.Column - removable }
 
-            let withDoc = buffer |> withDocument nextDocument
+            let withDoc = buffer |> withEdit lineStart removable "" nextDocument
             finalizeEdit buffer nextCursor withDoc
 
     /// Slide the viewport just enough to keep `cursor` at least `margin`

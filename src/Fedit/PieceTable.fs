@@ -1,6 +1,27 @@
 namespace Fedit
 
 open System
+open System.Text
+
+/// Append-only text storage shared by every PieceTable snapshot in a
+/// document's lineage. Pieces address immutable (Start, Length) ranges:
+/// appends only ever extend the end, so ranges captured by older snapshots
+/// (undo/redo stacks, in-flight effects) stay valid forever — including
+/// ranges abandoned by an undo branch, which simply become dead space.
+/// The lock makes reads safe from effect tasks (`RunSearch` and
+/// `ParseHighlight` call `PieceTable.toString` on pool threads) while the
+/// single writer (the update thread, via `insert`) appends.
+[<Sealed>]
+type AddBuffer() =
+    let builder = StringBuilder()
+    let gate = obj ()
+    member _.Length = lock gate (fun () -> builder.Length)
+
+    member _.Append(text: string) =
+        lock gate (fun () -> builder.Append text |> ignore)
+
+    member _.Substring(start: int, length: int) =
+        lock gate (fun () -> builder.ToString(start, length))
 
 type PieceSource =
     | Original
@@ -13,15 +34,22 @@ type Piece =
       Length: int }
 
 type PieceTable =
-    { Original: string
-      Added: string
-      Pieces: Piece list }
+    {
+        Original: string
+        /// The shared append-only add buffer — `None` until the first
+        /// insert. Created lazily per lineage so the module-level `empty`
+        /// value is never mutated; divergent undo/redo branches share one
+        /// builder, and because it is append-only every branch's
+        /// (Start, Length) ranges stay valid.
+        Added: AddBuffer option
+        Pieces: Piece list
+    }
 
 [<RequireQualifiedAccess>]
 module PieceTable =
     let empty =
         { Original = ""
-          Added = ""
+          Added = None
           Pieces = [] }
 
     let ofString (text: string) =
@@ -29,19 +57,19 @@ module PieceTable =
             empty
         else
             { Original = text
-              Added = ""
+              Added = None
               Pieces =
                 [ { Source = Original
                     Start = 0
                     Length = text.Length } ] }
 
     let private slice table piece =
-        let source =
-            match piece.Source with
-            | Original -> table.Original
-            | Added -> table.Added
-
-        source.Substring(piece.Start, piece.Length)
+        match piece.Source with
+        | Original -> table.Original.Substring(piece.Start, piece.Length)
+        | Added ->
+            match table.Added with
+            | Some added -> added.Substring(piece.Start, piece.Length)
+            | None -> "" // unreachable: Added pieces only exist after `insert` set the buffer
 
     let toString table =
         table.Pieces |> List.map (slice table) |> String.concat ""
@@ -65,9 +93,20 @@ module PieceTable =
         else
             let index = max 0 (min index (length table))
 
+            // Get-or-create the lineage's shared add buffer (lazy so the
+            // module-level `empty` value is never mutated).
+            let added =
+                match table.Added with
+                | Some added -> added
+                | None -> AddBuffer()
+
+            // Captured BEFORE the append below: every piece built here
+            // addresses the pre-append end of the buffer.
+            let addStart = added.Length
+
             let insertedPiece =
                 { Source = Added
-                  Start = table.Added.Length
+                  Start = addStart
                   Length = text.Length }
 
             // Sequential typing inserts at the end of the piece written by the
@@ -75,7 +114,7 @@ module PieceTable =
             // the appended text is contiguous with it — grow the piece in
             // place instead of adding one piece per keystroke.
             let extendsAddedTail piece =
-                piece.Source = Added && piece.Start + piece.Length = table.Added.Length
+                piece.Source = Added && piece.Start + piece.Length = addStart
 
             let withExtendedHead acc =
                 match acc with
@@ -108,9 +147,16 @@ module PieceTable =
                     @ rest
                 | piece :: rest -> loop (remaining - piece.Length) (piece :: acc) rest
 
+            let nextPieces = loop index [] table.Pieces
+
+            // Deliberate benign mutation of the shared buffer: appending
+            // never disturbs ranges held by other snapshots, and if this
+            // result is discarded the appended text is merely dead space.
+            added.Append text
+
             { table with
-                Added = table.Added + text
-                Pieces = loop index [] table.Pieces }
+                Added = Some added
+                Pieces = nextPieces }
 
     let deleteRange index count table =
         if count <= 0 then

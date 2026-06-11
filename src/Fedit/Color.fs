@@ -193,31 +193,32 @@ module Color =
     /// quantizer when reducing a truecolor value to the nearest cube slot.
     let private cubeLevels = [| 0; 95; 135; 175; 215; 255 |]
 
+    /// Standard 16: approximations are good enough for nearest-match.
+    /// Module-level so `cubeRgb` doesn't re-allocate it on every call.
+    let private standard16 =
+        [| 0, 0, 0
+           170, 0, 0
+           0, 170, 0
+           170, 85, 0
+           0, 0, 170
+           170, 0, 170
+           0, 170, 170
+           170, 170, 170
+           85, 85, 85
+           255, 85, 85
+           85, 255, 85
+           255, 255, 85
+           85, 85, 255
+           255, 85, 255
+           85, 255, 255
+           255, 255, 255 |]
+
     let cubeRgb (n: byte) : int * int * int =
         // 16-231 is a 6×6×6 cube; 232-255 is a 24-step gray ramp.
         let i = int n
 
         if i < 16 then
-            // Standard 16: approximations are good enough for nearest-match.
-            let table =
-                [| 0, 0, 0
-                   170, 0, 0
-                   0, 170, 0
-                   170, 85, 0
-                   0, 0, 170
-                   170, 0, 170
-                   0, 170, 170
-                   170, 170, 170
-                   85, 85, 85
-                   255, 85, 85
-                   85, 255, 85
-                   255, 255, 85
-                   85, 85, 255
-                   255, 85, 255
-                   85, 255, 255
-                   255, 255, 255 |]
-
-            table[i]
+            standard16[i]
         elif i < 232 then
             let idx = i - 16
             let r = idx / 36
@@ -228,6 +229,11 @@ module Color =
             let level = 8 + (i - 232) * 10
             level, level, level
 
+    /// All 256 palette entries materialized once — the quantizer scans the
+    /// whole palette per call, and computing entries through `cubeRgb`
+    /// there would allocate a fresh tuple per entry per call.
+    let private paletteRgb = Array.init 256 (fun i -> cubeRgb (byte i))
+
     /// Squared-RGB nearest neighbor against the full 256 palette.
     /// Reasonable approximation for 24-bit → 8-bit downgrade; CIELab
     /// would be more accurate but overkill for 256 entries.
@@ -237,7 +243,7 @@ module Color =
         let mutable bestDist = Int32.MaxValue
 
         for i in 0..255 do
-            let cr, cg, cb = cubeRgb (byte i)
+            let cr, cg, cb = paletteRgb[i]
             let tr, tg, tb = target
             let dr = cr - tr
             let dg = cg - tg

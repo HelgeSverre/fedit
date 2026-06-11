@@ -38,7 +38,7 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="FsUnit.xUnit" />
-    <PackageReference Include="FsCheck.Xunit" />
+    <PackageReference Include="FsCheck" />
     <PackageReference Include="coverlet.collector">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
