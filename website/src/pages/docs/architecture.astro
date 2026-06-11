@@ -158,7 +158,7 @@ const subsystems = [
   {
     name: "highlighting",
     file: "Highlight.fs",
-    desc: "Tree-sitter parses each buffer incrementally; capture classes (keyword, string, …) map to theme colors the renderer overlays. 20 grammars ship; the registry is absent if the native library can't load.",
+    desc: "Tree-sitter parses each buffer incrementally; capture classes (keyword, string, …) map to theme colors the renderer overlays. 25 grammars register; the registry is absent if the native library can't load.",
   },
   {
     name: "macros",
@@ -168,7 +168,7 @@ const subsystems = [
   {
     name: "cli",
     file: "Cli.fs · Cli/Commands/",
-    desc: "A declarative argument parser with help/version short-circuits and subcommands — fedit plugins, fedit completions <shell>, fedit keybinds — that run without starting the TUI.",
+    desc: "A declarative argument parser with help/version short-circuits and subcommands — fedit plugins, fedit completions <shell>, fedit keybinds, fedit themes — that run without starting the TUI.",
   },
   {
     name: "status bar",
@@ -360,7 +360,9 @@ const subsystems = [
 
     <TuiFrame label="module order (Fedit.fsproj)"
       ><Fragment
-        set:html={`   primitives |  Primitives  -&gt;  Keys
+        set:html={`   primitives |  Primitives  -&gt;  Keys  -&gt;  Events
+              |
+     terminal |  TerminalCapabilities  -&gt;  MouseProtocol  -&gt;  ImageProtocol  -&gt;  KittyImage
               |
   text buffer |  PieceTable  -&gt;  Buffer
               |
@@ -370,13 +372,15 @@ const subsystems = [
               |
 commands/keys |  Commands  -&gt;  Actions  -&gt;  Keymap  -&gt;  Plugins
               |
-        state |  Model  -&gt;  Config  -&gt;  KeymapIO  -&gt;  Prompt
+ picker types |  PickerTypes  -&gt;  PromptTypes
+              |
+        state |  Model  -&gt;  Config  -&gt;  Pickers  -&gt;  KeymapIO  -&gt;  Prompt  -&gt;  Dock
               |
        update |  Editor
               |
  render/input |  Status  -&gt;  Renderer  -&gt;  Input  -&gt;  View
               |
-      runtime |  Runtime  -&gt;  Cli  -&gt;  Cli/Commands/*
+      runtime |  Terminal  -&gt;  Runtime  -&gt;  Cli  -&gt;  Cli/Commands/*
               |
         entry |  Program`}
       /></TuiFrame

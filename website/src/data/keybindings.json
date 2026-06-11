@@ -288,6 +288,38 @@
     "bound": true
   },
   {
+    "stroke": "super+left",
+    "action": "move-home",
+    "context": "editor",
+    "category": "motion",
+    "description": "Move the cursor to the start of the line",
+    "bound": true
+  },
+  {
+    "stroke": "super+right",
+    "action": "move-end",
+    "context": "editor",
+    "category": "motion",
+    "description": "Move the cursor to the end of the line",
+    "bound": true
+  },
+  {
+    "stroke": "shift+super+left",
+    "action": "extend-home",
+    "context": "editor",
+    "category": "selection",
+    "description": "Extend the selection to the start of the line",
+    "bound": true
+  },
+  {
+    "stroke": "shift+super+right",
+    "action": "extend-end",
+    "context": "editor",
+    "category": "selection",
+    "description": "Extend the selection to the end of the line",
+    "bound": true
+  },
+  {
     "stroke": "ctrl+backspace",
     "action": "delete-word-back",
     "context": "editor",

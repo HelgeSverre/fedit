@@ -16,7 +16,7 @@ const features = [
   { name: "find", desc: "live-highlight as you type; enter or down to advance, up for previous" },
   {
     name: "command palette",
-    desc: "Ctrl+P opens a fuzzy-completing command bar with the last 20 entries as history",
+    desc: "Ctrl+P opens a command bar — prefix-matched commands, substring-matched files, last 20 entries as history",
   },
   {
     name: "system clipboard",
@@ -27,7 +27,7 @@ const features = [
     desc: "external changes trigger a debounced 300ms rescan; no need to press Ctrl+R",
   },
   {
-    name: "twelve themes",
+    name: "thirteen themes",
     desc: "full-surface palettes (incl. light); swap live, persists to ~/.config/fedit/config.json",
   },
   { name: "UTF-8", desc: "reads any line-ending style, preserves it on save, no BOM written" },
@@ -42,7 +42,7 @@ const cards = [
   {
     href: "/themes",
     title: "themes",
-    blurb: "Twelve palettes, including light. Switch live from the command bar.",
+    blurb: "Thirteen palettes, including light. Switch live from the command bar.",
   },
   {
     href: "/how",
@@ -59,7 +59,7 @@ const cards = [
 
 <Site
   title="fedit — edit files in the terminal"
-  description="A small terminal text editor written in F#. Workspace tree, multi-buffer, piece-table buffers, find, command palette, system clipboard, twelve color themes."
+  description="A small terminal text editor written in F#. Workspace tree, multi-buffer, piece-table buffers, find, command palette, system clipboard, thirteen color themes."
   image="/og/index.png"
   titleOverride
 >
@@ -167,7 +167,7 @@ const cards = [
         ><span class="dim">$</span> just dev .         <span class="comment"># dotnet watch, re-launches on source changes</span>
 <span class="dim">$</span> just check         <span class="comment"># lint + build + test, the pre-commit gate</span>
 <span class="dim">$</span> just test          <span class="comment"># xUnit + FsCheck</span>
-<span class="dim">$</span> just format        <span class="comment"># fantomas + prettier</span></pre
+<span class="dim">$</span> just format        <span class="comment"># fantomas + oxfmt</span></pre
       >
 
       <h3>flags</h3>

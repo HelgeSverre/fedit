@@ -58,6 +58,12 @@ const actions = [
     use: "Copy text to the system clipboard.",
     sample: `[ SetClipboard buffer.Text ]`,
   },
+  {
+    name: "SelectRange",
+    arg: "CursorPosition * CursorPosition",
+    use: "Select between two positions — the anchor pins one end, the caret lands on the cursor, like a shift+motion selection.",
+    sample: `[ SelectRange(anchor, cursor) ]`,
+  },
 ];
 
 const lifecycle = [
@@ -140,6 +146,12 @@ host.RegisterKeybinding(KeyChord.Ctrl 't', "todonext")`,
 
 const verbs = [
   { v: "list", arg: "", desc: "Show plugins with status (ok / disabled / FAIL)." },
+  { v: "enable", arg: "<name>", desc: "Re-enable a disabled plugin; persists to config." },
+  {
+    v: "disable",
+    arg: "<name>",
+    desc: "Disable a plugin without removing it; persists to config.",
+  },
   { v: "install", arg: "<url-or-path>", desc: "Folder, git URL, or .zip — auto-detected." },
   { v: "remove", arg: "<name>", desc: "Delete the plugin folder and rescan." },
   { v: "reload", arg: "", desc: "Rescan disk; rebuilds anything stale." },
@@ -153,7 +165,7 @@ const verbs = [
 
 <Site
   title="extend"
-  description="Build fedit plugins in F#. Five-minute quickstart, the eight PluginAction types you can return, and five reference implementations under examples/."
+  description="Build fedit plugins in F#. Five-minute quickstart, the nine PluginAction types you can return, and five reference implementations under examples/."
   image="/og/extend.png"
 >
   <!-- =============================================================== -->
@@ -308,8 +320,8 @@ const verbs = [
       <div class="section__head">
         <h2>anatomy of a plugin</h2>
         <p class="section__lede">
-          The whole authoring surface fits in twelve lines. Numbered callouts on the right point to
-          each piece's role.
+          The whole authoring surface fits in one short file. Numbered callouts on the right point
+          to each piece's role.
         </p>
       </div>
 

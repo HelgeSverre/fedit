@@ -30,6 +30,55 @@ const shipped = (version: string, item: string): ChangelogEntry => ({
 });
 
 export const changelog: ChangelogEntry[] = [
+  shipped("Site", "Upgraded the website from Astro 5 to Astro 6."),
+  shipped(
+    "Format",
+    "Switched markdown formatting from prettier to oxfmt in the root `just format` / `just lint` recipes (fantomas still owns F#). The website keeps prettier + prettier-plugin-astro under `just website::format`.",
+  ),
+  shipped(
+    "Completions",
+    "Expanded `fedit completions` from 3 shells to 9: zsh, bash, fish, pwsh, nushell, elvish, xonsh, yash, murex — plus OSH (Oils) via bash-script reuse. Generated scripts complete subcommands, flags, dynamic plugin names, and the `fedit <path>` positional. `--install` writes each shell's standard location and prints next-step instructions. Verified by a Docker smoke harness (`just test-completions`) loading all nine plus OSH, and parse checks in CI.",
+  ),
+  shipped(
+    "Ayu",
+    "Added the `ayu` theme — Ayu Dark palette as the third full-surface theme (after `github-light` / `github-dark`): real backgrounds on every chrome region, `#E6B450` accent, and its own surface-tuned syntax colors. Spec mirror at `brand/themes/ayu.json`. Brings the bundled count to 13.",
+  ),
+  shipped(
+    "Plugins",
+    "Hardened plugin name / path handling: validateName / validateFileName / childPath reject empty, dotted, rooted, or separator-bearing names so a plugin name can't escape the plugin root (path traversal). LoadedPlugin gains Conflicts so a session can surface keybinding / command clashes. The Fedit.PluginApi.dll contract now ships as a sidecar (in libexec on Homebrew, beside the binary on just install) so manifest-only plugins resolve it at build time.",
+  ),
+  shipped(
+    "Prompt sessions",
+    "Folded the plugin / macro / keybinding list-manager into named prompt sessions backed by a reusable Picker primitive (PickerTypes.fs, Pickers.fs, PromptTypes.fs). ':plugins' / ':macros' / ':keybinds' open a session (Plugins, Macros, Keybindings) instead of a command string; items, action keys, destructive / disabled actions, confirmation, and inspector metadata all render from structured data through one generic action path. Supersedes the standalone picker direction — ListManagerState and its per-manager key handling are gone.",
+  ),
+  shipped(
+    "Grammars",
+    "Added five more tree-sitter grammars: AppleScript, ReScript, Zig, Sema, and TOML. Vendored as submodules under vendor/, highlight queries under Resources/queries/<lang>/ (AppleScript's is hand-maintained — upstream ships none), embedded into the binary and registered in Highlight.fs. just download-queries refreshes queries from the submodules; just build-grammars cross-compiles the natives.",
+  ),
+  shipped(
+    "Image",
+    "Abstract ImageProtocol type plus Kitty APC graphics implementation (ImageProtocol.fs, KittyImage.fs). Transmit chunks base64 across 4096-byte APC frames with correct m=1/m=0 continuation flags; Clear sends a=d,d=A; QuerySupport probes with a 1x1 transparent PNG query and waits for an OK response. No inline images are wired into the layout yet — the protocol layer is ready for a later phase.",
+  ),
+  shipped(
+    "Color",
+    "Renderer.render now downgrades colors based on TerminalCapabilities.ColorSupport. ColorTrueColor passes RGB through; ColorAnsi256 quantizes Rgb to Indexed via Color.toIndexed; ColorAnsi16 maps to the nearest standard palette with Renderer.ansi16Of. Color.cubeRgb is now public so the renderer can reuse the 256-cube lookup for 16-color mapping. Fixed a missing $ on the indexed-background branch that leaked the literal {value} into 48;5;… escapes (surfaced as a stray value}m on 256-color terminals); Renderer.colorToAnsiCode is now the one source of truth and the dead Terminal.Ansi color-code twin was removed.",
+  ),
+  shipped(
+    "Query",
+    "Startup terminal capability query: Terminal.detectCapabilities sends DA1 (ESC[c) and DA2 (ESC[>0c) after entering the alternate screen, reads responses with a 500 ms timeout, and merges them with env-based detection via TerminalCapabilities.fromQueries. Known DA2 signatures upgrade kitty, ghostty, wezterm, and iTerm2 with more accurate keyboard protocol, image protocol, and unicode-placeholder flags than env vars alone.",
+  ),
+  shipped(
+    "Mouse",
+    "Click-to-place-cursor and drag-to-select in the editor. MouseEvent screen coordinates are mapped to buffer positions via Editor.mouseToBufferPosition, which mirrors the layout arithmetic from View.Layout.render. Left-button press sets the cursor and selection anchor; drag extends the selection; release clears the drag state. MouseDragState tracks the anchor per-buffer. Pressing in the editor also restores Focus = Editor.",
+  ),
+  shipped(
+    "SelectRange",
+    "New SelectRange(anchor, cursor) plugin action: the anchor pins one end and the caret lands on the other (mirrors shift+motion), so plugins can select arbitrary ranges instead of only reading or replacing an existing selection. Restores Buffer.setSelection as its primitive; corrects the CursorPosition doc to the real 1-based line+column convention. Forward plan for the rest of the action surface (Tier 1 additive cases, Tier 2 events/async/storage) at docs/plans/2026-06-04-plugin-action-expansion.md. Dead-code sweep alongside: dropped unused Color.rgb and Completions.shellName, plus stray unused bindings.",
+  ),
+  shipped(
+    "Themes CLI",
+    "fedit themes --json dumps Themes.all — the same records the editor renders — to JSON, every chrome surface resolved to hex via Color.toHex (null where a theme keeps the terminal default). Mirrors fedit keybinds --json; the website's theme previews consume the generated themes.json. Lives in Cli/Commands/Themes.fs, covered by ThemesCliTests.",
+  ),
   shipped(
     "Keybinds",
     "':keybind' opens the effective keymap in a scrollable, searchable buffer instead of dumping every binding into the status line — grouped by context, aligned, deduped to the active binding per stroke, reused in place on repeat. ':keybind <stroke>' now reports on a single line; ':keybind reload' is unchanged.",

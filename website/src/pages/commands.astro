@@ -12,8 +12,11 @@ import Site from "../layouts/Site.astro";
       <div class="section__head">
         <h1>commands</h1>
         <p class="section__lede">
-          Every keybinding and command in fedit. Modifier symbols: <kbd>Ctrl</kbd> is <kbd>⌘</kbd> on
-          macOS where applicable; <kbd>Alt</kbd> is <kbd>Option</kbd>.
+          Every keybinding and command in fedit. <kbd>Ctrl</kbd> chords are <kbd>Ctrl</kbd> on every platform;
+          <kbd>Alt</kbd> is <kbd>Option</kbd> on macOS. On terminals that report the Command key, <kbd
+            >⌘+←/→</kbd
+          > jumps to line start/end (and <kbd>⌘+Shift+←/→</kbd> extends the selection there) — those four
+          are the only <kbd>⌘</kbd> bindings.
         </p>
       </div>
 
@@ -21,11 +24,16 @@ import Site from "../layouts/Site.astro";
         <h2>global</h2>
         <dl class="dl-grid">
           <dt><kbd>Ctrl+P</kbd></dt>
-          <dd>open the command bar</dd>
+          <dd>open the command bar (command mode)</dd>
+          <dt><kbd>Ctrl+O</kbd></dt>
+          <dd>open the file picker — recent files first, then workspace files</dd>
           <dt><kbd>Ctrl+F</kbd></dt>
           <dd>find in the active buffer</dd>
           <dt><kbd>Ctrl+B</kbd></dt>
-          <dd>focus the file tree</dd>
+          <dd>
+            toggle the file tree — hidden: reveal and focus; visible elsewhere: focus; focused: hide
+            and return to the editor
+          </dd>
           <dt><kbd>Ctrl+E</kbd></dt>
           <dd>focus the editor</dd>
           <dt><kbd>Ctrl+S</kbd></dt>
@@ -38,6 +46,10 @@ import Site from "../layouts/Site.astro";
           <dd>undo</dd>
           <dt><kbd>Ctrl+Y</kbd></dt>
           <dd>redo</dd>
+          <dt><kbd>Ctrl+PageDown</kbd> · <kbd>Ctrl+PageUp</kbd></dt>
+          <dd>cycle to the next / previous open buffer</dd>
+          <dt><kbd>Ctrl+1</kbd>…<kbd>Ctrl+9</kbd></dt>
+          <dd>jump to the open buffer at sorted index 1..9 (silent no-op if out of range)</dd>
         </dl>
       </section>
 
@@ -50,8 +62,12 @@ import Site from "../layouts/Site.astro";
           <dd>jump to line start / end</dd>
           <dt><kbd>PageUp</kbd> · <kbd>PageDown</kbd></dt>
           <dd>scroll a screen at a time</dd>
-          <dt><kbd>Alt+←</kbd> · <kbd>Alt+→</kbd></dt>
+          <dt><kbd>Alt+←</kbd> · <kbd>Alt+→</kbd> (or <kbd>Ctrl+←</kbd> · <kbd>Ctrl+→</kbd>)</dt>
           <dd>move by word</dd>
+          <dt><kbd>⌘+←</kbd> · <kbd>⌘+→</kbd></dt>
+          <dd>jump to line start / end (terminals that report the Command key)</dd>
+          <dt><kbd>⌘+Shift+←</kbd> · <kbd>⌘+Shift+→</kbd></dt>
+          <dd>extend the selection to line start / end</dd>
           <dt><kbd>Ctrl+Backspace</kbd> · <kbd>Ctrl+Delete</kbd></dt>
           <dd>delete the previous / next word</dd>
           <dt><kbd>Shift+←/→/↑/↓</kbd> · <kbd>Shift+Home</kbd> · <kbd>Shift+End</kbd></dt>
@@ -70,6 +86,21 @@ import Site from "../layouts/Site.astro";
       </section>
 
       <section>
+        <h2>macros</h2>
+        <dl class="dl-grid">
+          <dt><kbd>Ctrl+Shift+M</kbd></dt>
+          <dd>
+            start / stop recording keystrokes into register <code>a</code>; the status bar shows
+            <code>REC @a</code> while recording
+          </dd>
+          <dt><kbd>Ctrl+Shift+R</kbd></dt>
+          <dd>replay the recorded macro</dd>
+          <dt><kbd>Ctrl+Shift+.</kbd></dt>
+          <dd>repeat the last macro</dd>
+        </dl>
+      </section>
+
+      <section>
         <h2>find <span class="muted">(after Ctrl+F)</span></h2>
         <dl class="dl-grid">
           <dt>type</dt>
@@ -79,7 +110,7 @@ import Site from "../layouts/Site.astro";
           <dt><kbd>↑</kbd></dt>
           <dd>previous match</dd>
           <dt><kbd>Backspace</kbd></dt>
-          <dd>shorten query; on empty query, close the prompt</dd>
+          <dd>shorten the query (no-op once empty)</dd>
           <dt><kbd>Escape</kbd></dt>
           <dd>close the prompt and clear the highlights</dd>
         </dl>
@@ -107,12 +138,26 @@ import Site from "../layouts/Site.astro";
 
       <section>
         <h2>command bar</h2>
+        <p class="muted-p">
+          One prompt, four modes — the first character picks the mode: <code>:</code> runs a named command
+          (or a <code>:LINE[:COL]</code> jump), <code>/</code> finds in the buffer,
+          <code>@</code> switches buffers, and an empty prompt is the file picker.
+          <kbd>Ctrl+P</kbd> opens in command mode, <kbd>Ctrl+O</kbd> in the file picker,
+          <kbd>Ctrl+F</kbd> in find.
+        </p>
         <dl class="dl-grid">
           <dt>type</dt>
           <dd>filter; the dock panel shows matching commands or workspace paths</dd>
-          <dt><kbd>Tab</kbd> · <kbd>Shift+Tab</kbd></dt>
-          <dd>cycle completions</dd>
-          <dt><kbd>↑</kbd> · <kbd>↓</kbd></dt>
+          <dt><kbd>Tab</kbd></dt>
+          <dd>
+            apply the highlighted completion's text — <code>:o</code> + <kbd>Tab</kbd> becomes
+            <code>:open</code>, ready for arguments
+          </dd>
+          <dt><kbd>↑</kbd> · <kbd>↓</kbd> · <kbd>Shift+Tab</kbd></dt>
+          <dd
+            >move the completion highlight (in find mode, <kbd>↑</kbd>/<kbd>↓</kbd> cycle matches)</dd
+          >
+          <dt><kbd>Alt+↑</kbd> · <kbd>Alt+↓</kbd></dt>
           <dd>walk through recent command history (last 20)</dd>
           <dt><kbd>Enter</kbd></dt>
           <dd>run the parsed command or apply the highlighted completion</dd>
@@ -138,11 +183,11 @@ import Site from "../layouts/Site.astro";
           <dt><code>quit</code></dt>
           <dd>exit the editor</dd>
 
-          <dt><code>sidebar</code></dt>
-          <dd>toggle the sidebar</dd>
-
-          <dt><code>tree</code> · <code>editor</code></dt>
-          <dd>focus the file tree / focus the editor</dd>
+          <dt><code>config</code></dt>
+          <dd>
+            open <code>~/.config/fedit/config.json</code> in a buffer; creates it from the running config
+            on first call
+          </dd>
 
           <dt><code>reload</code></dt>
           <dd>reload the workspace tree</dd>
@@ -155,18 +200,44 @@ import Site from "../layouts/Site.astro";
 
           <dt><code>theme &lt;name&gt;</code></dt>
           <dd>
-            switch the accent color — tab through <code>green</code>, <code>blue</code>, <code
-              >orange</code
-            >, <code>cyan</code>, <code>teal</code>, <code>yellow</code>, <code>red</code>;
-            live-previews each as you cycle
+            switch the theme — <code>green</code>, <code>blue</code>, <code>orange</code>, <code
+              >cyan</code
+            >, <code>teal</code>, <code>yellow</code>, <code>red</code>, <code>graphite</code>,
+            <code>evergreen</code>, <code>mono-amber</code>, <code>github-light</code>, <code
+              >github-dark</code
+            >, <code>ayu</code>; live-previews each as you cycle
           </dd>
 
           <dt><code>recent &lt;path&gt;</code></dt>
-          <dd>pick a recently opened file; tab cycles through the last 20</dd>
+          <dd>pick a recently opened file; completion cycles through the last 20</dd>
 
-          <dt><code>help</code></dt>
-          <dd>show command help in the dock panel</dd>
+          <dt><code>syntax &lt;on|off|toggle&gt;</code></dt>
+          <dd>toggle syntax highlighting; persists to config</dd>
+
+          <dt><code>plugin &lt;verb&gt; [arg]</code></dt>
+          <dd>
+            manage installed plugins — <code>list</code>, <code>enable</code>, <code>disable</code>, <code
+              >install</code
+            >, <code>remove</code>, <code>reload</code>, <code>validate</code>
+          </dd>
+
+          <dt><code>plugins</code></dt>
+          <dd>open the plugin manager</dd>
+
+          <dt><code>macros</code></dt>
+          <dd>open the macro manager</dd>
+
+          <dt><code>keybind [reload | &lt;stroke&gt;]</code></dt>
+          <dd>
+            list the effective keybindings, reload the keybinds file, or show what a stroke resolves
+            to in each context
+          </dd>
         </dl>
+        <p class="muted-p">
+          Three keyboard-first verbs — <code>sidebar</code>, <code>tree</code>, <code>editor</code>
+          — still parse if typed but stay hidden from completion; <kbd>Ctrl+B</kbd> and
+          <kbd>Ctrl+E</kbd> cover the same ground.
+        </p>
       </section>
     </div>
   </section>
