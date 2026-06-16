@@ -466,6 +466,29 @@ let private withActiveBuffer (buffer: BufferState) (model: Model) =
                 Buffers = model.Editors.Buffers |> Map.add buffer.Id buffer
                 ActiveBufferId = buffer.Id } }
 
+/// Add `opened` to the model's buffer set while keeping `probe` active.
+let private withOpenBuffer (opened: BufferState) (probe: BufferState) (model: Model) =
+    let withProbe = withActiveBuffer probe model
+
+    { withProbe with
+        Editors =
+            { withProbe.Editors with
+                Buffers = withProbe.Editors.Buffers |> Map.add opened.Id opened } }
+
+let private sampleWorkspaceTree () : FileNode =
+    { Path = "/root"
+      Name = "root"
+      IsDirectory = true
+      Children =
+        [ { Path = "/root/src"
+            Name = "src"
+            IsDirectory = true
+            Children =
+              [ { Path = "/root/src/a.fs"
+                  Name = "a.fs"
+                  IsDirectory = false
+                  Children = [] } ] } ] }
+
 /// Run a fixed plugin-action list with `buffer` active.
 let private runActionsFor buffer actions =
     dispatchProbe (withActiveBuffer buffer) (fun _ -> actions)
@@ -719,6 +742,70 @@ let ``SetBufferActivation registers on the active buffer`` () =
     | other -> Assert.Fail $"expected activation, got %A{other}"
 
 [<Fact>]
+let ``OpenFileAt emits LoadFile with target for a new path`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "hello" "\n"
+
+    let setup model =
+        { withActiveBuffer buffer model with
+            Workspace = Workspace.setTree (sampleWorkspaceTree ()) model.Workspace }
+
+    let _, effects =
+        dispatchProbe setup (fun _ ->
+            [ Fedit.PluginApi.OpenFileAt(
+                  "src/a.fs",
+                  { Line = 2; Column = 3 },
+                  false
+              ) ])
+
+    Assert.Contains(
+        LoadFile("/root/src/a.fs", OpenPermanent, Some { Line = 1; Column = 2 }),
+        effects
+    )
+
+[<Fact>]
+let ``OpenFileAt activates an existing buffer and applies the target`` () =
+    let probe = Buffer.fromText 7 None "scratch" "hello" "\n"
+
+    let opened =
+        Buffer.fromText 9 (Some "/root/a.fs") "a.fs" "line one\nline two\n" "\n"
+
+    let setup model = withOpenBuffer opened probe model
+
+    let next, effects =
+        dispatchProbe setup (fun _ ->
+            [ Fedit.PluginApi.OpenFileAt(
+                  "a.fs",
+                  { Line = 2; Column = 3 },
+                  false
+              ) ])
+
+    Assert.Equal(9, next.Editors.ActiveBufferId)
+    Assert.True(effects |> List.isEmpty)
+    let active = activeBuffer next
+    Assert.Equal({ Line = 1; Column = 2 }, active.Cursor)
+
+[<Fact>]
+let ``OpenFileAt preview opens into the preview slot`` () =
+    let probe = Buffer.fromText 7 None "scratch" "hello" "\n"
+
+    let setup model =
+        { withActiveBuffer probe model with
+            Workspace = Workspace.setTree (sampleWorkspaceTree ()) model.Workspace }
+
+    let _, effects =
+        dispatchProbe setup (fun _ ->
+            [ Fedit.PluginApi.OpenFileAt(
+                  "src/a.fs",
+                  { Line = 1; Column = 1 },
+                  true
+              ) ])
+
+    Assert.Contains(
+        LoadFile("/root/src/a.fs", OpenPreview, Some { Line = 0; Column = 0 }),
+        effects
+    )
+
+[<Fact>]
 let ``Enter in an activated buffer runs the registered plugin command`` () =
     let buffer = Buffer.fromText 7 None "scratch" "hello" "\n"
 
@@ -759,25 +846,11 @@ let ``Enter in an activated buffer runs the registered plugin command`` () =
 
 [<Fact>]
 let ``OpenFilePreview emits LoadFile with preview intent for a new path`` () =
-    let tree: FileNode =
-        { Path = "/root"
-          Name = "root"
-          IsDirectory = true
-          Children =
-            [ { Path = "/root/src"
-                Name = "src"
-                IsDirectory = true
-                Children =
-                  [ { Path = "/root/src/a.fs"
-                      Name = "a.fs"
-                      IsDirectory = false
-                      Children = [] } ] } ] }
-
     let buffer = Buffer.fromText 7 None "scratch" "hello" "\n"
 
     let setup model =
         { withActiveBuffer buffer model with
-            Workspace = Workspace.setTree tree model.Workspace }
+            Workspace = Workspace.setTree (sampleWorkspaceTree ()) model.Workspace }
 
     let _, effects =
         dispatchProbe setup (fun _ -> [ Fedit.PluginApi.OpenFilePreview "src/a.fs" ])
@@ -789,13 +862,7 @@ let ``OpenFilePreview activates an already-open buffer without loading`` () =
     let probe = Buffer.fromText 7 None "scratch" "hello" "\n"
     let opened = Buffer.fromText 9 (Some "/root/a.fs") "a.fs" "contents" "\n"
 
-    let setup model =
-        let withProbe = withActiveBuffer probe model
-
-        { withProbe with
-            Editors =
-                { withProbe.Editors with
-                    Buffers = withProbe.Editors.Buffers |> Map.add opened.Id opened } }
+    let setup model = withOpenBuffer opened probe model
 
     let next, effects =
         dispatchProbe setup (fun _ -> [ Fedit.PluginApi.OpenFilePreview "a.fs" ])
@@ -813,25 +880,11 @@ let ``OpenFilePreview activates an already-open buffer without loading`` () =
 
 [<Fact>]
 let ``RevealPath shows the sidebar and selects the path without stealing focus`` () =
-    let tree: FileNode =
-        { Path = "/root"
-          Name = "root"
-          IsDirectory = true
-          Children =
-            [ { Path = "/root/src"
-                Name = "src"
-                IsDirectory = true
-                Children =
-                  [ { Path = "/root/src/a.fs"
-                      Name = "a.fs"
-                      IsDirectory = false
-                      Children = [] } ] } ] }
-
     let buffer = Buffer.fromText 7 None "scratch" "hello" "\n"
 
     let setup model =
         { withActiveBuffer buffer model with
-            Workspace = Workspace.setTree tree model.Workspace
+            Workspace = Workspace.setTree (sampleWorkspaceTree ()) model.Workspace
             Panels =
                 { model.Panels with
                     SidebarVisible = false } }
