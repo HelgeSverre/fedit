@@ -329,6 +329,38 @@ let ``scanAndLoad builds and loads the wordcount example end-to-end`` () =
         ()
 
 [<Fact>]
+let ``scanAndLoad builds and loads the todo-list example end-to-end`` () =
+    let pluginsRoot = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())
+    Directory.CreateDirectory pluginsRoot |> ignore
+
+    let source = Path.Combine(repoRoot, "examples", "todo-list")
+    let target = Path.Combine(pluginsRoot, "todo-list")
+    copyDir source target
+
+    let messages = System.Collections.Concurrent.ConcurrentQueue<string>()
+    let log (s: string) = messages.Enqueue s
+
+    let registry = Plugins.scanAndLoad pluginsRoot apiDllPath Set.empty log
+
+    Assert.True(registry.Loaded.ContainsKey "todo-list", "expected todo-list in registry.Loaded")
+
+    let plugin = registry.Loaded.["todo-list"]
+
+    match plugin.Status with
+    | PluginLoadStatus.Loaded -> ()
+    | other -> Assert.Fail $"expected Loaded, got {other}"
+
+    Assert.Contains(plugin.Commands, fun cmd -> cmd.Name = "todolist")
+    Assert.Contains(plugin.Commands, fun cmd -> cmd.Name = "todo-jump")
+    Assert.True(registry.Commands.ContainsKey "todolist")
+    Assert.True(registry.Commands.ContainsKey "todo-jump")
+
+    try
+        Directory.Delete(pluginsRoot, recursive = true)
+    with _ ->
+        ()
+
+[<Fact>]
 let ``scanAndLoad surfaces conflicts collected inside one plugin`` () =
     let pluginsRoot = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())
     let pluginDir = Path.Combine(pluginsRoot, "conflicter")
