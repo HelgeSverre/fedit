@@ -131,7 +131,7 @@ module Terminal =
 
     let detectCapabilities (t: TerminalState) : TerminalCapabilities =
         let writer = t.Writer
-        let timeout = TimeSpan.FromMilliseconds 500.0
+        let timeout = TimeSpan.FromMilliseconds 100.0
 
         // Send DA1 and DA2 queries.
         writer.Write("\u001b[c\u001b[>0c")
