@@ -398,17 +398,16 @@ module Runtime =
                 match grammar with
                 | None -> queue.Enqueue(HighlightParsed(bufferId, editTick, [||]))
                 | Some registry ->
-                    Task.Run<unit>(fun () ->
-                        task {
+                    // No debounce: parse immediately so syntax colors are as
+                    // instant as the machine allows. A keystroke mid-parse
+                    // cancels this token and the result is dropped at enqueue;
+                    // the superseded parse still runs to completion, but off the
+                    // UI thread, so it never blocks input or rendering. The
+                    // size cap (Highlight.maxParseChars) bounds the one case
+                    // that would actually hurt — a multi-megabyte buffer.
+                    Task.Run(fun () ->
+                        if not token.IsCancellationRequested then
                             try
-                                // Debounce before parsing, scaled to document
-                                // size: small buffers nap 0 ms so colors track
-                                // keystrokes, large ones nap so a burst
-                                // coalesces into one parse. Only the newest
-                                // request for this buffer survives the nap;
-                                // earlier ones are cancelled before they parse.
-                                do! Task.Delay(Highlight.reparseDebounceMs (PieceTable.length document), token)
-
                                 let source = PieceTable.toString document
 
                                 match Highlight.parseSpans registry language source with
@@ -418,13 +417,8 @@ module Runtime =
                                     // Post an empty result so previously-stored
                                     // spans stop painting at stale offsets.
                                     enqueueUnlessCancelled token (HighlightParsed(bufferId, editTick, [||]))
-                            with
-                            | :? OperationCanceledException ->
-                                // A cancelled nap or parse is the debounce
-                                // working as intended, not a failure.
-                                ()
-                            | ex -> log $"highlight: parse failed for buffer {bufferId} ({language}): {ex.Message}"
-                        })
+                            with ex ->
+                                log $"highlight: parse failed for buffer {bufferId} ({language}): {ex.Message}")
                     |> ignore
             | ScanPlugins disabledPlugins ->
                 Task.Run(fun () ->

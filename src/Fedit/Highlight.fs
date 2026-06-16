@@ -164,15 +164,6 @@ module Highlight =
     /// lands. 2M chars ~= 2 seconds of parse — already past tolerable.
     let maxParseChars = 2_000_000
 
-    /// Debounce before a reparse, scaled to document size. Small documents
-    /// parse with no nap so syntax colors track keystrokes instead of lagging
-    /// behind a fixed timeout; large documents nap first so a keystroke burst
-    /// coalesces into one parse rather than starting (and discarding) an
-    /// expensive parse per key. The threshold is the point where a parse
-    /// (~1 ms/1k chars) grows long enough that a wasted one hurts — below it,
-    /// an eager parse already feels instant.
-    let reparseDebounceMs (docLength: int) : int = if docLength <= 20_000 then 0 else 75
-
     /// Map a tree-sitter capture name onto our `HighlightCapture` DU.
     /// Resolution is longest-prefix-first against the standard
     /// `category.subcategory` naming convention. Unknown captures
