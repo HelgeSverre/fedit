@@ -452,11 +452,7 @@ type Plugin =
 /// Drives a single `Editor.update` dispatch with a custom registry. `setup`
 /// shapes the freshly-initialized model; `registry` replaces the default
 /// empty plugin registry.
-let private dispatchWithRegistry
-    (setup: Model -> Model)
-    (registry: PluginRegistry)
-    (msg: Msg)
-    : Model * Effect list =
+let private dispatchWithRegistry (setup: Model -> Model) (registry: PluginRegistry) (msg: Msg) : Model * Effect list =
     let model, _ =
         Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) []
 
@@ -485,7 +481,9 @@ let private dispatchProbe
             Commands = Map.ofList [ "probe", binding ]
             Keybindings = [ Fedit.PluginApi.KeyChord.Ctrl 'j', "probe" ] }
 
-    dispatchWithRegistry setup registry
+    dispatchWithRegistry
+        setup
+        registry
         (KeyPressed
             { Mods = Set.ofList [ Ctrl ]
               Key = Key.Char 'j' })
@@ -782,17 +780,9 @@ let ``OpenFileAt emits LoadFile with target for a new path`` () =
             Workspace = Workspace.setTree (sampleWorkspaceTree ()) model.Workspace }
 
     let _, effects =
-        dispatchProbe setup (fun _ ->
-            [ Fedit.PluginApi.OpenFileAt(
-                  "src/a.fs",
-                  { Line = 2; Column = 3 },
-                  false
-              ) ])
+        dispatchProbe setup (fun _ -> [ Fedit.PluginApi.OpenFileAt("src/a.fs", { Line = 2; Column = 3 }, false) ])
 
-    Assert.Contains(
-        LoadFile("/root/src/a.fs", OpenPermanent, Some { Line = 1; Column = 2 }),
-        effects
-    )
+    Assert.Contains(LoadFile("/root/src/a.fs", OpenPermanent, Some { Line = 1; Column = 2 }), effects)
 
 [<Fact>]
 let ``OpenFileAt activates an existing buffer and applies the target`` () =
@@ -804,12 +794,7 @@ let ``OpenFileAt activates an existing buffer and applies the target`` () =
     let setup model = withOpenBuffer opened probe model
 
     let next, effects =
-        dispatchProbe setup (fun _ ->
-            [ Fedit.PluginApi.OpenFileAt(
-                  "a.fs",
-                  { Line = 2; Column = 3 },
-                  false
-              ) ])
+        dispatchProbe setup (fun _ -> [ Fedit.PluginApi.OpenFileAt("a.fs", { Line = 2; Column = 3 }, false) ])
 
     Assert.Equal(9, next.Editors.ActiveBufferId)
     Assert.True(effects |> List.isEmpty)
@@ -825,17 +810,9 @@ let ``OpenFileAt preview opens into the preview slot`` () =
             Workspace = Workspace.setTree (sampleWorkspaceTree ()) model.Workspace }
 
     let _, effects =
-        dispatchProbe setup (fun _ ->
-            [ Fedit.PluginApi.OpenFileAt(
-                  "src/a.fs",
-                  { Line = 1; Column = 1 },
-                  true
-              ) ])
+        dispatchProbe setup (fun _ -> [ Fedit.PluginApi.OpenFileAt("src/a.fs", { Line = 1; Column = 1 }, true) ])
 
-    Assert.Contains(
-        LoadFile("/root/src/a.fs", OpenPreview, Some { Line = 0; Column = 0 }),
-        effects
-    )
+    Assert.Contains(LoadFile("/root/src/a.fs", OpenPreview, Some { Line = 0; Column = 0 }), effects)
 
 [<Fact>]
 let ``Enter in an activated buffer runs the registered plugin command`` () =
@@ -851,27 +828,38 @@ let ``Enter in an activated buffer runs the registered plugin command`` () =
         { Name = "setup"
           Usage = ""
           Summary = ""
-          Run = fun _ ->
-            [ Fedit.PluginApi.NewBuffer("notes", "")
-              Fedit.PluginApi.SetBufferActivation "activate" ] }
+          Run =
+            fun _ ->
+                [ Fedit.PluginApi.NewBuffer("notes", "")
+                  Fedit.PluginApi.SetBufferActivation "activate" ] }
 
     let registry =
         { PluginRegistry.empty with
             Commands =
                 Map.ofList
-                    [ "activate", { Source = "test-plugin"; Spec = activateSpec }
-                      "setup", { Source = "test-plugin"; Spec = setupSpec } ]
+                    [ "activate",
+                      { Source = "test-plugin"
+                        Spec = activateSpec }
+                      "setup",
+                      { Source = "test-plugin"
+                        Spec = setupSpec } ]
             Keybindings = [ Fedit.PluginApi.KeyChord.Ctrl 'j', "setup" ] }
 
     let setup model = withActiveBuffer buffer model
 
     let activated, _ =
-        dispatchWithRegistry setup registry
-            (KeyPressed { Mods = Set.ofList [ Ctrl ]; Key = Key.Char 'j' })
+        dispatchWithRegistry
+            setup
+            registry
+            (KeyPressed
+                { Mods = Set.ofList [ Ctrl ]
+                  Key = Key.Char 'j' })
 
     let next, _ =
         Editor.update
-            (KeyPressed { Mods = Set.empty; Key = Key.Named Enter })
+            (KeyPressed
+                { Mods = Set.empty
+                  Key = Key.Named Enter })
             activated
 
     Assert.Equal("d", Buffer.text (activeBuffer next))
