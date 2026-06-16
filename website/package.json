@@ -13,11 +13,11 @@
   },
   "dependencies": {
     "@alpinejs/focus": "^3.15.12",
-    "@astrojs/compiler-rs": "^0.2.1",
+    "@astrojs/compiler-rs": "^0.2.2",
     "alpinejs": "^3.15.12",
-    "astro": "^6.4.2",
+    "astro": "^6.4.7",
     "astro-inspect-clip": "^1.0.4",
-    "vercel": "^54.9.0"
+    "vercel": "^54.14.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
@@ -26,8 +26,8 @@
     "@proj-airi/font-departure-mono": "^0.10.2",
     "@resvg/resvg-js": "^2.6.2",
     "oxfmt": "^0.52.0",
-    "oxlint": "^1.67.0",
-    "prettier": "^3.8.3",
+    "oxlint": "^1.70.0",
+    "prettier": "^3.8.4",
     "prettier-plugin-astro": "^0.14.1",
     "satori": "^0.26.0",
     "typescript": "^6.0.3"
