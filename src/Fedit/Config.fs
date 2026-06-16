@@ -4,7 +4,7 @@ open System
 open System.IO
 open System.Text
 
-/// Config file location + load / save. Carved out of Runtime.fs (Phase 10.3).
+/// Config file location + load / save.
 /// Owns nothing about the runtime loop; just JSON in/out for the `Config`
 /// record. Named `ConfigIO` so it doesn't collide with `Model.Config`
 /// (which carries the type + defaults).

@@ -84,7 +84,7 @@ type Action =
     | Chain of Action list
     | When of cond: Cond * thenDo: Action * elseDo: Action
     | NoOp
-    // macros (keybindings phase 4)
+    // macros
     | RecordMacro of register: char
     | ReplayMacro of register: char * count: int
     | RepeatLastMacro

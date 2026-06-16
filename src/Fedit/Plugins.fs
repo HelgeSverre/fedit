@@ -60,6 +60,7 @@ type PluginSource =
     | GitSource of url: string
     | ZipSource of path: string
 
+/// Plugin name and filename validation + safe path construction.
 module private PluginNames =
     let private hasSeparator (value: string) =
         value.Contains(Path.DirectorySeparatorChar)
@@ -135,6 +136,7 @@ module PluginRegistry =
 // Manifest parsing
 // ---------------------------------------------------------------------------
 
+/// Parse plugin.json manifests via System.Text.Json.
 module private ManifestJson =
     let private optStr (root: JsonElement) (name: string) =
         match root.TryGetProperty name with
@@ -144,6 +146,7 @@ module private ManifestJson =
             | s -> Some s
         | _ -> None
 
+    /// Parse a plugin.json file, validating required fields and plugin name.
     let parse (path: string) : Result<PluginManifest, string> =
         try
             let json = File.ReadAllText path
@@ -189,7 +192,9 @@ module private ManifestJson =
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/// Filesystem helpers: DLL paths, staleness checks, directory copying.
 module private PluginIO =
+    /// Expected DLL output path for a built plugin.
     let dllPath (pluginDir: string) (entryAssembly: string) =
         Path.Combine(pluginDir, "bin", "Release", "net10.0", entryAssembly)
 
@@ -221,6 +226,7 @@ module private PluginIO =
 // Build invocation
 // ---------------------------------------------------------------------------
 
+/// Auto-generate fsproj if missing, invoke dotnet build.
 module private PluginBuild =
     let private generatedFsprojName = "plugin.generated.fsproj"
 
@@ -255,6 +261,7 @@ module private PluginBuild =
             File.WriteAllText(generated, xml)
             generated
 
+    /// Run `dotnet build -c Release` and return the exit outcome.
     let runDotnetBuild (fsprojPath: string) : Result<unit, string> =
         let info = System.Diagnostics.ProcessStartInfo()
         info.FileName <- "dotnet"
@@ -284,6 +291,8 @@ module private PluginBuild =
 // Host-side IPluginHost implementation that collects registrations
 // ---------------------------------------------------------------------------
 
+/// IPluginHost implementation that collects commands/keybindings
+/// during register().
 module private HostCollectorImpl =
     /// Chords reserved for the editor itself. Plain `Char` is reserved
     /// because that's regular text input; the others are explicit editor
@@ -321,13 +330,18 @@ module private HostCollectorImpl =
 // Assembly loading
 // ---------------------------------------------------------------------------
 
+/// Isolated load context that delegates to the default — plugins
+/// share the host's FSharp.Core and Fedit.PluginApi.
 type private PluginLoadContext(name: string) =
     inherit AssemblyLoadContext(name = name, isCollectible = false)
     /// Delegate everything to the default context. The plugin should not
     /// ship its own copies of FSharp.Core / Fedit.PluginApi.
     override _.Load(_assemblyName) = null
 
+/// Reflective assembly loading and entry-point resolution.
 module private PluginLoad =
+    /// Reflectively locate the static `register` entry point in the
+    /// plugin assembly. Returns the invoke wrapper on success.
     let resolveRegister (assembly: Assembly) (entryType: string) : Result<IPluginHost -> unit, string> =
         let t = assembly.GetType(entryType, throwOnError = false, ignoreCase = false)
 
@@ -375,6 +389,7 @@ module Plugins =
     let isBuildStale (pluginDir: string) (entryAssembly: string) : bool =
         PluginIO.isBuildStale pluginDir entryAssembly
 
+    /// Minimal manifest for plugins that failed to parse their plugin.json.
     let private placeholderManifest (name: string) : PluginManifest =
         { Name = name
           Version = "?"
@@ -528,6 +543,8 @@ module Plugins =
     // Install / uninstall
     // -----------------------------------------------------------------------
 
+    /// Install a plugin from a folder, git URL, or zip into the plugins
+    /// directory. Returns the plugin name on success.
     let install (pluginsRoot: string) (source: PluginSource) : string =
         Directory.CreateDirectory pluginsRoot |> ignore
 
@@ -577,6 +594,7 @@ module Plugins =
                 with _ ->
                     ()
 
+    /// Remove a plugin directory by name.
     let uninstall (pluginsRoot: string) (name: string) : unit =
         let target =
             match PluginNames.childPath pluginsRoot name with

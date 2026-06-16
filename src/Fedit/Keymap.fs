@@ -94,8 +94,8 @@ module Keymap =
           single (chord [ Shift ] (Named Tab)) Unindent
           single (chord [ Alt ] (Named Left)) MoveWordLeft
           single (chord [ Alt ] (Named Right)) MoveWordRight
-          single (chord [ Ctrl ] (Named Left)) MoveWordLeft // wip #8
-          single (chord [ Ctrl ] (Named Right)) MoveWordRight // wip #8
+          single (chord [ Ctrl ] (Named Left)) MoveWordLeft
+          single (chord [ Ctrl ] (Named Right)) MoveWordRight
           single (chord [ Super ] (Named Left)) MoveHome // terminals that report Command+Left
           single (chord [ Super ] (Named Right)) MoveEnd // terminals that report Command+Right
           single (chord [ Super; Shift ] (Named Left)) ExtendHome

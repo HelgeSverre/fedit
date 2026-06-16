@@ -121,7 +121,7 @@ module Status =
             | None -> ""
 
         // Active macro recording prefixes the mode so it shows under the
-        // default StatusFormat — the only discoverability surface this phase.
+        // default StatusFormat.
         let recording =
             match model.Recording with
             | Some r -> $"REC @{r}  "
