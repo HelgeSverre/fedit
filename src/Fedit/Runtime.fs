@@ -80,9 +80,15 @@ module Runtime =
         | Result.Ok() -> "Ok"
         | Result.Error error -> $"Error({error})"
 
+    let private renderTarget (target: Position option) =
+        match target with
+        | Some pos -> $"{pos.Line}:{pos.Column}"
+        | None -> "-"
+
     let private renderMsg msg =
         match msg with
-        | FileOpened(path, intent, result) -> $"FileOpened({path}, {intent}, {renderTextResult result})"
+        | FileOpened(path, intent, target, result) ->
+            $"FileOpened({path}, {intent}, target={renderTarget target}, {renderTextResult result})"
         | BufferSaved(bufferId, path, revision, result) ->
             $"BufferSaved(buffer={bufferId}, path={path}, revision={revision}, {renderUnitResult result})"
         | ClipboardPasted result -> $"ClipboardPasted({renderTextResult result})"
@@ -105,6 +111,7 @@ module Runtime =
             $"ParseHighlight(buffer={bufferId}, lang={language}, tick={editTick}, docLen={PieceTable.length document})"
         | _ -> $"{effect}"
 
+    /// Build a FileNode, using the basename (or full path when the name is empty).
     let private makeNode (path: string) isDirectory children : FileNode =
         let rawName = Path.GetFileName path |> Text.optStr |> Option.defaultValue path
 
@@ -113,12 +120,14 @@ module Runtime =
           IsDirectory = isDirectory
           Children = children }
 
+    /// True if the path's last segment is in the workspace exclusion set.
     let private shouldSkip (path: string) =
         Path.GetFileName path
         |> Text.optStr
         |> Option.map Workspace.excludedNames.Contains
         |> Option.defaultValue false
 
+    /// Recursively build a FileNode tree, counting skipped/unreadable entries.
     let rec private scanNode (path: string) : FileNode * int =
         let attributes = File.GetAttributes path
         let isDirectory = attributes.HasFlag FileAttributes.Directory
@@ -156,6 +165,7 @@ module Runtime =
         else
             makeNode path false [], 0
 
+    /// Current terminal dimensions, clamped to a minimum of 1×1.
     let private consoleSize () =
         { Width = max 1 Console.WindowWidth
           Height = max 1 Console.WindowHeight }
@@ -188,7 +198,7 @@ module Runtime =
         let queue = ConcurrentQueue<Msg>()
         let mutable scanCts: CancellationTokenSource option = None
         let mutable loadCts: CancellationTokenSource option = None
-        // Phase 12.2: serialize config writes so two quick saves can't land
+        // Serialize config writes so two quick saves can't land
         // out of order on disk. Each new SaveConfig chains onto the previous
         // task, preserving dispatch order by construction.
         let configSaveLock = obj ()
@@ -197,7 +207,7 @@ module Runtime =
         // land out of dispatch order on disk.
         let bufferSaveLock = obj ()
         let bufferSaveChains = System.Collections.Generic.Dictionary<string, Task>()
-        // Phase 12.3: cancel previous incremental search before starting the next.
+        // Cancel previous incremental search before starting the next.
         let mutable searchCts: CancellationTokenSource option = None
         // Latest-wins highlight parse per buffer: a keystroke during a parse
         // cancels the stale one; `update` also drops stale results by tick.
@@ -238,13 +248,15 @@ module Runtime =
                 Task.Run(fun () ->
                     let msg =
                         try
-                            WorkspaceLoaded(Result.Ok(scanNode rootPath))
+                            let tree, skipped = scanNode rootPath
+                            let sorted, byPath, files = Workspace.preCompute rootPath tree
+                            WorkspaceLoaded(Result.Ok(sorted, byPath, files, skipped))
                         with ex ->
                             WorkspaceLoaded(Result.Error ex.Message)
 
                     enqueueUnlessCancelled token msg)
                 |> ignore
-            | LoadFile(path, intent) ->
+            | LoadFile(path, intent, target) ->
                 let cts = cancelAndReplace loadCts
                 loadCts <- Some cts
                 let token = cts.Token
@@ -252,9 +264,9 @@ module Runtime =
                 Task.Run(fun () ->
                     let msg =
                         try
-                            FileOpened(path, intent, Result.Ok(File.ReadAllText path))
+                            FileOpened(path, intent, target, Result.Ok(File.ReadAllText path))
                         with ex ->
-                            FileOpened(path, intent, Result.Error ex.Message)
+                            FileOpened(path, intent, target, Result.Error ex.Message)
 
                     enqueueUnlessCancelled token msg)
                 |> ignore
@@ -570,6 +582,8 @@ module Runtime =
         let terminal = Terminal.create ()
         Terminal.logCapabilities terminal log
 
+        /// True if any path segment matches the workspace exclusion set
+        /// (used by the FS watcher to filter noise).
         let isExcludedFsPath (path: string) =
             try
                 let rel = Path.GetRelativePath(rootPath, path)
@@ -579,6 +593,9 @@ module Runtime =
             with _ ->
                 false
 
+        // FS events are debounced: onFsEvent stamps the time, and the main
+        // loop dispatches WorkspaceChangedExternally once 300ms of quiet
+        // elapses — avoids re-indexing on rapid save/rename sequences.
         let mutable lastFsChange: DateTime option = None
 
         let onFsEvent (e: FileSystemEventArgs) =

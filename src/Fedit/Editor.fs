@@ -7,6 +7,7 @@ open Fedit.PromptTypes
 
 [<RequireQualifiedAccess>]
 module Editor =
+    /// Map a PromptMode to its corresponding PromptSessionKind.
     let private sessionForMode =
         function
         | FilePicker -> PromptSessionKind.FileOpenSession
@@ -14,6 +15,8 @@ module Editor =
         | Search -> PromptSessionKind.SearchSession
         | Buffers -> PromptSessionKind.BufferSwitchSession
 
+    /// True for picker sessions that display a scrollable list
+    /// (plugins, macros, keybindings).
     let private isPromptListSession =
         function
         | PromptSessionKind.PluginsSession
@@ -47,7 +50,8 @@ module Editor =
         { Buffers = Map.ofList [ 1, scratch ]
           ActiveBufferId = 1
           NextBufferId = 2
-          PreviewBufferId = None }
+          PreviewBufferId = None
+          BufferActivations = Map.empty }
 
     /// Collapse CRLF and lone-CR sequences to LF and report the original
     /// dominant ending. The document invariant is LF-only; the returned
@@ -163,6 +167,8 @@ module Editor =
     let private extendCursor transform model =
         updateActiveBuffer (Buffer.extendWith transform) model, []
 
+    /// Build file-picker completion items from recent + workspace files
+    /// matching the query. Recent items appear first.
     let private filePickerCompletions model query =
         let limit = model.Config.CompletionLimit
         let recent = model.Config.Recent
@@ -212,6 +218,7 @@ module Editor =
 
         recentItems @ workspaceItems |> List.truncate limit
 
+    /// Build buffer-switch completion items matching the query.
     let private buffersCompletions model query =
         model.Editors.Buffers
         |> Map.toList
@@ -235,6 +242,7 @@ module Editor =
         |> Map.toList
         |> List.map (fun (name, binding) -> name, binding.Spec.Summary, binding.Source)
 
+    /// Build command-palette completions from built-in + plugin command specs.
     let private commandCompletions model query =
         let buffersForCompletion =
             model.Editors.Buffers
@@ -251,6 +259,8 @@ module Editor =
               CompletionLimit = model.Config.CompletionLimit }
             query
 
+    /// Recompute prompt completions, parsed command state, and search
+    /// preview after text or mode changes.
     let private refreshPrompt model : Model * Effect list =
         let prompt = model.Prompt
 
@@ -314,6 +324,7 @@ module Editor =
 
             nextModel, effects
 
+    /// Open the prompt with initial text, setting focus and session kind.
     let private openPrompt (initialText: string) model =
         { model with
             Focus = Prompt
@@ -330,6 +341,8 @@ module Editor =
                     SearchPreview = None } }
         |> refreshPrompt
 
+    /// Open a picker/list session (plugins, macros, keybindings) with
+    /// an empty filter.
     let private openPromptSession session model =
         let selected =
             Dock.pickerKindOfPromptSession session
@@ -354,6 +367,7 @@ module Editor =
                     SearchPreview = None } },
         []
 
+    /// Close the prompt and return focus to the editor.
     let private closePrompt model =
         { model with
             Focus = Editor
@@ -372,6 +386,7 @@ module Editor =
                     PendingConfirmation = None
                     SearchPreview = None } }
 
+    /// Resolve a user-supplied path against the workspace root.
     let private resolvePath (rootPath: string) (path: string) =
         if Path.IsPathRooted path then
             path
@@ -400,6 +415,7 @@ module Editor =
                     SelectedCompletion = 0 } }
         |> refreshPrompt
 
+    /// The prompt mode's leading character prefix.
     let private prefixOf mode =
         match mode with
         | FilePicker -> ""
@@ -457,6 +473,7 @@ module Editor =
             let opened, effects = openPrompt ":writeas " model
             opened |> notify (Some(Notification.warning "Scratch buffers need a path.")), effects
 
+    /// Deduplicate and prepend an entry to prompt history (max 20).
     let private pushHistory (text: string) model =
         let trimmed = text.Trim()
 
@@ -470,6 +487,7 @@ module Editor =
                             trimmed :: (model.Prompt.History |> List.filter ((<>) trimmed))
                             |> List.truncate 20 } }
 
+    /// Cycle to the next/previous buffer by offset.
     let private switchBuffer offset model =
         let ids = model.Editors.Buffers |> Map.keys |> Seq.toList
 
@@ -538,11 +556,27 @@ module Editor =
                 Workspace = selectOrReveal absolutePath model model.Workspace
                 Focus = Editor })
 
-    /// Open `path` into the preview slot. Already-open normal buffers are
-    /// activated instead (VSCode behavior); re-previewing the file already
-    /// in the slot is a no-op activation. Focus is preserved — Space peeks
-    /// from the sidebar.
-    let private openPreview (path: string) (model: Model) : Model * Effect list =
+    /// Apply an optional 0-based cursor target to the ACTIVE buffer —
+    /// the plugin `OpenFileAt` jump. `positionToIndex` clamps out-of-range
+    /// coordinates; `updateActiveBuffer` keeps the viewport honest.
+    let private applyTarget (target: Position option) (model: Model) =
+        match target with
+        | None -> model
+        | Some pos ->
+            updateActiveBuffer
+                (fun buffer ->
+                    let idx = Buffer.positionToIndex pos buffer
+                    Buffer.moveToOffset idx buffer)
+                model
+
+    /// Open `path` into the preview slot, optionally moving the cursor to
+    /// `target` (0-based). Already-open normal buffers are activated
+    /// instead (VSCode behavior); re-previewing the file already in the
+    /// slot is a no-op activation. Focus is preserved — Space peeks from
+    /// the sidebar. The target is applied AFTER activation (so it hits the
+    /// activated buffer) or threaded through LoadFile so it survives the
+    /// async load.
+    let private openPreviewAt (target: Position option) (path: string) (model: Model) : Model * Effect list =
         let previewSlot =
             model.Editors.PreviewBufferId
             |> Option.bind (fun id -> model.Editors.Buffers |> Map.tryFind id |> Option.map (fun buffer -> id, buffer))
@@ -552,12 +586,15 @@ module Editor =
             { model with
                 Editors =
                     { model.Editors with
-                        ActiveBufferId = previewId } },
+                        ActiveBufferId = previewId } }
+            |> applyTarget target,
             []
         | _ ->
             match tryActivateExisting path model with
-            | Some activated -> { activated with Focus = model.Focus }, []
-            | None -> model, [ LoadFile(path, OpenPreview) ]
+            | Some activated -> { activated with Focus = model.Focus } |> applyTarget target, []
+            | None -> model, [ LoadFile(path, OpenPreview, target) ]
+
+    let private openPreview (path: string) (model: Model) : Model * Effect list = openPreviewAt None path model
 
     /// Build a read-only snapshot of the world for a plugin command. The
     /// plugin sees text, cursor, file path, all open buffers, and the
@@ -600,8 +637,11 @@ module Editor =
 
     /// Translate a plugin's `PluginAction list` return into core model
     /// updates + effects. Each action is applied in declaration order;
-    /// `RunCommand` recursively dispatches via `executeCommand`.
+    /// `RunCommand` recursively dispatches via `executeCommand`. `source`
+    /// is the invoking plugin's name — `SetBufferActivation` records it so
+    /// activation later dispatches through the same `PluginInvoke` path.
     let rec private applyPluginActions
+        (source: string)
         (actions: Fedit.PluginApi.PluginAction list)
         (model: Model)
         : Model * Effect list =
@@ -657,7 +697,7 @@ module Editor =
                         current
             | Fedit.PluginApi.OpenFile path ->
                 let absolutePath = resolvePath current.Workspace.RootPath path
-                effects.Add(LoadFile(absolutePath, OpenPermanent))
+                effects.Add(LoadFile(absolutePath, OpenPermanent, None))
             | Fedit.PluginApi.SaveActiveBuffer ->
                 let nextModel, fx = saveActiveBuffer None current
                 current <- nextModel
@@ -735,6 +775,37 @@ module Editor =
                                 Buffers = current.Editors.Buffers |> Map.add buffer.Id buffer
                                 ActiveBufferId = buffer.Id
                                 NextBufferId = buffer.Id + 1 } }
+            | Fedit.PluginApi.SetBufferActivation commandName ->
+                // Register on whatever buffer is active NOW — after a
+                // NewBuffer/SwitchBuffer earlier in the same list that is
+                // the listing buffer the plugin just produced. Stored as
+                // (source, command) without validating the name: plugins
+                // may register commands in any order, and activating an
+                // unknown command surfaces through PluginInvoke's existing
+                // "command missing" error path.
+                current <-
+                    { current with
+                        Editors =
+                            { current.Editors with
+                                BufferActivations =
+                                    current.Editors.BufferActivations
+                                    |> Map.add current.Editors.ActiveBufferId (source, commandName) } }
+            | Fedit.PluginApi.OpenFileAt(path, position, preview) ->
+                // Like OpenFile/OpenFilePreview, but the (clamped) cursor
+                // target travels with the load so it survives the async
+                // FileOpened round-trip — and applies immediately when the
+                // file is already open.
+                let absolutePath = resolvePath current.Workspace.RootPath path
+                let target = Some(toHostPosition position)
+
+                if preview then
+                    let nextModel, fx = openPreviewAt target absolutePath current
+                    current <- nextModel
+                    effects.AddRange fx
+                else
+                    match tryActivateExisting absolutePath current with
+                    | Some activated -> current <- applyTarget target activated
+                    | None -> effects.Add(LoadFile(absolutePath, OpenPermanent, target))
 
         current, List.ofSeq effects
 
@@ -914,7 +985,7 @@ module Editor =
                 activated
                 |> notify (Some(Notification.info $"Activated {Path.GetFileName absolutePath}")),
                 []
-            | None -> { model with Focus = Editor }, [ LoadFile(absolutePath, OpenPermanent) ]
+            | None -> { model with Focus = Editor }, [ LoadFile(absolutePath, OpenPermanent, None) ]
         | Write -> runAction Save model
         | WriteAs path -> runAction (SaveAs path) model
         | Command.OpenConfig ->
@@ -950,7 +1021,7 @@ module Editor =
                 activated
                 |> notify (Some(Notification.info $"Activated {Path.GetFileName absolute}")),
                 []
-            | None -> { model with Focus = Editor }, [ LoadFile(absolute, OpenPermanent) ]
+            | None -> { model with Focus = Editor }, [ LoadFile(absolute, OpenPermanent, None) ]
         | SwitchBuffer bufferRef ->
             let buffers = model.Editors.Buffers
 
@@ -1111,7 +1182,7 @@ module Editor =
                 try
                     let ctx = toPluginContext model
                     let actions = binding.Spec.Run ctx
-                    applyPluginActions actions model
+                    applyPluginActions source actions model
                 with ex ->
                     notify (Some(Notification.error $"Plugin '{source}' threw: {ex.Message}")) model, []
             | Some _ ->
@@ -1146,7 +1217,7 @@ module Editor =
                 (model, [])
         | When(cond, thenDo, elseDo) -> runAction (if evalCond cond model then thenDo else elseDo) model
 
-        // motion / selection (verbatim from runEditor)
+        // motion / selection
         | MoveLeft -> moveCursor Buffer.moveLeft model
         | MoveRight -> moveCursor Buffer.moveRight model
         | MoveUp -> moveCursor Buffer.moveUp model
@@ -1171,7 +1242,7 @@ module Editor =
         | ExtendEnd -> extendCursor Buffer.moveEnd model
         | SelectAll -> updateActiveBuffer Buffer.selectAll model, []
 
-        // editing (verbatim from runEditor + global handler)
+        // editing
         | Indent -> moveCursor (Buffer.indent model.Config.TabWidth) model
         | Unindent -> moveCursor (Buffer.unindent model.Config.TabWidth) model
         | DeleteWordBack ->
@@ -1214,7 +1285,7 @@ module Editor =
                 [ ClipboardCopy text ]
         | Paste -> model, [ ClipboardPaste ]
 
-        // command-group bodies (verbatim from global handler / executeCommand)
+        // command-group bodies
         | Save -> saveActiveBuffer None model
         | SaveAs path -> saveActiveBuffer (Some path) model
         | Quit -> { model with ShouldQuit = true }, [ SaveConfig model.Config ]
@@ -1276,7 +1347,7 @@ module Editor =
                     Focus = Sidebar },
                 []
 
-        // sidebar navigation (verbatim from runSidebar)
+        // sidebar navigation
         | SidebarUp ->
             { model with
                 Workspace = Workspace.moveSelection -1 (Workspace.clearSearch model.Workspace) },
@@ -1327,7 +1398,7 @@ module Editor =
 
                 match tryActivateExisting path withWorkspace with
                 | Some activated -> activated, []
-                | None -> withWorkspace, [ LoadFile(path, OpenPermanent) ]
+                | None -> withWorkspace, [ LoadFile(path, OpenPermanent, None) ]
             | SidebarNoOp -> { model with Workspace = workspace }, []
 
         // verbs whose canonical body stays in executeCommand (prompt-only).
@@ -1339,7 +1410,7 @@ module Editor =
 
         | ReloadKeybinds -> model, [ LoadKeybinds ]
 
-        // ── macros (keybindings phase 4) ──
+        // ── macros ──
         | RecordMacro register ->
             match model.Recording with
             | Some active when active = register ->
@@ -1382,6 +1453,7 @@ module Editor =
                     Notification = Some(Notification.info "No macro to repeat") },
                 []
 
+    /// Move to the next/previous search match, wrapping cyclically.
     let private moveSearchMatch delta model =
         let prompt = model.Prompt
 
@@ -1398,9 +1470,8 @@ module Editor =
                         SearchPreview = Some { preview with Current = nextIdx } } }
         | _ -> model
 
-    // Chord literals for the hardcoded default bindings. (A later phase
-    // replaces these with a data-driven keymap; until then the dispatch is
-    // hardcoded and matched via `when c = …` guards.)
+    // Chord literals for the hardcoded default bindings. Dispatch is
+    // matched via `when c = …` guards in `runAction`.
     let private cc c : Chord =
         { Mods = Set.ofList [ Ctrl ]
           Key = Key.Char c } // ctrl+<char>
@@ -1490,7 +1561,14 @@ module Editor =
         | { Mods = m; Key = Named Space } when m.IsEmpty ->
             updateActiveBuffer (editTransform (Buffer.insertText " ") >> Buffer.clearSelection) model, []
         | { Mods = m; Key = Named Enter } when m.IsEmpty ->
-            updateActiveBuffer (editTransform Buffer.insertNewline >> Buffer.clearSelection) model, []
+            // A buffer with a plugin line-activation treats Enter as
+            // "activate the cursor line" instead of inserting a newline —
+            // the registered command runs with the normal snapshot
+            // context. Dispatching through executeCommand keeps agent
+            // parity: the same command stays invocable from the prompt.
+            match model.Editors.BufferActivations.TryFind model.Editors.ActiveBufferId with
+            | Some(source, commandName) -> executeCommand (PluginInvoke(source, commandName, "")) model
+            | None -> updateActiveBuffer (editTransform Buffer.insertNewline >> Buffer.clearSelection) model, []
         | { Mods = m; Key = Named Backspace } when m.IsEmpty && hasSelection ->
             updateActiveBuffer Buffer.deleteSelection model, []
         | { Mods = m; Key = Named Backspace } when m.IsEmpty -> updateActiveBuffer Buffer.backspace model, []
@@ -1522,6 +1600,7 @@ module Editor =
                             model,
                         [])
 
+    /// Cycle the selected completion index by delta, wrapping.
     let private cycleCompletion delta model =
         let prompt = model.Prompt
 
@@ -1536,6 +1615,7 @@ module Editor =
                     { prompt with
                         SelectedCompletion = nextIndex } }
 
+    /// Navigate prompt history by delta, replacing the prompt text.
     let private applyHistory delta model =
         let prompt = model.Prompt
 
@@ -1763,7 +1843,7 @@ module Editor =
         let startupEffects =
             [ ScanWorkspace rootPath; ScanPlugins config.DisabledPlugins; LoadKeybinds ]
             @ (initialFile
-               |> Option.map (fun path -> LoadFile(path, OpenPermanent))
+               |> Option.map (fun path -> LoadFile(path, OpenPermanent, None))
                |> Option.toList)
 
         { Workspace = Workspace.create rootPath
@@ -1808,6 +1888,8 @@ module Editor =
 
         updateActiveBuffer (transform >> Buffer.clearSelection) model, []
 
+    /// Pure message handler: translates a Msg into (Model', Effect list).
+    /// The single dispatch point for all input events and effect results.
     let private updateCore msg model =
         match msg with
         | Resize size -> { model with Terminal = size } |> updateActiveBuffer id, []
@@ -1851,15 +1933,15 @@ module Editor =
                     updateActiveBuffer (Buffer.clearSelection >> moveFn) model, []
         | WorkspaceLoaded result ->
             match result with
-            | Result.Ok(tree, skipped) ->
+            | Result.Ok(sorted, byPath, files, skipped) ->
                 let suffix = if skipped > 0 then $" ({skipped} skipped)" else ""
 
                 { model with
-                    Workspace = Workspace.setTree tree model.Workspace
-                    Notification = Some(Notification.info $"Indexed {tree.Name}{suffix}") },
+                    Workspace = Workspace.setTreeFromPrecomputed (sorted, byPath, files) model.Workspace
+                    Notification = Some(Notification.info $"Indexed {sorted.Name}{suffix}") },
                 []
             | Result.Error message -> notify (Some(Notification.error message)) model, []
-        | FileOpened(path, intent, result) ->
+        | FileOpened(path, intent, target, result) ->
             match result with
             | Result.Ok contents ->
                 let normalized, newline = normalizeNewlines contents
@@ -1882,7 +1964,7 @@ module Editor =
                         else
                             activated
 
-                    { activated with Config = nextConfig }, []
+                    { activated with Config = nextConfig } |> applyTarget target, []
                 | None ->
                     match intent with
                     | OpenPermanent ->
@@ -1903,7 +1985,8 @@ module Editor =
                             Workspace = selectOrReveal path model model.Workspace
                             Focus = Editor
                             Config = nextConfig
-                            Notification = Some(Notification.info $"Opened {buffer.Name}") },
+                            Notification = Some(Notification.info $"Opened {buffer.Name}") }
+                        |> applyTarget target,
                         []
                     | OpenPreview ->
                         let reusableSlot =
@@ -1923,15 +2006,20 @@ module Editor =
                                     EditTick = old.EditTick + 1
                                     SavedTick = old.EditTick + 1 }
 
+                            // The slot now holds different content under the
+                            // same id, so any plugin line-activation that was
+                            // registered for the old content no longer applies.
                             { model with
                                 Editors =
                                     { model.Editors with
                                         Buffers = model.Editors.Buffers |> Map.add buffer.Id buffer
-                                        ActiveBufferId = buffer.Id }
+                                        ActiveBufferId = buffer.Id
+                                        BufferActivations = Map.remove old.Id model.Editors.BufferActivations }
                                 HighlightStates = Map.remove old.Id model.HighlightStates
                                 Workspace = selectOrReveal path model model.Workspace
                                 Config = nextConfig
-                                Notification = Some(Notification.info $"Previewing {displayName}") },
+                                Notification = Some(Notification.info $"Previewing {displayName}") }
+                            |> applyTarget target,
                             []
                         | None ->
                             let buffer =
@@ -1946,7 +2034,8 @@ module Editor =
                                         PreviewBufferId = Some buffer.Id }
                                 Workspace = selectOrReveal path model model.Workspace
                                 Config = nextConfig
-                                Notification = Some(Notification.info $"Previewing {displayName}") },
+                                Notification = Some(Notification.info $"Previewing {displayName}") }
+                            |> applyTarget target,
                             []
             | Result.Error message -> notify (Some(Notification.error $"Failed to open {path}: {message}")) model, []
         | BufferSaved(bufferId, path, revision, result) ->
@@ -2166,12 +2255,21 @@ module Editor =
                         let nextModel =
                             { model with Focus = Editor } |> updateActiveBuffer (Buffer.selectRange idx idx)
 
-                        { nextModel with
-                            MouseDrag =
-                                Some
-                                    { AnchorBufferId = buffer.Id
-                                      AnchorPosition = pos } },
-                        []
+                        match model.Editors.BufferActivations.TryFind buffer.Id with
+                        | Some(source, commandName) ->
+                            // Activation click: the cursor has just moved to
+                            // the clicked line, so the plugin command sees it
+                            // there. No drag anchor — a click that jumps to
+                            // another buffer must not leave a stray selection
+                            // anchor behind in the listing.
+                            executeCommand (PluginInvoke(source, commandName, "")) { nextModel with MouseDrag = None }
+                        | None ->
+                            { nextModel with
+                                MouseDrag =
+                                    Some
+                                        { AnchorBufferId = buffer.Id
+                                          AnchorPosition = pos } },
+                            []
             | _ -> model, []
         | MouseDragged event ->
             match model.MouseDrag with

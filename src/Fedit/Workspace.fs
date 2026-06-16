@@ -104,11 +104,31 @@ module Workspace =
         else
             acc
 
-    let rec private collectFiles (rootPath: string) (acc: string list) (node: FileNode) =
+    let rec collectFiles (rootPath: string) (acc: string list) (node: FileNode) =
         if node.IsDirectory then
             node.Children |> List.fold (collectFiles rootPath) acc
         else
             Path.GetRelativePath(rootPath, node.Path) :: acc
+
+    /// Pre-sort the tree, build the ByPath map, and collect file paths.
+    /// Designed to run on the thread pool so the main dispatch thread
+    /// only does a cheap assignment when WorkspaceLoaded arrives.
+    let preCompute (rootPath: string) (tree: FileNode) : FileNode * Map<string, FileNode> * string list =
+        let sorted = preSort tree
+        sorted, collectByPath Map.empty sorted, collectFiles rootPath [] sorted |> List.rev
+
+    /// Apply pre-computed tree data (from preCompute on the thread pool).
+    let setTreeFromPrecomputed (sorted: FileNode, byPath: Map<string, FileNode>, files: string list) workspace =
+        { workspace with
+            Tree = Some sorted
+            ByPath = byPath
+            Files = files
+            Expanded =
+                if sorted.IsDirectory then
+                    Set.add sorted.Path workspace.Expanded
+                else
+                    workspace.Expanded }
+        |> ensureSelected
 
     let setTree (tree: FileNode) workspace =
         let sorted = preSort tree

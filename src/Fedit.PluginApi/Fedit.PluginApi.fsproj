@@ -4,7 +4,7 @@
     <OutputType>Library</OutputType>
     <AssemblyName>Fedit.PluginApi</AssemblyName>
     <RootNamespace>Fedit.PluginApi</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Description>Public plugin API contract for fedit.</Description>
   </PropertyGroup>
   <ItemGroup>

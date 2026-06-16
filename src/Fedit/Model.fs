@@ -1,3 +1,4 @@
+/// Application state, messages, and effects for the MVU loop.
 namespace Fedit
 
 open System
@@ -8,11 +9,16 @@ type EditorsState =
         Buffers: Map<int, BufferState>
         ActiveBufferId: int
         NextBufferId: int
-        /// The single VSCode-style preview slot: `Some id` while the buffer
-        /// holds an unpromoted preview. Editing the buffer or opening its
-        /// file permanently promotes it (clears this). A new preview reuses
-        /// the same buffer id, replacing its content.
+        /// Single VSCode-style preview slot. `Some id` while unpromoted;
+        /// editing or explicit open clears it (promotes to permanent).
+        /// A new preview reuses the same buffer id, replacing its content.
         PreviewBufferId: int option
+        /// Plugin line-activation registry: bufferId → (source, command).
+        /// When present, Enter or left-click on a line runs the registered
+        /// plugin command instead of inserting/anchoring. Set via
+        /// `SetBufferActivation`; cleared when the preview slot reuses
+        /// the buffer id.
+        BufferActivations: Map<int, string * string>
     }
 
 type PromptMode =
@@ -204,8 +210,11 @@ type Msg =
     | MouseDragged of MouseEvent
     | FocusGained
     | FocusLost
-    | WorkspaceLoaded of Result<FileNode * int, string>
-    | FileOpened of path: string * intent: OpenIntent * Result<string, string>
+    | WorkspaceLoaded of Result<FileNode * Map<string, FileNode> * string list * int, string>
+    /// `target` is an optional 0-based cursor position applied once the
+    /// buffer exists (plugin `OpenFileAt`): it travels with the LoadFile
+    /// effect and returns here so the jump survives the async load.
+    | FileOpened of path: string * intent: OpenIntent * target: Position option * Result<string, string>
     | BufferSaved of bufferId: int * path: string * revision: int * Result<unit, string>
     | ConfigSaved of Result<unit, string>
     /// The config file is on disk (written if missing): Ok carries its path
@@ -239,7 +248,7 @@ type Msg =
 
 type Effect =
     | ScanWorkspace of string
-    | LoadFile of path: string * intent: OpenIntent
+    | LoadFile of path: string * intent: OpenIntent * target: Position option
     | SaveBuffer of bufferId: int * path: string * revision: int * contents: string
     | SaveConfig of Config
     /// Write the default config file if it doesn't exist yet, posting

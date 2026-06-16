@@ -89,6 +89,21 @@ type PluginAction =
     /// `name` (empty defaults to "plugin"), and make it active. Later
     /// actions in the same list operate on the new buffer.
     | NewBuffer of name: string * text: string
+    /// Register `commandName` (a command this plugin registered) to run
+    /// whenever a line of the ACTIVE buffer is activated — Enter, or a
+    /// left click on a line. The command runs with the normal snapshot
+    /// context; the cursor sits on the activated line. Intended for
+    /// listing buffers created with `NewBuffer`. The registration lives
+    /// for the buffer's lifetime and is replaced by the next
+    /// SetBufferActivation targeting the same buffer.
+    | SetBufferActivation of commandName: string
+    /// Open a file and place the cursor at a 1-based position once the
+    /// file is loaded — unlike a MoveCursor after OpenFile/OpenFilePreview,
+    /// the position survives the asynchronous load and also applies when
+    /// the file is already open. Out-of-range positions clamp. `preview`
+    /// selects the preview slot (sidebar-Space semantics) vs a permanent
+    /// buffer. Relative paths resolve against the workspace root.
+    | OpenFileAt of path: string * position: CursorPosition * preview: bool
 
 /// A command definition a plugin registers with the host. `Run` is invoked
 /// synchronously when the command fires; it should be fast (< 50ms).
