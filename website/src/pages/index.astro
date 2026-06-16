@@ -125,11 +125,20 @@ const cards = [
     <div class="container">
       <div class="section__head"><h2>install</h2></div>
 
-      <h3>homebrew <span class="muted">(macOS &amp; Linux)</span></h3>
+      <h3>homebrew <span class="muted">(macOS)</span></h3>
       <pre><span class="dim">$</span> brew install helgesverre/tap/fedit</pre>
       <p class="muted-p">
-        Auto-detects your OS and CPU (arm64 / x64). Updates land via <code>brew upgrade fedit</code
-        >.
+        Auto-detects your CPU (arm64 / x64). Updates land via <code>brew upgrade fedit</code>. Also
+        works under Homebrew on Linux.
+      </p>
+
+      <h3>linux</h3>
+      <p class="muted-p">
+        Download <code>fedit-aarch64-unknown-linux-gnu.tar.xz</code> (arm64) or <code
+          >fedit-x86_64-unknown-linux-gnu.tar.xz</code
+        > (x64) from
+        <a href="https://github.com/HelgeSverre/fedit/releases/latest">the latest release</a>,
+        extract, and put <code>fedit</code> on your <code>PATH</code>.
       </p>
 
       <h3>windows</h3>
