@@ -213,11 +213,6 @@ module Runtime =
         // cancels the stale one; `update` also drops stale results by tick.
         let highlightCts =
             System.Collections.Generic.Dictionary<int, CancellationTokenSource>()
-        // Every scheduled parse naps this long before touching the document:
-        // a keystroke burst schedules one effect per dispatch, each cancelling
-        // the previous, so only the newest survives its nap and pays for the
-        // `toString` + full parse.
-        let highlightDebounceMs = 75
         // The interpreter owns all native tree-sitter objects; the Model only
         // ever sees span arrays posted back as `HighlightParsed`.
         let highlightRegistry = HighlightRegistry.tryCreate ()
@@ -406,10 +401,13 @@ module Runtime =
                     Task.Run<unit>(fun () ->
                         task {
                             try
-                                // Debounce: only the newest request for this
-                                // buffer survives the nap; earlier ones are
-                                // cancelled above before they parse.
-                                do! Task.Delay(highlightDebounceMs, token)
+                                // Debounce before parsing, scaled to document
+                                // size: small buffers nap 0 ms so colors track
+                                // keystrokes, large ones nap so a burst
+                                // coalesces into one parse. Only the newest
+                                // request for this buffer survives the nap;
+                                // earlier ones are cancelled before they parse.
+                                do! Task.Delay(Highlight.reparseDebounceMs (PieceTable.length document), token)
 
                                 let source = PieceTable.toString document
 

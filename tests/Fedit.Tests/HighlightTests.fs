@@ -41,6 +41,21 @@ let ``maxParseChars bounds worst-case parse time`` () =
     Assert.InRange(Highlight.maxParseChars, 100_000, 10_000_000)
 
 [<Fact>]
+let ``reparseDebounceMs is zero for small documents so colors track typing`` () =
+    // The common case: a normal source file reparses with no nap, so syntax
+    // colors follow keystrokes instead of lagging behind a fixed timeout.
+    Assert.Equal(0, Highlight.reparseDebounceMs 0)
+    Assert.Equal(0, Highlight.reparseDebounceMs 5_000)
+    Assert.Equal(0, Highlight.reparseDebounceMs 20_000)
+
+[<Fact>]
+let ``reparseDebounceMs debounces large documents to coalesce expensive parses`` () =
+    // Large buffers nap first so a keystroke burst collapses into one parse
+    // rather than starting (and discarding) a multi-ms parse per key.
+    Assert.True(Highlight.reparseDebounceMs 200_000 > 0)
+    Assert.True(Highlight.reparseDebounceMs Highlight.maxParseChars > 0)
+
+[<Fact>]
 let ``detectLanguage maps F# extensions`` () =
     Assert.Equal(Some "fsharp", Highlight.detectLanguage (Some "foo.fs") "")
     Assert.Equal(Some "fsharp", Highlight.detectLanguage (Some "Bar.FSI") "")
