@@ -18,17 +18,33 @@ Brand assets and theme spec in [`brand/`](brand/). Marketing site in [`website/`
 
 ## Install
 
-### Homebrew (macOS & Linux)
+### macOS
+
+Homebrew, or the install script — both detect your CPU (arm64 / x64):
 
 ```shell
 brew install helgesverre/tap/fedit
+# or
+curl -fsSL https://fedit.dev/install.sh | sh
 ```
 
-Auto-detects your OS and CPU (arm64 / x64). Updates via `brew upgrade fedit`.
+Homebrew updates via `brew upgrade fedit`; the script installs to `~/.local/bin`.
+
+### Linux
+
+```shell
+curl -fsSL https://fedit.dev/install.sh | sh
+```
+
+Detects your CPU, verifies the checksum, and installs to `~/.local/bin` (set `FEDIT_VERSION` to pin a release, `FEDIT_BIN_DIR` / `FEDIT_LIB_DIR` to relocate). Homebrew on Linux works too, or grab the `*-unknown-linux-gnu.tar.xz` from [the latest release](https://github.com/HelgeSverre/fedit/releases/latest) by hand.
 
 ### Windows
 
-Download `fedit-x86_64-pc-windows-msvc.zip` from [the latest release](https://github.com/HelgeSverre/fedit/releases/latest), extract, and add the folder to your `PATH`.
+```powershell
+irm https://fedit.dev/install.ps1 | iex
+```
+
+Installs to `%LOCALAPPDATA%\Programs\fedit` and adds it to your user `PATH` (set `$env:FEDIT_VERSION` / `$env:FEDIT_DIR` to override). Or download `fedit-x86_64-pc-windows-msvc.zip` from [the latest release](https://github.com/HelgeSverre/fedit/releases/latest), extract, and add the folder to your `PATH`.
 
 ### From source
 

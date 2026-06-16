@@ -86,9 +86,7 @@ const cards = [
               rel="noopener">View on GitHub</a
             >
           </p>
-          <p class="caveat"
-            >For macOS &amp; Linux via Homebrew. Windows binary on GitHub Releases.</p
-          >
+          <p class="caveat">One-line install on macOS, Linux, and Windows. See below.</p>
         </div>
         <div class="hero-mascot">
           <CaretRise />
@@ -125,27 +123,33 @@ const cards = [
     <div class="container">
       <div class="section__head"><h2>install</h2></div>
 
-      <h3>homebrew <span class="muted">(macOS)</span></h3>
-      <pre><span class="dim">$</span> brew install helgesverre/tap/fedit</pre>
+      <h3>macOS</h3>
+      <pre
+        ><span class="dim">$</span> brew install helgesverre/tap/fedit       <span class="comment"># homebrew</span>
+<span class="dim">$</span> curl -fsSL https://fedit.dev/install.sh | sh   <span class="comment"># or curl</span></pre
+      >
       <p class="muted-p">
-        Auto-detects your CPU (arm64 / x64). Updates land via <code>brew upgrade fedit</code>. Also
-        works under Homebrew on Linux.
+        Both detect your CPU (arm64 / x64). Homebrew updates via <code>brew upgrade fedit</code>;
+        the script installs to <code>~/.local/bin</code>.
       </p>
 
       <h3>linux</h3>
+      <pre><span class="dim">$</span> curl -fsSL https://fedit.dev/install.sh | sh</pre>
       <p class="muted-p">
-        Download <code>fedit-aarch64-unknown-linux-gnu.tar.xz</code> (arm64) or <code
-          >fedit-x86_64-unknown-linux-gnu.tar.xz</code
-        > (x64) from
-        <a href="https://github.com/HelgeSverre/fedit/releases/latest">the latest release</a>,
-        extract, and put <code>fedit</code> on your <code>PATH</code>.
+        Detects your CPU, verifies the checksum, and installs to <code>~/.local/bin</code>. Set <code
+          >FEDIT_VERSION</code
+        > to pin a release. Homebrew on Linux works too. Or grab the
+        <a href="https://github.com/HelgeSverre/fedit/releases/latest">tarball</a> by hand.
       </p>
 
       <h3>windows</h3>
+      <pre><span class="dim">&gt;</span> irm https://fedit.dev/install.ps1 | iex</pre>
       <p class="muted-p">
-        Download <code>fedit-x86_64-pc-windows-msvc.zip</code> from
-        <a href="https://github.com/HelgeSverre/fedit/releases/latest">the latest release</a>,
-        extract, and add the folder to your <code>PATH</code>.
+        Installs to <code>%LOCALAPPDATA%\Programs\fedit</code> and adds it to your user
+        <code>PATH</code>. Or download the
+        <a href="https://github.com/HelgeSverre/fedit/releases/latest"
+          ><code>x86_64-pc-windows-msvc.zip</code></a
+        > and extract it onto your <code>PATH</code>.
       </p>
 
       <h3>from source</h3>

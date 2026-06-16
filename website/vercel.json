@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    {
+      "source": "/install.sh",
+      "destination": "https://raw.githubusercontent.com/HelgeSverre/fedit/main/scripts/install.sh",
+      "permanent": false
+    },
+    {
+      "source": "/install.ps1",
+      "destination": "https://raw.githubusercontent.com/HelgeSverre/fedit/main/scripts/install.ps1",
+      "permanent": false
+    }
+  ]
+}
