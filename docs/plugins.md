@@ -225,6 +225,8 @@ action in order. Pick the right action for the effect you want:
 | `DeleteSelection`                    | Delete the selected text as one undo entry (no-op without one)                                                                                                                                                   | Cut without replacement text                     |
 | `SwitchBuffer id`                    | Activate the buffer with this `BufferView.Id`; unknown ids raise an error notification                                                                                                                           | Act across `AllBuffers`                          |
 | `NewBuffer(name, text)`              | Create a scratch buffer (empty `name` defaults to `"plugin"`) and make it active; later actions in the same list target it                                                                                       | Show generated output as a real, editable buffer |
+| `SetBufferActivation "cmd"`          | Register a command to run when a line of the active buffer is activated (Enter or left-click); records it against whatever buffer is active now, so place it after a `NewBuffer` in the same list                | Make a generated listing clickable               |
+| `OpenFileAt(path, pos, preview)`     | Open a file (workspace-root relative) and move the cursor to a 1-based `pos` once it loads; the target travels with the async open and applies in place if the file is already open                              | Jump to an exact line/column in source           |
 
 Two coordination notes:
 
@@ -237,6 +239,10 @@ Two coordination notes:
   `OpenFilePreview` sits in the preview slot and is replaced by the
   next preview — unless it's edited, which promotes it to a regular
   buffer.
+
+### Line-activated buffers
+
+Turn a scratch buffer into a clickable listing with `SetBufferActivation`. It records the named command against the buffer that is active when the action runs, so emit it after the `NewBuffer` that produced the listing. When the user presses Enter or left-clicks a line, the host runs that command with a fresh `PluginContext` whose `ActiveBuffer.Cursor` sits on the activated line. The command name is not validated at registration time — an unknown command surfaces through the normal "command missing" error path when the line is activated. Pair it with `OpenFileAt` inside the handler to jump to a precise 1-based coordinate in another file; the `todo-list` example does exactly this (`todolist` builds the listing and registers `todo-jump`, which parses the clicked line and calls `OpenFileAt`).
 
 ### Registration
 
@@ -284,14 +290,14 @@ type IPluginHost =
 The repo ships six plugins under [`examples/`](../examples) — each
 demonstrates a different combination of actions.
 
-| Plugin                                 | Command                    | Actions used                                                                                                   | What it shows                                                  |
-| -------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| [`wordcount`](../examples/wordcount)   | `:wc`                      | `Notify`                                                                                                       | Smallest possible plugin                                       |
-| [`journal`](../examples/journal)       | `:journal`                 | `InsertText` + `RevealPath` + `Notify`                                                                         | Insert at cursor; the sidebar follows the stamped file         |
-| [`todo-count`](../examples/todo-count) | `:todocount`               | `Notify`                                                                                                       | Walk the workspace via `Workspace.RootPath`                    |
-| [`todo-list`](../examples/todo-list)   | `:todolist`                | `NewBuffer` + `Notify`                                                                                         | Scan `Workspace.Files`, report into an editable scratch buffer |
-| [`todo-next`](../examples/todo-next)   | `:todonext`                | `MoveCursor` + `SwitchBuffer` + `Notify` + `RegisterKeybinding(Ctrl 't')`                                      | Jump to the next match, continuing across every open buffer    |
-| [`jot`](../examples/jot)               | `:jot` `:jotdone` `:jotgo` | `NewBuffer` + `SwitchBuffer` + `MoveCursor` + `InsertText` + `ReplaceRange` + `RevealPath` + `OpenFilePreview` | Session scratchpad exercising the full post-MVP action set     |
+| Plugin                                 | Command                    | Actions used                                                                                                   | What it shows                                                          |
+| -------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [`wordcount`](../examples/wordcount)   | `:wc`                      | `Notify`                                                                                                       | Smallest possible plugin                                               |
+| [`journal`](../examples/journal)       | `:journal`                 | `InsertText` + `RevealPath` + `Notify`                                                                         | Insert at cursor; the sidebar follows the stamped file                 |
+| [`todo-count`](../examples/todo-count) | `:todocount`               | `Notify`                                                                                                       | Walk the workspace via `Workspace.RootPath`                            |
+| [`todo-list`](../examples/todo-list)   | `:todolist`                | `NewBuffer` + `SetBufferActivation` + `OpenFileAt` + `Notify`                                                  | Scan `Workspace.Files` into a clickable listing; Enter jumps to source |
+| [`todo-next`](../examples/todo-next)   | `:todonext`                | `MoveCursor` + `SwitchBuffer` + `Notify` + `RegisterKeybinding(Ctrl 't')`                                      | Jump to the next match, continuing across every open buffer            |
+| [`jot`](../examples/jot)               | `:jot` `:jotdone` `:jotgo` | `NewBuffer` + `SwitchBuffer` + `MoveCursor` + `InsertText` + `ReplaceRange` + `RevealPath` + `OpenFilePreview` | Session scratchpad exercising the full post-MVP action set             |
 
 ## The `:plugin` command
 
