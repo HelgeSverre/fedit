@@ -99,6 +99,18 @@ const actions = [
     use: "Create a scratch buffer holding text and make it active. Later actions in the list target it.",
     sample: `[ NewBuffer("todos", report) ]`,
   },
+  {
+    name: "SetBufferActivation",
+    arg: "string",
+    use: "Run a registered command when a line of the active buffer is activated (Enter or left-click). Place it after the NewBuffer it targets.",
+    sample: `[ SetBufferActivation "todo-jump" ]`,
+  },
+  {
+    name: "OpenFileAt",
+    arg: "string * { Line; Column } * bool",
+    use: "Open a file and move the cursor to a 1-based position once it loads; the target survives the async open and applies if the file is already open. preview picks the preview slot.",
+    sample: `[ OpenFileAt(path, { Line = 42; Column = 7 }, false) ]`,
+  },
 ];
 
 const lifecycle = [
@@ -146,8 +158,9 @@ const examples = [
   {
     name: "todo-list",
     command: ":todolist",
-    blurb: "List every TODO: as path:line in an editable todos scratch buffer (cap 50).",
-    uses: "NewBuffer + Notify",
+    blurb:
+      "List every TODO: as path:line in a clickable todos buffer; Enter or click jumps to the source (cap 50).",
+    uses: "NewBuffer + SetBufferActivation + OpenFileAt + Notify",
   },
   {
     name: "todo-next",
@@ -184,7 +197,7 @@ const verbs = [
 
 <DocsLayout
   title="plugins"
-  description="Build fedit plugins in F#. A five-minute quickstart, the sixteen PluginAction types you can return, and six reference implementations under examples/."
+  description="Build fedit plugins in F#. A five-minute quickstart, the eighteen PluginAction types you can return, and six reference implementations under examples/."
   image="/og/extend.png"
 >
   <div class="section__head">

@@ -30,6 +30,19 @@ const shipped = (version: string, item: string): ChangelogEntry => ({
 });
 
 export const changelog: ChangelogEntry[] = [
+  shipped("Deps", "Bumped FSharp.Core to 10.1.301 and the codecov action via Dependabot."),
+  shipped(
+    "Terminal",
+    "Shortened terminal capability detection (DA1/DA2) from a 500 ms to a 100 ms timeout so startup does not stall on terminals that never reply.",
+  ),
+  shipped(
+    "Perf",
+    "Cut per-keystroke cost on the edit and highlight paths. Buffer splices its line cache per edit and shares an append-only add buffer (~13x faster typing, ~27x less allocation at 256 lines). Syntax reparse fires immediately on every keystroke — no debounce — on a background thread, bounded by a 2M-char parse cap and a grammar-less fast path. Hoisted Color.cubeRgb's standard-16 table. Numbers in docs/benchmarks.md.",
+  ),
+  shipped(
+    "Activation",
+    'Two append-only PluginAction cases: SetBufferActivation commandName runs a registered command when a line of the active buffer is activated (Enter or left-click), recorded against whatever buffer is active when the action runs; OpenFileAt(path, position, preview) opens a file and moves the cursor to a 1-based position, carrying the target through the async load so it survives the round-trip and applies in place when the file is already open. todo-list now opens a clickable TODO listing (SetBufferActivation + OpenFileAt) instead of a static report. apiVersion stays "1" (append-only).',
+  ),
   shipped(
     "Actions",
     'Seven append-only PluginAction cases: OpenFilePreview, RevealPath, ReplaceRange(from, to_, text), ClearSelection, DeleteSelection, SwitchBuffer(id), NewBuffer(name, text). WorkspaceView grows SelectedPath (sidebar selection, absolute) and Files (root-relative sorted index); Buffer.replaceRange becomes public as the ReplaceRange primitive. apiVersion stays "1" under the now-documented append-only rule — new DU cases append at the end, new fields land only on host-constructed records. New examples/jot session scratchpad (:jot/:jotdone/:jotgo) exercises the set; todo-list reports into a NewBuffer scratch driven by Workspace.Files, todo-next continues into other buffers via SwitchBuffer, journal reveals the stamped file with RevealPath. Fedit.PluginApi 1.1.0.',
