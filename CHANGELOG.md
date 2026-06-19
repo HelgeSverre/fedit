@@ -66,6 +66,7 @@ live in [`TODO.md`](TODO.md).
 | Perf | Cut per-keystroke cost on the edit and highlight paths. `Buffer` splices its line cache per edit and shares an append-only add buffer (~13× faster typing, ~27× less allocation at 256 lines). Syntax reparse fires immediately on every keystroke — no debounce — on a background thread, bounded by a 2M-char parse cap and a grammar-less fast path. Hoisted `Color.cubeRgb`'s standard-16 table (QuantizeAccent 2.6 µs → 175 ns). Numbers in `docs/benchmarks.md`. |
 | Terminal | Shortened terminal capability detection (DA1/DA2) from a 500 ms to a 100 ms timeout so startup does not stall on terminals that never reply. |
 | Deps | Bumped `FSharp.Core` to 10.1.301 and the codecov action via Dependabot. |
+| Startup | Cut time-to-first-paint from ~412 ms to ~133 ms (warm, M2 Max). `HighlightRegistry` loads each tree-sitter grammar lazily on first lookup instead of building all ~25 in `tryCreate` (~180 ms → ~4 ms); the `FileSystemWatcher` starts on a background thread after the first frame paints rather than blocking it (~60 ms); `PublishReadyToRun` precompiles the shipped IL, cutting first-paint JIT. Plugins keep their runtime JIT; crossgen2 cross-targets all five release RIDs. |
 
 ## Architecture review findings (all resolved)
 
