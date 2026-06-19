@@ -26,6 +26,9 @@ class Fedit < Formula
 
   def install
     libexec.install "fedit"
+    # The out-of-process plugin host must sit beside the editor — fedit spawns
+    # it to load plugins. Without it, plugins silently fail to load.
+    libexec.install "Fedit.PluginHost" if File.exist?("Fedit.PluginHost")
     libexec.install "Fedit.PluginApi.dll" if File.exist?("Fedit.PluginApi.dll")
     libexec.install "runtimes" if Dir.exist?("runtimes")
     bin.write_exec_script libexec/"fedit"
