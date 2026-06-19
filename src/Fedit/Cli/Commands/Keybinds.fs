@@ -19,70 +19,7 @@ open Fedit.Cli
 
 /// Stable kebab name per `Action` case — the inverse of `parseAction` in
 /// `Keymap.fs`. Exhaustive so a new Action forces a compile-time choice.
-let actionName (action: Action) : string =
-    match action with
-    | MoveLeft -> "move-left"
-    | MoveRight -> "move-right"
-    | MoveUp -> "move-up"
-    | MoveDown -> "move-down"
-    | MoveWordLeft -> "move-word-left"
-    | MoveWordRight -> "move-word-right"
-    | MoveHome -> "move-home"
-    | MoveEnd -> "move-end"
-    | MovePageUp -> "page-up"
-    | MovePageDown -> "page-down"
-    | ExtendLeft -> "extend-left"
-    | ExtendRight -> "extend-right"
-    | ExtendUp -> "extend-up"
-    | ExtendDown -> "extend-down"
-    | ExtendHome -> "extend-home"
-    | ExtendEnd -> "extend-end"
-    | SelectAll -> "select-all"
-    | Indent -> "indent"
-    | Unindent -> "unindent"
-    | DeleteWordBack -> "delete-word-back"
-    | DeleteWordForward -> "delete-word-forward"
-    | Undo -> "undo"
-    | Redo -> "redo"
-    | Copy -> "copy"
-    | Cut -> "cut"
-    | Paste -> "paste"
-    | Save -> "save"
-    | SaveAs _ -> "save-as"
-    | Quit -> "quit"
-    | OpenPalette -> "command-palette"
-    | OpenFilePicker -> "open-file"
-    | OpenSearch -> "search"
-    | NextBuffer -> "next-buffer"
-    | PrevBuffer -> "prev-buffer"
-    | JumpToBuffer _ -> "jump-to-buffer"
-    | SetTheme _ -> "set-theme"
-    | Goto _ -> "goto"
-    | ReloadWorkspace -> "reload-workspace"
-    | OpenConfig -> "open-config"
-    | ReloadKeybinds -> "reload-keybinds"
-    | RunPlugin _ -> "run-plugin"
-    | RevealSidebar -> "reveal-sidebar"
-    | HideSidebar -> "hide-sidebar"
-    | ToggleSidebar -> "toggle-sidebar"
-    | FocusSidebar -> "focus-sidebar"
-    | FocusEditor -> "focus-editor"
-    | RevealInSidebar -> "reveal-in-sidebar"
-    | SidebarUp -> "sidebar-up"
-    | SidebarDown -> "sidebar-down"
-    | SidebarPageUp -> "sidebar-page-up"
-    | SidebarPageDown -> "sidebar-page-down"
-    | SidebarTop -> "sidebar-top"
-    | SidebarBottom -> "sidebar-bottom"
-    | SidebarCollapse -> "sidebar-collapse"
-    | SidebarExpand -> "sidebar-expand"
-    | SidebarActivate -> "sidebar-activate"
-    | Chain _ -> "chain"
-    | When _ -> "when"
-    | NoOp -> "no-op"
-    | RecordMacro _ -> "record-macro"
-    | ReplayMacro _ -> "replay-macro"
-    | RepeatLastMacro -> "repeat-last-macro"
+let actionName (action: Action) : string = Action.name action
 
 /// `(category, description)` one-liner per action for the website grid.
 /// Lead with a verb; no emoji, no marketing words (brand/voice.md). The
@@ -249,7 +186,7 @@ let private jsonEscape (s: string) : string =
 /// the website can render and filter them. Ends with a newline.
 let toJson (keymap: Keymap) : string =
     let field name value =
-        sprintf "\"%s\": \"%s\"" name (jsonEscape value)
+        "\"" + name + "\": \"" + jsonEscape value + "\""
 
     let renderRow stroke action context category description bound =
         let pairs =
@@ -258,7 +195,7 @@ let toJson (keymap: Keymap) : string =
               field "context" context
               field "category" category
               field "description" description
-              sprintf "\"bound\": %b" bound ]
+              "\"bound\": " + (if bound then "true" else "false") ]
 
         "  { " + String.concat ", " pairs + " }"
 
@@ -310,7 +247,13 @@ let private renderTable (keymap: Keymap) : string =
     let sb = StringBuilder()
 
     for ctx, stroke, action in rows do
-        sb.AppendLine(sprintf "%-*s  %-*s  %s" ctxWidth ctx strokeWidth stroke (actionName action))
+        sb.AppendLine(
+            ctx.PadRight ctxWidth
+            + "  "
+            + stroke.PadRight strokeWidth
+            + "  "
+            + actionName action
+        )
         |> ignore
 
     sb.ToString()
@@ -364,15 +307,15 @@ let private wantsJson items =
 let run (argv: string[]) : int =
     match Parser.parse keybindsApp.Options argv with
     | Result.Error errors ->
-        eprintfn "%s" (Parser.formatErrors keybindsApp errors)
+        System.Console.Error.WriteLine(Parser.formatErrors keybindsApp errors)
         2
     | Result.Ok items when wantsHelp items ->
-        printfn "%s" (Parser.formatHelp keybindsApp)
+        System.Console.Out.WriteLine(Parser.formatHelp keybindsApp)
         0
     | Result.Ok items ->
         if wantsJson items then
-            printf "%s" (toJson Keymap.defaults)
+            System.Console.Out.Write(toJson Keymap.defaults)
         else
-            printf "%s" (renderTable Keymap.defaults)
+            System.Console.Out.Write(renderTable Keymap.defaults)
 
         0

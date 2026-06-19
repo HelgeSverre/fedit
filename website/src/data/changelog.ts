@@ -31,6 +31,18 @@ const shipped = (version: string, item: string): ChangelogEntry => ({
 
 export const changelog: ChangelogEntry[] = [
   shipped(
+    "Cross-platform",
+    "Adopted a canonical forward-slash path model (normalized at every OS boundary) so path comparisons, the file list, the plugin API, and the file picker behave identically on Windows, macOS, and Linux. .gitattributes forces LF on checkout. Fixes 23 Windows-only test failures; Windows CI is green for the first time.",
+  ),
+  shipped(
+    "AOT-ready",
+    "The editor is now NativeAOT-clean (purged ~140 printf/%A sites that reflect via MakeGenericMethod, which AOT forbids). A native build is ~7 MB and ~10 ms first paint (vs ~133 ms R2R); AOT is opt-in and the default release stays self-contained R2R. The out-of-process plugin split is what makes AOT possible.",
+  ),
+  shipped(
+    "Plugins (out-of-process)",
+    "Plugins now load in a separate Fedit.PluginHost process instead of inside the editor; the editor talks to it over JSON-RPC. The plugin API is unchanged (apiVersion 1) so existing plugins keep working, and a slow plugin no longer freezes the UI. The host ships beside the editor in every release.",
+  ),
+  shipped(
     "Startup",
     "Cut time-to-first-paint from ~412 ms to ~133 ms (warm, M2 Max). HighlightRegistry loads each tree-sitter grammar lazily on first lookup instead of building all ~25 in tryCreate (~180 ms to ~4 ms); the FileSystemWatcher starts on a background thread after the first frame paints rather than blocking it (~60 ms); PublishReadyToRun precompiles the shipped IL, cutting first-paint JIT. Plugins keep their runtime JIT; crossgen2 cross-targets all five release RIDs.",
   ),

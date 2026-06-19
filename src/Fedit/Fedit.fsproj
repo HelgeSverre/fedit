@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>fedit</AssemblyName>
     <Product>fedit</Product>
-    <Version>1.4.0</Version>
+    <Version>1.5.0</Version>
     <Description>A small terminal text editor written in F#.</Description>
     <Authors>Helge Sverre</Authors>
     <Copyright>Copyright (c) Helge Sverre</Copyright>
@@ -26,6 +26,26 @@
          all five from one runner. -->
     <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
+
+  <!-- NativeAOT build flavor, activated with -p:FeditAot=true. Overrides the
+       Release publish knobs AOT forbids (single-file, R2R, untrimmed). The
+       editor becomes a self-contained native binary (~7 MB, ~10 ms first
+       paint); plugins run out-of-process (see Fedit.PluginHost) since AOT has
+       no JIT to load them. NativeAOT does not cross-compile across OS — each
+       RID must be published on a matching-OS runner. -->
+  <PropertyGroup Condition="'$(FeditAot)' == 'true'">
+    <PublishAot>true</PublishAot>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>true</PublishTrimmed>
+    <IlcTreatWarningsAsErrors>false</IlcTreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <!-- macOS only: point the native linker at Homebrew's openssl so the
+       crypto shim resolves. Linux/Windows resolve it from the system. -->
+  <ItemGroup Condition="'$(FeditAot)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">
+    <LinkerArg Include="-L/opt/homebrew/lib" />
+  </ItemGroup>
   <ItemGroup>
     <!-- Explicit reference so FSharp.Core ships in bin/ even for non-SDK
          invocations (e.g. binary smoke tests via `dotnet run`). Version
@@ -197,6 +217,9 @@
     <Compile Include="Actions.fs" />
     <Compile Include="Keymap.fs" />
     <Compile Include="Plugins.fs" />
+    <Compile Include="PluginWire.fs" />
+    <Compile Include="PluginProtocol.fs" />
+    <Compile Include="PluginHostClient.fs" />
     <Compile Include="PickerTypes.fs" />
     <Compile Include="PromptTypes.fs" />
     <Compile Include="Model.fs" />

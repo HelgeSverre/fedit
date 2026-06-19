@@ -111,8 +111,11 @@ module Runtime =
             $"ParseHighlight(buffer={bufferId}, lang={language}, tick={editTick}, docLen={PieceTable.length document})"
         | _ -> $"{effect}"
 
-    /// Build a FileNode, using the basename (or full path when the name is empty).
+    /// Build a FileNode, using the basename (or full path when the name is
+    /// empty). Paths are canonicalized to `/` here — this is the OS boundary
+    /// where tree paths enter from `Directory.Enumerate*` (native separators).
     let private makeNode (path: string) isDirectory children : FileNode =
+        let path = Paths.norm path
         let rawName = Path.GetFileName path |> Text.optStr |> Option.defaultValue path
 
         { Path = path
@@ -171,6 +174,10 @@ module Runtime =
           Height = max 1 Console.WindowHeight }
 
     let run rootPath initialFile (logPath: string option) =
+        // Canonicalize the workspace root + initial file to `/` at this OS
+        // boundary so every downstream path comparison is platform-independent.
+        let rootPath = Paths.norm rootPath
+        let initialFile = initialFile |> Option.map Paths.norm
         Console.OutputEncoding <- Encoding.UTF8
         Console.TreatControlCAsInput <- true
 
@@ -216,6 +223,11 @@ module Runtime =
         // The interpreter owns all native tree-sitter objects; the Model only
         // ever sees span arrays posted back as `HighlightParsed`.
         let highlightRegistry = HighlightRegistry.tryCreate ()
+
+        // Plugins load in a separate JIT process so the editor can ship as
+        // NativeAOT. Scans and invocations go through this client; the Model
+        // only ever sees the registry (stub Run closures) and PluginActions.
+        let pluginHost = new PluginHostClient(PluginHostClient.defaultHostPath ())
 
         let cancelAndReplace (existing: CancellationTokenSource option) =
             existing
@@ -422,16 +434,11 @@ module Runtime =
                     |> ignore
             | ScanPlugins disabledPlugins ->
                 Task.Run(fun () ->
-                    let msg =
-                        try
-                            let pluginsRoot = Path.Combine(ConfigIO.directory (), "plugins")
-                            let apiDll = Path.Combine(AppContext.BaseDirectory, "Fedit.PluginApi.dll")
-                            let registry = Plugins.scanAndLoad pluginsRoot apiDll disabledPlugins log
-                            PluginsScanned(Result.Ok registry)
-                        with ex ->
-                            PluginsScanned(Result.Error ex.Message)
-
-                    queue.Enqueue msg)
+                    let pluginsRoot = Path.Combine(ConfigIO.directory (), "plugins")
+                    queue.Enqueue(PluginsScanned(pluginHost.Scan(pluginsRoot, disabledPlugins))))
+                |> ignore
+            | RunPluginCommand(source, command, context) ->
+                Task.Run(fun () -> queue.Enqueue(PluginActionsReady(source, pluginHost.Invoke(command, context))))
                 |> ignore
             | InstallPluginFromSource source ->
                 Task.Run(fun () ->
@@ -532,9 +539,20 @@ module Runtime =
         let mutable prefixDeadline: DateTime voption = ValueNone
 
         let dispatch model msg =
-            log $"msg: {renderMsg msg}"
+            // Guard the trace: renderMsg/renderEffect interpolate DU values, which
+            // F# lowers to reflective structured printing — fine under JIT but a
+            // hard crash under NativeAOT. Only build it when --log is on (the
+            // interpolation argument is evaluated eagerly, so the guard matters).
+            match logWriter with
+            | Some _ -> log $"msg: {renderMsg msg}"
+            | None -> ()
+
             let nextModel, effects = Editor.update msg model
-            effects |> List.iter (fun e -> log $"effect: {renderEffect e}")
+
+            match logWriter with
+            | Some _ -> effects |> List.iter (fun e -> log $"effect: {renderEffect e}")
+            | None -> ()
+
             effects |> List.iter startEffect
 
             prefixDeadline <-
@@ -749,6 +767,11 @@ module Runtime =
                     (r :> IDisposable).Dispose()
                 with _ ->
                     ())
+
+            try
+                (pluginHost :> IDisposable).Dispose()
+            with _ ->
+                ()
 
             Terminal.leave terminal
             logWriter |> Option.iter (fun w -> w.Dispose())

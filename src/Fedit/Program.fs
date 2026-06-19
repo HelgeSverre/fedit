@@ -107,63 +107,82 @@ module Program =
 
     [<EntryPoint>]
     let main argv =
-        match Parser.route subcommands argv with
-        | Some("plugins", rest) -> Plugins.run rest
-        | Some("completions", rest) -> Completions.run rootDescriptor rest
-        | Some("keybinds", rest) -> Keybinds.run rest
-        | Some("themes", rest) -> Themes.run rest
-        | _ ->
+        // Hidden: prove the AOT-safe plugin wire round-trips inside the AOT
+        // binary (reflection-based JSON would crash here). Spike scaffolding.
+        if argv.Length = 1 && argv.[0] = "__plugin-wire-selftest" then
+            if PluginWire.selfTest () then
+                Console.Error.WriteLine "plugin-wire selftest: OK"
+                0
+            else
+                Console.Error.WriteLine "plugin-wire selftest: FAIL"
+                1
+        elif argv.Length = 3 && argv.[0] = "__plugin-host-selftest" then
+            // args: <pluginsRoot> <hostPath> — spawns the host child over RPC.
+            if PluginHostClient.selfTest argv.[1] argv.[2] then
+                Console.Error.WriteLine "plugin-host selftest: OK"
+                0
+            else
+                Console.Error.WriteLine "plugin-host selftest: FAIL"
+                1
+        else
 
-            match Parser.parse app.Options argv with
-            | Result.Error errors ->
-                eprintfn "%s" (Parser.formatErrors app errors)
-                2
+            match Parser.route subcommands argv with
+            | Some("plugins", rest) -> Plugins.run rest
+            | Some("completions", rest) -> Completions.run rootDescriptor rest
+            | Some("keybinds", rest) -> Keybinds.run rest
+            | Some("themes", rest) -> Themes.run rest
+            | _ ->
 
-            | Result.Ok items ->
-                let parsed = foldParsed items
+                match Parser.parse app.Options argv with
+                | Result.Error errors ->
+                    Console.Error.WriteLine(Parser.formatErrors app errors)
+                    2
 
-                if parsed.HelpRequested then
-                    printfn "%s" (Parser.formatHelp app)
-                    0
-                elif parsed.VersionRequested then
-                    printfn "%s" (versionString ())
-                    0
-                else
-                    let rootPath, initialFile =
-                        match parsed.Workspace with
-                        | Some path ->
-                            let fullPath = Path.GetFullPath path
+                | Result.Ok items ->
+                    let parsed = foldParsed items
 
-                            if File.Exists fullPath then
-                                let parent =
-                                    match Path.GetDirectoryName fullPath with
-                                    | null
-                                    | "" -> Directory.GetCurrentDirectory()
-                                    | directory -> directory
-
-                                parent, Some fullPath
-                            elif Directory.Exists fullPath then
-                                fullPath, None
-                            else
-                                let parent =
-                                    match Path.GetDirectoryName fullPath with
-                                    | null
-                                    | "" -> Directory.GetCurrentDirectory()
-                                    | directory -> directory
-
-                                parent, Some fullPath
-                        | None -> Directory.GetCurrentDirectory(), None
-
-                    let absLogPath = parsed.LogPath |> Option.map Path.GetFullPath
-
-                    try
-                        Runtime.run rootPath initialFile absLogPath
+                    if parsed.HelpRequested then
+                        Console.Out.WriteLine(Parser.formatHelp app)
                         0
-                    with ex ->
-                        eprintfn "fedit: unrecoverable error"
-                        eprintfn "  %s" ex.Message
+                    elif parsed.VersionRequested then
+                        Console.Out.WriteLine(versionString ())
+                        0
+                    else
+                        let rootPath, initialFile =
+                            match parsed.Workspace with
+                            | Some path ->
+                                let fullPath = Path.GetFullPath path
 
-                        if not (String.IsNullOrEmpty ex.StackTrace) then
-                            eprintfn "%s" ex.StackTrace
+                                if File.Exists fullPath then
+                                    let parent =
+                                        match Path.GetDirectoryName fullPath with
+                                        | null
+                                        | "" -> Directory.GetCurrentDirectory()
+                                        | directory -> directory
 
-                        1
+                                    parent, Some fullPath
+                                elif Directory.Exists fullPath then
+                                    fullPath, None
+                                else
+                                    let parent =
+                                        match Path.GetDirectoryName fullPath with
+                                        | null
+                                        | "" -> Directory.GetCurrentDirectory()
+                                        | directory -> directory
+
+                                    parent, Some fullPath
+                            | None -> Directory.GetCurrentDirectory(), None
+
+                        let absLogPath = parsed.LogPath |> Option.map Path.GetFullPath
+
+                        try
+                            Runtime.run rootPath initialFile absLogPath
+                            0
+                        with ex ->
+                            Console.Error.WriteLine "fedit: unrecoverable error"
+                            Console.Error.WriteLine("  " + ex.Message)
+
+                            if not (String.IsNullOrEmpty ex.StackTrace) then
+                                Console.Error.WriteLine ex.StackTrace
+
+                            1

@@ -273,7 +273,7 @@ module Color =
     let toHex (color: Color) : string option =
         match toRgb color with
         | None -> None
-        | Some(r, g, b) -> Some(sprintf "#%02X%02X%02X" r g b)
+        | Some(r, g, b) -> Some("#" + r.ToString("X2") + g.ToString("X2") + b.ToString("X2"))
 
     /// Accept "#RRGGBB" / "#RGB" first; otherwise try the named-color
     /// table. Used by user-theme JSON loaders.

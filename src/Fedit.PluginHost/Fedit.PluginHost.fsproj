@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Fedit.PluginHost</AssemblyName>
+    <RootNamespace>Fedit.PluginHost</RootNamespace>
+    <Version>1.5.0</Version>
+    <Description>Out-of-process plugin host for fedit — loads plugins (JIT) and serves the editor over stdio JSON-RPC, so the editor can ship as NativeAOT.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Linked from the editor: all depend only on Fedit.PluginApi + BCL.
+         The host loads plugins via these; the editor never loads them. -->
+    <Compile Include="..\Fedit\Plugins.fs">
+      <Link>Plugins.fs</Link>
+    </Compile>
+    <Compile Include="..\Fedit\PluginWire.fs">
+      <Link>PluginWire.fs</Link>
+    </Compile>
+    <Compile Include="..\Fedit\PluginProtocol.fs">
+      <Link>PluginProtocol.fs</Link>
+    </Compile>
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <ProjectReference Include="..\Fedit.PluginApi\Fedit.PluginApi.fsproj" />
+  </ItemGroup>
+</Project>

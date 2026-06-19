@@ -32,6 +32,15 @@ clean:
     {{dotnet}} clean {{project}}
     rm -rf bin obj
 
+# Build the NativeAOT bundle for a RID: the AOT editor + the self-contained
+# plugin host beside it (the editor spawns it; AOT has no JIT to load plugins).
+# NativeAOT does not cross-compile across OS — run this on a matching-OS host.
+[group('build')]
+aot rid="osx-arm64" out="dist-aot":
+    {{dotnet}} publish {{project}} -c Release -r {{rid}} -p:FeditAot=true -o {{out}} --nologo
+    {{dotnet}} publish src/Fedit.PluginHost/Fedit.PluginHost.fsproj -c Release -r {{rid}} --self-contained -p:PublishSingleFile=true -o {{out}} --nologo
+    @echo "→ AOT bundle in {{out}}/ (fedit + Fedit.PluginHost)"
+
 # Format sources (F# via fantomas, markdown via oxfmt).
 [group('format')]
 format:

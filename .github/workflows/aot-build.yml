@@ -1,0 +1,101 @@
+name: AOT build
+
+# Manually dispatched NativeAOT build. Produces a self-contained native editor
+# (~7 MB, ~10 ms first paint) plus the out-of-process plugin host, as workflow
+# artifacts — it does NOT publish a release. Promote to the Release workflow
+# once validated here.
+#
+# NativeAOT cannot cross-compile across OS, so each RID builds on a matching-OS
+# runner. osx-x64 and linux-arm64 are cross-ARCH (host is arm64 / x64
+# respectively); they are intentionally omitted until a cross-arch AOT
+# toolchain is wired up — see the TODO below.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  aot:
+    name: AOT ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            rid: osx-arm64
+          - os: ubuntu-22.04
+            rid: linux-x64
+          - os: windows-2022
+            rid: win-x64
+          # TODO cross-arch AOT (needs a cross toolchain/sysroot):
+          #   - { os: macos-14,     rid: osx-x64 }
+          #   - { os: ubuntu-22.04, rid: linux-arm64 }
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      # Same vendored tree-sitter natives the Release workflow builds; AOT
+      # bundles runtimes/<rid>/native just like the R2R publish does.
+      - uses: mlugg/setup-zig@v2
+      - name: Build tree-sitter grammars for ${{ matrix.rid }}
+        shell: bash
+        run: |
+          case "${{ matrix.rid }}" in
+            osx-arm64)   target="aarch64-macos";      ext="dylib"; pfx="lib" ;;
+            linux-x64)   target="x86_64-linux-gnu";   ext="so";    pfx="lib" ;;
+            win-x64)     target="x86_64-windows-gnu"; ext="dll";   pfx="" ;;
+            *) echo "Unknown RID: ${{ matrix.rid }}" >&2; exit 1 ;;
+          esac
+          dest="src/Fedit/runtimes/${{ matrix.rid }}/native"
+          mkdir -p "$dest"
+          zig cc -O2 -shared -fPIC -target "$target" \
+            -I vendor/tree-sitter-fsharp/fsharp/src \
+            -o "$dest/${pfx}tree-sitter-fsharp.${ext}" \
+            vendor/tree-sitter-fsharp/fsharp/src/parser.c \
+            vendor/tree-sitter-fsharp/fsharp/src/scanner.c
+          grammars=(
+            "markdown|vendor/tree-sitter-markdown/tree-sitter-markdown/src|parser.c scanner.c"
+            "xml|vendor/tree-sitter-xml/xml/src|parser.c scanner.c"
+            "dart|vendor/tree-sitter-dart/src|parser.c scanner.c"
+            "just|vendor/tree-sitter-just/src|parser.c scanner.c"
+            "make|vendor/tree-sitter-make/src|parser.c"
+            "astro|vendor/tree-sitter-astro/src|parser.c scanner.c"
+            "toml|vendor/tree-sitter-toml/src|parser.c scanner.c"
+            "sema|vendor/tree-sitter-sema/src|parser.c scanner.c"
+            "applescript|vendor/tree-sitter-applescript/src|parser.c scanner.c"
+            "rescript|vendor/tree-sitter-rescript/src|parser.c scanner.c"
+            "zig|vendor/tree-sitter-zig/src|parser.c"
+          )
+          for entry in "${grammars[@]}"; do
+            IFS='|' read -r name srcdir files <<< "$entry"
+            srcs=""
+            for f in $files; do [ -f "$srcdir/$f" ] && srcs="$srcs $srcdir/$f"; done
+            zig cc -O2 -UNDEBUG -shared -fPIC -target "$target" \
+              -I "$srcdir" -o "$dest/${pfx}tree-sitter-${name}.${ext}" $srcs
+          done
+
+      - name: Publish AOT editor + self-contained plugin host
+        shell: bash
+        run: |
+          dotnet publish src/Fedit/Fedit.fsproj -c Release -r ${{ matrix.rid }} \
+            -p:FeditAot=true -o dist-aot/${{ matrix.rid }} --nologo
+          dotnet publish src/Fedit.PluginHost/Fedit.PluginHost.fsproj -c Release \
+            -r ${{ matrix.rid }} --self-contained -o dist-aot/${{ matrix.rid }} --nologo
+
+      - name: Sanity-check the bundle
+        shell: bash
+        run: |
+          test -f "dist-aot/${{ matrix.rid }}/Fedit.PluginHost" || test -f "dist-aot/${{ matrix.rid }}/Fedit.PluginHost.exe"
+          ./dist-aot/${{ matrix.rid }}/fedit --version || ./dist-aot/${{ matrix.rid }}/fedit.exe --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fedit-aot-${{ matrix.rid }}
+          path: dist-aot/${{ matrix.rid }}

@@ -1,1 +1,7 @@
 .github/workflows/*.lock.yml linguist-generated=true merge=ours
+
+# Normalize all text to LF on checkout. Inline test goldens (e.g. snapshot
+# frames) and generated scripts must be byte-identical across platforms;
+# without this, a Windows checkout with core.autocrlf would rewrite them to
+# CRLF and fail string comparisons. Binary files are auto-detected and left.
+* text=auto eol=lf

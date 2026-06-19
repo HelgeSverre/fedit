@@ -12,9 +12,6 @@ open Fedit.Cli
 let private pluginsRoot () =
     Path.Combine(ConfigIO.directory (), "plugins")
 
-let private apiDllPath () =
-    Path.Combine(AppContext.BaseDirectory, "Fedit.PluginApi.dll")
-
 // ─────────────────────────────────────────────────────────────────────
 // Per-subcommand option types
 // ─────────────────────────────────────────────────────────────────────
@@ -196,49 +193,49 @@ let private wantsPlain items =
 let private install (argv: string[]) : int =
     match Parser.parse installApp.Options argv with
     | Result.Error errors ->
-        eprintfn "%s" (Parser.formatErrors installApp errors)
+        System.Console.Error.WriteLine(Parser.formatErrors installApp errors)
         2
     | Result.Ok items when wantsHelp items ->
-        printfn "%s" (Parser.formatHelp installApp)
+        System.Console.Out.WriteLine(Parser.formatHelp installApp)
         0
     | Result.Ok items ->
         match firstPositional items with
         | None ->
-            eprintfn "fedit plugins install: missing <source> argument"
-            eprintfn "Run 'fedit plugins install --help' for usage."
+            System.Console.Error.WriteLine("fedit plugins install: missing <source> argument")
+            System.Console.Error.WriteLine("Run 'fedit plugins install --help' for usage.")
             2
         | Some source ->
             try
                 let name =
                     Fedit.Plugins.install (pluginsRoot ()) (Fedit.Plugins.detectSource source)
 
-                printfn "installed: %s" name
+                System.Console.Out.WriteLine("installed: " + name)
                 0
             with ex ->
-                eprintfn "fedit plugins install: %s" ex.Message
+                System.Console.Error.WriteLine("fedit plugins install: " + ex.Message)
                 1
 
 let private remove (argv: string[]) : int =
     match Parser.parse removeApp.Options argv with
     | Result.Error errors ->
-        eprintfn "%s" (Parser.formatErrors removeApp errors)
+        System.Console.Error.WriteLine(Parser.formatErrors removeApp errors)
         2
     | Result.Ok items when wantsHelp items ->
-        printfn "%s" (Parser.formatHelp removeApp)
+        System.Console.Out.WriteLine(Parser.formatHelp removeApp)
         0
     | Result.Ok items ->
         match firstPositional items with
         | None ->
-            eprintfn "fedit plugins remove: missing <name> argument"
-            eprintfn "Run 'fedit plugins remove --help' for usage."
+            System.Console.Error.WriteLine("fedit plugins remove: missing <name> argument")
+            System.Console.Error.WriteLine("Run 'fedit plugins remove --help' for usage.")
             2
         | Some name ->
             try
                 Fedit.Plugins.uninstall (pluginsRoot ()) name
-                printfn "removed: %s" name
+                System.Console.Out.WriteLine("removed: " + name)
                 0
             with ex ->
-                eprintfn "fedit plugins remove: %s" ex.Message
+                System.Console.Error.WriteLine("fedit plugins remove: " + ex.Message)
                 1
 
 /// Human-facing status cell — version (manifest mode) or live command
@@ -273,10 +270,10 @@ let private tildify (path: string) =
 let private list (argv: string[]) : int =
     match Parser.parse listApp.Options argv with
     | Result.Error errors ->
-        eprintfn "%s" (Parser.formatErrors listApp errors)
+        System.Console.Error.WriteLine(Parser.formatErrors listApp errors)
         2
     | Result.Ok items when wantsListHelp items ->
-        printfn "%s" (Parser.formatHelp listApp)
+        System.Console.Out.WriteLine(Parser.formatHelp listApp)
         0
     | Result.Ok items ->
         let root = pluginsRoot ()
@@ -288,16 +285,23 @@ let private list (argv: string[]) : int =
                 // no plugins exist so completion shows nothing rather
                 // than a literal "(none)". Never builds.
                 for plugin in Fedit.Plugins.discover root do
-                    printfn "%s" plugin.Manifest.Name
+                    System.Console.Out.WriteLine(plugin.Manifest.Name)
 
                 0
             else
                 let plugins =
                     if wantsBuild items then
-                        // Full scan + build + load. Matches the in-editor
-                        // `:plugin list` output exactly.
-                        Fedit.Plugins.scanAndLoad root (apiDllPath ()) Set.empty ignore
-                        |> fun registry -> registry.Loaded |> Map.toList |> List.map snd
+                        // Full scan + build + load through the out-of-process
+                        // host — matches the in-editor list and stays
+                        // AOT-safe (the editor binary cannot load plugin
+                        // assemblies in-process).
+                        use client = new Fedit.PluginHostClient(Fedit.PluginHostClient.defaultHostPath ())
+
+                        match client.Scan(root, Set.empty) with
+                        | Result.Ok registry -> registry.Loaded |> Map.toList |> List.map snd
+                        | Result.Error e ->
+                            System.Console.Error.WriteLine("fedit plugins list: " + e)
+                            []
                     else
                         // Manifest-only: no `dotnet build`.
                         Fedit.Plugins.discover root
@@ -305,58 +309,70 @@ let private list (argv: string[]) : int =
                 if wantsPlain items then
                     // Tab-separated, no header, silent when empty — for grep/awk/cut.
                     for p in plugins do
-                        printfn "%s\t%s\t%s\t%s" p.Manifest.Name p.Manifest.Version (statusToken p) p.Path
+                        System.Console.Out.WriteLine(
+                            p.Manifest.Name
+                            + "\t"
+                            + p.Manifest.Version
+                            + "\t"
+                            + statusToken p
+                            + "\t"
+                            + p.Path
+                        )
 
                     0
                 else
                     // Human default: print the install dir once (npm/pipx
                     // style), then name + status per row.
                     if List.isEmpty plugins then
-                        printfn "no plugins installed (%s)" (tildify root)
+                        System.Console.Out.WriteLine("no plugins installed (" + tildify root + ")")
                     else
-                        printfn "plugins in %s" (tildify root)
+                        System.Console.Out.WriteLine("plugins in " + tildify root)
 
                         for p in plugins do
-                            printfn "  %-24s %s" p.Manifest.Name (statusText p)
+                            System.Console.Out.WriteLine("  " + p.Manifest.Name.PadRight 24 + " " + statusText p)
 
                     0
         with ex ->
-            eprintfn "fedit plugins list: %s" ex.Message
+            System.Console.Error.WriteLine("fedit plugins list: " + ex.Message)
             1
 
 let private validate (argv: string[]) : int =
     match Parser.parse validateApp.Options argv with
     | Result.Error errors ->
-        eprintfn "%s" (Parser.formatErrors validateApp errors)
+        System.Console.Error.WriteLine(Parser.formatErrors validateApp errors)
         2
     | Result.Ok items when wantsHelp items ->
-        printfn "%s" (Parser.formatHelp validateApp)
+        System.Console.Out.WriteLine(Parser.formatHelp validateApp)
         0
     | Result.Ok items ->
         match firstPositional items with
         | None ->
-            eprintfn "fedit plugins validate: missing <path> argument"
-            eprintfn "Run 'fedit plugins validate --help' for usage."
+            System.Console.Error.WriteLine("fedit plugins validate: missing <path> argument")
+            System.Console.Error.WriteLine("Run 'fedit plugins validate --help' for usage.")
             2
         | Some path ->
             let manifestPath = Path.Combine(path, "plugin.json")
 
             if not (File.Exists manifestPath) then
-                eprintfn "fedit plugins validate: no plugin.json found in %s" path
+                System.Console.Error.WriteLine("fedit plugins validate: no plugin.json found in " + path)
                 1
             else
                 match Fedit.Plugins.tryParseManifest manifestPath with
                 | Ok manifest ->
-                    printfn
-                        "OK: %s %s (apiVersion %s); entryType=%s"
-                        manifest.Name
-                        manifest.Version
-                        manifest.ApiVersion
-                        manifest.EntryType
+                    System.Console.Out.WriteLine(
+                        "OK: "
+                        + manifest.Name
+                        + " "
+                        + manifest.Version
+                        + " (apiVersion "
+                        + manifest.ApiVersion
+                        + "); entryType="
+                        + manifest.EntryType
+                    )
 
                     0
                 | Result.Error reason ->
-                    eprintfn "fedit plugins validate: %s" reason
+                    System.Console.Error.WriteLine("fedit plugins validate: " + reason)
                     1
 
 // ─────────────────────────────────────────────────────────────────────
@@ -371,9 +387,9 @@ let run (argv: string[]) : int =
     | Some("validate", rest) -> validate rest
     | Some(other, _) ->
         // Defensive — should be unreachable while subcommands is exhaustive.
-        eprintfn "fedit plugins: unknown subcommand '%s'" other
-        eprintfn "Run 'fedit plugins --help' for usage."
+        System.Console.Error.WriteLine("fedit plugins: unknown subcommand '" + other + "'")
+        System.Console.Error.WriteLine("Run 'fedit plugins --help' for usage.")
         2
     | None ->
-        printfn "%s" (Parser.formatHelp topApp)
+        System.Console.Out.WriteLine(Parser.formatHelp topApp)
         0

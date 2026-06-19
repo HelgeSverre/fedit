@@ -188,7 +188,7 @@ module Editor =
             recent
             |> List.map (fun path ->
                 try
-                    Path.GetRelativePath(model.Workspace.RootPath, path)
+                    Paths.norm (Path.GetRelativePath(model.Workspace.RootPath, path))
                 with _ ->
                     path)
 
@@ -386,12 +386,14 @@ module Editor =
                     PendingConfirmation = None
                     SearchPreview = None } }
 
-    /// Resolve a user-supplied path against the workspace root.
+    /// Resolve a user-supplied path against the workspace root, returning a
+    /// canonical `/` path. Avoids Path.GetFullPath — its OS separator and
+    /// drive-anchoring would diverge from the `/`-canonical tree on Windows.
     let private resolvePath (rootPath: string) (path: string) =
         if Path.IsPathRooted path then
-            path
+            Paths.norm path
         else
-            Path.GetFullPath(Path.Combine(rootPath, path))
+            Paths.norm (Path.Combine(rootPath, path))
 
     let private insertPromptText value model =
         let prompt = model.Prompt
@@ -1167,11 +1169,11 @@ module Editor =
                         |> List.map (fun ctx ->
                             let outcome =
                                 match Keymap.resolve ctx stroke model.Keymap with
-                                | Bound a -> (sprintf "%A" a).Replace("\n", " ")
+                                | Bound a -> Action.name a
                                 | Unbound -> "(unbound)"
                                 | NotBound -> "—"
 
-                            sprintf "%s=%s" (ctxName ctx) outcome)
+                            ctxName ctx + "=" + outcome)
 
                     let body = Chord.renderStroke stroke + "  " + String.concat "  " parts
                     notify (Some(Notification.info body)) model, []
@@ -1179,12 +1181,9 @@ module Editor =
         | PluginInvoke(source, name, _argument) ->
             match model.Plugins.Commands.TryFind name with
             | Some binding when binding.Source = source ->
-                try
-                    let ctx = toPluginContext model
-                    let actions = binding.Spec.Run ctx
-                    applyPluginActions source actions model
-                with ex ->
-                    notify (Some(Notification.error $"Plugin '{source}' threw: {ex.Message}")) model, []
+                // Run the command in the out-of-process host; its PluginActions
+                // come back asynchronously as `PluginActionsReady`.
+                model, [ RunPluginCommand(source, name, toPluginContext model) ]
             | Some _ ->
                 notify (Some(Notification.error $"Plugin '{name}' is not provided by '{source}' anymore.")) model, []
             | None -> notify (Some(Notification.error $"Plugin command '{name}' missing.")) model, []
@@ -2186,6 +2185,9 @@ module Editor =
             nextModel, []
         | PluginsScanned(Result.Error message) ->
             notify (Some(Notification.error $"Plugin scan failed: {message}")) model, []
+        | PluginActionsReady(source, Result.Ok actions) -> applyPluginActions source actions model
+        | PluginActionsReady(source, Result.Error message) ->
+            notify (Some(Notification.error $"Plugin '{source}': {message}")) model, []
         | PluginInstalled(name, Result.Ok()) ->
             notify (Some(Notification.info $"Installed plugin '{name}'")) model, [ scanPluginsEffect model ]
         | PluginInstalled(_, Result.Error message) ->

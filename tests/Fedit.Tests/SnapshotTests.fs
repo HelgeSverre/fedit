@@ -31,7 +31,12 @@ let private renderOf model = Layout.render model |> Snapshot.render
 /// Replace the literal with the actual when intentionally accepting a
 /// snapshot drift. The whole point is that diffs are visible.
 let private assertSnapshot (expected: string) (actual: string) =
-    if expected.Trim() <> actual.Trim() then
+    // Normalize newlines: the renderer emits LF, but a golden string literal
+    // checked out with CRLF (Windows) would otherwise differ. `.gitattributes`
+    // enforces LF too; this is belt-and-suspenders.
+    let normalize (s: string) = s.Replace("\r\n", "\n").Trim()
+
+    if normalize expected <> normalize actual then
         let header = "--- expected ---\n"
         let mid = "\n--- actual ---\n"
         Assert.Fail(header + expected + mid + actual)

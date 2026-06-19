@@ -2,6 +2,27 @@ namespace Fedit
 
 open System
 
+/// Path handling is canonical forward-slash everywhere inside fedit — the
+/// git/LSP convention. Paths are normalized to `/` at every OS boundary (tree
+/// scan, file open, workspace root) so comparisons, the plugin API, the file
+/// picker, and tests behave identically on Windows, macOS, and Linux. .NET's
+/// file APIs accept `/` on Windows, so normalized paths still do real I/O.
+[<RequireQualifiedAccess>]
+module Paths =
+    /// Canonical separator: collapse `\` to `/`. A no-op on Unix.
+    let norm (path: string) : string =
+        if String.IsNullOrEmpty path then
+            path
+        else
+            path.Replace('\\', '/')
+
+    /// Parent directory using the canonical `/` separator (unlike
+    /// Path.GetDirectoryName, which emits the OS separator). None at the root.
+    let parent (path: string) : string option =
+        match path.LastIndexOf '/' with
+        | i when i > 0 -> Some(path.Substring(0, i))
+        | _ -> None
+
 [<Struct>]
 type Size = { Width: int; Height: int }
 

@@ -239,9 +239,10 @@ let ``renderDoc groups effective bindings by context and shows a known default``
     Assert.Contains("## global", doc)
     Assert.Contains("## editor", doc)
     Assert.Contains("## sidebar", doc)
-    // ctrl+s → Save is a built-in default and should appear with a readable label.
+    // ctrl+s → save is a built-in default and should appear with its kebab-case
+    // action name (same names the keybinds config file and `fedit keybinds` use).
     Assert.Contains("ctrl+s", doc)
-    Assert.Contains("Save", doc)
+    Assert.Contains("save", doc)
     // The body holds no control characters other than its line separators.
     doc
     |> Seq.exists (fun c -> System.Char.IsControl c && c <> '\n')
@@ -265,4 +266,4 @@ let ``renderDoc lists each context+stroke once, reflecting later-wins overrides`
         doc.Split('\n') |> Array.filter (fun l -> l.Trim().StartsWith("ctrl+s "))
 
     csLines.Length |> should equal 1
-    Assert.Contains("Quit", csLines[0])
+    Assert.Contains("quit", csLines[0])

@@ -90,13 +90,16 @@ module Status =
     // ─────────────────────────────────────────────────────────────────────
 
     let private tildify (path: string) =
-        let home = Environment.GetFolderPath Environment.SpecialFolder.UserProfile
+        // Paths are canonical `/`; normalize home to match so the prefix test
+        // works on Windows (UserProfile comes back with `\`).
+        let home =
+            Paths.norm (Environment.GetFolderPath Environment.SpecialFolder.UserProfile)
 
         if String.IsNullOrEmpty home then
             path
         elif path = home then
             "~"
-        elif path.StartsWith(home + string Path.DirectorySeparatorChar, StringComparison.Ordinal) then
+        elif path.StartsWith(home + "/", StringComparison.Ordinal) then
             "~" + path.Substring(home.Length)
         else
             path
@@ -147,7 +150,7 @@ module Status =
             |> List.tryFindIndex (fun id -> id = model.Editors.ActiveBufferId)
             |> Option.defaultValue 0
 
-        sprintf "%d/%d" (idx + 1) ids.Length
+        string (idx + 1) + "/" + string ids.Length
 
     let private resolveToken (model: Model) (name: string) (modifier: string option) =
         let buffer = model.Editors.Buffers[model.Editors.ActiveBufferId]
