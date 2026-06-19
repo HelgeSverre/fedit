@@ -27,9 +27,12 @@
     <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
-  <!-- SPIKE: NativeAOT experiment, activated with -p:FeditAot=true. Overrides
-       the Release publish knobs that AOT forbids (single-file, R2R, untrimmed)
-       and points the linker at Homebrew openssl. Not for shipping. -->
+  <!-- NativeAOT build flavor, activated with -p:FeditAot=true. Overrides the
+       Release publish knobs AOT forbids (single-file, R2R, untrimmed). The
+       editor becomes a self-contained native binary (~7 MB, ~10 ms first
+       paint); plugins run out-of-process (see Fedit.PluginHost) since AOT has
+       no JIT to load them. NativeAOT does not cross-compile across OS — each
+       RID must be published on a matching-OS runner. -->
   <PropertyGroup Condition="'$(FeditAot)' == 'true'">
     <PublishAot>true</PublishAot>
     <PublishReadyToRun>false</PublishReadyToRun>
@@ -38,7 +41,9 @@
     <IlcTreatWarningsAsErrors>false</IlcTreatWarningsAsErrors>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
-  <ItemGroup Condition="'$(FeditAot)' == 'true'">
+  <!-- macOS only: point the native linker at Homebrew's openssl so the
+       crypto shim resolves. Linux/Windows resolve it from the system. -->
+  <ItemGroup Condition="'$(FeditAot)' == 'true' and $([MSBuild]::IsOSPlatform('OSX'))">
     <LinkerArg Include="-L/opt/homebrew/lib" />
   </ItemGroup>
   <ItemGroup>
