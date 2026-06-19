@@ -12,9 +12,6 @@ open Fedit.Cli
 let private pluginsRoot () =
     Path.Combine(ConfigIO.directory (), "plugins")
 
-let private apiDllPath () =
-    Path.Combine(AppContext.BaseDirectory, "Fedit.PluginApi.dll")
-
 // ─────────────────────────────────────────────────────────────────────
 // Per-subcommand option types
 // ─────────────────────────────────────────────────────────────────────
@@ -294,10 +291,17 @@ let private list (argv: string[]) : int =
             else
                 let plugins =
                     if wantsBuild items then
-                        // Full scan + build + load. Matches the in-editor
-                        // `:plugin list` output exactly.
-                        Fedit.Plugins.scanAndLoad root (apiDllPath ()) Set.empty ignore
-                        |> fun registry -> registry.Loaded |> Map.toList |> List.map snd
+                        // Full scan + build + load through the out-of-process
+                        // host — matches the in-editor list and stays
+                        // AOT-safe (the editor binary cannot load plugin
+                        // assemblies in-process).
+                        use client = new Fedit.PluginHostClient(Fedit.PluginHostClient.defaultHostPath ())
+
+                        match client.Scan(root, Set.empty) with
+                        | Result.Ok registry -> registry.Loaded |> Map.toList |> List.map snd
+                        | Result.Error e ->
+                            System.Console.Error.WriteLine("fedit plugins list: " + e)
+                            []
                     else
                         // Manifest-only: no `dotnet build`.
                         Fedit.Plugins.discover root

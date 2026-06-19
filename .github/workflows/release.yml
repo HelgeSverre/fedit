@@ -96,6 +96,13 @@ jobs:
       - name: dotnet publish
         run: dotnet publish src/Fedit/Fedit.fsproj -c Release -r ${{ matrix.rid }} -o dist/${{ matrix.rid }} --nologo
 
+      # Ship the out-of-process plugin host beside the editor — the editor
+      # spawns it to load plugins. Self-contained single-file so it runs with
+      # no separate runtime (matching the self-contained editor); published to
+      # the same dist dir so it lands next to `fedit`.
+      - name: publish plugin host
+        run: dotnet publish src/Fedit.PluginHost/Fedit.PluginHost.fsproj -c Release -r ${{ matrix.rid }} --self-contained -p:PublishSingleFile=true -o dist/${{ matrix.rid }} --nologo
+
       - name: stage README + LICENSE
         shell: bash
         run: cp README.md LICENSE dist/${{ matrix.rid }}/
@@ -104,6 +111,7 @@ jobs:
         shell: bash
         run: |
           test -f "dist/${{ matrix.rid }}/Fedit.PluginApi.dll"
+          test -f "dist/${{ matrix.rid }}/Fedit.PluginHost" || test -f "dist/${{ matrix.rid }}/Fedit.PluginHost.exe"
           test -d "dist/${{ matrix.rid }}/runtimes/${{ matrix.rid }}/native"
           case "${{ matrix.rid }}" in
             win-x64) ext="dll"; pfx="" ;;

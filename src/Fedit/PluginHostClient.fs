@@ -96,12 +96,38 @@ module PluginHostClient =
 
     let defaultHostPath () : string =
         let dir = AppContext.BaseDirectory
-        let apphost = Path.Combine(dir, "Fedit.PluginHost")
-        let dll = Path.Combine(dir, "Fedit.PluginHost.dll")
+        // Production / shipped bundle: the host sits beside the editor (native
+        // apphost preferred for an AOT/self-contained ship, else the dll run
+        // via `dotnet`). Both the R2R release and `just aot` co-locate it.
+        let beside =
+            [ Path.Combine(dir, "Fedit.PluginHost")
+              Path.Combine(dir, "Fedit.PluginHost.exe")
+              Path.Combine(dir, "Fedit.PluginHost.dll") ]
 
-        if File.Exists apphost then apphost
-        elif File.Exists dll then dll
-        else apphost
+        // Dev fallback: when run straight from the build tree
+        // (src/Fedit/bin/<cfg>/net10.0[/<rid>]/), the host built by the
+        // solution lives at src/Fedit.PluginHost/bin/<cfg>/net10.0/. Walk up
+        // to the repo's `src/` and look there.
+        let devFallback () =
+            let rec findSrc (d: string) =
+                if File.Exists(Path.Combine(d, "Fedit.slnx")) then
+                    Some(Path.Combine(d, "src"))
+                else
+                    match Path.GetDirectoryName d with
+                    | null -> None
+                    | parent when parent = d -> None
+                    | parent -> findSrc parent
+
+            match findSrc dir with
+            | None -> []
+            | Some src ->
+                [ "Debug"; "Release" ]
+                |> List.map (fun cfg ->
+                    Path.Combine(src, "Fedit.PluginHost", "bin", cfg, "net10.0", "Fedit.PluginHost.dll"))
+
+        match (beside @ devFallback ()) |> List.tryFind File.Exists with
+        | Some path -> path
+        | None -> List.head beside
 
     /// Hidden self-test: spawn the host, scan a plugins dir, invoke `wc`, print
     /// the result. Runs inside the AOT binary to prove the client spawns a

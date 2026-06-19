@@ -38,7 +38,7 @@ clean:
 [group('build')]
 aot rid="osx-arm64" out="dist-aot":
     {{dotnet}} publish {{project}} -c Release -r {{rid}} -p:FeditAot=true -o {{out}} --nologo
-    {{dotnet}} publish src/Fedit.PluginHost/Fedit.PluginHost.fsproj -c Release -r {{rid}} --self-contained -o {{out}} --nologo
+    {{dotnet}} publish src/Fedit.PluginHost/Fedit.PluginHost.fsproj -c Release -r {{rid}} --self-contained -p:PublishSingleFile=true -o {{out}} --nologo
     @echo "→ AOT bundle in {{out}}/ (fedit + Fedit.PluginHost)"
 
 # Format sources (F# via fantomas, markdown via oxfmt).

@@ -499,3 +499,7 @@ $RECYCLE.BIN/
 # (host RID) or `just build-grammars-all` (cross-build). CI builds the matching
 # RID before tests. ~11MB each — see docs/syntax-highlighting.md.
 src/Fedit/runtimes/*/native/
+
+# Publish output: release staging (`dist/`) and the local AOT bundle (`just aot`).
+/dist/
+/dist-aot/
