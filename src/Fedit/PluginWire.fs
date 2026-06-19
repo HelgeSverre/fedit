@@ -203,6 +203,41 @@ module PluginWire =
         use doc = JsonDocument.Parse json
         [ for e in doc.RootElement.EnumerateArray() -> readAction e ]
 
+    // ---- context reader (the host parses what the editor wrote) ------------
+
+    let private optString (e: JsonElement) (name: string) : string option =
+        match e.TryGetProperty name with
+        | true, v when v.ValueKind = JsonValueKind.String -> Some(v.GetString())
+        | _ -> None
+
+    let private readBufferView (e: JsonElement) : BufferView =
+        let selection =
+            match e.TryGetProperty "selection" with
+            | true, s when s.ValueKind = JsonValueKind.Object ->
+                Some(readCursor (s.GetProperty "anchor"), readCursor (s.GetProperty "cursor"))
+            | _ -> None
+
+        { Id = e.GetProperty("id").GetInt32()
+          Name = str e "name"
+          FilePath = optString e "filePath"
+          Text = str e "text"
+          Cursor = readCursor (e.GetProperty "cursor")
+          Selection = selection }
+
+    let readContext (e: JsonElement) : PluginContext =
+        let ws = e.GetProperty "workspace"
+
+        { ActiveBuffer = readBufferView (e.GetProperty "activeBuffer")
+          AllBuffers = [ for b in (e.GetProperty "allBuffers").EnumerateArray() -> readBufferView b ]
+          Workspace =
+            { RootPath = str ws "rootPath"
+              SelectedPath = optString ws "selectedPath"
+              Files = [ for f in (ws.GetProperty "files").EnumerateArray() -> f.GetString() ] } }
+
+    let contextFromJson (json: string) : PluginContext =
+        use doc = JsonDocument.Parse json
+        readContext doc.RootElement
+
     // ---- self-test: prove the round-trip runs (and stays stable) under AOT.
 
     /// Round-trips a representative action of every case and checks the
