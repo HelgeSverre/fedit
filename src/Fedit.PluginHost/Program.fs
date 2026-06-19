@@ -32,22 +32,7 @@ let main _argv =
         | "scan" ->
             let pluginsRoot, disabled = PluginProtocol.parseScanRequest root
             registry <- Plugins.scanAndLoad pluginsRoot apiDll disabled log
-
-            let specs: PluginProtocol.CommandSpec list =
-                registry.Commands
-                |> Map.toList
-                |> List.map (fun (name, b) ->
-                    { Name = name
-                      Usage = b.Spec.Usage
-                      Summary = b.Spec.Summary
-                      Source = b.Source })
-
-            let result: PluginProtocol.ScanResult =
-                { Specs = specs
-                  Keybindings = registry.Keybindings
-                  Conflicts = registry.Conflicts }
-
-            PluginProtocol.scanResultJson result
+            PluginProtocol.scanResultJson registry
         | "invoke" ->
             let command, ctx = PluginProtocol.parseInvokeRequest root
 

@@ -1179,12 +1179,9 @@ module Editor =
         | PluginInvoke(source, name, _argument) ->
             match model.Plugins.Commands.TryFind name with
             | Some binding when binding.Source = source ->
-                try
-                    let ctx = toPluginContext model
-                    let actions = binding.Spec.Run ctx
-                    applyPluginActions source actions model
-                with ex ->
-                    notify (Some(Notification.error $"Plugin '{source}' threw: {ex.Message}")) model, []
+                // Run the command in the out-of-process host; its PluginActions
+                // come back asynchronously as `PluginActionsReady`.
+                model, [ RunPluginCommand(source, name, toPluginContext model) ]
             | Some _ ->
                 notify (Some(Notification.error $"Plugin '{name}' is not provided by '{source}' anymore.")) model, []
             | None -> notify (Some(Notification.error $"Plugin command '{name}' missing.")) model, []
@@ -2186,6 +2183,9 @@ module Editor =
             nextModel, []
         | PluginsScanned(Result.Error message) ->
             notify (Some(Notification.error $"Plugin scan failed: {message}")) model, []
+        | PluginActionsReady(source, Result.Ok actions) -> applyPluginActions source actions model
+        | PluginActionsReady(source, Result.Error message) ->
+            notify (Some(Notification.error $"Plugin '{source}': {message}")) model, []
         | PluginInstalled(name, Result.Ok()) ->
             notify (Some(Notification.info $"Installed plugin '{name}'")) model, [ scanPluginsEffect model ]
         | PluginInstalled(_, Result.Error message) ->

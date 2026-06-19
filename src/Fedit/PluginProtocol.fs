@@ -16,21 +16,6 @@ open Fedit.PluginApi
 [<RequireQualifiedAccess>]
 module PluginProtocol =
 
-    /// Editor-side command spec — everything the palette and keybindings need,
-    /// WITHOUT the `Run` closure (that lives only in the host process).
-    type CommandSpec =
-        { Name: string
-          Usage: string
-          Summary: string
-          Source: string }
-
-    /// What a `scan` returns: the command specs, the (chord, command) bindings,
-    /// and any load/name conflicts to surface as a warning.
-    type ScanResult =
-        { Specs: CommandSpec list
-          Keybindings: (KeyChord * string) list
-          Conflicts: string list }
-
     // ---- framing: one JSON object per line --------------------------------
 
     let writeFrame (w: TextWriter) (json: string) =
@@ -86,6 +71,161 @@ module PluginProtocol =
         | "f" -> F(e.GetProperty("n").GetInt32())
         | other -> failwith ("unknown KeyChord kind: " + other)
 
+    // ---- PluginRegistry <-> JSON ------------------------------------------
+    // The whole registry crosses the wire so the editor reproduces it intact
+    // (plugin manager UI, palette, keybindings). The Run closure cannot be
+    // serialized; the editor reads a stub (`fun _ -> []`) and never calls it —
+    // invocation goes back to the host via `invoke`.
+
+    let private strp (e: JsonElement) (n: string) : string = e.GetProperty(n).GetString()
+
+    let private writeManifest (w: Utf8JsonWriter) (m: PluginManifest) =
+        w.WriteStartObject()
+        w.WriteString("name", m.Name)
+        w.WriteString("version", m.Version)
+        w.WriteString("apiVersion", m.ApiVersion)
+        w.WriteString("description", m.Description)
+        w.WriteString("author", m.Author)
+        w.WriteString("homepage", m.Homepage)
+        w.WriteString("entryAssembly", m.EntryAssembly)
+        w.WriteString("entryType", m.EntryType)
+        w.WriteEndObject()
+
+    let private readManifest (e: JsonElement) : PluginManifest =
+        { Name = strp e "name"
+          Version = strp e "version"
+          ApiVersion = strp e "apiVersion"
+          Description = strp e "description"
+          Author = strp e "author"
+          Homepage = strp e "homepage"
+          EntryAssembly = strp e "entryAssembly"
+          EntryType = strp e "entryType" }
+
+    let private writeStatus (w: Utf8JsonWriter) (s: PluginLoadStatus) =
+        w.WriteStartObject()
+
+        match s with
+        | Loaded -> w.WriteString("kind", "loaded")
+        | Disabled -> w.WriteString("kind", "disabled")
+        | Failed reason ->
+            w.WriteString("kind", "failed")
+            w.WriteString("reason", reason)
+
+        w.WriteEndObject()
+
+    let private readStatus (e: JsonElement) : PluginLoadStatus =
+        match strp e "kind" with
+        | "loaded" -> Loaded
+        | "failed" -> Failed(strp e "reason")
+        | _ -> Disabled
+
+    // A command spec without its Run closure; readSpec installs a stub.
+    let private writeSpec (w: Utf8JsonWriter) (c: PluginCommand) =
+        w.WriteStartObject()
+        w.WriteString("name", c.Name)
+        w.WriteString("usage", c.Usage)
+        w.WriteString("summary", c.Summary)
+        w.WriteEndObject()
+
+    let private readSpec (e: JsonElement) : PluginCommand =
+        { Name = strp e "name"
+          Usage = strp e "usage"
+          Summary = strp e "summary"
+          Run = fun _ -> [] }
+
+    let private writeKeybindings (w: Utf8JsonWriter) (name: string) (kbs: (KeyChord * string) list) =
+        w.WritePropertyName name
+        w.WriteStartArray()
+
+        for (chord, cmd) in kbs do
+            w.WriteStartObject()
+            w.WritePropertyName "chord"
+            writeChord w chord
+            w.WriteString("command", cmd)
+            w.WriteEndObject()
+
+        w.WriteEndArray()
+
+    let private readKeybindings (e: JsonElement) : (KeyChord * string) list =
+        [ for kb in e.EnumerateArray() -> readChord (kb.GetProperty "chord"), kb.GetProperty("command").GetString() ]
+
+    let private writeStrings (w: Utf8JsonWriter) (name: string) (xs: string list) =
+        w.WritePropertyName name
+        w.WriteStartArray()
+        xs |> List.iter w.WriteStringValue
+        w.WriteEndArray()
+
+    let private readStrings (e: JsonElement) : string list =
+        [ for x in e.EnumerateArray() -> x.GetString() ]
+
+    let registryToJson (r: PluginRegistry) : string =
+        build (fun w ->
+            w.WriteStartObject()
+            w.WritePropertyName "loaded"
+            w.WriteStartArray()
+
+            for KeyValue(_, p) in r.Loaded do
+                w.WriteStartObject()
+                w.WritePropertyName "manifest"
+                writeManifest w p.Manifest
+                w.WriteString("path", p.Path)
+                w.WritePropertyName "status"
+                writeStatus w p.Status
+                w.WritePropertyName "commands"
+                w.WriteStartArray()
+                p.Commands |> List.iter (writeSpec w)
+                w.WriteEndArray()
+                writeKeybindings w "keybindings" p.Keybindings
+                writeStrings w "conflicts" p.Conflicts
+                w.WriteEndObject()
+
+            w.WriteEndArray()
+            writeStrings w "enabled" (Set.toList r.Enabled)
+            w.WritePropertyName "commands"
+            w.WriteStartArray()
+
+            for KeyValue(_, b) in r.Commands do
+                w.WriteStartObject()
+                w.WriteString("source", b.Source)
+                w.WritePropertyName "spec"
+                writeSpec w b.Spec
+                w.WriteEndObject()
+
+            w.WriteEndArray()
+            writeKeybindings w "keybindings" r.Keybindings
+            writeStrings w "conflicts" r.Conflicts
+            w.WriteEndObject())
+
+    let private readRegistry (root: JsonElement) : PluginRegistry =
+        let loaded =
+            [ for p in (root.GetProperty "loaded").EnumerateArray() ->
+                  let manifest = readManifest (p.GetProperty "manifest")
+
+                  let lp: LoadedPlugin =
+                      { Manifest = manifest
+                        Path = strp p "path"
+                        Status = readStatus (p.GetProperty "status")
+                        Commands = [ for c in (p.GetProperty "commands").EnumerateArray() -> readSpec c ]
+                        Keybindings = readKeybindings (p.GetProperty "keybindings")
+                        Conflicts = readStrings (p.GetProperty "conflicts") }
+
+                  manifest.Name, lp ]
+
+        let commands =
+            [ for b in (root.GetProperty "commands").EnumerateArray() ->
+                  let spec = readSpec (b.GetProperty "spec")
+
+                  spec.Name,
+                  ({ Source = strp b "source"
+                     Spec = spec }
+                  : PluginCommandBinding) ]
+
+        { Loaded = Map.ofList loaded
+          Enabled = set (readStrings (root.GetProperty "enabled"))
+          Commands = Map.ofList commands
+          Keybindings = readKeybindings (root.GetProperty "keybindings")
+          Conflicts = readStrings (root.GetProperty "conflicts") }
+
     // ---- requests (editor -> host) ----------------------------------------
 
     let scanRequest (pluginsRoot: string) (disabled: Set<string>) : string =
@@ -127,37 +267,12 @@ module PluginProtocol =
 
     // ---- responses (host -> editor) ---------------------------------------
 
-    let scanResultJson (r: ScanResult) : string =
+    let scanResultJson (registry: PluginRegistry) : string =
         build (fun w ->
             w.WriteStartObject()
             w.WriteBoolean("ok", true)
-            w.WritePropertyName "specs"
-            w.WriteStartArray()
-
-            for s in r.Specs do
-                w.WriteStartObject()
-                w.WriteString("name", s.Name)
-                w.WriteString("usage", s.Usage)
-                w.WriteString("summary", s.Summary)
-                w.WriteString("source", s.Source)
-                w.WriteEndObject()
-
-            w.WriteEndArray()
-            w.WritePropertyName "keybindings"
-            w.WriteStartArray()
-
-            for (chord, cmd) in r.Keybindings do
-                w.WriteStartObject()
-                w.WritePropertyName "chord"
-                writeChord w chord
-                w.WriteString("command", cmd)
-                w.WriteEndObject()
-
-            w.WriteEndArray()
-            w.WritePropertyName "conflicts"
-            w.WriteStartArray()
-            r.Conflicts |> List.iter w.WriteStringValue
-            w.WriteEndArray()
+            w.WritePropertyName "registry"
+            w.WriteRawValue(registryToJson registry)
             w.WriteEndObject())
 
     let invokeResultJson (actions: PluginAction list) : string =
@@ -175,31 +290,14 @@ module PluginProtocol =
             w.WriteString("error", message)
             w.WriteEndObject())
 
-    let parseScanResult (json: string) : Result<ScanResult, string> =
+    let parseScanResult (json: string) : Result<PluginRegistry, string> =
         use doc = JsonDocument.Parse json
         let root = doc.RootElement
 
-        if not (root.GetProperty("ok").GetBoolean()) then
-            Result.Error(root.GetProperty("error").GetString())
+        if root.GetProperty("ok").GetBoolean() then
+            Result.Ok(readRegistry (root.GetProperty "registry"))
         else
-            let specs =
-                [ for s in (root.GetProperty "specs").EnumerateArray() ->
-                      { Name = s.GetProperty("name").GetString()
-                        Usage = s.GetProperty("usage").GetString()
-                        Summary = s.GetProperty("summary").GetString()
-                        Source = s.GetProperty("source").GetString() } ]
-
-            let keybindings =
-                [ for kb in (root.GetProperty "keybindings").EnumerateArray() ->
-                      readChord (kb.GetProperty "chord"), kb.GetProperty("command").GetString() ]
-
-            let conflicts =
-                [ for c in (root.GetProperty "conflicts").EnumerateArray() -> c.GetString() ]
-
-            Result.Ok
-                { Specs = specs
-                  Keybindings = keybindings
-                  Conflicts = conflicts }
+            Result.Error(root.GetProperty("error").GetString())
 
     let parseInvokeResult (json: string) : Result<PluginAction list, string> =
         use doc = JsonDocument.Parse json

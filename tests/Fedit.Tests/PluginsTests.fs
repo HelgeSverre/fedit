@@ -468,11 +468,15 @@ let private dispatchProbe
     (setup: Model -> Model)
     (run: Fedit.PluginApi.PluginContext -> Fedit.PluginApi.PluginAction list)
     : Model * Effect list =
+    // The editor invokes plugins out-of-process: a plugin keybinding emits a
+    // `RunPluginCommand` effect carrying the context, and the host's actions
+    // come back as `PluginActionsReady`. Drive that round-trip here, standing
+    // in for the host by running `run` on the captured context.
     let spec: Fedit.PluginApi.PluginCommand =
         { Name = "probe"
           Usage = ""
           Summary = ""
-          Run = run }
+          Run = fun _ -> [] }
 
     let binding: PluginCommandBinding = { Source = "probe-plugin"; Spec = spec }
 
@@ -481,12 +485,22 @@ let private dispatchProbe
             Commands = Map.ofList [ "probe", binding ]
             Keybindings = [ Fedit.PluginApi.KeyChord.Ctrl 'j', "probe" ] }
 
-    dispatchWithRegistry
-        setup
-        registry
-        (KeyPressed
-            { Mods = Set.ofList [ Ctrl ]
-              Key = Key.Char 'j' })
+    let _, effects =
+        dispatchWithRegistry
+            setup
+            registry
+            (KeyPressed
+                { Mods = Set.ofList [ Ctrl ]
+                  Key = Key.Char 'j' })
+
+    match
+        effects
+        |> List.tryPick (function
+            | RunPluginCommand(source, _, ctx) -> Some(source, ctx)
+            | _ -> None)
+    with
+    | Some(source, ctx) -> dispatchWithRegistry setup registry (PluginActionsReady(source, Result.Ok(run ctx)))
+    | None -> failwith "expected a RunPluginCommand effect from the plugin keybinding"
 
 /// Add `buffer` to the model's open set and make it active.
 let private withActiveBuffer (buffer: BufferState) (model: Model) =
@@ -847,20 +861,39 @@ let ``Enter in an activated buffer runs the registered plugin command`` () =
 
     let setup model = withActiveBuffer buffer model
 
+    // Stand in for the out-of-process host: resolve each RunPluginCommand
+    // effect by running the command's Run and applying its actions, until none
+    // remain. Mirrors the editor -> host -> PluginActionsReady round-trip.
+    let rec pump (model: Model, effects: Effect list) =
+        match
+            effects
+            |> List.tryPick (function
+                | RunPluginCommand(source, command, ctx) -> Some(source, command, ctx)
+                | _ -> None)
+        with
+        | Some(source, command, ctx) ->
+            let actions = registry.Commands.[command].Spec.Run ctx
+            pump (Editor.update (PluginActionsReady(source, Result.Ok actions)) model)
+        | None -> model, effects
+
     let activated, _ =
-        dispatchWithRegistry
-            setup
-            registry
-            (KeyPressed
-                { Mods = Set.ofList [ Ctrl ]
-                  Key = Key.Char 'j' })
+        pump (
+            dispatchWithRegistry
+                setup
+                registry
+                (KeyPressed
+                    { Mods = Set.ofList [ Ctrl ]
+                      Key = Key.Char 'j' })
+        )
 
     let next, _ =
-        Editor.update
-            (KeyPressed
-                { Mods = Set.empty
-                  Key = Key.Named Enter })
-            activated
+        pump (
+            Editor.update
+                (KeyPressed
+                    { Mods = Set.empty
+                      Key = Key.Named Enter })
+                activated
+        )
 
     Assert.Equal("d", Buffer.text (activeBuffer next))
 

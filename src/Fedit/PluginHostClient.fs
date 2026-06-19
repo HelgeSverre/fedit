@@ -55,8 +55,10 @@ type PluginHostClient(hostPath: string) =
             with ex ->
                 Result.Error("plugin host error: " + ex.Message))
 
-    /// Discover/build/load plugins under `pluginsRoot`, returning their specs.
-    member _.Scan(pluginsRoot: string, disabled: Set<string>) : Result<PluginProtocol.ScanResult, string> =
+    /// Discover/build/load plugins under `pluginsRoot`, returning the registry
+    /// (command Run closures are stubbed editor-side; invocation goes back to
+    /// the host via Invoke).
+    member _.Scan(pluginsRoot: string, disabled: Set<string>) : Result<PluginRegistry, string> =
         match roundtrip (PluginProtocol.scanRequest pluginsRoot disabled) with
         | Result.Ok line -> PluginProtocol.parseScanResult line
         | Result.Error e -> Result.Error e
@@ -111,10 +113,10 @@ module PluginHostClient =
         | Result.Error e ->
             Console.Error.WriteLine("scan failed: " + e)
             false
-        | Result.Ok scan ->
+        | Result.Ok registry ->
             Console.Error.WriteLine(
                 "scanned commands: "
-                + String.Join(", ", scan.Specs |> List.map (fun s -> s.Name))
+                + String.Join(", ", registry.Commands |> Map.toList |> List.map fst)
             )
 
             let ctx: PluginContext =

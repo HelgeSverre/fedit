@@ -74,7 +74,9 @@ let ``editor scans and invokes wordcount through the out-of-process host`` () =
 
     match client.Scan(pluginsRoot, Set.empty) with
     | Result.Error e -> Assert.Fail("scan failed: " + e)
-    | Result.Ok scan -> Assert.Contains(scan.Specs, fun (s: PluginProtocol.CommandSpec) -> s.Name = "wc")
+    | Result.Ok registry ->
+        Assert.True(registry.Commands.ContainsKey "wc")
+        Assert.True(registry.Loaded.ContainsKey "wordcount")
 
     match client.Invoke("wc", wordcountContext "one two three") with
     | Result.Error e -> Assert.Fail("invoke failed: " + e)

@@ -237,6 +237,9 @@ type Msg =
     /// a newer `ParseHighlight` is already in flight for the newer text.
     | HighlightParsed of bufferId: int * editTick: int * spans: HighlightSpan array
     | PluginsScanned of Result<PluginRegistry, string>
+    /// A plugin command finished in the host: its PluginAction list to apply,
+    /// or an error to surface. Posted by the `RunPluginCommand` interpreter.
+    | PluginActionsReady of source: string * Result<Fedit.PluginApi.PluginAction list, string>
     | PluginInstalled of name: string * Result<unit, string>
     | PluginRemoved of name: string * Result<unit, string>
     | PluginBuildFinished of name: string * Result<unit, string>
@@ -265,6 +268,10 @@ type Effect =
     /// parses, and posts `HighlightParsed` tagged with `editTick`.
     | ParseHighlight of bufferId: int * language: string * document: PieceTable * editTick: int
     | ScanPlugins of disabledPlugins: Set<string>
+    /// Invoke a plugin command in the out-of-process host. Carries the
+    /// read-only context snapshot; the host runs the command's Run closure and
+    /// the interpreter posts `PluginActionsReady`.
+    | RunPluginCommand of source: string * command: string * context: Fedit.PluginApi.PluginContext
     | InstallPluginFromSource of source: PluginSource
     | RemovePluginDir of name: string
     | BuildPlugin of pluginPath: string

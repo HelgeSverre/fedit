@@ -217,6 +217,11 @@ module Runtime =
         // ever sees span arrays posted back as `HighlightParsed`.
         let highlightRegistry = HighlightRegistry.tryCreate ()
 
+        // Plugins load in a separate JIT process so the editor can ship as
+        // NativeAOT. Scans and invocations go through this client; the Model
+        // only ever sees the registry (stub Run closures) and PluginActions.
+        let pluginHost = new PluginHostClient(PluginHostClient.defaultHostPath ())
+
         let cancelAndReplace (existing: CancellationTokenSource option) =
             existing
             |> Option.iter (fun cts ->
@@ -422,16 +427,11 @@ module Runtime =
                     |> ignore
             | ScanPlugins disabledPlugins ->
                 Task.Run(fun () ->
-                    let msg =
-                        try
-                            let pluginsRoot = Path.Combine(ConfigIO.directory (), "plugins")
-                            let apiDll = Path.Combine(AppContext.BaseDirectory, "Fedit.PluginApi.dll")
-                            let registry = Plugins.scanAndLoad pluginsRoot apiDll disabledPlugins log
-                            PluginsScanned(Result.Ok registry)
-                        with ex ->
-                            PluginsScanned(Result.Error ex.Message)
-
-                    queue.Enqueue msg)
+                    let pluginsRoot = Path.Combine(ConfigIO.directory (), "plugins")
+                    queue.Enqueue(PluginsScanned(pluginHost.Scan(pluginsRoot, disabledPlugins))))
+                |> ignore
+            | RunPluginCommand(source, command, context) ->
+                Task.Run(fun () -> queue.Enqueue(PluginActionsReady(source, pluginHost.Invoke(command, context))))
                 |> ignore
             | InstallPluginFromSource source ->
                 Task.Run(fun () ->
@@ -749,6 +749,11 @@ module Runtime =
                     (r :> IDisposable).Dispose()
                 with _ ->
                     ())
+
+            try
+                (pluginHost :> IDisposable).Dispose()
+            with _ ->
+                ()
 
             Terminal.leave terminal
             logWriter |> Option.iter (fun w -> w.Dispose())
