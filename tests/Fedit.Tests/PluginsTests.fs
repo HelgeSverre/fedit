@@ -400,8 +400,13 @@ type Plugin =
         Assert.Contains(registry.Conflicts, fun c -> c.Contains("duplicate command 'dup'"))
         Assert.Contains(registry.Conflicts, fun c -> c.Contains("reserved chord"))
     finally
-        if Directory.Exists pluginsRoot then
+        // Best-effort cleanup: Windows locks the loaded plugin assembly, so
+        // the temp dir can't always be removed — matches the other plugin
+        // tests' cleanup and never fails the assertions.
+        try
             Directory.Delete(pluginsRoot, recursive = true)
+        with _ ->
+            ()
 
 [<Fact>]
 let ``scanAndLoad leaves disabled plugins unloaded and unregistered`` () =
