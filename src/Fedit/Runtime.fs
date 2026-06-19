@@ -594,7 +594,13 @@ module Runtime =
             if not (isExcludedFsPath e.FullPath) then
                 lastFsChange <- Some DateTime.UtcNow
 
-        let watcher =
+        // The FileSystemWatcher costs ~60 ms to spin up (FSEvents on macOS) and
+        // only feeds live-reload, which never needs to be ready for the first
+        // frame — so build it off the startup path. `lastFsChange` is already
+        // written from watcher threads, so the cross-thread assignment is benign.
+        let mutable watcher: FileSystemWatcher option = None
+
+        let startWatcher () =
             try
                 let w = new FileSystemWatcher(rootPath)
                 w.IncludeSubdirectories <- true
@@ -613,9 +619,13 @@ module Runtime =
                         lastFsChange <- Some DateTime.UtcNow)
 
                 w.EnableRaisingEvents <- true
-                Some w
+                watcher <- Some w
             with _ ->
-                None
+                ()
+
+        // Kicked off once, after the first frame is painted (see the render
+        // block) so the ~60 ms FSEvents spin-up never competes with first paint.
+        let mutable watcherStarted = false
 
         try
             Terminal.enter terminal
@@ -653,6 +663,12 @@ module Runtime =
                     let frame = Layout.render model
                     Terminal.writeFrame terminal frame
                     needsRender <- false
+
+                    // First frame is up — now spin up the file watcher in the
+                    // background without having stolen cycles from first paint.
+                    if not watcherStarted then
+                        watcherStarted <- true
+                        Task.Run startWatcher |> ignore
 
                 match Terminal.tryReadEvent terminal with
                 | Some(TerminalEvent.KeyEvent chord) ->

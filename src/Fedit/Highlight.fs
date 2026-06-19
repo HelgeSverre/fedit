@@ -41,16 +41,36 @@ type HighlightSpan =
 type HighlightRegistry
     private
     (
+        loaders: Map<string, unit -> unit>,
         languages: ConcurrentDictionary<string, TreeSitter.Language>,
         queries: ConcurrentDictionary<string, TreeSitter.Query>
     ) =
 
+    // Grammars load on first lookup, not at construction: eager-loading all
+    // ~25 bundled grammars (native dylib + query compile) cost ~180 ms on the
+    // startup critical path. Each grammar now loads once, lazily, on the
+    // highlight parse thread — and only for languages actually opened.
+    let loaded = ConcurrentDictionary<string, Lazy<unit>>()
+
+    let ensureLoaded (name: string) =
+        match loaders.TryFind name with
+        | Some loader ->
+            // GetOrAdd may build several Lazy values under contention, but only
+            // the stored winner is forced — so `loader` runs exactly once.
+            let entry = loaded.GetOrAdd(name, fun _ -> lazy (loader ()))
+            entry.Force()
+        | None -> ()
+
     member _.TryGetLanguage(name: string) : TreeSitter.Language option =
+        ensureLoaded name
+
         match languages.TryGetValue name with
         | true, value -> Some value
         | _ -> None
 
     member _.TryGetQuery(name: string) : TreeSitter.Query option =
+        ensureLoaded name
+
         match queries.TryGetValue name with
         | true, value -> Some value
         | _ -> None
@@ -71,89 +91,76 @@ type HighlightRegistry
         let languages = ConcurrentDictionary<string, TreeSitter.Language>()
         let queries = ConcurrentDictionary<string, TreeSitter.Query>()
         let asm = Assembly.GetExecutingAssembly()
-        let mutable anyLoaded = false
 
-        let tryLoadBundled (id: string) (resourceName: string) =
+        let readQuery (resourceName: string) =
+            match asm.GetManifestResourceStream(resourceName) with
+            | null -> None
+            | stream ->
+                use reader = new StreamReader(stream)
+                Some(reader.ReadToEnd())
+
+        // Build a grammar with the simple string-id constructor (grammars
+        // bundled inside TreeSitter.DotNet).
+        let loadBundled (id: string) (resourceName: string) () =
             try
                 let lang = new TreeSitter.Language(id)
                 languages.[id] <- lang
 
-                match asm.GetManifestResourceStream(resourceName) with
-                | null -> ()
-                | stream ->
-                    use reader = new StreamReader(stream)
-                    let scm = reader.ReadToEnd()
-                    queries.[id] <- new TreeSitter.Query(lang, scm)
-                    anyLoaded <- true
+                readQuery resourceName
+                |> Option.iter (fun scm -> queries.[id] <- new TreeSitter.Query(lang, scm))
             with _ ->
                 ()
 
-        // F# uses the explicit (library, function) constructor because it is
-        // not bundled inside TreeSitter.DotNet — we ship our own cross-built
-        // native under runtimes/<rid>/native/.
-        try
-            let fsLang = new TreeSitter.Language("tree-sitter-fsharp", "tree_sitter_fsharp")
-
-            languages.["fsharp"] <- fsLang
-
-            match asm.GetManifestResourceStream("fedit.queries.fsharp.highlights.scm") with
-            | null -> ()
-            | stream ->
-                use reader = new StreamReader(stream)
-                queries.["fsharp"] <- new TreeSitter.Query(fsLang, reader.ReadToEnd())
-                anyLoaded <- true
-        with _ ->
-            ()
-
-        // Bundled grammars — simple string-id constructor.
-        [ "javascript"
-          "typescript"
-          "tsx"
-          "python"
-          "json"
-          "c-sharp"
-          "go"
-          "rust"
-          "html"
-          "css"
-          "c"
-          "php"
-          "bash" ]
-        |> List.iter (fun id -> tryLoadBundled id $"fedit.queries.{id}.highlights.scm")
-
-        // External grammars — vendored natives under runtimes/<rid>/native/.
-        let tryLoadExternal (id: string) (libName: string) (funcName: string) (resourceName: string) =
+        // Build a grammar with the explicit (library, function) constructor —
+        // F# and the other external grammars ship their own cross-built native
+        // under runtimes/<rid>/native/, not inside TreeSitter.DotNet.
+        let loadExternal (id: string) (libName: string) (funcName: string) (resourceName: string) () =
             try
                 let lang = new TreeSitter.Language(libName, funcName)
                 languages.[id] <- lang
 
-                match asm.GetManifestResourceStream(resourceName) with
-                | null -> ()
-                | stream ->
-                    use reader = new StreamReader(stream)
-                    let scm = reader.ReadToEnd()
-                    queries.[id] <- new TreeSitter.Query(lang, scm)
-                    anyLoaded <- true
+                readQuery resourceName
+                |> Option.iter (fun scm -> queries.[id] <- new TreeSitter.Query(lang, scm))
             with _ ->
                 ()
 
-        [ "markdown", "tree-sitter-markdown", "tree_sitter_markdown"
-          "xml", "tree-sitter-xml", "tree_sitter_xml"
-          "dart", "tree-sitter-dart", "tree_sitter_dart"
-          "just", "tree-sitter-just", "tree_sitter_just"
-          "make", "tree-sitter-make", "tree_sitter_make"
-          "astro", "tree-sitter-astro", "tree_sitter_astro"
-          "toml", "tree-sitter-toml", "tree_sitter_toml"
-          "sema", "tree-sitter-sema", "tree_sitter_sema"
-          "applescript", "tree-sitter-applescript", "tree_sitter_applescript"
-          "rescript", "tree-sitter-rescript", "tree_sitter_rescript"
-          "zig", "tree-sitter-zig", "tree_sitter_zig" ]
-        |> List.iter (fun (id, lib, func) -> tryLoadExternal id lib func $"fedit.queries.{id}.highlights.scm")
+        let bundled =
+            [ "javascript"
+              "typescript"
+              "tsx"
+              "python"
+              "json"
+              "c-sharp"
+              "go"
+              "rust"
+              "html"
+              "css"
+              "c"
+              "php"
+              "bash" ]
 
-        if anyLoaded then
-            Some(new HighlightRegistry(languages, queries))
-        else
-            None
+        let externalGrammars =
+            [ "fsharp", "tree-sitter-fsharp", "tree_sitter_fsharp"
+              "markdown", "tree-sitter-markdown", "tree_sitter_markdown"
+              "xml", "tree-sitter-xml", "tree_sitter_xml"
+              "dart", "tree-sitter-dart", "tree_sitter_dart"
+              "just", "tree-sitter-just", "tree_sitter_just"
+              "make", "tree-sitter-make", "tree_sitter_make"
+              "astro", "tree-sitter-astro", "tree_sitter_astro"
+              "toml", "tree-sitter-toml", "tree_sitter_toml"
+              "sema", "tree-sitter-sema", "tree_sitter_sema"
+              "applescript", "tree-sitter-applescript", "tree_sitter_applescript"
+              "rescript", "tree-sitter-rescript", "tree_sitter_rescript"
+              "zig", "tree-sitter-zig", "tree_sitter_zig" ]
+
+        // Loaders are cheap closures — no native dylib or query compile runs
+        // until a grammar is first requested. See the `loaded` cache above.
+        let loaders =
+            [ for id in bundled -> id, loadBundled id $"fedit.queries.{id}.highlights.scm"
+              for id, lib, func in externalGrammars -> id, loadExternal id lib func $"fedit.queries.{id}.highlights.scm" ]
+            |> Map.ofList
+
+        Some(new HighlightRegistry(loaders, languages, queries))
 
 [<RequireQualifiedAccess>]
 module Highlight =
