@@ -1,9 +1,13 @@
 # fedit plugins
 
 Third-party F# plugins extend fedit with new commands and keybindings.
-Plugins live in `~/.config/fedit/plugins/<name>/`, are built lazily by
-the host on startup, and register themselves through a small contract
-defined in [`Fedit.PluginApi`](../src/Fedit.PluginApi).
+Plugins live in `~/.config/fedit/plugins/<name>/`, are built and loaded by
+a separate **plugin-host process** (`Fedit.PluginHost`, which ships beside
+the editor), and register themselves through a small contract defined in
+[`Fedit.PluginApi`](../src/Fedit.PluginApi). Running out-of-process keeps the
+editor free of a runtime JIT (so it can ship as NativeAOT) and means a slow
+or crashing plugin never freezes the UI. **Authoring is unchanged** — the
+contract and folder layout below are exactly the same.
 
 This page is the authoring guide. For the marketing-tinted introduction
 see [the plugins page on fedit.dev](https://fedit.dev/plugins).
@@ -70,8 +74,14 @@ more `RegisterCommand` calls, and an optional `RegisterKeybinding`.
 
 ## Plugin lifecycle
 
+The editor spawns `Fedit.PluginHost` and sends a `scan` request; the pipeline
+below runs **inside that host process**, and the resulting registry is
+serialized back to the editor over JSON-RPC. Command invocation works the
+same way: the editor sends `invoke`, the host runs the command's `Run`
+closure, and the returned `PluginAction` list is applied in the editor.
+
 ```
-  on fedit startup
+  editor: ScanPlugins effect ──▶ Fedit.PluginHost (scan)
         │
         ▼
   scan ~/.config/fedit/plugins/        ← Plugins.discover
@@ -93,8 +103,12 @@ more `RegisterCommand` calls, and an optional `RegisterKeybinding`.
   call register(collector)             ← collector implements IPluginHost
         │
         ▼
-  merge commands + keybindings into    ← PluginRegistry in Model
-  the global PluginRegistry
+  merge commands + keybindings into    ← PluginRegistry (in the host)
+  a PluginRegistry
+        │
+        ▼
+  serialize registry to the editor     ← PluginProtocol over JSON-RPC
+  (command specs only; Run stays here)
 ```
 
 Triggered manually via `:plugin reload` after editing a plugin.

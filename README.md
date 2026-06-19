@@ -198,8 +198,10 @@ each matrix leg.
 ## Plugins
 
 `fedit` supports third-party plugins written in F#. Plugins register
-commands and keybindings via the `Fedit.PluginApi` library; the host
-builds and loads them at startup.
+commands and keybindings via the `Fedit.PluginApi` library. They run
+out-of-process in a separate plugin host (`Fedit.PluginHost`, shipped beside
+the editor), which builds and loads them — so a slow or crashing plugin never
+freezes the editor, and the editor itself stays free of a runtime JIT.
 
 - **Marketing-tinted introduction:** [fedit.dev/plugins](https://fedit.dev/plugins) — hero, quick start, lifecycle diagram, action cheatsheet, example cards.
 - **Author guide:** [docs/plugins.md](docs/plugins.md) — manifest reference, every type, conflict policy, debugging.

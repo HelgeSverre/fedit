@@ -22,7 +22,14 @@ KeyPressed / Resize → Msg → Editor.update (pure) → (Model', [Effect])
 - **Themes** own the full chrome surface — accent plus an explicit fg/bg per region (editor, gutter, prompt, dock, status, selection, active line). Bundled dark themes set `Default` backgrounds so they keep terminal-default chrome; a light theme supplies real backgrounds.
 
 Source file order (`<Compile>` in `src/Fedit/Fedit.fsproj` is canonical):
-`Primitives → Keys → Events → TerminalCapabilities → MouseProtocol → ImageProtocol → KittyImage → PieceTable → Buffer → Workspace → Screen → Color → Themes → Highlight → Commands → Actions → Keymap → Plugins → PickerTypes → PromptTypes → Model → Config → Pickers → KeymapIO → Prompt → Dock → Editor → Status → Renderer → Input → View → Terminal → Runtime → Cli → Cli/Commands/* → Program`.
+`Primitives → Keys → Events → TerminalCapabilities → MouseProtocol → ImageProtocol → KittyImage → PieceTable → Buffer → Workspace → Screen → Color → Themes → Highlight → Commands → Actions → Keymap → Plugins → PluginWire → PluginProtocol → PluginHostClient → PickerTypes → PromptTypes → Model → Config → Pickers → KeymapIO → Prompt → Dock → Editor → Status → Renderer → Input → View → Terminal → Runtime → Cli → Cli/Commands/* → Program`.
+
+`Primitives.fs` also holds `Paths` (`norm`/`parent`): fedit uses a **canonical
+forward-slash path model** — normalize any path crossing an OS boundary
+(tree scan, file open, workspace root) with `Paths.norm`. .NET's file APIs
+accept `/` on Windows, so normalized paths still do real I/O. Don't introduce
+`Path.GetDirectoryName`/`GetFullPath` on compared/displayed paths (they emit
+`\` / drive-anchor on Windows) — use `Paths.parent` and combine+normalize.
 
 `Dock.fs` owns the dock/editor layout geometry (`Dock.metrics`) shared by
 `Editor` (mouse hit-testing) and `View.Layout.render` (painting) — change
@@ -99,24 +106,40 @@ Local dry-run of the formula renderer: `just release-formula-preview`.
 
 `Fedit.PluginApi` (separate library, `src/Fedit.PluginApi/`) defines
 the public contract: `IPluginHost`, `PluginCommand`, `PluginAction`,
-`KeyChord`. The host loads plugins from `~/.config/fedit/plugins/<name>/`
-on startup via `Plugins.scanAndLoad` (in `src/Fedit/Plugins.fs`),
-auto-generates a fsproj if the plugin folder has none, builds with
-`dotnet build -c Release`, and loads each DLL into an isolated
-`AssemblyLoadContext`. Plugin commands merge into the prompt; plugin
-keybindings dispatch in editor focus (plain `Char` chords are reserved).
+`KeyChord`. **Plugins load out-of-process.** The editor (which may ship as
+NativeAOT, with no JIT) never loads plugin assemblies itself — it spawns
+`Fedit.PluginHost` (`src/Fedit.PluginHost/`, a JIT exe that links
+`Plugins.fs`) and talks to it over newline-delimited JSON-RPC. The host runs
+the discover → auto-generate-fsproj → `dotnet build -c Release` →
+`AssemblyLoadContext` load pipeline (`Plugins.scanAndLoad`) and runs each
+command's `Run` closure; only command specs and `PluginAction` lists cross
+the wire (serialized reflection-free in `PluginWire`/`PluginProtocol`).
+`PluginHostClient` owns the child process editor-side. Plugin commands merge
+into the prompt; plugin keybindings dispatch in editor focus (plain `Char`
+chords are reserved).
+
+The MVU seam: `ScanPlugins` → `client.Scan` → `PluginsScanned`;
+`RunPluginCommand` effect → `client.Invoke` → `PluginActionsReady` →
+`applyPluginActions`. The editor's registry carries stub `Run` closures (the
+real ones live only in the host).
 
 When touching the plugin pipeline:
 
+- **The host must ship beside the editor** — `PluginHostClient.defaultHostPath`
+  looks next to the running binary, then a dev fallback into
+  `src/Fedit.PluginHost/bin/<cfg>/net10.0`. `release.yml` and `just aot`
+  publish it into the editor's dist; the Homebrew formula installs it. Without
+  co-location, plugins silently fail to load.
 - The plugin API's `Severity` shadows `Result.Error` in lexical scope —
-  use explicit `Result.Error` in `Plugins.fs` if you re-`open
-Fedit.PluginApi`.
-- `AppContext.BaseDirectory` is the host's running-binary directory.
-  `Fedit.PluginApi.dll` ships alongside via ProjectReference, so the
-  auto-generated fsproj's HintPath resolves naturally.
+  use explicit `Result.Error` in `Plugins.fs` / `PluginWire.fs` if you
+  re-`open Fedit.PluginApi`.
+- `Plugins.fs` depends only on `Fedit.PluginApi` + BCL, so the host links it
+  directly. `Fedit.PluginApi.dll` ships beside the host; the auto-generated
+  plugin fsproj's HintPath resolves to it.
 - Reference implementations in [`examples/`](examples/) — copy any of
-  them to `~/.config/fedit/plugins/` to test. The end-to-end test
-  `PluginsTests.fs` does this against `wordcount` on every `just test`.
+  them to `~/.config/fedit/plugins/` to test. End-to-end tests
+  (`PluginsTests.fs`, `PluginHostTests.fs`) build + load `wordcount` through
+  the host on every `just test`.
 - Full author guide in [`docs/plugins.md`](docs/plugins.md).
 
 ## Useful docs
