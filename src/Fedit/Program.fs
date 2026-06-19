@@ -116,6 +116,14 @@ module Program =
             else
                 Console.Error.WriteLine "plugin-wire selftest: FAIL"
                 1
+        elif argv.Length = 3 && argv.[0] = "__plugin-host-selftest" then
+            // args: <pluginsRoot> <hostPath> — spawns the host child over RPC.
+            if PluginHostClient.selfTest argv.[1] argv.[2] then
+                Console.Error.WriteLine "plugin-host selftest: OK"
+                0
+            else
+                Console.Error.WriteLine "plugin-host selftest: FAIL"
+                1
         else
 
             match Parser.route subcommands argv with

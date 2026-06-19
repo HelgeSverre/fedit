@@ -214,6 +214,7 @@
     <Compile Include="Plugins.fs" />
     <Compile Include="PluginWire.fs" />
     <Compile Include="PluginProtocol.fs" />
+    <Compile Include="PluginHostClient.fs" />
     <Compile Include="PickerTypes.fs" />
     <Compile Include="PromptTypes.fs" />
     <Compile Include="Model.fs" />

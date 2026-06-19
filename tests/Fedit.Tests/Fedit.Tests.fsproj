@@ -28,6 +28,7 @@
     <Compile Include="BinarySmokeTests.fs" />
     <Compile Include="PluginsTests.fs" />
     <Compile Include="PluginWireTests.fs" />
+    <Compile Include="PluginHostTests.fs" />
     <Compile Include="CliTests.fs" />
     <Compile Include="CompletionsTests.fs" />
     <Compile Include="StatusTests.fs" />
@@ -47,6 +48,13 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Fedit\Fedit.fsproj" />
+    <!-- Build the host for the RPC test, but do NOT reference its assembly:
+         it links Plugins/PluginWire/PluginProtocol, which would duplicate
+         those types against the editor's. ReferenceOutputAssembly=false keeps
+         build ordering only; the test finds the dll by path. -->
+    <ProjectReference Include="..\..\src\Fedit.PluginHost\Fedit.PluginHost.fsproj"
+                      ReferenceOutputAssembly="false" />
+
   </ItemGroup>
   <ItemGroup>
     <None Include="Fixtures/*.*">
