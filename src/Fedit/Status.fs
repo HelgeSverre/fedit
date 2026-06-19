@@ -147,7 +147,7 @@ module Status =
             |> List.tryFindIndex (fun id -> id = model.Editors.ActiveBufferId)
             |> Option.defaultValue 0
 
-        sprintf "%d/%d" (idx + 1) ids.Length
+        string (idx + 1) + "/" + string ids.Length
 
     let private resolveToken (model: Model) (name: string) (modifier: string option) =
         let buffer = model.Editors.Buffers[model.Editors.ActiveBufferId]

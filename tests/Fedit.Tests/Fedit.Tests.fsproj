@@ -27,6 +27,7 @@
     <Compile Include="SnapshotTests.fs" />
     <Compile Include="BinarySmokeTests.fs" />
     <Compile Include="PluginsTests.fs" />
+    <Compile Include="PluginWireTests.fs" />
     <Compile Include="CliTests.fs" />
     <Compile Include="CompletionsTests.fs" />
     <Compile Include="StatusTests.fs" />

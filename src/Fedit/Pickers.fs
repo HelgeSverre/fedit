@@ -303,7 +303,7 @@ module Pickers =
 
     let private actionLabel =
         function
-        | Some action -> (sprintf "%A" action).Replace("\n", " ")
+        | Some action -> Action.name action
         | None -> "(unbound)"
 
     let private keybindingItems (model: Model) : PickerItem list =

@@ -213,8 +213,7 @@ module Keymap =
             |> Map.toList
             |> List.choose (fun ((c, stroke), action) ->
                 if c = ctx then
-                    action
-                    |> Option.map (fun a -> Chord.renderStroke stroke, (sprintf "%A" a).Replace("\n", " "))
+                    action |> Option.map (fun a -> Chord.renderStroke stroke, Action.name a)
                 else
                     None)
             |> List.sortBy fst
@@ -232,11 +231,11 @@ module Keymap =
             match rowsFor ctx with
             | [] -> ()
             | rows ->
-                line (sprintf "## %s" (ctxName ctx))
+                line ("## " + ctxName ctx)
                 let width = rows |> List.map (fst >> String.length) |> List.max
 
                 for (stroke, action) in rows do
-                    line (sprintf "  %s  %s" (stroke.PadRight width) action)
+                    line ("  " + stroke.PadRight width + "  " + action)
 
                 line ""
 

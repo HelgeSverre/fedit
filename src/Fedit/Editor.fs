@@ -1167,11 +1167,11 @@ module Editor =
                         |> List.map (fun ctx ->
                             let outcome =
                                 match Keymap.resolve ctx stroke model.Keymap with
-                                | Bound a -> (sprintf "%A" a).Replace("\n", " ")
+                                | Bound a -> Action.name a
                                 | Unbound -> "(unbound)"
                                 | NotBound -> "—"
 
-                            sprintf "%s=%s" (ctxName ctx) outcome)
+                            ctxName ctx + "=" + outcome)
 
                     let body = Chord.renderStroke stroke + "  " + String.concat "  " parts
                     notify (Some(Notification.info body)) model, []

@@ -26,6 +26,21 @@
          all five from one runner. -->
     <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
+
+  <!-- SPIKE: NativeAOT experiment, activated with -p:FeditAot=true. Overrides
+       the Release publish knobs that AOT forbids (single-file, R2R, untrimmed)
+       and points the linker at Homebrew openssl. Not for shipping. -->
+  <PropertyGroup Condition="'$(FeditAot)' == 'true'">
+    <PublishAot>true</PublishAot>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>true</PublishTrimmed>
+    <IlcTreatWarningsAsErrors>false</IlcTreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(FeditAot)' == 'true'">
+    <LinkerArg Include="-L/opt/homebrew/lib" />
+  </ItemGroup>
   <ItemGroup>
     <!-- Explicit reference so FSharp.Core ships in bin/ even for non-SDK
          invocations (e.g. binary smoke tests via `dotnet run`). Version
@@ -197,6 +212,7 @@
     <Compile Include="Actions.fs" />
     <Compile Include="Keymap.fs" />
     <Compile Include="Plugins.fs" />
+    <Compile Include="PluginWire.fs" />
     <Compile Include="PickerTypes.fs" />
     <Compile Include="PromptTypes.fs" />
     <Compile Include="Model.fs" />

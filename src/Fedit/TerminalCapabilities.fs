@@ -295,5 +295,14 @@ module TerminalCapabilities =
             | ColorAnsi256 -> "256"
             | ColorTrueColor -> "truecolor"
 
+        let encoding =
+            match caps.MouseEncoding with
+            | MouseEncodingNone -> "none"
+            | MouseX10 -> "x10"
+            | MouseUtf8 -> "utf8"
+            | MouseSgr -> "sgr"
+            | MouseUrxvt -> "urxvt"
+            | MouseSgrPixels -> "sgr-pixels"
+
         let term = caps.TerminalName |> Option.defaultValue "unknown"
-        $"term={term} mouse={mouse} encoding={caps.MouseEncoding} image={img} color={color}"
+        $"term={term} mouse={mouse} encoding={encoding} image={img} color={color}"
