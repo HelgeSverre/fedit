@@ -102,7 +102,7 @@ let private renderTable (themes: Theme list) : string =
     for t in themes do
         let accent = Color.toHex t.Accent |> Option.defaultValue "-"
 
-        sb.AppendLine(sprintf "%-*s  %-5s  %s" nameWidth t.Name (appearance t) accent)
+        sb.AppendLine(t.Name.PadRight nameWidth + "  " + (appearance t).PadRight 5 + "  " + accent)
         |> ignore
 
     sb.ToString()
@@ -156,15 +156,15 @@ let private wantsJson items =
 let run (argv: string[]) : int =
     match Parser.parse themesApp.Options argv with
     | Result.Error errors ->
-        eprintfn "%s" (Parser.formatErrors themesApp errors)
+        System.Console.Error.WriteLine(Parser.formatErrors themesApp errors)
         2
     | Result.Ok items when wantsHelp items ->
-        printfn "%s" (Parser.formatHelp themesApp)
+        System.Console.Out.WriteLine(Parser.formatHelp themesApp)
         0
     | Result.Ok items ->
         if wantsJson items then
-            printf "%s" (toJson Themes.all)
+            System.Console.Out.Write(toJson Themes.all)
         else
-            printf "%s" (renderTable Themes.all)
+            System.Console.Out.Write(renderTable Themes.all)
 
         0

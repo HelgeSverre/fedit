@@ -148,12 +148,12 @@ let private zshOptionLine (opt: CliOptionDescriptor) =
 
 let private zshSubcommandValues (subs: CliCommandDescriptor list) =
     subs
-    |> List.collect (fun s -> visibleForms s |> List.map (fun n -> sprintf "'%s[%s]'" n (zshEscape s.Summary)))
+    |> List.collect (fun s -> visibleForms s |> List.map (fun n -> "'" + n + "[" + zshEscape s.Summary + "]'"))
     |> String.concat " "
 
 let rec private emitZshNode (sb: StringBuilder) (funcName: string) (node: CliCommandDescriptor) =
     let add (s: string) = sb.AppendLine s |> ignore
-    add (sprintf "%s() {" funcName)
+    add (funcName + "() {")
 
     if List.isEmpty node.Subcommands then
         // Leaf: options + first positional (no current node has more
@@ -161,11 +161,11 @@ let rec private emitZshNode (sb: StringBuilder) (funcName: string) (node: CliCom
         add "    _arguments -C \\"
 
         for opt in node.Options do
-            add (sprintf "        %s \\" (zshOptionLine opt))
+            add ("        " + zshOptionLine opt + " \\")
 
         match node.Positionals with
         | [] -> add "        && return 0"
-        | pos :: _ -> add (sprintf "        '*:%s:%s'" pos.Name (zshAction pos.Completion))
+        | pos :: _ -> add ("        '*:" + pos.Name + ":" + zshAction pos.Completion + "'")
     else
         // Branch on the first remaining word, then dispatch to the
         // matching child function (recursively defined below).
@@ -173,14 +173,14 @@ let rec private emitZshNode (sb: StringBuilder) (funcName: string) (node: CliCom
         add "    _arguments -C \\"
 
         for opt in node.Options do
-            add (sprintf "        %s \\" (zshOptionLine opt))
+            add ("        " + zshOptionLine opt + " \\")
 
         add "        '1: :->cmd' \\"
         add "        '*::arg:->args' && return 0"
         add ""
         add "    case \"$state\" in"
         add "        cmd)"
-        add (sprintf "            _values 'command' %s" (zshSubcommandValues node.Subcommands))
+        add ("            _values 'command' " + zshSubcommandValues node.Subcommands)
 
         // A branch node can also take a file/dir positional in word 1
         // (the root does: `fedit <path>`), so the cmd state must offer
@@ -190,7 +190,7 @@ let rec private emitZshNode (sb: StringBuilder) (funcName: string) (node: CliCom
         | pos :: _ ->
             match pos.Completion with
             | FilePath
-            | DirectoryPath -> add (sprintf "            %s" (zshAction pos.Completion))
+            | DirectoryPath -> add ("            " + zshAction pos.Completion)
             | _ -> ()
         | [] -> ()
 
@@ -200,10 +200,10 @@ let rec private emitZshNode (sb: StringBuilder) (funcName: string) (node: CliCom
 
         for child in node.Subcommands do
             let forms = allSurfaceForms child |> String.concat "|"
-            add (sprintf "                %s) %s__%s ;;" forms funcName child.Name)
+            add ("                " + forms + ") " + funcName + "__" + child.Name + " ;;")
 
         match node.Positionals with
-        | pos :: _ -> add (sprintf "                *) %s ;;" (zshAction pos.Completion))
+        | pos :: _ -> add ("                *) " + zshAction pos.Completion + " ;;")
         | [] -> ()
 
         add "            esac"
@@ -214,7 +214,7 @@ let rec private emitZshNode (sb: StringBuilder) (funcName: string) (node: CliCom
     add ""
 
     for child in node.Subcommands do
-        emitZshNode sb (sprintf "%s__%s" funcName child.Name) child
+        emitZshNode sb (funcName + "__" + child.Name) child
 
 let private emitZsh (root: CliCommandDescriptor) : string =
     let sb = StringBuilder()
@@ -249,14 +249,25 @@ let private emitZsh (root: CliCommandDescriptor) : string =
 let private bashAssign (op: string) (kind: CliCompletionKind) =
     let fileLines (gen: string) =
         [ "type compopt >/dev/null 2>&1 && compopt -o filenames 2>/dev/null || true"
-          sprintf """while IFS= read -r f; do COMPREPLY+=("$f"); done < <(compgen %s -- "$cur")""" gen ]
+          "while IFS= read -r f; do COMPREPLY+=(\"$f\"); done < <(compgen "
+          + gen
+          + " -- \"$cur\")" ]
 
     match kind with
     | FilePath -> fileLines "-f"
     | DirectoryPath -> fileLines "-d"
     | DynamicCommand args ->
-        [ sprintf """COMPREPLY%s( $(compgen -W "$(%s 2>/dev/null)" -- "$cur") )""" op (dynamicCommandString args) ]
-    | Choices values -> [ sprintf """COMPREPLY%s( $(compgen -W "%s" -- "$cur") )""" op (String.Join(' ', values)) ]
+        [ "COMPREPLY"
+          + op
+          + "( $(compgen -W \"$("
+          + dynamicCommandString args
+          + " 2>/dev/null)\" -- \"$cur\") )" ]
+    | Choices values ->
+        [ "COMPREPLY"
+          + op
+          + "( $(compgen -W \""
+          + String.Join(' ', values)
+          + "\" -- \"$cur\") )" ]
     | NoHint -> [ ":" ]
 
 let private emitBash (root: CliCommandDescriptor) : string =
@@ -275,10 +286,10 @@ let private emitBash (root: CliCommandDescriptor) : string =
 
     // Complete the value of a value-taking option if it was just typed.
     for opt, flag in values do
-        add (sprintf "    if [[ \"$prev\" == \"%s\" ]]; then" flag)
+        add ("    if [[ \"$prev\" == \"" + flag + "\" ]]; then")
 
         for line in bashAssign "=" opt.Completion do
-            add (sprintf "        %s" line)
+            add ("        " + line)
 
         add "        return"
         add "    fi"
@@ -296,7 +307,7 @@ let private emitBash (root: CliCommandDescriptor) : string =
 
     if not (List.isEmpty values) then
         let flags = values |> List.map snd |> String.concat "|"
-        add (sprintf "        case \"$p\" in %s) continue ;; esac" flags)
+        add ("        case \"$p\" in " + flags + ") continue ;; esac")
 
     add "        case \"$path|$w\" in"
 
@@ -304,10 +315,10 @@ let private emitBash (root: CliCommandDescriptor) : string =
         for child in node.Subcommands do
             let arms =
                 allSurfaceForms child
-                |> List.map (fun f -> sprintf "\"%s|%s\"" (pathKey path) f)
+                |> List.map (fun f -> "\"" + pathKey path + "|" + f + "\"")
                 |> String.concat "|"
 
-            add (sprintf "            %s) path=\"%s\" ;;" arms (pathKey (path @ [ child.Name ])))
+            add ("            " + arms + ") path=\"" + pathKey (path @ [ child.Name ]) + "\" ;;")
 
     add "            *) break ;;"
     add "        esac"
@@ -316,15 +327,21 @@ let private emitBash (root: CliCommandDescriptor) : string =
     add "    case \"$path\" in"
 
     for path, node in nodes do
-        add (sprintf "        \"%s\")" (pathKey path))
+        add ("        \"" + pathKey path + "\")")
         add "            if [[ \"$cur\" == -* ]]; then"
-        add (sprintf "                COMPREPLY=( $(compgen -W \"%s\" -- \"$cur\") )" (bashFlagList node.Options))
+
+        add (
+            "                COMPREPLY=( $(compgen -W \""
+            + bashFlagList node.Options
+            + "\" -- \"$cur\") )"
+        )
+
         add "            else"
 
         let names = node.Subcommands |> List.collect visibleForms |> String.concat " "
 
         if names <> "" then
-            add (sprintf "                COMPREPLY=( $(compgen -W \"%s\" -- \"$cur\") )" names)
+            add ("                COMPREPLY=( $(compgen -W \"" + names + "\" -- \"$cur\") )")
 
         match node.Positionals with
         | pos :: _ ->
@@ -335,7 +352,7 @@ let private emitBash (root: CliCommandDescriptor) : string =
 
             if not (names <> "" && actions = [ ":" ]) then
                 for line in actions do
-                    add (sprintf "                %s" line)
+                    add ("                " + line)
         | [] ->
             if names = "" then
                 add "                :"
@@ -482,11 +499,22 @@ let private emitPwsh (root: CliCommandDescriptor) : string =
     for path, node in nodes do
         for child in node.Subcommands do
             for form in allSurfaceForms child do
-                add (sprintf "        '%s' = '%s'" (pathKey path + "|" + form) (pathKey (path @ [ child.Name ])))
+                add (
+                    "        '"
+                    + (pathKey path + "|" + form)
+                    + "' = '"
+                    + pathKey (path @ [ child.Name ])
+                    + "'"
+                )
 
     add "    }"
 
-    add (sprintf "    $valueFlags = @(%s)" (values |> List.map (sprintf "'%s'") |> String.concat ", "))
+    add (
+        "    $valueFlags = @("
+        + (values |> List.map (fun s -> "'" + s + "'") |> String.concat ", ")
+        + ")"
+    )
+
     add ""
     add "    $elements = @($commandAst.CommandElements | Select-Object -Skip 1 | ForEach-Object { \"$_\" })"
     add "    $path = ''"
@@ -505,42 +533,44 @@ let private emitPwsh (root: CliCommandDescriptor) : string =
     add "    switch ($path) {"
 
     for path, node in nodes do
-        let key =
-            if List.isEmpty path then
-                "''"
-            else
-                sprintf "'%s'" (pathKey path)
+        let key = if List.isEmpty path then "''" else "'" + pathKey path + "'"
 
-        add (sprintf "        %s {" key)
+        add ("        " + key + " {")
 
         for child in node.Subcommands do
             for form in visibleForms child do
                 add (
-                    sprintf
-                        "            $static.Add([CompletionResult]::new('%s', '%s', [CompletionResultType]::ParameterValue, '%s'))"
-                        form
-                        form
-                        (pwshEscape child.Summary)
+                    "            $static.Add([CompletionResult]::new('"
+                    + form
+                    + "', '"
+                    + form
+                    + "', [CompletionResultType]::ParameterValue, '"
+                    + pwshEscape child.Summary
+                    + "'))"
                 )
 
         for opt in node.Options do
             match opt.Short with
             | Some s ->
                 add (
-                    sprintf
-                        "            $static.Add([CompletionResult]::new('-%c', '-%c', [CompletionResultType]::ParameterName, '%s'))"
-                        s
-                        s
-                        (pwshEscape opt.Description)
+                    "            $static.Add([CompletionResult]::new('-"
+                    + string s
+                    + "', '-"
+                    + string s
+                    + "', [CompletionResultType]::ParameterName, '"
+                    + pwshEscape opt.Description
+                    + "'))"
                 )
             | None -> ()
 
             add (
-                sprintf
-                    "            $static.Add([CompletionResult]::new('--%s', '--%s', [CompletionResultType]::ParameterName, '%s'))"
-                    opt.Long
-                    opt.Long
-                    (pwshEscape opt.Description)
+                "            $static.Add([CompletionResult]::new('--"
+                + opt.Long
+                + "', '--"
+                + opt.Long
+                + "', [CompletionResultType]::ParameterName, '"
+                + pwshEscape opt.Description
+                + "'))"
             )
 
         match node.Positionals with
@@ -549,11 +579,13 @@ let private emitPwsh (root: CliCommandDescriptor) : string =
             | Choices vals ->
                 for v in vals do
                     add (
-                        sprintf
-                            "            $static.Add([CompletionResult]::new('%s', '%s', [CompletionResultType]::ParameterValue, '%s'))"
-                            v
-                            v
-                            v
+                        "            $static.Add([CompletionResult]::new('"
+                        + v
+                        + "', '"
+                        + v
+                        + "', [CompletionResultType]::ParameterValue, '"
+                        + v
+                        + "'))"
                     )
             | FilePath ->
                 add
@@ -569,7 +601,7 @@ let private emitPwsh (root: CliCommandDescriptor) : string =
 
                 add "            }"
             | DynamicCommand args ->
-                add (sprintf "            foreach ($n in @(& %s 2>$null)) {" (dynamicCommandString args))
+                add ("            foreach ($n in @(& " + dynamicCommandString args + " 2>$null)) {")
 
                 add
                     "                $static.Add([CompletionResult]::new($n, $n, [CompletionResultType]::ParameterValue, $n))"
@@ -606,7 +638,7 @@ let private nuCompleterSlug (canonPath: string list) (posName: string) =
         else
             " " + pathKey canonPath
 
-    sprintf "nu-complete fedit%s %s" p posName
+    "nu-complete fedit" + p + " " + posName
 
 let private emitNushell (root: CliCommandDescriptor) : string =
     let sb = StringBuilder()
@@ -621,8 +653,8 @@ let private emitNushell (root: CliCommandDescriptor) : string =
             let slug = nuCompleterSlug path pos.Name
 
             match pos.Completion with
-            | Choices vals -> add (sprintf "def \"%s\" [] { [%s] }" slug (String.Join(' ', vals)))
-            | DynamicCommand args -> add (sprintf "def \"%s\" [] { ^%s | lines }" slug (dynamicCommandString args))
+            | Choices vals -> add ("def \"" + slug + "\" [] { [" + String.Join(' ', vals) + "] }")
+            | DynamicCommand args -> add ("def \"" + slug + "\" [] { ^" + dynamicCommandString args + " | lines }")
             | _ -> ()
         | [] -> ()
 
@@ -632,33 +664,33 @@ let private emitNushell (root: CliCommandDescriptor) : string =
     // singular `plugin` alias completes like `plugins`.
     let rec externs (prefixes: string list) (canonPath: string list) (node: CliCommandDescriptor) =
         for p in prefixes do
-            add (sprintf "export extern \"%s\" [" p)
+            add ("export extern \"" + p + "\" [")
 
             match node.Positionals with
             | pos :: _ ->
                 let shape =
                     match pos.Completion with
                     | Choices _
-                    | DynamicCommand _ -> sprintf "string@\"%s\"" (nuCompleterSlug canonPath pos.Name)
+                    | DynamicCommand _ -> "string@\"" + nuCompleterSlug canonPath pos.Name + "\""
                     | FilePath
                     | DirectoryPath -> "path"
                     | NoHint -> "string"
 
-                add (sprintf "  %s?: %s  # %s" pos.Name shape pos.Description)
+                add ("  " + pos.Name + "?: " + shape + "  # " + pos.Description)
             | [] -> ()
 
             for opt in node.Options do
                 let namePart =
                     match opt.Short with
-                    | Some s -> sprintf "--%s (-%c)" opt.Long s
-                    | None -> sprintf "--%s" opt.Long
+                    | Some s -> "--" + opt.Long + " (-" + string s + ")"
+                    | None -> "--" + opt.Long
 
                 let valuePart =
                     match opt.Value with
                     | RequiredValue _ -> ": " + nuShape opt.Completion
                     | NoValue -> ""
 
-                add (sprintf "  %s%s  # %s" namePart valuePart opt.Description)
+                add ("  " + namePart + valuePart + "  # " + opt.Description)
 
             add "]"
             add ""
@@ -693,17 +725,23 @@ let private emitElvish (root: CliCommandDescriptor) : string =
     for path, node in nodes do
         for child in node.Subcommands do
             for form in allSurfaceForms child do
-                add (sprintf "  &'%s'='%s'" (pathKey path + "|" + form) (pathKey (path @ [ child.Name ])))
+                add (
+                    "  &'"
+                    + (pathKey path + "|" + form)
+                    + "'='"
+                    + pathKey (path @ [ child.Name ])
+                    + "'"
+                )
 
     add "]"
-    add (sprintf "var fedit-value-flags = [%s]" (String.Join(' ', values)))
+    add ("var fedit-value-flags = [" + String.Join(' ', values) + "]")
     add ""
 
     // Flags offered when the current word starts with `-`, keyed by path.
     add "var fedit-flags = ["
 
     for path, node in nodes do
-        add (sprintf "  &'%s'=[%s]" (pathKey path) (bashFlagList node.Options))
+        add ("  &'" + pathKey path + "'=[" + bashFlagList node.Options + "]")
 
     add "]"
     add ""
@@ -719,24 +757,24 @@ let private emitElvish (root: CliCommandDescriptor) : string =
             | _ -> false
 
         if not (List.isEmpty node.Subcommands) || hasPositional then
-            add (sprintf "  &'%s'={|cur|" (pathKey path))
+            add ("  &'" + pathKey path + "'={|cur|")
 
             let subForms = node.Subcommands |> List.collect visibleForms |> String.concat " "
 
             if subForms <> "" then
-                add (sprintf "    put %s" subForms)
+                add ("    put " + subForms)
 
             match node.Positionals with
             | pos :: _ ->
                 match pos.Completion with
                 | FilePath
                 | DirectoryPath -> add "    edit:complete-filename $cur"
-                | Choices vals -> add (sprintf "    put %s" (String.Join(' ', vals)))
+                | Choices vals -> add ("    put " + String.Join(' ', vals))
                 | DynamicCommand args ->
                     add (
-                        sprintf
-                            "    for l [(str:split \"\\n\" (%s 2>/dev/null | slurp))] { if (not-eq $l '') { put $l } }"
-                            (dynamicCommandString args)
+                        "    for l [(str:split \"\\n\" ("
+                        + dynamicCommandString args
+                        + " 2>/dev/null | slurp))] { if (not-eq $l '') { put $l } }"
                     )
                 | NoHint -> ()
             | [] -> ()
@@ -794,11 +832,21 @@ let private emitXonsh (root: CliCommandDescriptor) : string =
         for child in node.Subcommands do
             for form in allSurfaceForms child do
                 add (
-                    sprintf "    %s: %s," (pyStr (pathKey path + "|" + form)) (pyStr (pathKey (path @ [ child.Name ])))
+                    "    "
+                    + pyStr (pathKey path + "|" + form)
+                    + ": "
+                    + pyStr (pathKey (path @ [ child.Name ]))
+                    + ","
                 )
 
     add "}"
-    add (sprintf "_FEDIT_VALUE_FLAGS = {%s}" (values |> List.map pyStr |> String.concat ", "))
+
+    add (
+        "_FEDIT_VALUE_FLAGS = {"
+        + (values |> List.map pyStr |> String.concat ", ")
+        + "}"
+    )
+
     add ""
 
     // Per-path subcommand and flag tables.
@@ -809,10 +857,10 @@ let private emitXonsh (root: CliCommandDescriptor) : string =
             node.Subcommands
             |> List.collect (fun c ->
                 visibleForms c
-                |> List.map (fun f -> sprintf "(%s, %s)" (pyStr f) (pyStr c.Summary)))
+                |> List.map (fun f -> "(" + pyStr f + ", " + pyStr c.Summary + ")"))
             |> String.concat ", "
 
-        add (sprintf "    %s: [%s]," (pyStr (pathKey path)) entries)
+        add ("    " + pyStr (pathKey path) + ": [" + entries + "],")
 
     add "}"
     add "_FEDIT_FLAGS = {"
@@ -822,14 +870,14 @@ let private emitXonsh (root: CliCommandDescriptor) : string =
             node.Options
             |> List.collect (fun o ->
                 let pair n =
-                    sprintf "(%s, %s)" (pyStr n) (pyStr o.Description)
+                    "(" + pyStr n + ", " + pyStr o.Description + ")"
 
                 match o.Short with
-                | Some s -> [ pair (sprintf "-%c" s); pair (sprintf "--%s" o.Long) ]
-                | None -> [ pair (sprintf "--%s" o.Long) ])
+                | Some s -> [ pair ("-" + string s); pair ("--" + o.Long) ]
+                | None -> [ pair ("--" + o.Long) ])
             |> String.concat ", "
 
-        add (sprintf "    %s: [%s]," (pyStr (pathKey path)) entries)
+        add ("    " + pyStr (pathKey path) + ": [" + entries + "],")
 
     add "}"
     // Positional kind per path: 'file' | 'choices:<vals>' | 'dynamic:<cmd>'.
@@ -847,7 +895,7 @@ let private emitXonsh (root: CliCommandDescriptor) : string =
                 | NoHint -> None
 
             match kind with
-            | Some k -> add (sprintf "    %s: %s," (pyStr (pathKey path)) (pyStr k))
+            | Some k -> add ("    " + pyStr (pathKey path) + ": " + pyStr k + ",")
             | None -> ()
         | [] -> ()
 
@@ -937,8 +985,8 @@ let private emitYash (root: CliCommandDescriptor) : string =
     add "        case $w in (-*) prev=$w; i=$((i+1)); continue;; esac"
 
     if not (List.isEmpty values) then
-        let pat = values |> List.map (sprintf "'%s'") |> String.concat "|"
-        add (sprintf "        case $prev in (%s) prev=$w; i=$((i+1)); continue;; esac" pat)
+        let pat = values |> List.map (fun s -> "'" + s + "'") |> String.concat "|"
+        add ("        case $prev in (" + pat + ") prev=$w; i=$((i+1)); continue;; esac")
 
     add "        case \"$path|$w\" in"
 
@@ -946,10 +994,10 @@ let private emitYash (root: CliCommandDescriptor) : string =
         for child in node.Subcommands do
             let arms =
                 allSurfaceForms child
-                |> List.map (fun f -> sprintf "'%s|%s'" (pathKey path) f)
+                |> List.map (fun f -> "'" + pathKey path + "|" + f + "'")
                 |> String.concat "|"
 
-            add (sprintf "            (%s) path='%s';;" arms (pathKey (path @ [ child.Name ])))
+            add ("            (" + arms + ") path='" + pathKey (path @ [ child.Name ]) + "';;")
 
     add "            (*) break;;"
     add "        esac"
@@ -958,9 +1006,9 @@ let private emitYash (root: CliCommandDescriptor) : string =
     add "    case $path in"
 
     for path, node in nodes do
-        add (sprintf "        ('%s')" (pathKey path))
+        add ("        ('" + pathKey path + "')")
         add "            case $TARGETWORD in"
-        add (sprintf "                (-*) complete -- %s;;" (bashFlagList node.Options))
+        add ("                (-*) complete -- " + bashFlagList node.Options + ";;")
 
         let subs = node.Subcommands |> List.collect visibleForms |> String.concat " "
 
@@ -971,7 +1019,7 @@ let private emitYash (root: CliCommandDescriptor) : string =
                 | FilePath -> "complete -f"
                 | DirectoryPath -> "complete -d"
                 | Choices vals -> "complete -- " + String.Join(' ', vals)
-                | DynamicCommand args -> sprintf "complete -- $(%s 2>/dev/null)" (dynamicCommandString args)
+                | DynamicCommand args -> "complete -- $(" + dynamicCommandString args + " 2>/dev/null)"
                 | NoHint -> ":"
             | [] -> ":"
 
@@ -981,7 +1029,7 @@ let private emitYash (root: CliCommandDescriptor) : string =
             | s, ":" -> "complete -- " + s
             | s, c -> "complete -- " + s + "; " + c
 
-        add (sprintf "                (*) %s;;" elseCmd)
+        add ("                (*) " + elseCmd + ";;")
         add "            esac;;"
 
     add "    esac"
@@ -1018,16 +1066,14 @@ let rec private murexNode (node: CliCommandDescriptor) : string =
 
     let flagValues =
         node.Subcommands
-        |> List.collect (fun c ->
-            allSurfaceForms c
-            |> List.map (fun f -> sprintf "%s: %s" (murexStr f) (murexNode c)))
+        |> List.collect (fun c -> allSurfaceForms c |> List.map (fun f -> murexStr f + ": " + murexNode c))
         |> String.concat ", "
 
     let fvPart =
         if flagValues = "" then
             ""
         else
-            sprintf ", \"FlagValues\": { %s }" flagValues
+            ", \"FlagValues\": { " + flagValues + " }"
 
     let posPart =
         match node.Positionals with
@@ -1035,11 +1081,11 @@ let rec private murexNode (node: CliCommandDescriptor) : string =
             match pos.Completion with
             | FilePath -> ", \"IncFiles\": true"
             | DirectoryPath -> ", \"IncDirs\": true"
-            | DynamicCommand args -> sprintf ", \"Dynamic\": %s" (murexStr ("^" + dynamicCommandString args))
+            | DynamicCommand args -> ", \"Dynamic\": " + murexStr ("^" + dynamicCommandString args)
             | _ -> ""
         | [] -> ""
 
-    sprintf "[{ \"Flags\": [%s]%s%s }]" flags fvPart posPart
+    "[{ \"Flags\": [" + flags + "]" + fvPart + posPart + " }]"
 
 let private emitMurex (root: CliCommandDescriptor) : string =
     let sb = StringBuilder()
@@ -1140,21 +1186,21 @@ let private firstPositional items =
 let run (root: CliCommandDescriptor) (argv: string[]) : int =
     match Parser.parse completionsApp.Options argv with
     | Result.Error errors ->
-        eprintfn "%s" (Parser.formatErrors completionsApp errors)
+        System.Console.Error.WriteLine(Parser.formatErrors completionsApp errors)
         2
     | Result.Ok items when wantsHelp items ->
-        printfn "%s" (Parser.formatHelp completionsApp)
+        System.Console.Out.WriteLine(Parser.formatHelp completionsApp)
         0
     | Result.Ok items ->
         match firstPositional items with
         | None ->
-            eprintfn "fedit completions: missing <shell> argument"
-            eprintfn "Run 'fedit completions --help' for usage."
+            System.Console.Error.WriteLine "fedit completions: missing <shell> argument"
+            System.Console.Error.WriteLine "Run 'fedit completions --help' for usage."
             2
         | Some shellArg ->
             match parseShell shellArg with
             | Result.Error e ->
-                eprintfn "fedit completions: %s" e
+                System.Console.Error.WriteLine("fedit completions: " + e)
                 2
             | Ok shell ->
                 let script = emit shell root
@@ -1162,37 +1208,39 @@ let run (root: CliCommandDescriptor) (argv: string[]) : int =
                 if wantsInstall items then
                     match install shell script with
                     | Ok path ->
-                        printfn "installed: %s" path
+                        System.Console.Out.WriteLine("installed: " + path)
 
                         match shell with
                         | Zsh ->
-                            printfn "  Add to ~/.zshrc before compinit:"
-                            printfn "    fpath=(~/.zsh/completions $fpath)"
-                        | Bash -> printfn "  Restart your shell or run: source ~/.bashrc"
-                        | Fish -> printfn "  Picked up automatically on next shell session."
+                            System.Console.Out.WriteLine "  Add to ~/.zshrc before compinit:"
+                            System.Console.Out.WriteLine "    fpath=(~/.zsh/completions $fpath)"
+                        | Bash -> System.Console.Out.WriteLine "  Restart your shell or run: source ~/.bashrc"
+                        | Fish -> System.Console.Out.WriteLine "  Picked up automatically on next shell session."
                         | Pwsh ->
-                            printfn "  Dot-source it from your $PROFILE:"
-                            printfn "    . %s" path
+                            System.Console.Out.WriteLine "  Dot-source it from your $PROFILE:"
+                            System.Console.Out.WriteLine("    . " + path)
                         | Nushell ->
-                            printfn "  Source it from your config.nu:"
-                            printfn "    source %s" path
+                            System.Console.Out.WriteLine "  Source it from your config.nu:"
+                            System.Console.Out.WriteLine("    source " + path)
                         | Elvish ->
-                            printfn "  Use it from your ~/.config/elvish/rc.elv:"
-                            printfn "    use fedit-completions"
+                            System.Console.Out.WriteLine "  Use it from your ~/.config/elvish/rc.elv:"
+                            System.Console.Out.WriteLine "    use fedit-completions"
                         | Xonsh ->
-                            printfn "  Source it from your ~/.config/xonsh/rc.xsh:"
-                            printfn "    source %s" path
+                            System.Console.Out.WriteLine "  Source it from your ~/.config/xonsh/rc.xsh:"
+                            System.Console.Out.WriteLine("    source " + path)
                         | Yash ->
-                            printfn "  Ensure the dir is on $YASH_LOADPATH (add to ~/.yashrc):"
-                            printfn "    YASH_LOADPATH=~/.local/share/yash${YASH_LOADPATH:+:$YASH_LOADPATH}"
+                            System.Console.Out.WriteLine "  Ensure the dir is on $YASH_LOADPATH (add to ~/.yashrc):"
+
+                            System.Console.Out.WriteLine
+                                "    YASH_LOADPATH=~/.local/share/yash${YASH_LOADPATH:+:$YASH_LOADPATH}"
                         | Murex ->
-                            printfn "  Source it from your ~/.murex_profile:"
-                            printfn "    source %s" path
+                            System.Console.Out.WriteLine "  Source it from your ~/.murex_profile:"
+                            System.Console.Out.WriteLine("    source " + path)
 
                         0
                     | Result.Error e ->
-                        eprintfn "fedit completions: %s" e
+                        System.Console.Error.WriteLine("fedit completions: " + e)
                         1
                 else
-                    printf "%s" script
+                    System.Console.Out.Write script
                     0

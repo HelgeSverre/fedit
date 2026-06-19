@@ -135,17 +135,17 @@ module Program =
 
                 match Parser.parse app.Options argv with
                 | Result.Error errors ->
-                    eprintfn "%s" (Parser.formatErrors app errors)
+                    Console.Error.WriteLine(Parser.formatErrors app errors)
                     2
 
                 | Result.Ok items ->
                     let parsed = foldParsed items
 
                     if parsed.HelpRequested then
-                        printfn "%s" (Parser.formatHelp app)
+                        Console.Out.WriteLine(Parser.formatHelp app)
                         0
                     elif parsed.VersionRequested then
-                        printfn "%s" (versionString ())
+                        Console.Out.WriteLine(versionString ())
                         0
                     else
                         let rootPath, initialFile =
@@ -179,10 +179,10 @@ module Program =
                             Runtime.run rootPath initialFile absLogPath
                             0
                         with ex ->
-                            eprintfn "fedit: unrecoverable error"
-                            eprintfn "  %s" ex.Message
+                            Console.Error.WriteLine "fedit: unrecoverable error"
+                            Console.Error.WriteLine("  " + ex.Message)
 
                             if not (String.IsNullOrEmpty ex.StackTrace) then
-                                eprintfn "%s" ex.StackTrace
+                                Console.Error.WriteLine ex.StackTrace
 
                             1

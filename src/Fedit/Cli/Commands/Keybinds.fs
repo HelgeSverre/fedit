@@ -186,7 +186,7 @@ let private jsonEscape (s: string) : string =
 /// the website can render and filter them. Ends with a newline.
 let toJson (keymap: Keymap) : string =
     let field name value =
-        sprintf "\"%s\": \"%s\"" name (jsonEscape value)
+        "\"" + name + "\": \"" + jsonEscape value + "\""
 
     let renderRow stroke action context category description bound =
         let pairs =
@@ -195,7 +195,7 @@ let toJson (keymap: Keymap) : string =
               field "context" context
               field "category" category
               field "description" description
-              sprintf "\"bound\": %b" bound ]
+              "\"bound\": " + (if bound then "true" else "false") ]
 
         "  { " + String.concat ", " pairs + " }"
 
@@ -247,7 +247,13 @@ let private renderTable (keymap: Keymap) : string =
     let sb = StringBuilder()
 
     for ctx, stroke, action in rows do
-        sb.AppendLine(sprintf "%-*s  %-*s  %s" ctxWidth ctx strokeWidth stroke (actionName action))
+        sb.AppendLine(
+            ctx.PadRight ctxWidth
+            + "  "
+            + stroke.PadRight strokeWidth
+            + "  "
+            + actionName action
+        )
         |> ignore
 
     sb.ToString()
@@ -301,15 +307,15 @@ let private wantsJson items =
 let run (argv: string[]) : int =
     match Parser.parse keybindsApp.Options argv with
     | Result.Error errors ->
-        eprintfn "%s" (Parser.formatErrors keybindsApp errors)
+        System.Console.Error.WriteLine(Parser.formatErrors keybindsApp errors)
         2
     | Result.Ok items when wantsHelp items ->
-        printfn "%s" (Parser.formatHelp keybindsApp)
+        System.Console.Out.WriteLine(Parser.formatHelp keybindsApp)
         0
     | Result.Ok items ->
         if wantsJson items then
-            printf "%s" (toJson Keymap.defaults)
+            System.Console.Out.Write(toJson Keymap.defaults)
         else
-            printf "%s" (renderTable Keymap.defaults)
+            System.Console.Out.Write(renderTable Keymap.defaults)
 
         0
