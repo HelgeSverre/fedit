@@ -111,8 +111,11 @@ module Runtime =
             $"ParseHighlight(buffer={bufferId}, lang={language}, tick={editTick}, docLen={PieceTable.length document})"
         | _ -> $"{effect}"
 
-    /// Build a FileNode, using the basename (or full path when the name is empty).
+    /// Build a FileNode, using the basename (or full path when the name is
+    /// empty). Paths are canonicalized to `/` here — this is the OS boundary
+    /// where tree paths enter from `Directory.Enumerate*` (native separators).
     let private makeNode (path: string) isDirectory children : FileNode =
+        let path = Paths.norm path
         let rawName = Path.GetFileName path |> Text.optStr |> Option.defaultValue path
 
         { Path = path
@@ -171,6 +174,10 @@ module Runtime =
           Height = max 1 Console.WindowHeight }
 
     let run rootPath initialFile (logPath: string option) =
+        // Canonicalize the workspace root + initial file to `/` at this OS
+        // boundary so every downstream path comparison is platform-independent.
+        let rootPath = Paths.norm rootPath
+        let initialFile = initialFile |> Option.map Paths.norm
         Console.OutputEncoding <- Encoding.UTF8
         Console.TreatControlCAsInput <- true
 

@@ -90,13 +90,16 @@ module Status =
     // ─────────────────────────────────────────────────────────────────────
 
     let private tildify (path: string) =
-        let home = Environment.GetFolderPath Environment.SpecialFolder.UserProfile
+        // Paths are canonical `/`; normalize home to match so the prefix test
+        // works on Windows (UserProfile comes back with `\`).
+        let home =
+            Paths.norm (Environment.GetFolderPath Environment.SpecialFolder.UserProfile)
 
         if String.IsNullOrEmpty home then
             path
         elif path = home then
             "~"
-        elif path.StartsWith(home + string Path.DirectorySeparatorChar, StringComparison.Ordinal) then
+        elif path.StartsWith(home + "/", StringComparison.Ordinal) then
             "~" + path.Substring(home.Length)
         else
             path

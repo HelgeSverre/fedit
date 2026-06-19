@@ -56,17 +56,21 @@ let parseShell (s: string) : Result<Shell, string> =
 let installPath (shell: Shell) : string =
     let home = Environment.GetFolderPath Environment.SpecialFolder.UserProfile
 
-    match shell with
-    | Zsh -> Path.Combine(home, ".zsh", "completions", "_fedit")
-    | Bash -> Path.Combine(home, ".local", "share", "bash-completion", "completions", "fedit")
-    | Fish -> Path.Combine(home, ".config", "fish", "completions", "fedit.fish")
-    | Pwsh -> Path.Combine(home, ".config", "powershell", "completions", "fedit.ps1")
-    | Nushell -> Path.Combine(home, ".config", "nushell", "completions", "fedit.nu")
-    | Elvish -> Path.Combine(home, ".config", "elvish", "lib", "fedit-completions.elv")
-    | Xonsh -> Path.Combine(home, ".config", "xonsh", "completions", "fedit.xsh")
-    // yash autoloads `completion/<cmd>` by filename from $YASH_LOADPATH.
-    | Yash -> Path.Combine(home, ".local", "share", "yash", "completion", "fedit")
-    | Murex -> Path.Combine(home, ".config", "fedit", "completions", "fedit.mx")
+    // Canonical `/` — these are Unix-shell config locations; .NET writes to
+    // `/`-paths fine on Windows, and it keeps the path stable across platforms.
+    Paths.norm (
+        match shell with
+        | Zsh -> Path.Combine(home, ".zsh", "completions", "_fedit")
+        | Bash -> Path.Combine(home, ".local", "share", "bash-completion", "completions", "fedit")
+        | Fish -> Path.Combine(home, ".config", "fish", "completions", "fedit.fish")
+        | Pwsh -> Path.Combine(home, ".config", "powershell", "completions", "fedit.ps1")
+        | Nushell -> Path.Combine(home, ".config", "nushell", "completions", "fedit.nu")
+        | Elvish -> Path.Combine(home, ".config", "elvish", "lib", "fedit-completions.elv")
+        | Xonsh -> Path.Combine(home, ".config", "xonsh", "completions", "fedit.xsh")
+        // yash autoloads `completion/<cmd>` by filename from $YASH_LOADPATH.
+        | Yash -> Path.Combine(home, ".local", "share", "yash", "completion", "fedit")
+        | Murex -> Path.Combine(home, ".config", "fedit", "completions", "fedit.mx")
+    )
 
 // ─────────────────────────────────────────────────────────────────────
 // Shared helpers

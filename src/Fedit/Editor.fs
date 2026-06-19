@@ -188,7 +188,7 @@ module Editor =
             recent
             |> List.map (fun path ->
                 try
-                    Path.GetRelativePath(model.Workspace.RootPath, path)
+                    Paths.norm (Path.GetRelativePath(model.Workspace.RootPath, path))
                 with _ ->
                     path)
 
@@ -386,12 +386,14 @@ module Editor =
                     PendingConfirmation = None
                     SearchPreview = None } }
 
-    /// Resolve a user-supplied path against the workspace root.
+    /// Resolve a user-supplied path against the workspace root, returning a
+    /// canonical `/` path. Avoids Path.GetFullPath — its OS separator and
+    /// drive-anchoring would diverge from the `/`-canonical tree on Windows.
     let private resolvePath (rootPath: string) (path: string) =
         if Path.IsPathRooted path then
-            path
+            Paths.norm path
         else
-            Path.GetFullPath(Path.Combine(rootPath, path))
+            Paths.norm (Path.Combine(rootPath, path))
 
     let private insertPromptText value model =
         let prompt = model.Prompt

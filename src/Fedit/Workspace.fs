@@ -108,7 +108,9 @@ module Workspace =
         if node.IsDirectory then
             node.Children |> List.fold (collectFiles rootPath) acc
         else
-            Path.GetRelativePath(rootPath, node.Path) :: acc
+            // Canonical `/` relative paths — GetRelativePath emits the OS
+            // separator, so normalize for a platform-independent file list.
+            Paths.norm (Path.GetRelativePath(rootPath, node.Path)) :: acc
 
     /// Pre-sort the tree, build the ByPath map, and collect file paths.
     /// Designed to run on the thread pool so the main dispatch thread
@@ -158,7 +160,10 @@ module Workspace =
             workspace
         else
             let rec collect acc (current: string) =
-                match Path.GetDirectoryName current |> Option.ofObj with
+                // Walk ancestors with the canonical `/` parent (not
+                // Path.GetDirectoryName, which emits the OS separator and would
+                // miss the `/`-keyed ByPath on Windows).
+                match Paths.parent current with
                 | Some parent when Map.containsKey parent workspace.ByPath -> collect (Set.add parent acc) parent
                 | _ -> acc
 
