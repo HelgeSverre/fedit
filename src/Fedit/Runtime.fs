@@ -532,9 +532,20 @@ module Runtime =
         let mutable prefixDeadline: DateTime voption = ValueNone
 
         let dispatch model msg =
-            log $"msg: {renderMsg msg}"
+            // Guard the trace: renderMsg/renderEffect interpolate DU values, which
+            // F# lowers to reflective structured printing — fine under JIT but a
+            // hard crash under NativeAOT. Only build it when --log is on (the
+            // interpolation argument is evaluated eagerly, so the guard matters).
+            match logWriter with
+            | Some _ -> log $"msg: {renderMsg msg}"
+            | None -> ()
+
             let nextModel, effects = Editor.update msg model
-            effects |> List.iter (fun e -> log $"effect: {renderEffect e}")
+
+            match logWriter with
+            | Some _ -> effects |> List.iter (fun e -> log $"effect: {renderEffect e}")
+            | None -> ()
+
             effects |> List.iter startEffect
 
             prefixDeadline <-
