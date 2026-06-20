@@ -25,20 +25,20 @@ class Fedit < Formula
   license "MIT"
 
   def install
-    libexec.install "fedit"
-    # The out-of-process plugin host must sit beside the editor — fedit spawns
-    # it to load plugins. Without it, plugins silently fail to load.
-    libexec.install "Fedit.PluginHost" if File.exist?("Fedit.PluginHost")
-    libexec.install "Fedit.PluginApi.dll" if File.exist?("Fedit.PluginApi.dll")
-    libexec.install "runtimes" if Dir.exist?("runtimes")
+    # Install the whole bundle into libexec, layout-agnostic. The default (AOT)
+    # build keeps tree-sitter natives loose in the root alongside runtimes/, and
+    # the out-of-process plugin host (Fedit.PluginHost) + Fedit.PluginApi.dll
+    # must sit beside `fedit` (it spawns the host and builds plugins against the
+    # dll). Cherry-picking would miss the loose grammars; grab everything.
+    doc.install "README.md" if File.exist?("README.md")
+    doc.install "LICENSE" if File.exist?("LICENSE")
+    libexec.install Dir["*"]
     bin.write_exec_script libexec/"fedit"
     generate_completions_from_executable(
       bin/"fedit", "completions",
       shell_parameter_format: :none,
       shells:                 [:bash, :zsh, :fish]
     )
-    doc.install "README.md" if File.exist?("README.md")
-    doc.install "LICENSE" if File.exist?("LICENSE")
   end
 
   test do

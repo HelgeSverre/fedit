@@ -31,6 +31,10 @@ const shipped = (version: string, item: string): ChangelogEntry => ({
 
 export const changelog: ChangelogEntry[] = [
   shipped(
+    "1.7.0 — AOT becomes the default",
+    "NativeAOT is now the default release flavor: the fedit-<triple> archives, Homebrew, and the install scripts all ship the ~7 MB / ~10 ms native build. The self-contained R2R build moves to the opt-in fedit-r2r-<triple> archives as a fallback. The Homebrew formula installs the whole bundle layout-agnostically (the AOT layout keeps tree-sitter natives loose in the root alongside runtimes/ and the plugin host). No functional change — plugins still run out-of-process, identically on both flavors.",
+  ),
+  shipped(
     "1.6.0 — AOT archives shipped",
     "Releases now ship opt-in fedit-aot-<triple> NativeAOT archives for all five RIDs (~7 MB, ~10 ms first paint), alongside the default self-contained R2R builds. linux-arm64 builds on a native ARM runner and osx-x64 cross-builds from the arm64 macOS runner; each AOT bundle is smoke-tested (render + highlight + plugin round-trip) before upload. Default downloads and Homebrew stay R2R.",
   ),

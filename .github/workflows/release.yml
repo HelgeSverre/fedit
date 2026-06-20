@@ -9,8 +9,10 @@ permissions:
   contents: read
 
 jobs:
+  # The R2R fallback flavor, shipped as the `fedit-r2r-<triple>` opt-in. The
+  # default download is the AOT build (see the `aot` job below).
   build:
-    name: Build ${{ matrix.triple }}
+    name: R2R ${{ matrix.triple }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -126,33 +128,35 @@ jobs:
         if: matrix.ext == 'tar.xz'
         shell: bash
         run: |
-          tar -cJf "fedit-${{ matrix.triple }}.tar.xz" -C "dist/${{ matrix.rid }}" .
-          shasum -a 256 "fedit-${{ matrix.triple }}.tar.xz" | awk '{print $1}' > "fedit-${{ matrix.triple }}.sha256"
+          tar -cJf "fedit-r2r-${{ matrix.triple }}.tar.xz" -C "dist/${{ matrix.rid }}" .
+          shasum -a 256 "fedit-r2r-${{ matrix.triple }}.tar.xz" | awk '{print $1}' > "fedit-r2r-${{ matrix.triple }}.sha256"
 
       - name: archive (windows)
         if: matrix.ext == 'zip'
         shell: pwsh
         run: |
-          Compress-Archive -Path "dist/${{ matrix.rid }}/*" -DestinationPath "fedit-${{ matrix.triple }}.zip"
-          $h = (Get-FileHash -Algorithm SHA256 "fedit-${{ matrix.triple }}.zip").Hash.ToLower()
-          Set-Content -Path "fedit-${{ matrix.triple }}.sha256" -Value $h -NoNewline
+          Compress-Archive -Path "dist/${{ matrix.rid }}/*" -DestinationPath "fedit-r2r-${{ matrix.triple }}.zip"
+          $h = (Get-FileHash -Algorithm SHA256 "fedit-r2r-${{ matrix.triple }}.zip").Hash.ToLower()
+          Set-Content -Path "fedit-r2r-${{ matrix.triple }}.sha256" -Value $h -NoNewline
 
       - name: upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: fedit-${{ matrix.triple }}
+          name: fedit-r2r-${{ matrix.triple }}
           path: |
-            fedit-${{ matrix.triple }}.${{ matrix.ext }}
-            fedit-${{ matrix.triple }}.sha256
+            fedit-r2r-${{ matrix.triple }}.${{ matrix.ext }}
+            fedit-r2r-${{ matrix.triple }}.sha256
           retention-days: 7
           if-no-files-found: error
 
-  # Opt-in NativeAOT archives shipped alongside the R2R ones (fedit-aot-<triple>).
-  # ~7 MB / ~10 ms first paint. NativeAOT can't cross-compile across OS — and
-  # for Linux not across arch — so linux-arm64 builds on a native ARM runner;
-  # macOS cross-builds x64 from the arm64 runner via its universal toolchain.
+  # The DEFAULT release flavor: NativeAOT (~7 MB editor, ~10 ms first paint),
+  # archived as `fedit-<triple>` — what Homebrew and the installers pull. The
+  # R2R build above ships as the `fedit-r2r-<triple>` opt-in fallback. NativeAOT
+  # can't cross-compile across OS — and for Linux not across arch — so
+  # linux-arm64 builds on a native ARM runner; macOS cross-builds x64 from the
+  # arm64 runner via its universal toolchain.
   aot:
-    name: AOT ${{ matrix.triple }}
+    name: AOT (default) ${{ matrix.triple }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -251,24 +255,24 @@ jobs:
         if: matrix.ext == 'tar.xz'
         shell: bash
         run: |
-          tar -cJf "fedit-aot-${{ matrix.triple }}.tar.xz" -C "dist-aot/${{ matrix.rid }}" .
-          shasum -a 256 "fedit-aot-${{ matrix.triple }}.tar.xz" | awk '{print $1}' > "fedit-aot-${{ matrix.triple }}.sha256"
+          tar -cJf "fedit-${{ matrix.triple }}.tar.xz" -C "dist-aot/${{ matrix.rid }}" .
+          shasum -a 256 "fedit-${{ matrix.triple }}.tar.xz" | awk '{print $1}' > "fedit-${{ matrix.triple }}.sha256"
 
       - name: archive (windows)
         if: matrix.ext == 'zip'
         shell: pwsh
         run: |
-          Compress-Archive -Path "dist-aot/${{ matrix.rid }}/*" -DestinationPath "fedit-aot-${{ matrix.triple }}.zip"
-          $h = (Get-FileHash -Algorithm SHA256 "fedit-aot-${{ matrix.triple }}.zip").Hash.ToLower()
-          Set-Content -Path "fedit-aot-${{ matrix.triple }}.sha256" -Value $h -NoNewline
+          Compress-Archive -Path "dist-aot/${{ matrix.rid }}/*" -DestinationPath "fedit-${{ matrix.triple }}.zip"
+          $h = (Get-FileHash -Algorithm SHA256 "fedit-${{ matrix.triple }}.zip").Hash.ToLower()
+          Set-Content -Path "fedit-${{ matrix.triple }}.sha256" -Value $h -NoNewline
 
       - name: upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: fedit-aot-${{ matrix.triple }}
+          name: fedit-${{ matrix.triple }}
           path: |
-            fedit-aot-${{ matrix.triple }}.${{ matrix.ext }}
-            fedit-aot-${{ matrix.triple }}.sha256
+            fedit-${{ matrix.triple }}.${{ matrix.ext }}
+            fedit-${{ matrix.triple }}.sha256
           retention-days: 7
           if-no-files-found: error
 

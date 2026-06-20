@@ -46,9 +46,9 @@ irm https://fedit.dev/install.ps1 | iex
 
 Installs to `%LOCALAPPDATA%\Programs\fedit` and adds it to your user `PATH` (set `$env:FEDIT_VERSION` / `$env:FEDIT_DIR` to override). Or download `fedit-x86_64-pc-windows-msvc.zip` from [the latest release](https://github.com/HelgeSverre/fedit/releases/latest), extract, and add the folder to your `PATH`.
 
-### NativeAOT builds (opt-in)
+### R2R builds (opt-in fallback)
 
-Each release also ships `fedit-aot-<triple>` archives — a NativeAOT build that's ~7 MB and starts in ~10 ms (vs ~133 ms for the default). It's functionally identical (plugins still work, out-of-process). The default downloads and Homebrew stay on the self-contained R2R build; grab an AOT archive from [the latest release](https://github.com/HelgeSverre/fedit/releases/latest) if you want the smaller, faster binary.
+The default downloads — Homebrew, the install scripts, and the `fedit-<triple>` archives — are now NativeAOT: a ~7 MB editor that starts in ~10 ms. Plugins still work; they run out-of-process. Each release also ships `fedit-r2r-<triple>` archives — the older self-contained ReadyToRun build (~133 ms first paint, larger on disk). Grab one from [the latest release](https://github.com/HelgeSverre/fedit/releases/latest) if a NativeAOT binary misbehaves on your platform.
 
 ### From source
 
