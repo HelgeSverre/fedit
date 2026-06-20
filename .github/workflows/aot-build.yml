@@ -2,13 +2,14 @@ name: AOT build
 
 # Manually dispatched NativeAOT build. Produces a self-contained native editor
 # (~7 MB, ~10 ms first paint) plus the out-of-process plugin host, as workflow
-# artifacts — it does NOT publish a release. Promote to the Release workflow
-# once validated here.
+# artifacts — it does NOT publish a release. The release pipeline ships these
+# same AOT builds as the default flavor (the `aot` job in release.yml); keep
+# this workflow for on-demand AOT validation without cutting a tag.
 #
 # NativeAOT cannot cross-compile across OS, so each RID builds on a matching-OS
-# runner. osx-x64 and linux-arm64 are cross-ARCH (host is arm64 / x64
-# respectively); they are intentionally omitted until a cross-arch AOT
-# toolchain is wired up — see the TODO below.
+# runner. The two cross-ARCH RIDs build natively too: linux-arm64 on a native
+# ARM runner, and osx-x64 cross-builds from the arm64 macOS runner via the
+# universal toolchain. All 5 release RIDs are covered.
 on:
   workflow_dispatch:
 
