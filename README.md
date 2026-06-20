@@ -46,6 +46,10 @@ irm https://fedit.dev/install.ps1 | iex
 
 Installs to `%LOCALAPPDATA%\Programs\fedit` and adds it to your user `PATH` (set `$env:FEDIT_VERSION` / `$env:FEDIT_DIR` to override). Or download `fedit-x86_64-pc-windows-msvc.zip` from [the latest release](https://github.com/HelgeSverre/fedit/releases/latest), extract, and add the folder to your `PATH`.
 
+### NativeAOT builds (opt-in)
+
+Each release also ships `fedit-aot-<triple>` archives — a NativeAOT build that's ~7 MB and starts in ~10 ms (vs ~133 ms for the default). It's functionally identical (plugins still work, out-of-process). The default downloads and Homebrew stay on the self-contained R2R build; grab an AOT archive from [the latest release](https://github.com/HelgeSverre/fedit/releases/latest) if you want the smaller, faster binary.
+
 ### From source
 
 Requires .NET SDK 10 (pinned via `global.json` to `10.0.100` with `rollForward: latestFeature`, so any `10.0.x` patch ≥ 100 works) and [`just`](https://github.com/casey/just). The repo includes a local `.dotnet` SDK directory — the `fedit` wrapper script and `justfile` recipes prepend it to `PATH`, so a fresh clone has everything it needs.

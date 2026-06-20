@@ -31,6 +31,10 @@ const shipped = (version: string, item: string): ChangelogEntry => ({
 
 export const changelog: ChangelogEntry[] = [
   shipped(
+    "1.6.0 — AOT archives shipped",
+    "Releases now ship opt-in fedit-aot-<triple> NativeAOT archives for all five RIDs (~7 MB, ~10 ms first paint), alongside the default self-contained R2R builds. linux-arm64 builds on a native ARM runner and osx-x64 cross-builds from the arm64 macOS runner; each AOT bundle is smoke-tested (render + highlight + plugin round-trip) before upload. Default downloads and Homebrew stay R2R.",
+  ),
+  shipped(
     "1.5.1 — plugin host fix",
     "Fixed: freshly-installed plugins (no pre-built bin) silently failed to load. The single-file plugin host bundles Fedit.PluginApi.dll, so Assembly.Location was empty and the auto-generated plugin fsproj had no HintPath, failing the build. The host now resolves the dll from the sidecar beside it. Validated by a per-RID AOT smoke across all five RIDs.",
   ),

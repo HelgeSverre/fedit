@@ -147,9 +147,134 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  # Opt-in NativeAOT archives shipped alongside the R2R ones (fedit-aot-<triple>).
+  # ~7 MB / ~10 ms first paint. NativeAOT can't cross-compile across OS — and
+  # for Linux not across arch — so linux-arm64 builds on a native ARM runner;
+  # macOS cross-builds x64 from the arm64 runner via its universal toolchain.
+  aot:
+    name: AOT ${{ matrix.triple }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, rid: osx-arm64, triple: aarch64-apple-darwin, ext: tar.xz }
+          - { os: macos-14, rid: osx-x64, triple: x86_64-apple-darwin, ext: tar.xz }
+          - { os: ubuntu-22.04, rid: linux-x64, triple: x86_64-unknown-linux-gnu, ext: tar.xz }
+          - { os: ubuntu-22.04-arm, rid: linux-arm64, triple: aarch64-unknown-linux-gnu, ext: tar.xz }
+          - { os: windows-2022, rid: win-x64, triple: x86_64-pc-windows-msvc, ext: zip }
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install NativeAOT prerequisites (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
+      - uses: mlugg/setup-zig@v2
+      - name: Build tree-sitter grammars for ${{ matrix.rid }}
+        shell: bash
+        run: |
+          case "${{ matrix.rid }}" in
+            osx-arm64)   target="aarch64-macos";      ext="dylib"; pfx="lib" ;;
+            osx-x64)     target="x86_64-macos";       ext="dylib"; pfx="lib" ;;
+            linux-x64)   target="x86_64-linux-gnu";   ext="so";    pfx="lib" ;;
+            linux-arm64) target="aarch64-linux-gnu";  ext="so";    pfx="lib" ;;
+            win-x64)     target="x86_64-windows-gnu"; ext="dll";   pfx="" ;;
+            *) echo "Unknown RID: ${{ matrix.rid }}" >&2; exit 1 ;;
+          esac
+          dest="src/Fedit/runtimes/${{ matrix.rid }}/native"
+          mkdir -p "$dest"
+          zig cc -O2 -shared -fPIC -target "$target" \
+            -I vendor/tree-sitter-fsharp/fsharp/src \
+            -o "$dest/${pfx}tree-sitter-fsharp.${ext}" \
+            vendor/tree-sitter-fsharp/fsharp/src/parser.c \
+            vendor/tree-sitter-fsharp/fsharp/src/scanner.c
+          grammars=(
+            "markdown|vendor/tree-sitter-markdown/tree-sitter-markdown/src|parser.c scanner.c"
+            "xml|vendor/tree-sitter-xml/xml/src|parser.c scanner.c"
+            "dart|vendor/tree-sitter-dart/src|parser.c scanner.c"
+            "just|vendor/tree-sitter-just/src|parser.c scanner.c"
+            "make|vendor/tree-sitter-make/src|parser.c"
+            "astro|vendor/tree-sitter-astro/src|parser.c scanner.c"
+            "toml|vendor/tree-sitter-toml/src|parser.c scanner.c"
+            "sema|vendor/tree-sitter-sema/src|parser.c scanner.c"
+            "applescript|vendor/tree-sitter-applescript/src|parser.c scanner.c"
+            "rescript|vendor/tree-sitter-rescript/src|parser.c scanner.c"
+            "zig|vendor/tree-sitter-zig/src|parser.c"
+          )
+          for entry in "${grammars[@]}"; do
+            IFS='|' read -r name srcdir files <<< "$entry"
+            srcs=""
+            for f in $files; do [ -f "$srcdir/$f" ] && srcs="$srcs $srcdir/$f"; done
+            zig cc -O2 -UNDEBUG -shared -fPIC -target "$target" \
+              -I "$srcdir" -o "$dest/${pfx}tree-sitter-${name}.${ext}" $srcs
+          done
+
+      - name: Publish AOT editor + plugin host + sidecar
+        shell: bash
+        run: |
+          dotnet publish src/Fedit/Fedit.fsproj -c Release -r ${{ matrix.rid }} \
+            -p:FeditAot=true -o dist-aot/${{ matrix.rid }} --nologo
+          dotnet publish src/Fedit.PluginHost/Fedit.PluginHost.fsproj -c Release \
+            -r ${{ matrix.rid }} --self-contained -p:PublishSingleFile=true \
+            -o dist-aot/${{ matrix.rid }} --nologo
+          cp src/Fedit.PluginApi/bin/Release/net10.0/Fedit.PluginApi.dll dist-aot/${{ matrix.rid }}/
+
+      # Validate the shipped AOT bundle: runtime init, AOT-safe JSON, the render
+      # + tree-sitter highlight paths, and a full build->load->invoke plugin
+      # round-trip. Don't ship an AOT archive that fails this.
+      - name: Smoke-test the AOT bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          d="$PWD/dist-aot/${{ matrix.rid }}"
+          bin="$d/fedit"; host="$d/Fedit.PluginHost"
+          [ -f "$d/fedit.exe" ] && bin="$d/fedit.exe" && host="$d/Fedit.PluginHost.exe"
+          "$bin" --version
+          "$bin" __plugin-wire-selftest
+          "$bin" __render-smoke "$PWD/src/Fedit/Highlight.fs"
+          proot="${RUNNER_TEMP:-/tmp}/fedit-plugins"; rm -rf "$proot"; mkdir -p "$proot"
+          cp -r "$PWD/examples/wordcount" "$proot/wordcount"
+          "$bin" __plugin-host-selftest "$proot" "$host"
+
+      - name: stage README + LICENSE
+        shell: bash
+        run: cp README.md LICENSE dist-aot/${{ matrix.rid }}/
+
+      - name: archive (unix)
+        if: matrix.ext == 'tar.xz'
+        shell: bash
+        run: |
+          tar -cJf "fedit-aot-${{ matrix.triple }}.tar.xz" -C "dist-aot/${{ matrix.rid }}" .
+          shasum -a 256 "fedit-aot-${{ matrix.triple }}.tar.xz" | awk '{print $1}' > "fedit-aot-${{ matrix.triple }}.sha256"
+
+      - name: archive (windows)
+        if: matrix.ext == 'zip'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist-aot/${{ matrix.rid }}/*" -DestinationPath "fedit-aot-${{ matrix.triple }}.zip"
+          $h = (Get-FileHash -Algorithm SHA256 "fedit-aot-${{ matrix.triple }}.zip").Hash.ToLower()
+          Set-Content -Path "fedit-aot-${{ matrix.triple }}.sha256" -Value $h -NoNewline
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: fedit-aot-${{ matrix.triple }}
+          path: |
+            fedit-aot-${{ matrix.triple }}.${{ matrix.ext }}
+            fedit-aot-${{ matrix.triple }}.sha256
+          retention-days: 7
+          if-no-files-found: error
+
   publish:
     name: Publish release + update homebrew tap
-    needs: build
+    needs: [build, aot]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
