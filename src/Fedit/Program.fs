@@ -124,6 +124,50 @@ module Program =
             else
                 Console.Error.WriteLine "plugin-host selftest: FAIL"
                 1
+        elif argv.Length = 2 && argv.[0] = "__render-smoke" then
+            // Exercise the AOT-risky non-interactive paths headlessly (no PTY,
+            // so it runs on Windows too): Layout.render (the first-paint code)
+            // and tree-sitter highlight (per-platform native interop) on the
+            // given file. Used to validate the AOT binary's TUI paths per RID.
+            try
+                let model, _ =
+                    Editor.init
+                        (Directory.GetCurrentDirectory())
+                        { Width = 100; Height = 30 }
+                        (Config.defaults Themes.defaultTheme)
+                        []
+
+                let screen = Layout.render model
+                let cells = screen.Cells.Length
+
+                let spans =
+                    match HighlightRegistry.tryCreate () with
+                    | Some registry ->
+                        use registry = registry
+                        let text = File.ReadAllText argv.[1]
+
+                        match Highlight.detectLanguage (Some argv.[1]) text with
+                        | Some lang ->
+                            Highlight.parseSpans registry lang text
+                            |> Option.map Array.length
+                            |> Option.defaultValue 0
+                        | None -> 0
+                    | None -> 0
+
+                Console.Error.WriteLine(
+                    "render-smoke OK: "
+                    + string screen.Width
+                    + " wide, "
+                    + string cells
+                    + " cells, "
+                    + string spans
+                    + " highlight spans"
+                )
+
+                0
+            with ex ->
+                Console.Error.WriteLine("render-smoke FAIL: " + ex.Message)
+                1
         else
 
             match Parser.route subcommands argv with

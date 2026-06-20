@@ -103,11 +103,30 @@ jobs:
             -r ${{ matrix.rid }} --self-contained -p:PublishSingleFile=true \
             -o dist-aot/${{ matrix.rid }} --nologo
 
-      - name: Sanity-check the bundle
+      # Validate the AOT binary's TUI paths per platform, not just --version:
+      # runtime init, AOT-safe JSON wire, the render + tree-sitter highlight
+      # paths (headless, no PTY), and the full out-of-process plugin round-trip
+      # (spawn host, build + load + invoke the wordcount example). osx-x64 runs
+      # under Rosetta on the arm64 runner; linux-arm64 runs natively.
+      - name: Smoke-test the AOT bundle
         shell: bash
         run: |
-          test -f "dist-aot/${{ matrix.rid }}/Fedit.PluginHost" || test -f "dist-aot/${{ matrix.rid }}/Fedit.PluginHost.exe"
-          ./dist-aot/${{ matrix.rid }}/fedit --version || ./dist-aot/${{ matrix.rid }}/fedit.exe --version
+          set -euo pipefail
+          d="$PWD/dist-aot/${{ matrix.rid }}"
+          bin="$d/fedit"; host="$d/Fedit.PluginHost"
+          [ -f "$d/fedit.exe" ] && bin="$d/fedit.exe" && host="$d/Fedit.PluginHost.exe"
+
+          echo "== version ==";        "$bin" --version
+          echo "== wire selftest ==";  "$bin" __plugin-wire-selftest
+          echo "== render+highlight =="; "$bin" __render-smoke "$PWD/src/Fedit/Highlight.fs"
+
+          echo "== plugin host: build + load + invoke wordcount =="
+          proot="${RUNNER_TEMP:-/tmp}/fedit-plugins"
+          rm -rf "$proot"; mkdir -p "$proot"
+          cp -r "$PWD/examples/wordcount" "$proot/wordcount"
+          "$bin" __plugin-host-selftest "$proot" "$host"
+
+      - uses: actions/upload-artifact@v4
 
       - uses: actions/upload-artifact@v4
         with:
