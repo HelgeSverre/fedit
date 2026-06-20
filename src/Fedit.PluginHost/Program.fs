@@ -1,6 +1,7 @@
 module Fedit.PluginHost.Program
 
 open System
+open System.IO
 open System.Text.Json
 open Fedit
 open Fedit.PluginApi
@@ -17,9 +18,18 @@ let main _argv =
     let stdout = Console.Out
     let log (s: string) = Console.Error.WriteLine s
 
-    // Path to the Fedit.PluginApi.dll we are running against — the HintPath the
-    // auto-generated plugin fsproj resolves to (see Plugins.fs).
-    let apiDll = typeof<IPluginHost>.Assembly.Location
+    // Path to the Fedit.PluginApi.dll the auto-generated plugin fsproj resolves
+    // as its HintPath (see Plugins.fs). Prefer the sidecar beside the host:
+    // a single-file/self-contained host bundles PluginApi, so Assembly.Location
+    // is empty — but the .dll ships next to the host (release + AOT bundle +
+    // Homebrew all place it there), so build it from there.
+    let apiDll =
+        let beside = Path.Combine(AppContext.BaseDirectory, "Fedit.PluginApi.dll")
+
+        if File.Exists beside then
+            beside
+        else
+            typeof<IPluginHost>.Assembly.Location
 
     let mutable registry = PluginRegistry.empty
     let mutable running = true

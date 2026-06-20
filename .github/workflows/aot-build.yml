@@ -102,6 +102,9 @@ jobs:
           dotnet publish src/Fedit.PluginHost/Fedit.PluginHost.fsproj -c Release \
             -r ${{ matrix.rid }} --self-contained -p:PublishSingleFile=true \
             -o dist-aot/${{ matrix.rid }} --nologo
+          # Sidecar the host builds plugins against (its fsproj HintPath); the
+          # AOT editor + single-file host both bundle it, leaving no loose copy.
+          cp src/Fedit.PluginApi/bin/Release/net10.0/Fedit.PluginApi.dll dist-aot/${{ matrix.rid }}/
 
       # Validate the AOT binary's TUI paths per platform, not just --version:
       # runtime init, AOT-safe JSON wire, the render + tree-sitter highlight

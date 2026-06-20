@@ -39,7 +39,11 @@ clean:
 aot rid="osx-arm64" out="dist-aot":
     {{dotnet}} publish {{project}} -c Release -r {{rid}} -p:FeditAot=true -o {{out}} --nologo
     {{dotnet}} publish src/Fedit.PluginHost/Fedit.PluginHost.fsproj -c Release -r {{rid}} --self-contained -p:PublishSingleFile=true -o {{out}} --nologo
-    @echo "→ AOT bundle in {{out}}/ (fedit + Fedit.PluginHost)"
+    # The host builds plugins against this dll (its fsproj HintPath). The AOT
+    # editor trims it in and the single-file host bundles it, so neither leaves
+    # a loose copy — ship it as a sidecar beside the host.
+    cp src/Fedit.PluginApi/bin/Release/net10.0/Fedit.PluginApi.dll {{out}}/
+    @echo "→ AOT bundle in {{out}}/ (fedit + Fedit.PluginHost + Fedit.PluginApi.dll)"
 
 # Format sources (F# via fantomas, markdown via oxfmt).
 [group('format')]
