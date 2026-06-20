@@ -243,6 +243,13 @@ jobs:
           "$bin" --version
           "$bin" __plugin-wire-selftest
           "$bin" __render-smoke "$PWD/src/Fedit/Highlight.fs"
+          # The Homebrew formula runs `fedit completions {bash,zsh,fish}` at
+          # install time (generate_completions_from_executable). If that path
+          # reflected under AOT every brew install would break — guard it here:
+          # each shell must exit 0 and emit a non-empty script.
+          for sh in bash zsh fish; do
+            out=$("$bin" completions "$sh") && [ -n "$out" ] || { echo "completions $sh failed under AOT" >&2; exit 1; }
+          done
           proot="${RUNNER_TEMP:-/tmp}/fedit-plugins"; rm -rf "$proot"; mkdir -p "$proot"
           cp -r "$PWD/examples/wordcount" "$proot/wordcount"
           "$bin" __plugin-host-selftest "$proot" "$host"
