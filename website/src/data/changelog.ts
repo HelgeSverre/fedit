@@ -31,6 +31,10 @@ const shipped = (version: string, item: string): ChangelogEntry => ({
 
 export const changelog: ChangelogEntry[] = [
   shipped(
+    "1.7.1 — AOT --log fix",
+    'Fixed: the --log dispatch trace crashed the default NativeAOT build. renderMsg/renderEffect fell through to a reflective $"{msg}" interpolation, which AOT forbids. Every Msg/Effect case is now rendered explicitly and the wildcard is gone, so the match is exhaustive — a new case fails the build instead of reintroducing the reflective path. Verified against the AOT binary driven through a PTY with --log. Also corrected the plugin-process-model docs (out-of-process) and added a completions smoke to the release AOT bundle.',
+  ),
+  shipped(
     "1.7.0 — AOT becomes the default",
     "NativeAOT is now the default release flavor: the fedit-<triple> archives, Homebrew, and the install scripts all ship the ~7 MB / ~10 ms native build. The self-contained R2R build moves to the opt-in fedit-r2r-<triple> archives as a fallback. The Homebrew formula installs the whole bundle layout-agnostically (the AOT layout keeps tree-sitter natives loose in the root alongside runtimes/ and the plugin host). No functional change — plugins still run out-of-process, identically on both flavors.",
   ),
