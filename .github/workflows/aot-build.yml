@@ -87,7 +87,8 @@ jobs:
           dotnet publish src/Fedit/Fedit.fsproj -c Release -r ${{ matrix.rid }} \
             -p:FeditAot=true -o dist-aot/${{ matrix.rid }} --nologo
           dotnet publish src/Fedit.PluginHost/Fedit.PluginHost.fsproj -c Release \
-            -r ${{ matrix.rid }} --self-contained -o dist-aot/${{ matrix.rid }} --nologo
+            -r ${{ matrix.rid }} --self-contained -p:PublishSingleFile=true \
+            -o dist-aot/${{ matrix.rid }} --nologo
 
       - name: Sanity-check the bundle
         shell: bash
