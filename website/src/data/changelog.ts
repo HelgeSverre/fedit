@@ -31,6 +31,10 @@ const shipped = (version: string, item: string): ChangelogEntry => ({
 
 export const changelog: ChangelogEntry[] = [
   shipped(
+    "1.5.1 — plugin host fix",
+    "Fixed: freshly-installed plugins (no pre-built bin) silently failed to load. The single-file plugin host bundles Fedit.PluginApi.dll, so Assembly.Location was empty and the auto-generated plugin fsproj had no HintPath, failing the build. The host now resolves the dll from the sidecar beside it. Validated by a per-RID AOT smoke across all five RIDs.",
+  ),
+  shipped(
     "Cross-platform",
     "Adopted a canonical forward-slash path model (normalized at every OS boundary) so path comparisons, the file list, the plugin API, and the file picker behave identically on Windows, macOS, and Linux. .gitattributes forces LF on checkout. Fixes 23 Windows-only test failures; Windows CI is green for the first time.",
   ),
