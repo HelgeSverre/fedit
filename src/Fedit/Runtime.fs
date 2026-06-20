@@ -85,31 +85,82 @@ module Runtime =
         | Some pos -> $"{pos.Line}:{pos.Column}"
         | None -> "-"
 
+    let private renderIntent intent =
+        match intent with
+        | OpenPermanent -> "permanent"
+        | OpenPreview -> "preview"
+
+    // NOTE: every case is rendered explicitly — there is deliberately NO `_`
+    // catch-all. A wildcard would have to interpolate the bare DU (`$"{msg}"`),
+    // which F# lowers to reflective structured printing — fine under JIT but a
+    // hard crash under NativeAOT. Keeping the match exhaustive means a newly
+    // added Msg/Effect case fails the build here instead of silently
+    // reintroducing the reflective path. Only scalars/strings/lengths and the
+    // AOT-safe helpers (Chord.render, renderIntent, render*Result) reach a hole.
     let private renderMsg msg =
         match msg with
+        | KeyPressed chord -> $"KeyPressed({Chord.render chord})"
+        | SequenceTimedOut -> "SequenceTimedOut"
+        | Resize size -> $"Resize({size.Width}x{size.Height})"
+        | MouseScrolled(ticks, position) -> $"MouseScrolled(ticks={ticks}, at={position.Line}:{position.Column})"
+        | MousePressed e -> $"MousePressed({e.Position.Line}:{e.Position.Column})"
+        | MouseReleased e -> $"MouseReleased({e.Position.Line}:{e.Position.Column})"
+        | MouseDragged e -> $"MouseDragged({e.Position.Line}:{e.Position.Column})"
+        | FocusGained -> "FocusGained"
+        | FocusLost -> "FocusLost"
+        | WorkspaceLoaded(Result.Ok _) -> "WorkspaceLoaded(Ok)"
+        | WorkspaceLoaded(Result.Error error) -> $"WorkspaceLoaded(Error({error}))"
         | FileOpened(path, intent, target, result) ->
-            $"FileOpened({path}, {intent}, target={renderTarget target}, {renderTextResult result})"
+            $"FileOpened({path}, {renderIntent intent}, target={renderTarget target}, {renderTextResult result})"
         | BufferSaved(bufferId, path, revision, result) ->
             $"BufferSaved(buffer={bufferId}, path={path}, revision={revision}, {renderUnitResult result})"
+        | ConfigSaved result -> $"ConfigSaved({renderUnitResult result})"
+        | ConfigFileReady(Result.Ok path) -> $"ConfigFileReady(Ok({path}))"
+        | ConfigFileReady(Result.Error error) -> $"ConfigFileReady(Error({error}))"
+        | ClipboardCopied result -> $"ClipboardCopied({renderUnitResult result})"
         | ClipboardPasted result -> $"ClipboardPasted({renderTextResult result})"
         | PastedText text -> $"PastedText(<len={text.Length}>)"
         | SearchCompleted(bufferId, query, matches) ->
             $"SearchCompleted(buffer={bufferId}, queryLen={query.Length}, matches={matches.Length})"
+        | WorkspaceChangedExternally -> "WorkspaceChangedExternally"
+        | MacroReplayStart -> "MacroReplayStart"
+        | MacroReplayEnd -> "MacroReplayEnd"
         | HighlightParsed(bufferId, editTick, spans) ->
             $"HighlightParsed(buffer={bufferId}, tick={editTick}, spans={spans.Length})"
-        | _ -> $"{msg}"
+        | PluginsScanned(Result.Ok _) -> "PluginsScanned(Ok)"
+        | PluginsScanned(Result.Error error) -> $"PluginsScanned(Error({error}))"
+        | PluginActionsReady(source, Result.Ok actions) ->
+            $"PluginActionsReady(source={source}, actions={actions.Length})"
+        | PluginActionsReady(source, Result.Error error) -> $"PluginActionsReady(source={source}, Error({error}))"
+        | PluginInstalled(name, result) -> $"PluginInstalled(name={name}, {renderUnitResult result})"
+        | PluginRemoved(name, result) -> $"PluginRemoved(name={name}, {renderUnitResult result})"
+        | PluginBuildFinished(name, result) -> $"PluginBuildFinished(name={name}, {renderUnitResult result})"
+        | PluginValidated(Result.Ok report) -> $"PluginValidated(Ok(<len={report.Length}>))"
+        | PluginValidated(Result.Error error) -> $"PluginValidated(Error({error}))"
+        | KeybindsLoaded(_, errors) -> $"KeybindsLoaded(errors={errors.Length})"
 
     let private renderEffect effect =
         match effect with
+        | ScanWorkspace path -> $"ScanWorkspace({path})"
+        | LoadFile(path, intent, target) -> $"LoadFile({path}, {renderIntent intent}, target={renderTarget target})"
         | SaveBuffer(bufferId, path, revision, contents) ->
             $"SaveBuffer(buffer={bufferId}, path={path}, revision={revision}, contentsLen={contents.Length})"
         | SaveConfig _ -> "SaveConfig(<config>)"
+        | EnsureConfigFile _ -> "EnsureConfigFile(<config>)"
         | ClipboardCopy text -> $"ClipboardCopy(<len={text.Length}>)"
+        | ClipboardPaste -> "ClipboardPaste"
         | RunSearch(bufferId, query, document) ->
             $"RunSearch(buffer={bufferId}, queryLen={query.Length}, haystackLen={PieceTable.length document})"
         | ParseHighlight(bufferId, language, document, editTick) ->
             $"ParseHighlight(buffer={bufferId}, lang={language}, tick={editTick}, docLen={PieceTable.length document})"
-        | _ -> $"{effect}"
+        | ScanPlugins disabled -> $"ScanPlugins(disabled={disabled.Count})"
+        | RunPluginCommand(source, command, _) -> $"RunPluginCommand(source={source}, command={command})"
+        | InstallPluginFromSource _ -> "InstallPluginFromSource(<source>)"
+        | RemovePluginDir name -> $"RemovePluginDir({name})"
+        | BuildPlugin pluginPath -> $"BuildPlugin({pluginPath})"
+        | ValidatePlugin path -> $"ValidatePlugin({path})"
+        | LoadKeybinds -> "LoadKeybinds"
+        | ReplayKeys(chords, count) -> $"ReplayKeys(chords={chords.Length}, count={count})"
 
     /// Build a FileNode, using the basename (or full path when the name is
     /// empty). Paths are canonicalized to `/` here — this is the OS boundary
@@ -539,10 +590,10 @@ module Runtime =
         let mutable prefixDeadline: DateTime voption = ValueNone
 
         let dispatch model msg =
-            // Guard the trace: renderMsg/renderEffect interpolate DU values, which
-            // F# lowers to reflective structured printing — fine under JIT but a
-            // hard crash under NativeAOT. Only build it when --log is on (the
-            // interpolation argument is evaluated eagerly, so the guard matters).
+            // renderMsg/renderEffect are AOT-safe (no reflective DU printing), so
+            // the trace runs fine under NativeAOT with --log. Still gate on
+            // logWriter: the interpolation argument is evaluated eagerly, so this
+            // avoids building the trace string every tick when --log is off.
             match logWriter with
             | Some _ -> log $"msg: {renderMsg msg}"
             | None -> ()
