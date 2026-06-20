@@ -23,12 +23,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # NativeAOT cannot cross-compile across arch, so each RID builds on a
-          # matching-arch runner — including the Intel mac (macos-13) and the
-          # ARM Linux runner. No cross toolchain/sysroot needed.
+          # NativeAOT can't cross-compile across OS, and for Linux not across
+          # arch either — so linux-arm64 builds on a native ARM runner. macOS
+          # is the exception: its universal clang cross-builds x64 from the
+          # arm64 runner (no sysroot, and it dodges the slow macos-13 queue).
           - os: macos-14
             rid: osx-arm64
-          - os: macos-13
+          - os: macos-14
             rid: osx-x64
           - os: ubuntu-22.04
             rid: linux-x64
