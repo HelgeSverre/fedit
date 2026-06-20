@@ -205,8 +205,9 @@ const verbs = [
     <p class="section__lede">
       Plugins register commands and keybindings in F#. They live in <code
         >~/.config/fedit/plugins/</code
-      >, build lazily on first launch, and run in-process against a read-only snapshot of the
-      workspace. No JSON manifests beyond the bare minimum, no IPC, no schema — just a function.
+      >, build lazily on first launch, and run out-of-process in a plugin host against a read-only
+      snapshot of the workspace. No JSON manifests beyond the bare minimum, no IPC to wire up, no
+      schema — just a function.
     </p>
   </div>
 

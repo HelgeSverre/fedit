@@ -247,11 +247,11 @@ const verbs = [
           Plugins register <span class="accent-word">commands</span> and
           <span class="accent-word">keybindings</span>. They live in <code
             >~/.config/fedit/plugins/</code
-          >, build lazily on first launch, and run in-process against a read-only snapshot of the
-          workspace.
+          >, build lazily on first launch, and run out-of-process in a plugin host against a
+          read-only snapshot of the workspace.
         </p>
         <p class="meta">
-          No JSON manifests beyond the bare minimum. No IPC. No schema. Just a function.
+          No JSON manifests beyond the bare minimum. No IPC to wire up. No schema. Just a function.
         </p>
         <p class="hero-actions">
           <a class="cta-primary" href="#quickstart">Quick start</a>

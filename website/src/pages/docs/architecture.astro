@@ -153,7 +153,7 @@ const subsystems = [
   {
     name: "plugins",
     file: "Plugins.fs · Fedit.PluginApi/",
-    desc: "F# DLLs discovered under ~/.config/fedit/plugins/, built lazily, and loaded into isolated AssemblyLoadContexts. They register commands and keybindings against the read-only IPluginHost contract.",
+    desc: "F# DLLs discovered under ~/.config/fedit/plugins/, built lazily, and loaded into isolated AssemblyLoadContexts inside a separate Fedit.PluginHost process (so the editor can ship as NativeAOT). They register commands and keybindings against the read-only IPluginHost contract.",
   },
   {
     name: "highlighting",

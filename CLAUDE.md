@@ -75,12 +75,19 @@ no marketing adjectives, lead with the verb.
 just release 0.1.0    # tags vX.Y.Z, pushes, triggers CI
 ```
 
-`.github/workflows/release.yml` cross-compiles 5 RIDs, uploads archives
-and SHA256 sidecars to GitHub Release, renders
+`.github/workflows/release.yml` builds two flavors across 5 RIDs: the
+**default NativeAOT** archives (`fedit-<triple>`, ~7 MB, ~10 ms first
+paint — what Homebrew and the installers pull) and the **opt-in R2R
+fallback** (`fedit-r2r-<triple>`, self-contained ReadyToRun). NativeAOT
+can't cross-compile across OS (and Linux not across arch), so the AOT job
+uses native-arch runners (`linux-arm64` on a native ARM runner; `osx-x64`
+cross-built from the arm64 macOS runner via the universal toolchain). It
+uploads archives + SHA256 sidecars to the GitHub Release, renders
 [`scripts/fedit.rb.tmpl`](scripts/fedit.rb.tmpl) via
-[`scripts/render-formula.sh`](scripts/render-formula.sh), and commits
-the formula to `HelgeSverre/homebrew-tap`. Requires `HOMEBREW_TAP_TOKEN`
-(fine-grained PAT, `Contents: write` on the tap).
+[`scripts/render-formula.sh`](scripts/render-formula.sh) (which reads the
+`fedit-<triple>.sha256` AOT sidecars), and commits the formula to
+`HelgeSverre/homebrew-tap`. Requires `HOMEBREW_TAP_TOKEN` (fine-grained
+PAT, `Contents: write` on the tap).
 
 Local dry-run of the formula renderer: `just release-formula-preview`.
 
