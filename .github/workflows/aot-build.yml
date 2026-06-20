@@ -23,15 +23,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # NativeAOT cannot cross-compile across arch, so each RID builds on a
+          # matching-arch runner — including the Intel mac (macos-13) and the
+          # ARM Linux runner. No cross toolchain/sysroot needed.
           - os: macos-14
             rid: osx-arm64
+          - os: macos-13
+            rid: osx-x64
           - os: ubuntu-22.04
             rid: linux-x64
+          - os: ubuntu-22.04-arm
+            rid: linux-arm64
           - os: windows-2022
             rid: win-x64
-          # TODO cross-arch AOT (needs a cross toolchain/sysroot):
-          #   - { os: macos-14,     rid: osx-x64 }
-          #   - { os: ubuntu-22.04, rid: linux-arm64 }
     steps:
       - uses: actions/checkout@v6
         with:
@@ -41,6 +45,12 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # NativeAOT links with clang and needs zlib headers. Present on the x64
+      # ubuntu image; install explicitly so the leaner ARM runner works too.
+      - name: Install NativeAOT prerequisites (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
       # Same vendored tree-sitter natives the Release workflow builds; AOT
       # bundles runtimes/<rid>/native just like the R2R publish does.
       - uses: mlugg/setup-zig@v2
@@ -49,7 +59,9 @@ jobs:
         run: |
           case "${{ matrix.rid }}" in
             osx-arm64)   target="aarch64-macos";      ext="dylib"; pfx="lib" ;;
+            osx-x64)     target="x86_64-macos";       ext="dylib"; pfx="lib" ;;
             linux-x64)   target="x86_64-linux-gnu";   ext="so";    pfx="lib" ;;
+            linux-arm64) target="aarch64-linux-gnu";  ext="so";    pfx="lib" ;;
             win-x64)     target="x86_64-windows-gnu"; ext="dll";   pfx="" ;;
             *) echo "Unknown RID: ${{ matrix.rid }}" >&2; exit 1 ;;
           esac
