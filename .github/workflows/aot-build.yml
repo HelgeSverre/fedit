@@ -39,7 +39,7 @@ jobs:
           - os: windows-2022
             rid: win-x64
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
@@ -130,7 +130,7 @@ jobs:
           cp -r "$PWD/examples/wordcount" "$proot/wordcount"
           "$bin" __plugin-host-selftest "$proot" "$host"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: fedit-aot-${{ matrix.rid }}
           path: dist-aot/${{ matrix.rid }}
