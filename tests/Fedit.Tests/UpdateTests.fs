@@ -1548,9 +1548,36 @@ let ``MousePressed then MouseDragged selects between press and drag cells`` () =
         Editor.update (MouseDragged(mouseEvent LeftButton Drag 1 (contentX + 2))) pressed
 
     let buffer = activeBuffer dragged
-    buffer.Cursor |> should equal { Line = 1; Column = 2 }
-    // Anchor at the press cell (index 0), cursor at the drag cell ("line0\n" = 6 chars, +2).
-    Buffer.selectionRange buffer |> should equal (Some(0, 8))
+    // Inclusive drag: the cursor lands one cell past the hovered "n" so its
+    // character is selected, not left at the cell's left edge.
+    buffer.Cursor |> should equal { Line = 1; Column = 3 }
+    // Anchor at the press cell (index 0), head one past the drag cell
+    // ("line0\n" = 6 chars, +2 = cell 8, +1 to include it = 9).
+    Buffer.selectionRange buffer |> should equal (Some(0, 9))
+
+[<Fact>]
+let ``MouseDragged across a word selects the trailing character`` () =
+    let model = initModel ()
+    let buf = Buffer.fromText 1 None "test" "hello world" "\n"
+
+    let model =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers = Map.ofList [ 1, buf ] } }
+
+    let contentX = textAreaX model
+
+    // Press on "h" (cell 0), drag onto the last "o" of "hello" (cell 4).
+    let pressed, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX)) model
+
+    let dragged, _ =
+        Editor.update (MouseDragged(mouseEvent LeftButton Drag 0 (contentX + 4))) pressed
+
+    let buffer = activeBuffer dragged
+    Buffer.selectionText buffer |> should equal "hello"
+    Buffer.selectionRange buffer |> should equal (Some(0, 5))
 
 [<Fact>]
 let ``MouseReleased clears the drag anchor so later drags do not extend`` () =
@@ -1633,9 +1660,11 @@ let ``wheel scroll while dragging keeps the drag anchor`` () =
         Editor.update (MouseDragged(mouseEvent LeftButton Drag 2 (contentX + 3))) scrolled
 
     let buffer = activeBuffer dragged
-    buffer.Cursor |> should equal { Line = 5; Column = 3 }
-    // Press anchor (index 0) → drag cell: five "lineN\n" rows of 6 chars + 3.
-    Buffer.selectionRange buffer |> should equal (Some(0, 33))
+    // Inclusive drag: cursor lands one cell past the hovered character.
+    buffer.Cursor |> should equal { Line = 5; Column = 4 }
+    // Press anchor (index 0) → one past the drag cell: five "lineN\n" rows of
+    // 6 chars + 3 = cell 33, +1 to include the hovered character = 34.
+    Buffer.selectionRange buffer |> should equal (Some(0, 34))
 
 [<Fact>]
 let ``shift+motion after a detached scroll extends from the selection head`` () =

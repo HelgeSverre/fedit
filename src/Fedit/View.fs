@@ -295,8 +295,19 @@ module Layout =
                 Screen.writeText x row lineNumber gutterWidth (pad gutterWidth "~") screen
 
         if model.Focus = Editor then
-            let cursorX = x + gutterWidth + (buffer.Cursor.Column - buffer.ViewportLeft)
-            let cursorY = buffer.Cursor.Line - buffer.ViewportTop
+            // Inclusive block cursor: on a forward selection the caret is at
+            // the trailing boundary (one past the last selected glyph); sit
+            // the block on that glyph instead so the selected char reads as
+            // covered, not the empty cell after it. Backward selections
+            // already put the caret on the first selected glyph.
+            let blockPos =
+                match selection with
+                | Some(selStart, selEnd) when selEnd > selStart && Buffer.positionToIndex buffer.Cursor buffer = selEnd ->
+                    Buffer.indexToPosition (selEnd - 1) buffer
+                | _ -> buffer.Cursor
+
+            let cursorX = x + gutterWidth + (blockPos.Column - buffer.ViewportLeft)
+            let cursorY = blockPos.Line - buffer.ViewportTop
 
             if
                 cursorX >= x + gutterWidth

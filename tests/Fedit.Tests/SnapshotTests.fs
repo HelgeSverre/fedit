@@ -85,6 +85,29 @@ let ``golden frame: two-line buffer at 30x6`` () =
 
     assertSnapshot expected (renderOf withLines)
 
+[<Fact>]
+let ``forward selection sits the block cursor on the last selected glyph`` () =
+    // Inclusive block cursor: selecting "hello" leaves the logical caret at
+    // the trailing boundary (index 5, one past 'o'), but the block renders on
+    // 'o' (col 4) so the selected char reads as covered, not the cell after.
+    let model = baseModel (size 30 6)
+    let buf = Buffer.fromText 1 None "test" "hello world" "\n" |> Buffer.selectRange 0 5
+
+    let withSelection =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers = Map.ofList [ 1, buf ] } }
+
+    let screen = Layout.render withSelection
+    let gutter = Buffer.gutterWidth buf
+
+    match screen.Cursor with
+    | Some c ->
+        Assert.Equal(gutter + 4, c.Left)
+        Assert.Equal(0, c.Top)
+    | None -> Assert.Fail "expected a visible cursor"
+
 // ── Render smokes ───────────────────────────────────────────────────────
 
 [<Fact>]

@@ -2280,10 +2280,26 @@ module Editor =
                 | None -> model, []
                 | Some pos ->
                     let buffer = activeBufferState model
-                    let idx = Buffer.positionToIndex pos buffer
-                    let anchorIdx = Buffer.positionToIndex drag.AnchorPosition buffer
+                    let headCell = Buffer.positionToIndex pos buffer
+                    let anchorCell = Buffer.positionToIndex drag.AnchorPosition buffer
 
-                    let nextModel = updateActiveBuffer (Buffer.selectRange anchorIdx idx) model
+                    // Drag-select is inclusive of the cell under the pointer:
+                    // extend the trailing edge one index past its cell, but
+                    // only when that cell holds a real character (else a drag
+                    // past end-of-line would swallow the newline).
+                    let inclusive (position: Position) idx =
+                        if position.Column < (Buffer.line position.Line buffer).Length then
+                            idx + 1
+                        else
+                            idx
+
+                    let anchorIdx, headIdx =
+                        if headCell >= anchorCell then
+                            anchorCell, inclusive pos headCell
+                        else
+                            inclusive drag.AnchorPosition anchorCell, headCell
+
+                    let nextModel = updateActiveBuffer (Buffer.selectRange anchorIdx headIdx) model
 
                     nextModel, []
             | _ -> model, []
