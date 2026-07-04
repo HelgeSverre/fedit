@@ -31,6 +31,10 @@ const shipped = (version: string, item: string): ChangelogEntry => ({
 
 export const changelog: ChangelogEntry[] = [
   shipped(
+    "1.7.2 — mouse drag selection",
+    'Fixed: dragging across a word left the character under the pointer unselected — drag "hello" ending on the o selected only "hell". The drag mapped the pointer cell to its left-edge index, so the half-open selection dropped the trailing cell. The drag now extends the trailing edge one index past the hovered cell (only over a real character, so a drag past end-of-line does not swallow the newline), and the block cursor renders on the last selected glyph instead of the empty cell after it. Keyboard selection renders the same way.',
+  ),
+  shipped(
     "1.7.1 — AOT --log fix",
     'Fixed: the --log dispatch trace crashed the default NativeAOT build. renderMsg/renderEffect fell through to a reflective $"{msg}" interpolation, which AOT forbids. Every Msg/Effect case is now rendered explicitly and the wildcard is gone, so the match is exhaustive — a new case fails the build instead of reintroducing the reflective path. Verified against the AOT binary driven through a PTY with --log. Also corrected the plugin-process-model docs (out-of-process) and added a completions smoke to the release AOT bundle.',
   ),
