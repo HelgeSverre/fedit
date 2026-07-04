@@ -24,7 +24,7 @@
 	url = https://github.com/tree-sitter/tree-sitter-toml
 [submodule "vendor/tree-sitter-sema"]
 	path = vendor/tree-sitter-sema
-	url = https://github.com/helgesverre/tree-sitter-sema.git
+	url = https://github.com/sema-lisp/tree-sitter-sema.git
 [submodule "vendor/tree-sitter-applescript"]
 	path = vendor/tree-sitter-applescript
 	url = https://github.com/helgesverre/tree-sitter-applescript.git

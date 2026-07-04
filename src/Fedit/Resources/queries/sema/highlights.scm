@@ -19,7 +19,7 @@
 (boolean) @constant.builtin
 (character) @constant.character
 (string) @string
-(escape_sequence) @string.escape
+(regex) @string.regexp
 (keyword) @string.special.symbol
 
 ; =====================================================================
@@ -28,12 +28,13 @@
 
 (comment) @comment
 (block_comment) @comment
+(shebang) @comment
 
 ; =====================================================================
 ; PUNCTUATION
 ; =====================================================================
 
-["(" ")" "[" "]" "{" "}"] @punctuation.bracket
+["(" ")" "[" "]" "{" "}" "#("] @punctuation.bracket
 
 ; =====================================================================
 ; QUOTE OPERATORS
@@ -44,6 +45,7 @@
 (quasiquote "`" @operator)
 (unquote "," @operator)
 (unquote_splicing ",@" @operator)
+(deref "@" @operator)
 
 ; =====================================================================
 ; OPERATORS
