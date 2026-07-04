@@ -31,6 +31,10 @@ const shipped = (version: string, item: string): ChangelogEntry => ({
 
 export const changelog: ChangelogEntry[] = [
   shipped(
+    "1.7.3 — sema grammar update",
+    "Updated the bundled tree-sitter-sema grammar to the canonical sema-lisp/tree-sitter-sema at v0.2.0 (was a personal fork). The grammar adds short-lambda #(...), regex literals, reader @-deref, and shebang lines, plus string-literal fixes. Refreshed the bundled highlights query to match: #( joins the bracket set, and regex literals, deref operators, and shebang lines now highlight.",
+  ),
+  shipped(
     "1.7.2 — mouse drag selection",
     'Fixed: dragging across a word left the character under the pointer unselected — drag "hello" ending on the o selected only "hell". The drag mapped the pointer cell to its left-edge index, so the half-open selection dropped the trailing cell. The drag now extends the trailing edge one index past the hovered cell (only over a real character, so a drag past end-of-line does not swallow the newline), and the block cursor renders on the last selected glyph instead of the empty cell after it. Keyboard selection renders the same way.',
   ),
