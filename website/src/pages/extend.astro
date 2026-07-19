@@ -118,6 +118,18 @@ const actions = [
     use: "Open a file and move the cursor to a 1-based position once it loads; the target survives the async open and applies if the file is already open. preview picks the preview slot.",
     sample: `[ OpenFileAt(path, { Line = 42; Column = 7 }, false) ]`,
   },
+  {
+    name: "MoveLinesUp",
+    arg: "int",
+    use: "Move the current line or every line containing selected text up by count. Clamps at the top, creates one undo entry, and ignores non-positive counts.",
+    sample: `[ MoveLinesUp 3 ]`,
+  },
+  {
+    name: "MoveLinesDown",
+    arg: "int",
+    use: "Move the current line or every line containing selected text down by count. Clamps at the bottom, creates one undo entry, and ignores non-positive counts.",
+    sample: `[ MoveLinesDown 2 ]`,
+  },
 ];
 
 const lifecycle = [
@@ -232,7 +244,7 @@ const verbs = [
 
 <Site
   title="extend"
-  description="Build fedit plugins in F#. Five-minute quickstart, the eighteen PluginAction types you can return, and six reference implementations under examples/."
+  description="Build fedit plugins in F#. Five-minute quickstart, the twenty PluginAction types you can return, and six reference implementations under examples/."
   image="/og/extend.png"
 >
   <!-- =============================================================== -->

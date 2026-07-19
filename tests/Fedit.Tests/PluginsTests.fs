@@ -719,6 +719,32 @@ let ``DeleteSelection is a no-op without a selection`` () =
     Assert.Equal(buffer.EditTick, result.EditTick)
 
 [<Fact>]
+let ``MoveLinesUp moves the active buffer by the requested count`` () =
+    let buffer =
+        Buffer.fromText 7 None "scratch" "alpha\nbravo\ncharlie\ndelta" "\n"
+        |> Buffer.moveToOffset 13
+
+    let next, _ = runActionsFor buffer [ Fedit.PluginApi.MoveLinesUp 10 ]
+    let result = activeBuffer next
+
+    Assert.Equal("charlie\nalpha\nbravo\ndelta", Buffer.text result)
+    Assert.Equal(({ Line = 0; Column = 1 }: Position), result.Cursor)
+    Assert.Equal(1, result.Undo.Length)
+
+[<Fact>]
+let ``MoveLinesDown moves the active selection`` () =
+    let buffer = Buffer.fromText 7 None "scratch" "alpha\nbravo\ncharlie\ndelta" "\n"
+    let anchor = Buffer.positionToIndex { Line = 0; Column = 2 } buffer
+    let head = Buffer.positionToIndex { Line = 2; Column = 0 } buffer
+    let selected = Buffer.selectRange anchor head buffer
+
+    let next, _ = runActionsFor selected [ Fedit.PluginApi.MoveLinesDown 1 ]
+    let result = activeBuffer next
+
+    Assert.Equal("charlie\nalpha\nbravo\ndelta", Buffer.text result)
+    Assert.Equal("pha\nbravo\n", Buffer.selectionText result)
+
+[<Fact>]
 let ``SwitchBuffer activates a known buffer id`` () =
     // init seeds scratch buffer 1; the probe buffer (7) is active.
     let buffer = Buffer.fromText 7 None "scratch" "hello world" "\n"

@@ -102,6 +102,8 @@ module Keymap =
           single (chord [ Super; Shift ] (Named Right)) ExtendEnd
           single (chord [ Ctrl ] (Named Backspace)) DeleteWordBack
           single (chord [ Ctrl ] (Named Delete)) DeleteWordForward
+          single (chord [ Alt ] (Named Up)) (MoveLinesUp 1)
+          single (chord [ Alt ] (Named Down)) (MoveLinesDown 1)
 
           // ── macros: modifier chords only (bare Char is reserved for text) ──
           single (chord [ Ctrl; Shift ] (Key.Char 'm')) (RecordMacro 'a')
@@ -294,6 +296,17 @@ module Keymap =
         | "unindent" -> Ok Unindent
         | "delete-word-back" -> Ok DeleteWordBack
         | "delete-word-forward" -> Ok DeleteWordForward
+        | "move-lines-up"
+        | "move-lines-down" as actionName ->
+            let count = if arg.Trim() = "" then Some 1 else parseInt arg
+
+            match count with
+            | Some n when n > 0 ->
+                if actionName = "move-lines-up" then
+                    Ok(MoveLinesUp n)
+                else
+                    Ok(MoveLinesDown n)
+            | _ -> Result.Error $"{actionName} count must be at least 1"
         | "next-buffer" -> Ok Action.NextBuffer
         | "prev-buffer" -> Ok PrevBuffer
         | "jump-to-buffer" ->

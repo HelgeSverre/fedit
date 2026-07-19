@@ -166,14 +166,14 @@ character picks the mode: `:` command, `/` buffer search, `@` buffer switcher, n
 
 ### 2.7 Buffers / tabs
 
-| Action        | **fedit**                                               | Helix                                 | Neovim    | Emacs   | Zed (Linux) |
-| ------------- | ------------------------------------------------------- | ------------------------------------- | --------- | ------- | ----------- | -------- |
-| Next buffer   | `Ctrl+PgDn` (also palette `next`)                       | `gn` / `:bn`                          | `:bn`     | `C-x →` | `Ctrl+PgDn` |
-| Prev buffer   | `Ctrl+PgUp` (also palette `prev`)                       | `gp` / `:bp`                          | `:bp`     | `C-x ←` | `Ctrl+PgUp` |
-| Jump to N     | `Ctrl+1..9` (sorted index, 1-based; out-of-range no-op) | —                                     | `:b{N}`   | —       | `Ctrl+<N>`  |
-| Pick / switch | type `@<id                                              | name>`in prompt (or palette`buffers`) | `Space b` | `:b{N}` | `C-x b`     | `Ctrl+P` |
-| Close buffer  | —                                                       | `:bc`                                 | `:bd`     | `C-x k` | `Ctrl+W`    |
-| Goto line:col | palette `<line>[:<col>]`                                | `:goto`                               | `:N`      | `M-g g` | `Ctrl+G`    |
+| Action        | **fedit**                                               | Helix        | Neovim  | Emacs   | Zed (Linux) |
+| ------------- | ------------------------------------------------------- | ------------ | ------- | ------- | ----------- |
+| Next buffer   | `Ctrl+PgDn` (also palette `next`)                       | `gn` / `:bn` | `:bn`   | `C-x →` | `Ctrl+PgDn` |
+| Prev buffer   | `Ctrl+PgUp` (also palette `prev`)                       | `gp` / `:bp` | `:bp`   | `C-x ←` | `Ctrl+PgUp` |
+| Jump to N     | `Ctrl+1..9` (sorted index, 1-based; out-of-range no-op) | —            | `:b{N}` | —       | `Ctrl+<N>`  |
+| Pick / switch | type `@<id\|name>` in prompt (or palette `buffers`)     | `Space b`    | `:b{N}` | `C-x b` | `Ctrl+P`    |
+| Close buffer  | —                                                       | `:bc`        | `:bd`   | `C-x k` | `Ctrl+W`    |
+| Goto line:col | palette `<line>[:<col>]`                                | `:goto`      | `:N`    | `M-g g` | `Ctrl+G`    |
 
 ### 2.8 Panels / file tree
 

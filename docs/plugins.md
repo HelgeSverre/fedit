@@ -164,6 +164,10 @@ loading and running; one compiled against a newer contract that
 constructs a case the host doesn't know simply won't load. Anything
 that breaks this rule bumps `apiVersion`.
 
+The current contract assembly is `Fedit.PluginApi` 1.3.0. Plugin
+manifests still declare `"apiVersion": "1"` because the new actions are
+append-only.
+
 ### Entry contract
 
 The host calls one function per plugin at load time:
@@ -241,8 +245,10 @@ action in order. Pick the right action for the effect you want:
 | `NewBuffer(name, text)`              | Create a scratch buffer (empty `name` defaults to `"plugin"`) and make it active; later actions in the same list target it                                                                                       | Show generated output as a real, editable buffer |
 | `SetBufferActivation "cmd"`          | Register a command to run when a line of the active buffer is activated (Enter or left-click); records it against whatever buffer is active now, so place it after a `NewBuffer` in the same list                | Make a generated listing clickable               |
 | `OpenFileAt(path, pos, preview)`     | Open a file (workspace-root relative) and move the cursor to a 1-based `pos` once it loads; the target travels with the async open and applies in place if the file is already open                              | Jump to an exact line/column in source           |
+| `MoveLinesUp count`                  | Move the current line or every line containing selected text up by `count`; clamps at the top and creates one undo entry                                                                                         | Reorder statements or list items                 |
+| `MoveLinesDown count`                | Move the current line or every line containing selected text down by `count`; clamps at the bottom and creates one undo entry                                                                                    | Reorder statements or list items                 |
 
-Two coordination notes:
+Three coordination notes:
 
 - **Batched `ReplaceRange`s see post-edit coordinates.** Each edit
   shifts the line/column positions of everything after it, and later
@@ -253,6 +259,26 @@ Two coordination notes:
   `OpenFilePreview` sits in the preview slot and is replaced by the
   next preview — unless it's edited, which promotes it to a regular
   buffer.
+- **Line moves include lines containing selected text.** If a selection
+  ends at column 1, that final line is excluded because only the preceding
+  newline is selected. Non-positive move counts are a no-op.
+
+### Move lines from a plugin
+
+Return `MoveLinesUp` or `MoveLinesDown` from a command. With no selection,
+the action moves the cursor's line. With a selection, it moves the complete
+line block containing the selected text.
+
+```fsharp
+host.RegisterCommand
+    { Name = "raise"
+      Usage = "raise"
+      Summary = "Move the current line or selection up three lines."
+      Run = fun _ -> [ MoveLinesUp 3 ] }
+```
+
+Each action is one undo entry. Counts clamp at the buffer boundary, so the
+example moves as far as possible when fewer than three lines are available.
 
 ### Line-activated buffers
 

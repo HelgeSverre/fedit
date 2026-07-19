@@ -53,6 +53,8 @@ let actionMeta (action: Action) : string * string =
     | Copy -> "clipboard", "Copy the selection to the clipboard"
     | Cut -> "clipboard", "Cut the selection to the clipboard"
     | Paste -> "clipboard", "Paste from the clipboard"
+    | MoveLinesUp _ -> "edit", "Move the current line or selection up"
+    | MoveLinesDown _ -> "edit", "Move the current line or selection down"
     | Save -> "file", "Save the active buffer"
     | SaveAs _ -> "file", "Save the active buffer to a new path"
     | Quit -> "file", "Quit the editor"
@@ -122,6 +124,8 @@ let allActions: Action list =
       Copy
       Cut
       Paste
+      MoveLinesUp 1
+      MoveLinesDown 1
       Save
       SaveAs ""
       Quit

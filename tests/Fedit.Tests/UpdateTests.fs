@@ -965,6 +965,14 @@ let ``runAction Chain applies actions left to right`` () =
     next.Focus |> should equal Sidebar
 
 [<Fact>]
+let ``runAction MoveLinesDown delegates to the active buffer`` () =
+    let model = modelWithLines 4
+    let next, effects = Editor.runAction (MoveLinesDown 2) model
+
+    Buffer.text (activeBuffer next) |> should equal "line1\nline2\nline0\nline3"
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
 let ``runAction When picks the then-branch when the cond holds`` () =
     let model = initModel () // sidebar visible by default
 

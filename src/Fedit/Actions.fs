@@ -45,6 +45,8 @@ type Action =
     | Copy
     | Cut
     | Paste
+    | MoveLinesUp of count: int
+    | MoveLinesDown of count: int
     // commands
     | Save
     | SaveAs of string
@@ -140,6 +142,8 @@ module Action =
         | Copy -> "copy"
         | Cut -> "cut"
         | Paste -> "paste"
+        | MoveLinesUp _ -> "move-lines-up"
+        | MoveLinesDown _ -> "move-lines-down"
         | Save -> "save"
         | SaveAs _ -> "save-as"
         | Quit -> "quit"

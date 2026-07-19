@@ -97,6 +97,12 @@ module PluginWire =
             w.WriteString("path", path)
             writeNamedCursor w "position" position
             w.WriteBoolean("preview", preview)
+        | MoveLinesUp count ->
+            w.WriteString("tag", "moveLinesUp")
+            w.WriteNumber("count", count)
+        | MoveLinesDown count ->
+            w.WriteString("tag", "moveLinesDown")
+            w.WriteNumber("count", count)
 
         w.WriteEndObject()
 
@@ -197,6 +203,8 @@ module PluginWire =
         | "setBufferActivation" -> SetBufferActivation(str e "commandName")
         | "openFileAt" ->
             OpenFileAt(str e "path", readCursor (e.GetProperty "position"), e.GetProperty("preview").GetBoolean())
+        | "moveLinesUp" -> MoveLinesUp(e.GetProperty("count").GetInt32())
+        | "moveLinesDown" -> MoveLinesDown(e.GetProperty("count").GetInt32())
         | other -> failwith ("unknown PluginAction tag: " + other)
 
     let actionsFromJson (json: string) : PluginAction list =
@@ -263,7 +271,9 @@ module PluginWire =
               SwitchBuffer 42
               NewBuffer("scratch", "body")
               SetBufferActivation "jump"
-              OpenFileAt("f.fs", { Line = 9; Column = 2 }, true) ]
+              OpenFileAt("f.fs", { Line = 9; Column = 2 }, true)
+              MoveLinesUp 3
+              MoveLinesDown 2 ]
 
         let json1 = actionsToJson sample
         let round = actionsFromJson json1

@@ -31,6 +31,10 @@ const shipped = (version: string, item: string): ChangelogEntry => ({
 
 export const changelog: ChangelogEntry[] = [
   shipped(
+    "1.8.0 — move lines",
+    'Added atomic line/block movement: Alt+Up / Alt+Down move the current line or every line containing selected text, clamp at buffer boundaries, preserve the selection, and create one undo entry. User keybindings can request larger counts with move-lines-up:<count> / move-lines-down:<count>. Plugins get matching append-only MoveLinesUp count / MoveLinesDown count actions in Fedit.PluginApi 1.3.0; manifest apiVersion remains "1".',
+  ),
+  shipped(
     "1.7.3 — sema grammar update",
     "Updated the bundled tree-sitter-sema grammar to the canonical sema-lisp/tree-sitter-sema at v0.2.0 (was a personal fork). The grammar adds short-lambda #(...), regex literals, reader @-deref, and shebang lines, plus string-literal fixes. Refreshed the bundled highlights query to match: #( joins the bracket set, and regex literals, deref operators, and shebang lines now highlight.",
   ),

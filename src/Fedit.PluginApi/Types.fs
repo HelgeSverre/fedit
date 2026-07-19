@@ -104,6 +104,16 @@ type PluginAction =
     /// selects the preview slot (sidebar-Space semantics) vs a permanent
     /// buffer. Relative paths resolve against the workspace root.
     | OpenFileAt of path: string * position: CursorPosition * preview: bool
+    /// Move the current line, or every line containing selected text, up by
+    /// `count` places as one undoable edit. Movement clamps at the top of the
+    /// buffer. A selection ending at column 1 does not include that final
+    /// line. Non-positive counts are a no-op.
+    | MoveLinesUp of count: int
+    /// Move the current line, or every line containing selected text, down by
+    /// `count` places as one undoable edit. Movement clamps at the bottom of
+    /// the buffer. A selection ending at column 1 does not include that final
+    /// line. Non-positive counts are a no-op.
+    | MoveLinesDown of count: int
 
 /// A command definition a plugin registers with the host. `Run` is invoked
 /// synchronously when the command fires; it should be fast (< 50ms).

@@ -40,6 +40,14 @@
     "bound": true
   },
   {
+    "stroke": "ctrl+shift+e",
+    "action": "reveal-in-sidebar",
+    "context": "global",
+    "category": "tree",
+    "description": "Reveal the active file in the sidebar",
+    "bound": true
+  },
+  {
     "stroke": "ctrl+r",
     "action": "reload-workspace",
     "context": "global",
@@ -333,6 +341,22 @@
     "context": "editor",
     "category": "edit",
     "description": "Delete the word after the cursor",
+    "bound": true
+  },
+  {
+    "stroke": "alt+up",
+    "action": "move-lines-up",
+    "context": "editor",
+    "category": "edit",
+    "description": "Move the current line or selection up",
+    "bound": true
+  },
+  {
+    "stroke": "alt+down",
+    "action": "move-lines-down",
+    "context": "editor",
+    "category": "edit",
+    "description": "Move the current line or selection down",
     "bound": true
   },
   {

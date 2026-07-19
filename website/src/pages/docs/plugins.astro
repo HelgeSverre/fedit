@@ -111,6 +111,18 @@ const actions = [
     use: "Open a file and move the cursor to a 1-based position once it loads; the target survives the async open and applies if the file is already open. preview picks the preview slot.",
     sample: `[ OpenFileAt(path, { Line = 42; Column = 7 }, false) ]`,
   },
+  {
+    name: "MoveLinesUp",
+    arg: "int",
+    use: "Move the current line or every line containing selected text up by count. Clamps at the top, creates one undo entry, and ignores non-positive counts.",
+    sample: `[ MoveLinesUp 3 ]`,
+  },
+  {
+    name: "MoveLinesDown",
+    arg: "int",
+    use: "Move the current line or every line containing selected text down by count. Clamps at the bottom, creates one undo entry, and ignores non-positive counts.",
+    sample: `[ MoveLinesDown 2 ]`,
+  },
 ];
 
 const lifecycle = [
@@ -197,7 +209,7 @@ const verbs = [
 
 <DocsLayout
   title="plugins"
-  description="Build fedit plugins in F#. A five-minute quickstart, the eighteen PluginAction types you can return, and six reference implementations under examples/."
+  description="Build fedit plugins in F#. A five-minute quickstart, the twenty PluginAction types you can return, and six reference implementations under examples/."
   image="/og/extend.png"
 >
   <div class="section__head">
@@ -338,6 +350,12 @@ const verbs = [
     <p class="doc-p">
       A plugin's <code>Run</code> function returns a list of these. The host applies them in order — pick
       the right one for the effect you want.
+    </p>
+    <p class="doc-p note">
+      The current contract assembly is <code>Fedit.PluginApi 1.3.0</code>. Manifests still use
+      <code>"apiVersion": "1"</code>: these actions extend the append-only v1 union without breaking
+      plugins compiled against an older v1 assembly. For line moves, a selection ending at column 1
+      excludes that final line because only the preceding newline is selected.
     </p>
 
     <dl class="doc-dl">

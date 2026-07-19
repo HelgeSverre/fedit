@@ -25,7 +25,9 @@ let private sampleActions =
       SwitchBuffer 42
       NewBuffer("scratch", "body")
       SetBufferActivation "jump"
-      OpenFileAt("f.fs", { Line = 9; Column = 2 }, true) ]
+      OpenFileAt("f.fs", { Line = 9; Column = 2 }, true)
+      MoveLinesUp 3
+      MoveLinesDown 2 ]
 
 [<Fact>]
 let ``every PluginAction case round-trips through the wire unchanged`` () =

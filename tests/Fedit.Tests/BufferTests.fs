@@ -41,6 +41,80 @@ let ``moveDown moves to next line preserving preferred column`` () =
     buffer.Cursor.Column |> should equal 5
 
 [<Fact>]
+let ``moveLinesUp moves the current line and clamps at the top`` () =
+    let original =
+        Buffer.fromText 1 None "test" "alpha\nbravo\ncharlie\ndelta" "\n"
+        |> Buffer.moveToOffset 13
+
+    let moved = original |> Buffer.moveLinesUp 10
+
+    Buffer.text moved |> should equal "charlie\nalpha\nbravo\ndelta"
+    moved.Cursor |> should equal ({ Line = 0; Column = 1 }: Position)
+    moved.Undo.Length |> should equal 1
+    moved |> Buffer.undo |> Buffer.text |> should equal (Buffer.text original)
+
+[<Fact>]
+let ``moveLinesDown excludes a trailing line reached only at column zero`` () =
+    let original =
+        Buffer.fromText 1 None "test" "alpha\nbravo\ncharlie\ndelta\necho" "\n"
+
+    let anchor = Buffer.positionToIndex { Line = 1; Column = 2 } original
+    let head = Buffer.positionToIndex { Line = 3; Column = 0 } original
+    let selected = Buffer.selectRange anchor head original
+    let moved = selected |> Buffer.moveLinesDown 1
+
+    Buffer.text moved |> should equal "alpha\ndelta\nbravo\ncharlie\necho"
+    Buffer.selectionText moved |> should equal "avo\ncharlie\n"
+    moved.Cursor |> should equal ({ Line = 4; Column = 0 }: Position)
+
+[<Fact>]
+let ``moveLinesDown preserves a backward selection`` () =
+    let original =
+        Buffer.fromText 1 None "test" "alpha\nbravo\ncharlie\ndelta\necho" "\n"
+
+    let anchor = Buffer.positionToIndex { Line = 3; Column = 0 } original
+    let head = Buffer.positionToIndex { Line = 1; Column = 2 } original
+    let selected = Buffer.selectRange anchor head original
+    let moved = selected |> Buffer.moveLinesDown 1
+
+    let span = moved.Selection |> Option.get
+
+    Buffer.indexToPosition span.Anchor moved
+    |> should equal ({ Line = 4; Column = 0 }: Position)
+
+    Buffer.indexToPosition span.Head moved
+    |> should equal ({ Line = 2; Column = 2 }: Position)
+
+    moved.Cursor |> should equal ({ Line = 2; Column = 2 }: Position)
+
+[<Fact>]
+let ``moveLines at a document boundary is a true no-op`` () =
+    let original = Buffer.fromText 1 None "test" "alpha\nbravo" "\n"
+    let moved = original |> Buffer.moveLinesUp 3
+
+    moved |> should equal original
+    original |> Buffer.moveLinesDown 0 |> should equal original
+
+[<Fact>]
+let ``moveLinesDown moves the current line and clamps at the bottom`` () =
+    let original = Buffer.fromText 1 None "test" "alpha\nbravo\ncharlie" "\n"
+    let moved = original |> Buffer.moveLinesDown 10
+
+    Buffer.text moved |> should equal "bravo\ncharlie\nalpha"
+    moved.Cursor |> should equal ({ Line = 2; Column = 0 }: Position)
+    moved.Undo.Length |> should equal 1
+
+[<Fact>]
+let ``moveLinesUp preserves a final line without a trailing newline`` () =
+    let original =
+        Buffer.fromText 1 None "test" "alpha\nbravo\ncharlie" "\n"
+        |> Buffer.moveToOffset 12
+
+    let moved = original |> Buffer.moveLinesUp 1
+
+    Buffer.text moved |> should equal "alpha\ncharlie\nbravo"
+
+[<Fact>]
 let ``moveEnd goes to end of current line`` () =
     let buffer = newBuffer () |> Buffer.moveEnd
     buffer.Cursor.Column |> should equal 5

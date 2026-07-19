@@ -465,6 +465,98 @@ module Buffer =
                 Selection = None }
         | _ -> buffer
 
+    /// Move the current line, or every line touched by the selection, as one
+    /// edit. A selection ending at column zero does not include that trailing
+    /// line: only the preceding newline belongs to the selection. Movement
+    /// clamps at document boundaries and preserves selection direction.
+    let private moveLines upward count (buffer: BufferState) =
+        if count <= 0 then
+            buffer
+        else
+            let blockStart, blockEnd =
+                match selectionRange buffer with
+                | Some(startIndex, endIndex) ->
+                    let startPosition = indexToPosition startIndex buffer
+                    let endPosition = indexToPosition endIndex buffer
+
+                    let endLine =
+                        if endIndex > startIndex && endPosition.Column = 0 then
+                            max startPosition.Line (endPosition.Line - 1)
+                        else
+                            endPosition.Line
+
+                    startPosition.Line, endLine
+                | None -> buffer.Cursor.Line, buffer.Cursor.Line
+
+            let available =
+                if upward then
+                    blockStart
+                else
+                    lineCount buffer - 1 - blockEnd
+
+            let distance = min count available
+
+            if distance = 0 then
+                buffer
+            else
+                let lineDelta = if upward then -distance else distance
+                let affectedStart = if upward then blockStart - distance else blockStart
+                let affectedEnd = if upward then blockEnd else blockEnd + distance
+                let rows = lines buffer
+                let block = rows[blockStart..blockEnd]
+
+                let reordered =
+                    if upward then
+                        Array.append block rows[affectedStart .. blockStart - 1]
+                    else
+                        Array.append rows[blockEnd + 1 .. affectedEnd] block
+
+                let regionStart = positionToIndex { Line = affectedStart; Column = 0 } buffer
+
+                let regionEnd =
+                    if affectedEnd < rows.Length - 1 then
+                        positionToIndex { Line = affectedEnd + 1; Column = 0 } buffer
+                    else
+                        PieceTable.length buffer.Document
+
+                let replacement =
+                    String.concat "\n" reordered
+                    + if affectedEnd < rows.Length - 1 then "\n" else ""
+
+                let edited = replaceRange regionStart (regionEnd - regionStart) replacement buffer
+
+                let translateIndex index =
+                    let position = indexToPosition index buffer
+
+                    positionToIndex
+                        { position with
+                            Line = position.Line + lineDelta }
+                        edited
+
+                match buffer.Selection with
+                | Some span ->
+                    let anchor = translateIndex span.Anchor
+                    let head = translateIndex span.Head
+
+                    { edited with
+                        Cursor = indexToPosition head edited
+                        Selection = Some { Anchor = anchor; Head = head } }
+                | None ->
+                    let cursor =
+                        positionToIndex
+                            { buffer.Cursor with
+                                Line = buffer.Cursor.Line + lineDelta }
+                            edited
+                        |> fun index -> indexToPosition index edited
+
+                    { edited with
+                        Cursor = cursor
+                        Selection = None }
+
+    let moveLinesUp count buffer = moveLines true count buffer
+
+    let moveLinesDown count buffer = moveLines false count buffer
+
     let findAll (needle: string) buffer =
         if String.IsNullOrEmpty needle then
             []

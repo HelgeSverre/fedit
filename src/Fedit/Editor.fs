@@ -808,6 +808,8 @@ module Editor =
                     match tryActivateExisting absolutePath current with
                     | Some activated -> current <- applyTarget target activated
                     | None -> effects.Add(LoadFile(absolutePath, OpenPermanent, target))
+            | Fedit.PluginApi.MoveLinesUp count -> current <- updateActiveBuffer (Buffer.moveLinesUp count) current
+            | Fedit.PluginApi.MoveLinesDown count -> current <- updateActiveBuffer (Buffer.moveLinesDown count) current
 
         current, List.ofSeq effects
 
@@ -1283,6 +1285,8 @@ module Editor =
                         Notification = Some(Notification.info $"Cut {text.Length} char(s)") },
                 [ ClipboardCopy text ]
         | Paste -> model, [ ClipboardPaste ]
+        | MoveLinesUp count -> updateActiveBuffer (Buffer.moveLinesUp count) model, []
+        | MoveLinesDown count -> updateActiveBuffer (Buffer.moveLinesDown count) model, []
 
         // command-group bodies
         | Save -> saveActiveBuffer None model

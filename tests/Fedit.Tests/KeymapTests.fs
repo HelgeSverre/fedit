@@ -87,6 +87,8 @@ let ``a standalone that prefixes a bound sequence is flagged as a conflict`` () 
 [<InlineData("editor  ctrl+k ctrl+c = no-op")>] // sequence
 [<InlineData("editor  ctrl+x =")>] // unbind
 [<InlineData("editor  f6 = set-theme:gruvbox")>] // arg-taking
+[<InlineData("editor  alt+up = move-lines-up:3")>]
+[<InlineData("editor  alt+down = move-lines-down")>]
 [<InlineData("editor  ctrl+k ctrl+w = run-plugin:wordcount/wc")>]
 [<InlineData("editor  ctrl+k ctrl+e = run-plugin:wordcount/wc selection")>]
 let ``parseLine accepts valid forms`` (line: string) =
@@ -117,6 +119,33 @@ let ``run-plugin preserves an embedded slash in the plugin arg`` () =
     match Keymap.parseLine "editor  ctrl+j = run-plugin:fs/find a/b" with
     | Ok(Some b) -> b.Action |> should equal (Some(RunPlugin("fs", "find", "a/b")))
     | other -> failwithf "unexpected %A" other
+
+[<Fact>]
+let ``move-lines actions parse a positive count and default to one`` () =
+    match Keymap.parseLine "editor  alt+up = move-lines-up:3" with
+    | Ok(Some b) -> b.Action |> should equal (Some(MoveLinesUp 3))
+    | other -> failwithf "unexpected %A" other
+
+    match Keymap.parseLine "editor  alt+down = move-lines-down" with
+    | Ok(Some b) -> b.Action |> should equal (Some(MoveLinesDown 1))
+    | other -> failwithf "unexpected %A" other
+
+[<Theory>]
+[<InlineData("editor  alt+up = move-lines-up:0")>]
+[<InlineData("editor  alt+down = move-lines-down:-2")>]
+let ``move-lines actions reject non-positive counts`` (line: string) =
+    Keymap.parseLine line |> Result.isError |> should equal true
+
+[<Fact>]
+let ``Alt Up and Alt Down move lines by one in the default editor keymap`` () =
+    let altUp = Keymap.chord [ Alt ] (Named Up)
+    let altDown = Keymap.chord [ Alt ] (Named Down)
+
+    Keymap.resolve Context.Editor [ altUp ] Keymap.defaults
+    |> should equal (Bound(MoveLinesUp 1))
+
+    Keymap.resolve Context.Editor [ altDown ] Keymap.defaults
+    |> should equal (Bound(MoveLinesDown 1))
 
 [<Fact>]
 let ``a context word selects the binding context`` () =

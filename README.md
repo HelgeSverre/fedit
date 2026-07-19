@@ -238,6 +238,7 @@ Editor keys:
 
 - Arrow keys, `Home`, `End`, `PageUp`, and `PageDown` move the cursor.
 - `Alt+Left` / `Alt+Right` (or `Ctrl+Left` / `Ctrl+Right`) move the cursor by word.
+- `Alt+Up` / `Alt+Down` move the current line or selected lines. The move clamps at the buffer boundary and is one undo step.
 - `Ctrl+Backspace` / `Ctrl+Delete` delete the previous / next word.
 - `Shift+Arrow`, `Shift+Home`, `Shift+End` extend the text selection.
 - `Ctrl+A` selects the whole buffer.
