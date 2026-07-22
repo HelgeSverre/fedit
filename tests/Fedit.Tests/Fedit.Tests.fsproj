@@ -19,6 +19,7 @@
     <Compile Include="WorkspaceTests.fs" />
     <Compile Include="ConfigTests.fs" />
     <Compile Include="UpdateTests.fs" />
+    <Compile Include="LspUpdateTests.fs" />
     <Compile Include="PickersTests.fs" />
     <Compile Include="InputTests.fs" />
     <Compile Include="KeymapTests.fs" />

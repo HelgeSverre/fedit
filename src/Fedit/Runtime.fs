@@ -90,6 +90,14 @@ module Runtime =
         | OpenPermanent -> "permanent"
         | OpenPreview -> "preview"
 
+    let private renderLspServerStatus (status: LspServerStatus) =
+        match status with
+        | LspServerStatus.NotStarted -> "NotStarted"
+        | LspServerStatus.Starting -> "Starting"
+        | LspServerStatus.Running -> "Running"
+        | LspServerStatus.Failed reason -> $"Failed({reason})"
+        | LspServerStatus.Stopped -> "Stopped"
+
     // NOTE: every case is rendered explicitly — there is deliberately NO `_`
     // catch-all. A wildcard would have to interpolate the bare DU (`$"{msg}"`),
     // which F# lowers to reflective structured printing — fine under JIT but a
@@ -138,6 +146,8 @@ module Runtime =
         | PluginValidated(Result.Ok report) -> $"PluginValidated(Ok(<len={report.Length}>))"
         | PluginValidated(Result.Error error) -> $"PluginValidated(Error({error}))"
         | KeybindsLoaded(_, errors) -> $"KeybindsLoaded(errors={errors.Length})"
+        | LspServerStatusChanged(name, status) -> $"LspServerStatusChanged({name}, {renderLspServerStatus status})"
+        | LspDiagnosticsPublished(path, diagnostics) -> $"LspDiagnosticsPublished({path}, count={diagnostics.Length})"
 
     let private renderEffect effect =
         match effect with
@@ -161,6 +171,15 @@ module Runtime =
         | ValidatePlugin path -> $"ValidatePlugin({path})"
         | LoadKeybinds -> "LoadKeybinds"
         | ReplayKeys(chords, count) -> $"ReplayKeys(chords={chords.Length}, count={count})"
+        | LspSyncDocuments(workspaceRoot, documents) ->
+            $"LspSyncDocuments(root={workspaceRoot}, documents={documents.Length})"
+        | LspRestart name ->
+            let target =
+                match name with
+                | Some serverName -> serverName
+                | None -> "all"
+
+            $"LspRestart({target})"
 
     /// Build a FileNode, using the basename (or full path when the name is
     /// empty). Paths are canonicalized to `/` here — this is the OS boundary
@@ -241,11 +260,16 @@ module Runtime =
 
                 new StreamWriter(path, append = true, encoding = utf8WithoutBom))
 
+        // LSP client callbacks log from their reader threads, so writes are
+        // serialized — StreamWriter is not thread-safe.
+        let logLock = obj ()
+
         let log (s: string) =
             match logWriter with
             | Some w ->
-                w.WriteLine($"{DateTime.UtcNow:o} {s}")
-                w.Flush()
+                lock logLock (fun () ->
+                    w.WriteLine($"{DateTime.UtcNow:o} {s}")
+                    w.Flush())
             | None -> ()
 
         // Async effect machinery.
@@ -279,6 +303,41 @@ module Runtime =
         // NativeAOT. Scans and invocations go through this client; the Model
         // only ever sees the registry (stub Run closures) and PluginActions.
         let pluginHost = new PluginHostClient(PluginHostClient.defaultHostPath ())
+
+        // Language servers: one out-of-process client per server name +
+        // resolved workspace root, spawned lazily by the LspSyncDocuments
+        // interpreter. All document notifications (and restarts) chain onto
+        // one task — the configSaveChain pattern — so they reach each server
+        // in dispatch order: a didChange can never outrun its didOpen, and a
+        // restart cannot race an in-flight notification. Client callbacks
+        // enqueue Msgs exactly like the FileSystemWatcher below.
+        let lspLock = obj ()
+        let lspClients = System.Collections.Generic.Dictionary<string, LspClient>()
+        let mutable lspSyncChain: Task = Task.CompletedTask
+
+        let lspMarkerExists (path: string) =
+            File.Exists path || Directory.Exists path
+
+        let lspContinueWith (work: unit -> unit) =
+            lock lspLock (fun () ->
+                lspSyncChain <- lspSyncChain.ContinueWith((fun (_: Task) -> work ()), TaskContinuationOptions.None))
+
+        let lspClientFor (server: LanguageServerConfig) (rootPath: string) : LspClient =
+            lock lspLock (fun () ->
+                let key = LspClient.key server rootPath
+
+                match lspClients.TryGetValue key with
+                | true, client -> client
+                | false, _ ->
+                    let callbacks =
+                        { OnDiagnostics =
+                            fun (path, diagnostics) -> queue.Enqueue(LspDiagnosticsPublished(path, diagnostics))
+                          OnStatusChanged = fun status -> queue.Enqueue(LspServerStatusChanged(server.Name, status))
+                          OnLog = fun line -> log $"lsp[{server.Name}]: {line}" }
+
+                    let client = LspClient.create server rootPath callbacks
+                    lspClients[key] <- client
+                    client)
 
         let cancelAndReplace (existing: CancellationTokenSource option) =
             existing
@@ -583,6 +642,63 @@ module Runtime =
                         queue.Enqueue(KeyPressed chord)
 
                 queue.Enqueue MacroReplayEnd
+            | LspSyncDocuments(workspaceRoot, documents) ->
+                // Serialized on the LSP chain (dispatch order preserved by
+                // construction). Text is materialized here, off the update
+                // thread — the effect carries only the shared piece table.
+                lspContinueWith (fun () ->
+                    for document in documents do
+                        try
+                            let rootPath =
+                                LanguageServers.findWorkspaceRoot
+                                    lspMarkerExists
+                                    document.Server.RootMarkers
+                                    document.Path
+                                    workspaceRoot
+
+                            let client = lspClientFor document.Server rootPath
+
+                            match document.Kind with
+                            | LspDocumentSyncKind.Opened text ->
+                                client.NotifyOpened(
+                                    document.Path,
+                                    document.LanguageId,
+                                    document.Version,
+                                    PieceTable.toString text
+                                )
+                            | LspDocumentSyncKind.Changed text ->
+                                client.NotifyChanged(document.Path, document.Version, PieceTable.toString text)
+                            | LspDocumentSyncKind.Closed -> client.NotifyClosed document.Path
+                        with ex ->
+                            log $"lsp: sync failed for {document.Path}: {ex.Message}")
+            | LspRestart name ->
+                // Also on the chain so a restart cannot race an in-flight
+                // notification. Removed clients respawn lazily on the next
+                // LspSyncDocuments that needs them (documents re-open on the
+                // next edit; the `:lsp` verbs landing later force a resync).
+                lspContinueWith (fun () ->
+                    let removed =
+                        lock lspLock (fun () ->
+                            let matching =
+                                [ for KeyValue(key, client) in lspClients do
+                                      let selected =
+                                          match name with
+                                          | None -> true
+                                          | Some serverName -> client.Config.Name = serverName
+
+                                      if selected then
+                                          key, client ]
+
+                            for key, _ in matching do
+                                lspClients.Remove key |> ignore
+
+                            matching |> List.map snd)
+
+                    for client in removed do
+                        try
+                            client.Shutdown()
+                        with ex ->
+                            log $"lsp: shutdown failed for {client.Config.Name}: {ex.Message}")
 
         // The pure update layer records only the pending chords; the
         // wall-clock deadline lives here so `update` stays deterministic.
@@ -823,6 +939,21 @@ module Runtime =
                 (pluginHost :> IDisposable).Dispose()
             with _ ->
                 ()
+
+            // Polite shutdown for every language server. Snapshot under the
+            // lock, dispose outside it — Shutdown blocks (bounded) on child
+            // exit and must not hold up a concurrent chain task's lookup.
+            let lspClientsToDispose =
+                lock lspLock (fun () ->
+                    let clients = List.ofSeq lspClients.Values
+                    lspClients.Clear()
+                    clients)
+
+            for client in lspClientsToDispose do
+                try
+                    (client :> IDisposable).Dispose()
+                with _ ->
+                    ()
 
             Terminal.leave terminal
             logWriter |> Option.iter (fun w -> w.Dispose())

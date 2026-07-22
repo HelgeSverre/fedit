@@ -92,9 +92,10 @@ type Config =
         Icons: IconMode
         /// Format string for the status bar. Tokens: `[MODE]`,
         /// `[LINE]`, `[COLUMN]`, `[LINE_ENDING]`, `[BUFFER]`, `[DIRTY]`,
-        /// `[NOTIFICATION]`, `[CURRENT_FILE]` / `[CURRENT_FILE:short]` /
-        /// `[CURRENT_FILE:full]`. `<EXPAND>` absorbs remaining width.
-        /// Unknown tokens render literally so typos are visible.
+        /// `[NOTIFICATION]`, `[DIAGNOSTICS]`, `[CURRENT_FILE]` /
+        /// `[CURRENT_FILE:short]` / `[CURRENT_FILE:full]`. `<EXPAND>`
+        /// absorbs remaining width. Unknown tokens render literally so
+        /// typos are visible.
         StatusFormat: string
         /// Toggle syntax highlighting on/off. Persisted to config.json
         /// under `syntaxHighlighting`. Defaults to true; flipping to
@@ -135,7 +136,7 @@ module Config =
           TabWidth = 4
           Icons = IconsOff
           StatusFormat =
-            "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]"
+            "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION][DIAGNOSTICS]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]"
           SyntaxHighlightingEnabled = true
           ScrollMode = ScrollViewport
           ScrollOff = 5
@@ -146,6 +147,21 @@ module Config =
 type MouseDragState =
     { AnchorBufferId: int
       AnchorPosition: Position }
+
+/// Language-server state surfaced to the UI. Minimal by design: per-server
+/// status (keyed by server name) for the status line and the `:lsp` manager,
+/// and the latest published diagnostics per canonical file path (each
+/// publish replaces the previous set for that path; an empty set removes
+/// the entry).
+type LspState =
+    { Servers: Map<string, LspServerStatus>
+      Diagnostics: Map<string, LspDiagnostic list> }
+
+[<RequireQualifiedAccess>]
+module LspState =
+    let empty: LspState =
+        { Servers = Map.empty
+          Diagnostics = Map.empty }
 
 type Model =
     {
@@ -194,6 +210,10 @@ type Model =
         /// In-progress mouse drag anchor. `None` when no drag is active.
         /// Set on left-button press in the editor, cleared on release.
         MouseDrag: MouseDragState option
+        /// Language-server statuses + published diagnostics. Fed by the
+        /// `LspSyncDocuments` interpreter's client callbacks via
+        /// `LspServerStatusChanged` / `LspDiagnosticsPublished`.
+        Lsp: LspState
     }
 
 /// Why a file is being loaded: a normal open, or a preview into the
@@ -202,6 +222,34 @@ type Model =
 type OpenIntent =
     | OpenPermanent
     | OpenPreview
+
+/// One document transition for the `LspSyncDocuments` effect. Opened and
+/// Changed carry the immutable piece table, never a materialized string —
+/// the interpreter does `PieceTable.toString` off the update thread.
+[<RequireQualifiedAccess>]
+type LspDocumentSyncKind =
+    | Opened of text: PieceTable
+    | Changed of text: PieceTable
+    | Closed
+
+/// One entry in an `LspSyncDocuments` batch. Carries the resolved (enabled)
+/// server config so the interpreter never has to reach back into the Model:
+/// disabled-server filtering and file-type matching happen purely at
+/// emission time in `Editor.lspSyncEffects`.
+type LspDocumentSync =
+    {
+        /// Canonical forward-slash file path (`BufferState.FilePath`).
+        Path: string
+        Server: LanguageServerConfig
+        /// v1 decision: the server config's first FileType extension
+        /// (falling back to the server name) stands in for a real
+        /// languageId table — "sema" for sema, "ts" for typescript.
+        LanguageId: string
+        /// The buffer's `EditTick` — already monotonic per document, so it
+        /// doubles as the LSP document version.
+        Version: int
+        Kind: LspDocumentSyncKind
+    }
 
 type Msg =
     | KeyPressed of Chord
@@ -257,6 +305,12 @@ type Msg =
     /// The user keybinds file was (re)loaded: the effective keymap plus any
     /// parse/conflict errors to surface as a notification.
     | KeybindsLoaded of Keymap * string list
+    /// A language server changed state (spawn, handshake done, crash,
+    /// shutdown). Posted by the client callbacks the Runtime wires up.
+    | LspServerStatusChanged of name: string * status: LspServerStatus
+    /// A server pushed textDocument/publishDiagnostics: the full set for
+    /// one canonical file path, replacing any previous set for that path.
+    | LspDiagnosticsPublished of path: string * diagnostics: LspDiagnostic list
 
 type Effect =
     | ScanWorkspace of string
@@ -292,3 +346,14 @@ type Effect =
     /// `count` times. Interpreted in `Runtime.startEffect` (it owns the queue),
     /// bracketed by `MacroReplayStart`/`MacroReplayEnd`.
     | ReplayKeys of chords: Chord list * count: int
+    /// Push document open/change/close transitions to their language
+    /// servers. `workspaceRoot` is the root-marker fallback for
+    /// `LanguageServers.findWorkspaceRoot` — baked in at emission so the
+    /// interpreter stays Model-blind. The interpreter get-or-spawns one
+    /// client per server + resolved root and serializes all notifications
+    /// on a single chain so a didChange can never outrun its didOpen.
+    | LspSyncDocuments of workspaceRoot: string * documents: LspDocumentSync list
+    /// Shut down one server's clients (by name) or all of them (`None`).
+    /// Clients respawn lazily on the next `LspSyncDocuments` that needs
+    /// them. Wired for the `:lsp` manager verbs landing in a later stage.
+    | LspRestart of name: string option

@@ -1868,7 +1868,8 @@ module Editor =
           Recording = None
           Replaying = false
           LastMacro = None
-          MouseDrag = None },
+          MouseDrag = None
+          Lsp = LspState.empty },
         startupEffects
 
     let init rootPath size config userThemes =
@@ -2104,6 +2105,25 @@ module Editor =
                     HighlightStates = Map.add bufferId spans model.HighlightStates },
                 []
             | _ -> model, []
+        | LspServerStatusChanged(name, status) ->
+            { model with
+                Lsp =
+                    { model.Lsp with
+                        Servers = Map.add name status model.Lsp.Servers } },
+            []
+        | LspDiagnosticsPublished(path, diagnostics) ->
+            // Last publish wins per path; an empty set removes the entry so
+            // the status segment (and later inline markers) disappear.
+            let nextDiagnostics =
+                match diagnostics with
+                | [] -> Map.remove path model.Lsp.Diagnostics
+                | _ -> Map.add path diagnostics model.Lsp.Diagnostics
+
+            { model with
+                Lsp =
+                    { model.Lsp with
+                        Diagnostics = nextDiagnostics } },
+            []
         | SearchCompleted(bufferId, query, matches) ->
             // Drop stale results: prompt may have closed, mode changed, query
             // moved on, or the active buffer switched while the effect ran.
@@ -2464,6 +2484,75 @@ module Editor =
 
             pruned, List.rev effects
 
+    /// Schedule language-server document sync for every file-backed buffer
+    /// that changed during this dispatch — the LSP sibling of
+    /// `highlightEffects`, same before/after diff at one chokepoint so no
+    /// individual handler has to remember didOpen/didChange/didClose.
+    /// Diffed by canonical file path (not buffer id): a path appearing is
+    /// Opened (new buffer, save-as, preview-slot reuse), an `EditTick` move
+    /// on a surviving path is Changed (Version = EditTick, already monotonic
+    /// per document), and a path vanishing is Closed. Only paths whose
+    /// extension matches an enabled server config emit anything; the
+    /// resolved config travels in the payload so the interpreter never
+    /// consults the Model. Toggling a server's disabled flag mid-session
+    /// deliberately emits nothing for already-open documents — a restart
+    /// (`LspRestart`, `:lsp`) is the resync story.
+    let private lspSyncEffects (before: Model) (after: Model) : Effect list =
+        let enabledServerFor (path: string) =
+            LanguageServers.serverForFile after.Config.LanguageServers path
+            |> Option.filter (fun server -> not (Set.contains server.Name after.Config.DisabledLanguageServers))
+
+        // v1 languageId decision: the server config's first FileType
+        // extension (fallback: the server name). Documented on
+        // `LspDocumentSync.LanguageId`.
+        let languageIdFor (server: LanguageServerConfig) =
+            server.FileTypes |> List.tryHead |> Option.defaultValue server.Name
+
+        let documentsOf (model: Model) =
+            model.Editors.Buffers
+            |> Map.toList
+            |> List.choose (fun (_, buffer) -> buffer.FilePath |> Option.map (fun path -> path, buffer))
+            |> Map.ofList
+
+        let beforeDocuments = documentsOf before
+        let afterDocuments = documentsOf after
+
+        let syncFor path (server: LanguageServerConfig) (buffer: BufferState) kind =
+            { Path = path
+              Server = server
+              LanguageId = languageIdFor server
+              Version = buffer.EditTick
+              Kind = kind }
+
+        let closes =
+            beforeDocuments
+            |> Map.toList
+            |> List.choose (fun (path, buffer) ->
+                if Map.containsKey path afterDocuments then
+                    None
+                else
+                    enabledServerFor path
+                    |> Option.map (fun server -> syncFor path server buffer LspDocumentSyncKind.Closed))
+
+        let opensAndChanges =
+            afterDocuments
+            |> Map.toList
+            |> List.choose (fun (path, buffer) ->
+                enabledServerFor path
+                |> Option.bind (fun server ->
+                    match Map.tryFind path beforeDocuments with
+                    | None -> Some(syncFor path server buffer (LspDocumentSyncKind.Opened buffer.Document))
+                    | Some old when old.EditTick <> buffer.EditTick ->
+                        Some(syncFor path server buffer (LspDocumentSyncKind.Changed buffer.Document))
+                    | Some _ -> None))
+
+        // Closes first: a preview-slot reuse swaps one path for another in a
+        // single dispatch, and the old document must close before the new
+        // one opens.
+        match closes @ opensAndChanges with
+        | [] -> []
+        | documents -> [ LspSyncDocuments(after.Workspace.RootPath, documents) ]
+
     /// Preview invariant: the preview buffer is never Dirty. Any edit (typing,
     /// paste, plugin action, macro replay) promotes it to a normal buffer.
     /// One chokepoint after updateCore so no handler can forget.
@@ -2485,4 +2574,5 @@ module Editor =
         let next, effects = updateCore msg model
         let next = promoteDirtyPreview next
         let next, highlightFx = highlightEffects model next
-        next, effects @ highlightFx
+        let lspFx = lspSyncEffects model next
+        next, effects @ highlightFx @ lspFx
