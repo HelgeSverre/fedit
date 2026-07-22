@@ -99,6 +99,132 @@ let ``typing in the search prompt emits RunSearch carrying the document`` () =
         | _ -> false)
     |> should equal true
 
+// ── search accept / cancel / repeat (stage U4) ──────────────────────────
+
+let private fnk n : Chord = { Mods = Set.empty; Key = Fn n } // bare function key
+
+let private sfnk n : Chord =
+    { Mods = Set.ofList [ Shift ]
+      Key = Fn n } // shift+<function key>
+
+let private press chord m =
+    fst (Editor.update (KeyPressed chord) m)
+
+let private openBufferWith content =
+    let opened, _ =
+        Editor.update (FileOpened("/root/notes.txt", OpenPermanent, None, Result.Ok content)) (initModel ())
+
+    opened
+
+let private activeBuffer (m: Model) =
+    m.Editors.Buffers[m.Editors.ActiveBufferId]
+
+let private cursorIndex (m: Model) =
+    let buffer = activeBuffer m
+    Buffer.positionToIndex buffer.Cursor buffer
+
+/// Drive a full incremental search: open the prompt, type the query, and
+/// feed the RunSearch result back in as SearchCompleted (the pure update
+/// never runs the effect itself).
+let private searchFor (query: string) model =
+    let typed = query |> Seq.fold (fun m c -> press (chr c) m) (press (ck 'f') model)
+    let matches = Buffer.findAll query (activeBuffer typed)
+
+    fst (Editor.update (SearchCompleted(typed.Editors.ActiveBufferId, query, matches)) typed)
+
+[<Fact>]
+let ``search Escape restores the origin cursor and viewport`` () =
+    let content = String.replicate 50 "filler\n" + "needle here"
+    let start = openBufferWith content |> press (nk Down) |> press (nk Down)
+    let landed = searchFor "needle" start
+
+    // Incremental search dragged the cursor (and viewport) to the match.
+    (activeBuffer landed).Cursor.Line |> should equal 50
+    (activeBuffer landed).ViewportTop |> should be (greaterThan 0)
+
+    let cancelled = landed |> press (nk Escape)
+    cancelled.Prompt.Active |> should equal false
+    (activeBuffer cancelled).Cursor |> should equal { Line = 2; Column = 0 }
+    (activeBuffer cancelled).ViewportTop |> should equal 0
+
+[<Fact>]
+let ``search Enter accepts at the current match and remembers the query`` () =
+    let accepted =
+        openBufferWith "alpha beta alpha" |> searchFor "beta" |> press (nk Enter)
+
+    accepted.Prompt.Active |> should equal false
+    accepted.Focus |> should equal Editor
+    cursorIndex accepted |> should equal 6
+    accepted.LastSearchQuery |> should equal (Some "beta")
+
+[<Fact>]
+let ``last query survives closing and reopening the search prompt`` () =
+    let accepted =
+        openBufferWith "alpha beta alpha" |> searchFor "beta" |> press (nk Enter)
+
+    let reopened = accepted |> press (ck 'f')
+
+    reopened.Prompt.Text |> should equal "/"
+    reopened.LastSearchQuery |> should equal (Some "beta")
+
+[<Fact>]
+let ``search-next jumps forward from the cursor and wraps at the end`` () =
+    // matches of "alpha" at offsets 0 and 11; cursor starts at 0
+    let seeded =
+        { openBufferWith "alpha beta alpha" with
+            LastSearchQuery = Some "alpha" }
+
+    let next = seeded |> press (fnk 3)
+    cursorIndex next |> should equal 11
+
+    let wrapped = next |> press (fnk 3)
+    cursorIndex wrapped |> should equal 0
+
+[<Fact>]
+let ``search-previous jumps backward and wraps at the start`` () =
+    let seeded =
+        { openBufferWith "alpha beta alpha" with
+            LastSearchQuery = Some "alpha" }
+
+    let wrapped = seeded |> press (sfnk 3)
+    cursorIndex wrapped |> should equal 11
+
+    let previous = wrapped |> press (sfnk 3)
+    cursorIndex previous |> should equal 0
+
+[<Fact>]
+let ``search-next with no match in the buffer notifies`` () =
+    let seeded =
+        { openBufferWith "alpha beta" with
+            LastSearchQuery = Some "zzz" }
+
+    let next = seeded |> press (fnk 3)
+    cursorIndex next |> should equal 0
+
+    next.Notification
+    |> Option.map (fun n -> n.Message)
+    |> should equal (Some "No matches for 'zzz'")
+
+[<Fact>]
+let ``search-next without a previous search notifies`` () =
+    let next = openBufferWith "alpha" |> press (fnk 3)
+
+    next.Notification
+    |> Option.map (fun n -> n.Message)
+    |> should equal (Some "No search to repeat")
+
+[<Fact>]
+let ``search-next finds occurrences added by edits after the accept`` () =
+    // Accept a search for "x" (single match at 4), then edit in another
+    // occurrence ahead of the cursor and repeat without the prompt.
+    let accepted = openBufferWith "one x two" |> searchFor "x" |> press (nk Enter)
+    cursorIndex accepted |> should equal 4
+
+    let edited = accepted |> press (nk Home) |> press (chr 'x') |> press (nk Space) // "x one x two", cursor at 2
+
+    let repeated = edited |> press (fnk 3)
+    cursorIndex repeated |> should equal 6
+
 [<Fact>]
 let ``FileOpened schedules a highlight parse for the new buffer`` () =
     let _, effects =
@@ -280,9 +406,6 @@ let private modelWithLines n =
             { model.Editors with
                 Buffers = Map.ofList [ 1, buf ] } }
 
-let private activeBuffer (model: Model) =
-    model.Editors.Buffers[model.Editors.ActiveBufferId]
-
 let private commandModel text =
     let press chord m =
         fst (Editor.update (KeyPressed chord) m)
@@ -374,11 +497,12 @@ let ``manager key handling blocks editor text insertion`` () =
     next.Prompt.Text |> should equal "z"
 
 [<Fact>]
-let ``prompt session input is not recorded into an active macro`` () =
+let ``prompt session filter keys are never captured into an active macro`` () =
     let model =
         { initModel () with
             Recording = Some 'q'
-            Registers = Map.ofList [ 'q', [ chr 'x' ] ]
+            RecordingSteps = [ RunAction(InsertText "x") ]
+            Registers = Map.ofList [ 'q', [ RunAction(InsertText "old") ] ]
             Focus = Prompt
             Prompt =
                 { (initModel ()).Prompt with
@@ -392,7 +516,8 @@ let ``prompt session input is not recorded into an active macro`` () =
     let next, _ = Editor.update (KeyPressed(chr 'z')) model
 
     next.Prompt.Text |> should equal "z"
-    next.Registers |> Map.find 'q' |> should equal [ chr 'x' ]
+    next.RecordingSteps |> should equal [ RunAction(InsertText "x") ]
+    next.Registers |> Map.find 'q' |> should equal [ RunAction(InsertText "old") ]
 
 [<Fact>]
 let ``prompt session action keys are not shadowed by prompt keymap bindings`` () =
@@ -485,11 +610,11 @@ let ``plugin prompt session clamps selection after plugin scans`` () =
 
 [<Fact>]
 let ``macro manager replays a non-empty selected register`` () =
-    let chords = [ chr 'a'; chr 'b' ]
+    let steps = [ RunAction(InsertText "ab") ]
 
     let model =
         { initModel () with
-            Registers = Map.ofList [ 'b', chords ]
+            Registers = Map.ofList [ 'b', steps ]
             Focus = Prompt
             Prompt =
                 { (initModel ()).Prompt with
@@ -504,12 +629,20 @@ let ``macro manager replays a non-empty selected register`` () =
 
     next.LastMacro |> should equal (Some 'b')
     next.Prompt.Active |> should equal false
-    effects |> should equal [ ReplayKeys(chords, 1) ]
+    effects |> should equal [ ReplayPump ]
+
+    match next.Replay with
+    | Some state ->
+        state.Register |> should equal 'b'
+        state.Queue |> should equal (steps |> List.map ReplayStep)
+        state.RemainingIterations |> should equal 1
+    | None -> failwith "expected a replay state"
 
 [<Fact>]
-let ``macro manager starts recording and closes on overwrite`` () =
+let ``macro manager starts recording without touching the register`` () =
     let model =
         { initModel () with
+            Registers = Map.ofList [ 'c', [ RunAction(InsertText "keep") ] ]
             Focus = Prompt
             Prompt =
                 { (initModel ()).Prompt with
@@ -523,7 +656,10 @@ let ``macro manager starts recording and closes on overwrite`` () =
     let next, effects = Editor.update (KeyPressed(chr 'r')) model
 
     next.Recording |> should equal (Some 'c')
-    Assert.Empty(next.Registers |> Map.find 'c')
+    next.RecordingSteps |> should equal ([]: MacroStep list)
+    // Starting a recording never clears the register: it is rewritten
+    // only when the recording stops with at least one step.
+    next.Registers |> Map.find 'c' |> should equal [ RunAction(InsertText "keep") ]
     next.Prompt.Active |> should equal false
     Assert.Empty effects
 
@@ -817,6 +953,115 @@ let ``ClipboardPasted strips CRLF before inserting`` () =
     let buffer = next.Editors.Buffers[next.Editors.ActiveBufferId]
     (Buffer.text buffer).Contains "\r" |> should equal false
     Buffer.text buffer |> should equal "a\nb"
+
+// ─────────────────────────────────────────────────────────────────────
+// Opening a nonexistent path: a permanent open creates an empty buffer
+// bound to it (the file lands on disk at first save); previews and real
+// I/O errors stay errors.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``FileOpened FileNotFound on a permanent open creates an empty buffer bound to the path`` () =
+    let next, _ =
+        Editor.update (FileOpened("/root/new.txt", OpenPermanent, None, Result.Error FileNotFound)) (initModel ())
+
+    let buffer = next.Editors.Buffers[next.Editors.ActiveBufferId]
+    buffer.FilePath |> should equal (Some "/root/new.txt")
+    buffer.Name |> should equal "new.txt"
+    Buffer.text buffer |> should equal ""
+    buffer.Dirty |> should equal false
+    next.Focus |> should equal Editor
+    next.Notification |> should equal (Some(Notification.info "New file new.txt"))
+
+[<Fact>]
+let ``FileOpened FileNotFound activates an existing buffer for the path instead of duplicating`` () =
+    let seeded, _ =
+        Editor.update (FileOpened("/root/new.txt", OpenPermanent, None, Result.Error FileNotFound)) (initModel ())
+
+    let boundId = seeded.Editors.ActiveBufferId
+
+    let next, _ =
+        Editor.update (FileOpened("/root/new.txt", OpenPermanent, None, Result.Error FileNotFound)) seeded
+
+    next.Editors.Buffers.Count |> should equal seeded.Editors.Buffers.Count
+    next.Editors.ActiveBufferId |> should equal boundId
+
+[<Fact>]
+let ``FileOpened FileNotFound on a preview stays an error`` () =
+    let model = initModel ()
+
+    let next, _ =
+        Editor.update (FileOpened("/root/gone.txt", OpenPreview, None, Result.Error FileNotFound)) model
+
+    next.Editors.Buffers.Count |> should equal model.Editors.Buffers.Count
+
+    match next.Notification with
+    | Some n -> n.Severity |> should equal Severity.Error
+    | None -> failwith "expected an error notification"
+
+[<Fact>]
+let ``FileOpened FileOpenFailed stays an error and creates no buffer`` () =
+    let model = initModel ()
+
+    let next, _ =
+        Editor.update (FileOpened("/root/dir", OpenPermanent, None, Result.Error(FileOpenFailed "denied"))) model
+
+    next.Editors.Buffers.Count |> should equal model.Editors.Buffers.Count
+
+    match next.Notification with
+    | Some n ->
+        n.Severity |> should equal Severity.Error
+        n.Message.Contains "denied" |> should equal true
+    | None -> failwith "expected an error notification"
+
+// ─────────────────────────────────────────────────────────────────────
+// LoadFile read classification (Runtime.readFileForOpen): a missing file
+// or missing parent directory is FileNotFound; a directory (or any other
+// I/O failure) is FileOpenFailed; a readable file is Ok.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``readFileForOpen classifies a missing file as FileNotFound`` () =
+    let missing =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName())
+
+    Runtime.readFileForOpen missing
+    |> should equal (Result.Error FileNotFound: Result<string, FileOpenError>)
+
+[<Fact>]
+let ``readFileForOpen classifies a missing parent directory as FileNotFound`` () =
+    let missing =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName(), "nested", "file.txt")
+
+    Runtime.readFileForOpen missing
+    |> should equal (Result.Error FileNotFound: Result<string, FileOpenError>)
+
+[<Fact>]
+let ``readFileForOpen reports a directory path as FileOpenFailed`` () =
+    let directory =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName())
+
+    System.IO.Directory.CreateDirectory directory |> ignore
+
+    try
+        match Runtime.readFileForOpen directory with
+        | Result.Error(FileOpenFailed _) -> ()
+        | other -> failwithf "expected FileOpenFailed, got %A" other
+    finally
+        System.IO.Directory.Delete directory
+
+[<Fact>]
+let ``readFileForOpen reads an existing file`` () =
+    let path =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName())
+
+    System.IO.File.WriteAllText(path, "hello")
+
+    try
+        Runtime.readFileForOpen path
+        |> should equal (Result.Ok "hello": Result<string, FileOpenError>)
+    finally
+        System.IO.File.Delete path
 
 // ─────────────────────────────────────────────────────────────────────
 // Phase-1 characterization net: these pin current behavior so the
@@ -1199,6 +1444,64 @@ let ``SequenceTimedOut clears any pending prefix`` () =
     next.PendingPrefix |> should equal (None: Chord list option)
 
 // ─────────────────────────────────────────────────────────────────────
+// Which-key (stage U5) — a pending prefix surfaces its bound
+// continuations as a content-sized dock panel; it clears with the prefix.
+// ─────────────────────────────────────────────────────────────────────
+
+/// Defaults plus two editor-reachable `ctrl+k …` sequences and one that
+/// is sidebar-only (must not show while the editor is focused).
+let private modelWithSequences () =
+    let sequences =
+        [ { Stroke = [ kc 'k'; kc 'c' ]
+            Context = Context.Editor
+            Action = Some Save }
+          { Stroke = [ kc 'k'; kc 'u' ]
+            Context = Context.Global
+            Action = Some Undo }
+          { Stroke = [ kc 'k'; kc 's' ]
+            Context = Context.Sidebar
+            Action = Some SidebarUp } ]
+
+    { initModel () with
+        Keymap = Keymap.defaults @ sequences }
+
+[<Fact>]
+let ``pending prefix surfaces a which-key dock panel with its continuations`` () =
+    let pending, _ = Editor.update (KeyPressed(kc 'k')) (modelWithSequences ())
+    pending.PendingPrefix |> should equal (Some [ kc 'k' ])
+
+    let metrics = Dock.metrics pending
+
+    match metrics.Panel with
+    | DockInfo(title, lines) ->
+        title |> should equal "Keys  ctrl+k …"
+        lines |> should equal [ "ctrl+c  save"; "ctrl+u  undo" ]
+    | other -> failwithf "expected DockInfo, got %A" other
+
+    // Content-sized: title row + one row per continuation.
+    metrics.DockHeight |> should equal 3
+
+[<Fact>]
+let ``which-key panel clears when the sequence fires`` () =
+    let pending, _ = Editor.update (KeyPressed(kc 'k')) (modelWithSequences ())
+    let fired, _ = Editor.update (KeyPressed(kc 'u')) pending
+
+    fired.PendingPrefix |> should equal (None: Chord list option)
+    (Dock.metrics fired).Panel |> should equal NoDock
+    (Dock.metrics fired).DockHeight |> should equal 0
+
+[<Fact>]
+let ``which-key panel clears on timeout and on Escape`` () =
+    let pending, _ = Editor.update (KeyPressed(kc 'k')) (modelWithSequences ())
+
+    let timedOut, _ = Editor.update SequenceTimedOut pending
+    (Dock.metrics timedOut).Panel |> should equal NoDock
+
+    let cancelled, _ = Editor.update (KeyPressed(nk Escape)) pending
+    cancelled.PendingPrefix |> should equal (None: Chord list option)
+    (Dock.metrics cancelled).Panel |> should equal NoDock
+
+// ─────────────────────────────────────────────────────────────────────
 // Chord.toKeyChord — bridge to the frozen plugin-API KeyChord
 // ─────────────────────────────────────────────────────────────────────
 
@@ -1257,148 +1560,662 @@ let ``a plugin keybinding on a non-global Ctrl chord still fires through the edi
         | _ -> false)
     |> should equal true
 
-// ── macros: record / replay / repeat (keybindings phase 4) ───────────────
+// ── macros: semantic recording + step-fenced replay (stage M2) ───────────
+
+let private hasPump effects =
+    effects
+    |> List.exists (function
+        | ReplayPump -> true
+        | _ -> false)
+
+/// Dispatch ReplayStepReady while the update keeps asking for a
+/// ReplayPump — the pure-test stand-in for the runtime's queue
+/// round-trip. Stops on a fence (no pump requested) or when the replay
+/// finishes.
+let rec private drainReplay (model: Model) =
+    let next, effects = Editor.update ReplayStepReady model
+    if hasPump effects then drainReplay next else next
+
+/// Type prompt text character by character (space via the Named key,
+/// mirroring real terminal input).
+let private typeText (text: string) model =
+    text
+    |> Seq.fold (fun m character -> press (if character = ' ' then nk Space else chr character) m) model
+
+let private notificationText (model: Model) =
+    model.Notification |> Option.map (fun n -> n.Message) |> Option.defaultValue ""
 
 [<Fact>]
-let ``RecordMacro starts recording into the named register`` () =
+let ``RecordMacro starts recording with an empty capture`` () =
     let model = initModel ()
     let recording, _ = Editor.runAction (RecordMacro 'a') model
     recording.Recording |> should equal (Some 'a')
+    recording.RecordingSteps |> should equal ([]: MacroStep list)
 
 [<Fact>]
-let ``recording captures each subsequent chord into the register`` () =
+let ``typing while recording captures coalesced insert-text steps`` () =
     let model = initModel ()
     let recording, _ = Editor.runAction (RecordMacro 'a') model
-    let after, _ = Editor.update (KeyPressed(chr 'x')) recording
-    (after.Registers |> Map.find 'a') |> should equal [ chr 'x' ]
+    let typed = recording |> press (chr 'x') |> press (chr 'y')
+
+    typed.RecordingSteps |> should equal [ RunAction(InsertText "xy") ]
+    // The register is written only when the recording stops.
+    typed.Registers |> Map.containsKey 'a' |> should equal false
 
 [<Fact>]
-let ``RecordMacro again stops recording and remembers the register`` () =
+let ``stopping a recording commits the captured steps to the register`` () =
     let model = initModel ()
-    let on, _ = Editor.runAction (RecordMacro 'a') model
-    let off, _ = Editor.runAction (RecordMacro 'a') on
+    let recording, _ = Editor.runAction (RecordMacro 'a') model
+    let typed = recording |> press (chr 'x')
+    let off, _ = Editor.runAction (RecordMacro 'a') typed
+
     off.Recording |> should equal None
+    off.RecordingSteps |> should equal ([]: MacroStep list)
     off.LastMacro |> should equal (Some 'a')
+    off.Registers |> Map.find 'a' |> should equal [ RunAction(InsertText "x") ]
 
 [<Fact>]
-let ``ReplayMacro emits a ReplayKeys effect carrying the recorded chords`` () =
+let ``an empty stop cancels the recording and leaves the register untouched`` () =
+    let seeded =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "keep") ] ] }
+
+    let recording, _ = Editor.runAction (RecordMacro 'a') seeded
+    let off, _ = Editor.runAction (RecordMacro 'a') recording
+
+    off.Recording |> should equal None
+    off.Registers |> Map.find 'a' |> should equal [ RunAction(InsertText "keep") ]
+    off.LastMacro |> should equal (None: char option)
+    notificationText off |> should equal "Recording cancelled — @a unchanged"
+
+[<Fact>]
+let ``ReplayMacro loads the replay queue and pumps`` () =
+    let steps = [ RunAction(InsertText "x"); RunAction DeleteBackward ]
+
     let model =
         { initModel () with
-            Registers = Map.ofList [ 'a', [ chr 'x'; chr 'y' ] ] }
+            Registers = Map.ofList [ 'a', steps ] }
 
-    let _, effects = Editor.runAction (ReplayMacro('a', 2)) model
+    let next, effects = Editor.runAction (ReplayMacro('a', 2)) model
 
-    match effects with
-    | [ ReplayKeys(chords, count) ] ->
-        chords |> should equal [ chr 'x'; chr 'y' ]
-        count |> should equal 2
-    | other -> failwithf "expected one ReplayKeys effect, got %A" other
+    effects |> should equal [ ReplayPump ]
+    next.LastMacro |> should equal (Some 'a')
+
+    match next.Replay with
+    | Some state ->
+        state.Queue |> should equal (steps |> List.map ReplayStep)
+        state.Steps |> should equal steps
+        state.RemainingIterations |> should equal 2
+        state.Register |> should equal 'a'
+    | None -> failwith "expected a replay state"
 
 [<Fact>]
-let ``replaying an empty register produces no effect`` () =
+let ``replaying an empty register warns and starts nothing`` () =
     let model = initModel ()
-    let _, effects = Editor.runAction (ReplayMacro('z', 1)) model
-    effects |> List.isEmpty |> should equal true
+    let next, effects = Editor.runAction (ReplayMacro('z', 1)) model
+    effects |> should equal ([]: Effect list)
+    next.Replay |> should equal (None: ReplayState option)
+    notificationText next |> should equal "No macro in @z"
 
 [<Fact>]
 let ``replaying the register currently being recorded is refused`` () =
     let model =
         { initModel () with
             Recording = Some 'a'
-            Registers = Map.ofList [ 'a', [ chr 'x' ] ] }
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "x") ] ] }
 
-    let _, effects = Editor.runAction (ReplayMacro('a', 1)) model
-    effects |> List.isEmpty |> should equal true
+    let next, effects = Editor.runAction (ReplayMacro('a', 1)) model
+    effects |> should equal ([]: Effect list)
+    next.Replay |> should equal (None: ReplayState option)
 
 [<Fact>]
-let ``ReplayMacro does not start a nested replay while already replaying`` () =
+let ``a refused self-replay chord is never captured as a step`` () =
+    // Ctrl+Shift+R replays @a; while @a is recording, the replay is
+    // refused — so it must not be captured either, or the register would
+    // commit a guaranteed self-cycle step.
     let model =
         { initModel () with
-            Replaying = true
-            Registers = Map.ofList [ 'a', [ chr 'x' ] ] }
+            Recording = Some 'a'
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "x") ] ] }
 
-    let _, effects = Editor.runAction (ReplayMacro('a', 1)) model
-    effects |> List.isEmpty |> should equal true
-
-[<Fact>]
-let ``keys injected during replay are not appended to a recording register`` () =
-    // Recording @b while a replay is in flight must not capture the injected
-    // keys — the Replaying flag suppresses the record-append hook.
-    let model =
-        { initModel () with
-            Recording = Some 'b'
-            Replaying = true }
-
-    let after, _ = Editor.update (KeyPressed(chr 'z')) model
-
-    (after.Registers |> Map.tryFind 'b' |> Option.defaultValue [])
-    |> List.isEmpty
-    |> should equal true
+    let next, _ = Editor.update (KeyPressed(csk 'r')) model
+    next.RecordingSteps |> should equal ([]: MacroStep list)
+    next.Replay |> should equal (None: ReplayState option)
 
 [<Fact>]
-let ``MacroReplayStart and MacroReplayEnd bracket the replaying flag`` () =
-    let model = initModel ()
-    let started, _ = Editor.update MacroReplayStart model
-    started.Replaying |> should equal true
-    let ended, _ = Editor.update MacroReplayEnd started
-    ended.Replaying |> should equal false
-
-[<Fact>]
-let ``replaying a recorded edit re-applies it through the marker bracket`` () =
-    // Record "xy", stop, then drive the runtime's replay sequence by hand
-    // (MacroReplayStart, the keys, MacroReplayEnd) and confirm the edit repeats
-    // without re-recording the injected keys.
-    let model = initModel ()
-    let rec0, _ = Editor.runAction (RecordMacro 'a') model
-    let r1, _ = Editor.update (KeyPressed(chr 'x')) rec0
-    let r2, _ = Editor.update (KeyPressed(chr 'y')) r1
-    let recorded, _ = Editor.runAction (RecordMacro 'a') r2
-    let chords = recorded.Registers |> Map.find 'a'
-
-    let afterStart, _ = Editor.update MacroReplayStart recorded
-
-    let afterKeys =
-        chords |> List.fold (fun m c -> fst (Editor.update (KeyPressed c) m)) afterStart
-
-    let afterEnd, _ = Editor.update MacroReplayEnd afterKeys
-
-    let buffer = afterEnd.Editors.Buffers[afterEnd.Editors.ActiveBufferId]
-    Buffer.text buffer |> should equal "xyxy"
-    // injected keys were not re-recorded into the still-present register
-    (afterEnd.Registers |> Map.find 'a') |> should equal chords
-
-[<Fact>]
-let ``the stop-recording chord is not captured into the register`` () =
-    // Drive through the bound default chord (Ctrl+Shift+M → record-macro:a) so
-    // the record-append hook's record-toggle guard is exercised end to end.
+let ``a recorded edit replays end to end through the pump loop`` () =
+    // Record "xy" through the bound default chords (Ctrl+Shift+M toggles,
+    // Ctrl+Shift+R replays), then drive the pump loop and confirm the
+    // edit repeats without polluting the still-present register.
     let model = initModel ()
     let on, _ = Editor.update (KeyPressed(csk 'm')) model
     on.Recording |> should equal (Some 'a')
-    let typed, _ = Editor.update (KeyPressed(chr 'x')) on
+    let typed = on |> press (chr 'x') |> press (chr 'y')
     let off, _ = Editor.update (KeyPressed(csk 'm')) typed
     off.Recording |> should equal None
-    (off.Registers |> Map.find 'a') |> should equal [ chr 'x' ]
+    off.Registers |> Map.find 'a' |> should equal [ RunAction(InsertText "xy") ]
+
+    let started, effects = Editor.update (KeyPressed(csk 'r')) off
+    effects |> should equal [ ReplayPump ]
+    let replayed = drainReplay started
+
+    Buffer.text (activeBuffer replayed) |> should equal "xyxy"
+    replayed.Replay |> should equal (None: ReplayState option)
+
+    replayed.Registers
+    |> Map.find 'a'
+    |> should equal [ RunAction(InsertText "xy") ]
+
+[<Fact>]
+let ``replay iterations reload the queue`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "x") ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 3)) model
+    let replayed = drainReplay started
+
+    Buffer.text (activeBuffer replayed) |> should equal "xxx"
+    replayed.Replay |> should equal (None: ReplayState option)
+
+[<Fact>]
+let ``the stop chord works from sidebar focus and never becomes a step`` () =
+    let model =
+        { initModel () with
+            Recording = Some 'a'
+            RecordingSteps = [ RunAction(InsertText "x") ]
+            Focus = Sidebar }
+
+    let off, _ = Editor.update (KeyPressed(csk 'm')) model
+
+    off.Recording |> should equal None
+    // Only the typed step was committed — the toggle chord left no trace.
+    off.Registers |> Map.find 'a' |> should equal [ RunAction(InsertText "x") ]
+
+[<Fact>]
+let ``the stop chord works while a picker session is open`` () =
+    let model =
+        { initModel () with
+            Recording = Some 'a'
+            RecordingSteps = [ RunAction(InsertText "x") ]
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.MacrosSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "a"
+                    PendingConfirmation = None } }
+
+    let off, _ = Editor.update (KeyPressed(csk 'm')) model
+
+    off.Recording |> should equal None
+    off.Registers |> Map.find 'a' |> should equal [ RunAction(InsertText "x") ]
+    // The chord toggled recording instead of feeding the picker filter.
+    off.Prompt.Text |> should equal ""
+
+[<Fact>]
+let ``a palette command records as one command step, not prompt keys`` () =
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+
+    let submitted =
+        recording |> press (ck 'p') |> typeText "theme blue" |> press (nk Enter)
+
+    submitted.Config.Theme.Name |> should equal "blue"
+    submitted.RecordingSteps |> should equal [ RunCommand "theme blue" ]
+
+[<Fact>]
+let ``a replayed command step executes with the prompt closed`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunCommand "theme blue" ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let replayed = drainReplay started
+
+    replayed.Config.Theme.Name |> should equal "blue"
+    replayed.Prompt.Active |> should equal false
+    replayed.Focus |> should equal Editor
+    replayed.Replay |> should equal (None: ReplayState option)
+
+[<Fact>]
+let ``a command step that no longer parses cancels the replay`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunCommand "bogus-command"; RunAction(InsertText "x") ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let cancelled = drainReplay started
+
+    cancelled.Replay |> should equal (None: ReplayState option)
+    Buffer.text (activeBuffer cancelled) |> should equal ""
+
+    cancelled.Notification
+    |> Option.map (fun n -> n.Severity)
+    |> should equal (Some Severity.Error)
+
+[<Fact>]
+let ``recording over a list picker captures picker actions but no filter keys`` () =
+    let model =
+        { initModel () with
+            Recording = Some 'q'
+            Registers = Map.ofList [ 'b', [ RunAction(InsertText "z") ] ]
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.MacrosSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "a"
+                    PendingConfirmation = None } }
+
+    // 'b' is a filter key (never captured); Enter replays the selected
+    // register (captured as its semantic action).
+    let filtered = press (chr 'b') model
+    filtered.RecordingSteps |> should equal ([]: MacroStep list)
+
+    let replayedFromPicker, _ = Editor.update (KeyPressed(nk Enter)) filtered
+
+    replayedFromPicker.RecordingSteps
+    |> should equal [ RunAction(ReplayMacro('b', 1)) ]
+
+[<Fact>]
+let ``replayed steps are not captured into an active recording`` () =
+    let model =
+        { initModel () with
+            Recording = Some 'b'
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "x") ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let replayed = drainReplay started
+
+    Buffer.text (activeBuffer replayed) |> should equal "x"
+    replayed.RecordingSteps |> should equal ([]: MacroStep list)
+
+[<Fact>]
+let ``a load-file fence parks the queue until FileOpened pumps it`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunCommand "open /root/new.txt"; RunAction(InsertText "hi") ] ] }
+
+    let started, startEffects = Editor.runAction (ReplayMacro('a', 1)) model
+    startEffects |> should equal [ ReplayPump ]
+
+    // Step 1 schedules the async load: fenced, no pump.
+    let opened, openEffects = Editor.update ReplayStepReady started
+
+    openEffects
+    |> List.exists (function
+        | LoadFile("/root/new.txt", OpenPermanent, None) -> true
+        | _ -> false)
+    |> should equal true
+
+    hasPump openEffects |> should equal false
+
+    // A stray pump while fenced must not advance the queue.
+    let parked, parkedEffects = Editor.update ReplayStepReady opened
+    parkedEffects |> should equal ([]: Effect list)
+
+    (match parked.Replay with
+     | Some state -> state.Queue
+     | None -> failwith "replay vanished while fenced")
+    |> should equal [ ReplayStep(RunAction(InsertText "hi")) ]
+
+    // The completion clears the fence and pumps; the typed text lands in
+    // the NEW buffer.
+    let landed, landedEffects =
+        Editor.update (FileOpened("/root/new.txt", OpenPermanent, None, Result.Ok "content")) parked
+
+    hasPump landedEffects |> should equal true
+
+    let finished = drainReplay landed
+    (activeBuffer finished).FilePath |> should equal (Some "/root/new.txt")
+    Buffer.text (activeBuffer finished) |> should equal "hicontent"
+    finished.Replay |> should equal (None: ReplayState option)
+
+[<Fact>]
+let ``search-for jumps to the first match synchronously`` () =
+    let model = openBufferWith "alpha beta alpha"
+    let next, effects = Editor.runAction (SearchFor "beta") model
+
+    effects |> should equal ([]: Effect list)
+    cursorIndex next |> should equal 6
+    next.LastSearchQuery |> should equal (Some "beta")
+
+[<Fact>]
+let ``accepting a search while recording captures a search-for step`` () =
+    let recording, _ =
+        Editor.runAction (RecordMacro 'a') (openBufferWith "alpha beta alpha")
+
+    let accepted = recording |> searchFor "beta" |> press (nk Enter)
+
+    // Only the accepted outcome is a step — not the prompt opener, not
+    // the typed query characters.
+    accepted.RecordingSteps |> should equal [ RunAction(SearchFor "beta") ]
+
+[<Fact>]
+let ``nested replay splices the inner register's steps`` () =
+    let model =
+        { initModel () with
+            Registers =
+                Map.ofList
+                    [ 'a',
+                      [ RunAction(InsertText "1")
+                        RunAction(ReplayMacro('b', 2))
+                        RunAction(InsertText "3") ]
+                      'b', [ RunAction(InsertText "2") ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let replayed = drainReplay started
+
+    Buffer.text (activeBuffer replayed) |> should equal "1223"
+    replayed.Replay |> should equal (None: ReplayState option)
+
+[<Fact>]
+let ``a nested replay cycle cancels with an error`` () =
+    let model =
+        { initModel () with
+            Registers =
+                Map.ofList
+                    [ 'a', [ RunAction(ReplayMacro('b', 1)) ]
+                      'b', [ RunAction(ReplayMacro('a', 1)) ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let cancelled = drainReplay started
+
+    cancelled.Replay |> should equal (None: ReplayState option)
+
+    cancelled.Notification
+    |> Option.map (fun n -> n.Severity)
+    |> should equal (Some Severity.Error)
+
+    Assert.Contains("would replay itself", notificationText cancelled)
+
+[<Fact>]
+let ``nested replay deeper than the cap cancels`` () =
+    // a → b → … → i each replay the next register; j would be the 9th
+    // splice, past the cap of 8.
+    let chained =
+        [ for i in 0..8 -> char (int 'a' + i), [ RunAction(ReplayMacro(char (int 'a' + i + 1), 1)) ] ]
+        @ [ 'j', [ RunAction(InsertText "x") ] ]
+
+    let model =
+        { initModel () with
+            Registers = Map.ofList chained }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let cancelled = drainReplay started
+
+    cancelled.Replay |> should equal (None: ReplayState option)
+    Buffer.text (activeBuffer cancelled) |> should equal ""
+    Assert.Contains("deeper than", notificationText cancelled)
+
+[<Fact>]
+let ``a fence timeout cancels the replay naming the step`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunCommand "open /root/slow.txt" ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let fenced, _ = Editor.update ReplayStepReady started
+
+    (match fenced.Replay with
+     | Some state -> Map.isEmpty state.PendingFences
+     | None -> failwith "expected a fenced replay")
+    |> should equal false
+
+    let cancelled, _ = Editor.update ReplayFenceTimeout fenced
+
+    cancelled.Replay |> should equal (None: ReplayState option)
+
+    cancelled.Notification
+    |> Option.map (fun n -> n.Severity)
+    |> should equal (Some Severity.Error)
+
+    Assert.Contains("open /root/slow.txt", notificationText cancelled)
+
+[<Fact>]
+let ``a stale fence timeout after the replay finished is a no-op`` () =
+    let model = initModel ()
+    let next, effects = Editor.update ReplayFenceTimeout model
+    effects |> should equal ([]: Effect list)
+    next.Replay |> should equal (None: ReplayState option)
 
 [<Fact>]
 let ``RepeatLastMacro replays the last recorded register`` () =
     let model =
         { initModel () with
-            Registers = Map.ofList [ 'a', [ chr 'x' ] ]
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "x") ] ]
             LastMacro = Some 'a' }
 
-    let _, effects = Editor.runAction RepeatLastMacro model
+    let next, effects = Editor.runAction RepeatLastMacro model
 
-    match effects with
-    | [ ReplayKeys(chords, count) ] ->
-        chords |> should equal [ chr 'x' ]
-        count |> should equal 1
-    | other -> failwithf "expected one ReplayKeys effect, got %A" other
+    effects |> should equal [ ReplayPump ]
+
+    match next.Replay with
+    | Some state -> state.Register |> should equal 'a'
+    | None -> failwith "expected a replay state"
 
 [<Fact>]
 let ``RepeatLastMacro with no prior macro produces no effect`` () =
     let model = initModel ()
     let _, effects = Editor.runAction RepeatLastMacro model
     effects |> List.isEmpty |> should equal true
+
+// ── macros: capture resolution + fencing (review-finding regressions) ────
+
+[<Fact>]
+let ``the repeat-last-macro chord records the resolved replay step`` () =
+    // Captured verbatim, RepeatLastMacro would re-resolve LastMacro to
+    // the register being replayed and cancel its own replay — capture
+    // must record the ReplayMacro it resolved to at record time.
+    let seeded =
+        { initModel () with
+            Registers = Map.ofList [ 'b', [ RunAction(InsertText "x") ] ]
+            LastMacro = Some 'b' }
+
+    let recording, _ = Editor.runAction (RecordMacro 'a') seeded
+    let repeated, _ = Editor.update (KeyPressed(csk '.')) recording
+    let replayed = drainReplay repeated
+
+    replayed.RecordingSteps |> should equal [ RunAction(ReplayMacro('b', 1)) ]
+
+    // The committed macro replays cleanly instead of cancelling itself.
+    let committed, _ = Editor.runAction (RecordMacro 'a') replayed
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) committed
+    let finished = drainReplay started
+
+    Buffer.text (activeBuffer finished) |> should equal "xx"
+    finished.Replay |> should equal (None: ReplayState option)
+
+[<Fact>]
+let ``repeat-last-macro with nothing to repeat records no step`` () =
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+    let next, _ = Editor.update (KeyPressed(csk '.')) recording
+
+    next.RecordingSteps |> should equal ([]: MacroStep list)
+    notificationText next |> should equal "No macro to repeat"
+
+[<Fact>]
+let ``the sidebar toggle chord records its leaf actions, not the composite`` () =
+    // Ctrl+B is bound to When/Chain composites, which have no macros-file
+    // syntax — capture must decompose them into the steps that actually
+    // ran, or the write-through save would silently drop them and the
+    // macro would replay truncated after a restart.
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+
+    // Sidebar visible: the When resolves to its focus branch.
+    let focused = press (ck 'b') recording
+    focused.Focus |> should equal Sidebar
+    focused.RecordingSteps |> should equal [ RunAction FocusSidebar ]
+
+    // In the sidebar: Ctrl+B is a Chain — each member is captured.
+    let hidden = press (ck 'b') focused
+    hidden.Panels.SidebarVisible |> should equal false
+
+    hidden.RecordingSteps
+    |> should equal [ RunAction FocusSidebar; RunAction HideSidebar; RunAction Action.FocusEditor ]
+
+    // Sidebar hidden: the else branch is a Chain of reveal + focus.
+    let revealed = press (ck 'b') hidden
+
+    revealed.RecordingSteps
+    |> should
+        equal
+        [ RunAction FocusSidebar
+          RunAction HideSidebar
+          RunAction Action.FocusEditor
+          RunAction RevealSidebar
+          RunAction FocusSidebar ]
+
+    // Every captured step survives the macros-file round trip.
+    let committed, _ = Editor.runAction (RecordMacro 'a') revealed
+
+    let parsed, errors =
+        MacroFile.parse ((MacroFile.render committed.Registers).Split '\n')
+
+    errors |> should equal ([]: string list)
+    parsed |> should equal committed.Registers
+
+[<Fact>]
+let ``terminal bracketed paste while recording captures the insertion`` () =
+    // The Ctrl+V route records its Paste action at the keymap chokepoint;
+    // the terminal's own paste has no action, so the insertion itself is
+    // the recorded outcome (newlines normalized, like every insert).
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+    let pasted, _ = Editor.update (PastedText "hello\r\nworld") recording
+
+    Buffer.text (activeBuffer pasted) |> should equal "hello\nworld"
+    pasted.RecordingSteps |> should equal [ RunAction(InsertText "hello\nworld") ]
+
+[<Fact>]
+let ``a bracketed paste into the prompt is not captured as a step`` () =
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+    let prompted = press (ck 'p') recording
+    let pasted, _ = Editor.update (PastedText "theme blue") prompted
+
+    pasted.Prompt.Text |> should equal ":theme blue"
+    pasted.RecordingSteps |> should equal ([]: MacroStep list)
+
+[<Fact>]
+let ``a replayed save fences until BufferSaved lands`` () =
+    // Live recording always has the async save land between keystrokes;
+    // replay must wait for it, or a following close-buffer would see a
+    // still-dirty buffer and arm the discard confirmation instead.
+    let model =
+        { openBufferWith "content" with
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "!"); RunAction Save; RunAction CloseBuffer ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let inserted, _ = Editor.update ReplayStepReady started
+    let saved, saveEffects = Editor.update ReplayStepReady inserted
+
+    // The save step schedules the write and fences — no pump yet.
+    hasPump saveEffects |> should equal false
+
+    let saveEffect =
+        saveEffects
+        |> List.tryPick (function
+            | SaveBuffer(bufferId, path, revision, _) -> Some(bufferId, path, revision)
+            | _ -> None)
+
+    match saveEffect with
+    | None -> failwith "expected a SaveBuffer effect"
+    | Some(bufferId, path, revision) ->
+        // The write completion clears Dirty and pumps the close, which
+        // now closes cleanly instead of arming the discard confirmation.
+        let landed, landedEffects =
+            Editor.update (BufferSaved(bufferId, path, revision, Result.Ok())) saved
+
+        hasPump landedEffects |> should equal true
+
+        let finished = drainReplay landed
+        finished.CloseArmed |> should equal (None: int option)
+        finished.Replay |> should equal (None: ReplayState option)
+        finished.Editors.Buffers.ContainsKey bufferId |> should equal false
+
+[<Fact>]
+let ``a replayed copy fences until the clipboard write completes`` () =
+    // ClipboardCopy and ClipboardPaste run as independent tasks in the
+    // Runtime — an unfenced copy → paste replay could paste the previous
+    // clipboard contents.
+    let model =
+        { openBufferWith "abc" with
+            Registers = Map.ofList [ 'a', [ RunAction SelectAll; RunAction Copy; RunAction Action.Paste ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let selected, _ = Editor.update ReplayStepReady started
+    let copied, copyEffects = Editor.update ReplayStepReady selected
+
+    copyEffects |> List.contains (ClipboardCopy "abc") |> should equal true
+    hasPump copyEffects |> should equal false
+
+    // The copy completion pumps; the paste step then fences in turn.
+    let cleared, clearedEffects = Editor.update (ClipboardCopied(Result.Ok())) copied
+    hasPump clearedEffects |> should equal true
+
+    let _, pasteEffects = Editor.update ReplayStepReady cleared
+    pasteEffects |> List.contains ClipboardPaste |> should equal true
+    hasPump pasteEffects |> should equal false
+
+[<Fact>]
+let ``Escape cancels an in-flight replay`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunCommand "open /root/slow.txt"; RunAction(InsertText "x") ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let fenced, _ = Editor.update ReplayStepReady started
+    let cancelled, effects = Editor.update (KeyPressed(nk Escape)) fenced
+
+    cancelled.Replay |> should equal (None: ReplayState option)
+    effects |> should equal ([]: Effect list)
+    notificationText cancelled |> should equal "Macro @a cancelled"
+
+    // The stale completion no longer pumps anything.
+    let _, landedEffects =
+        Editor.update (FileOpened("/root/slow.txt", OpenPermanent, None, Result.Ok "late")) cancelled
+
+    hasPump landedEffects |> should equal false
+
+[<Fact>]
+let ``two same-kind fences need two completions before the pump`` () =
+    // A single dispatch can schedule two same-kind fenced effects (a
+    // plugin command opening two files); the first completion must not
+    // pump the queue while the second load is still in flight.
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "x") ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+
+    let fenced =
+        match started.Replay with
+        | Some state ->
+            { started with
+                Replay =
+                    Some
+                        { state with
+                            PendingFences = Map.ofList [ FileFence, 2 ]
+                            WaitingStep = Some(RunAction(InsertText "x")) } }
+        | None -> failwith "expected a replay state"
+
+    let first, firstEffects =
+        Editor.update (FileOpened("/root/one.txt", OpenPermanent, None, Result.Ok "one")) fenced
+
+    hasPump firstEffects |> should equal false
+
+    (match first.Replay with
+     | Some state -> state.PendingFences
+     | None -> failwith "replay vanished while fenced")
+    |> should equal (Map.ofList [ FileFence, 1 ])
+
+    let _, secondEffects =
+        Editor.update (FileOpened("/root/two.txt", OpenPermanent, None, Result.Ok "two")) first
+
+    hasPump secondEffects |> should equal true
 
 // --- Prompt Tab/Enter interaction ---
 
@@ -1533,7 +2350,7 @@ let ``MousePressed in the text area moves the cursor to the clicked cell`` () =
     let contentX = textAreaX model
 
     let next, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 2 (contentX + 3))) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 2 (contentX + 3), 1)) model
 
     (activeBuffer next).Cursor |> should equal { Line = 2; Column = 3 }
     next.Focus |> should equal Editor
@@ -1550,7 +2367,7 @@ let ``MousePressed then MouseDragged selects between press and drag cells`` () =
     let contentX = textAreaX model
 
     let pressed, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX, 1)) model
 
     let dragged, _ =
         Editor.update (MouseDragged(mouseEvent LeftButton Drag 1 (contentX + 2))) pressed
@@ -1578,7 +2395,7 @@ let ``MouseDragged across a word selects the trailing character`` () =
 
     // Press on "h" (cell 0), drag onto the last "o" of "hello" (cell 4).
     let pressed, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX, 1)) model
 
     let dragged, _ =
         Editor.update (MouseDragged(mouseEvent LeftButton Drag 0 (contentX + 4))) pressed
@@ -1593,7 +2410,7 @@ let ``MouseReleased clears the drag anchor so later drags do not extend`` () =
     let contentX = textAreaX model
 
     let pressed, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX, 1)) model
 
     pressed.MouseDrag |> Option.isSome |> should equal true
 
@@ -1615,16 +2432,104 @@ let ``MousePressed in the gutter or empty sidebar leaves the model unchanged`` (
 
     // Last gutter cell, just left of the text area.
     let inGutter, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 0 (contentX - 1))) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 (contentX - 1), 1)) model
 
     inGutter |> should equal model
 
     // Inside the sidebar with no workspace tree (no entry under the click):
     // no cursor move, no focus change, no drag anchor.
     let inSidebar, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 0 0)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 0, 1)) model
 
     inSidebar |> should equal model
+
+// ─────────────────────────────────────────────────────────────────────
+// Multi-click (stage U5) — the Runtime synthesizes clickCount from its
+// wall clock; update maps 2 → word, 3 → line, anything else → cursor.
+// ─────────────────────────────────────────────────────────────────────
+
+let private modelWithText text =
+    let model = initModel ()
+    let buf = Buffer.fromText 1 None "test" text "\n"
+
+    { model with
+        Editors =
+            { model.Editors with
+                Buffers = Map.ofList [ 1, buf ] } }
+
+[<Fact>]
+let ``double-click selects the word under the cursor`` () =
+    let model = modelWithText "hello world"
+    let contentX = textAreaX model
+
+    // Cell 7 is the "o" of "world".
+    let next, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 (contentX + 7), 2)) model
+
+    Buffer.selectionText (activeBuffer next) |> should equal "world"
+    Buffer.selectionRange (activeBuffer next) |> should equal (Some(6, 11))
+    next.Focus |> should equal Editor
+    // No drag anchor: a drag straight after the double-click must not
+    // collapse the word selection (extend-by-words is deferred).
+    next.MouseDrag |> should equal (None: MouseDragState option)
+
+[<Fact>]
+let ``double-click selects a punctuation run as its own word`` () =
+    let model = modelWithText "let x == y"
+    let contentX = textAreaX model
+
+    let next, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 (contentX + 6), 2)) model
+
+    Buffer.selectionText (activeBuffer next) |> should equal "=="
+
+[<Fact>]
+let ``drag after a double-click keeps the word selection`` () =
+    let model = modelWithText "hello world"
+    let contentX = textAreaX model
+
+    let doubled, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 (contentX + 2), 2)) model
+
+    let dragged, _ =
+        Editor.update (MouseDragged(mouseEvent LeftButton Drag 0 (contentX + 9))) doubled
+
+    dragged |> should equal doubled
+
+[<Fact>]
+let ``triple-click selects the whole line including its newline`` () =
+    let model = modelWithLines 10
+    let contentX = textAreaX model
+
+    let next, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 1 (contentX + 2), 3)) model
+
+    Buffer.selectionText (activeBuffer next) |> should equal "line1\n"
+    Buffer.selectionRange (activeBuffer next) |> should equal (Some(6, 12))
+    next.MouseDrag |> should equal (None: MouseDragState option)
+
+[<Fact>]
+let ``triple-click on the last line selects it without a phantom newline`` () =
+    let model = modelWithLines 10
+    let contentX = textAreaX model
+
+    let next, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 9 contentX, 3)) model
+
+    Buffer.selectionText (activeBuffer next) |> should equal "line9"
+    Buffer.selectionRange (activeBuffer next) |> should equal (Some(54, 59))
+
+[<Fact>]
+let ``a fourth rapid click falls back to plain cursor placement`` () =
+    let model = modelWithLines 10
+    let contentX = textAreaX model
+
+    let next, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 2 (contentX + 3), 4)) model
+
+    (activeBuffer next).Cursor |> should equal { Line = 2; Column = 3 }
+    Buffer.selectionRange (activeBuffer next) |> should equal (Some(15, 15))
+    next.MouseDrag |> Option.isSome |> should equal true
 
 // ─────────────────────────────────────────────────────────────────────
 // Detached selection — the span lives independently of the cursor, so a
@@ -1658,7 +2563,7 @@ let ``wheel scroll while dragging keeps the drag anchor`` () =
     let contentX = textAreaX model
 
     let pressed, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX, 1)) model
 
     let scrolled, _ = Editor.update (MouseScrolled(1, inEditor)) pressed
     (activeBuffer scrolled).ViewportTop |> should equal 3
@@ -1894,7 +2799,7 @@ let ``click on an unselected sidebar row selects it and focuses the sidebar`` ()
     let idx = entries |> List.findIndex (fun entry -> entry.Path = "/root/c.fs")
 
     let next, effects =
-        Editor.update (MousePressed(mouseEvent LeftButton Press (idx - startIndex) 1)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press (idx - startIndex) 1, 1)) model
 
     next.Workspace.SelectedPath |> should equal (Some "/root/c.fs")
     next.Focus |> should equal Sidebar
@@ -1930,7 +2835,7 @@ let ``click on the selected directory row toggles its expansion`` () =
         (entries |> List.findIndex (fun entry -> entry.Path = "/root/src")) - startIndex
 
     let expanded, effects =
-        Editor.update (MousePressed(mouseEvent LeftButton Press row 1)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press row 1, 1)) model
 
     expanded.Workspace.Expanded |> Set.contains "/root/src" |> should equal true
     expanded.Focus |> should equal Sidebar
@@ -1938,7 +2843,7 @@ let ``click on the selected directory row toggles its expansion`` () =
 
     // The row is still selected, so a second click collapses it again.
     let collapsed, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press row 1)) expanded
+        Editor.update (MousePressed(mouseEvent LeftButton Press row 1, 1)) expanded
 
     collapsed.Workspace.Expanded |> Set.contains "/root/src" |> should equal false
 
@@ -1952,7 +2857,7 @@ let ``click on the selected file row opens it as a preview`` () =
         - startIndex
 
     let next, effects =
-        Editor.update (MousePressed(mouseEvent LeftButton Press row 1)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press row 1, 1)) model
 
     effects |> should equal [ LoadFile("/root/a.fs", OpenPreview, None) ]
     next.Focus |> should equal Sidebar
@@ -1974,7 +2879,7 @@ let ``sidebar row mapping honours the centered scroll origin`` () =
     startIndex > 0 |> should equal true
 
     // Screen row 0 is the entry painted at the scroll origin, not entry 0.
-    let next, _ = Editor.update (MousePressed(mouseEvent LeftButton Press 0 1)) model
+    let next, _ = Editor.update (MousePressed(mouseEvent LeftButton Press 0 1, 1)) model
     next.Workspace.SelectedPath |> should equal (Some entries[startIndex].Path)
 
 [<Fact>]
@@ -1984,7 +2889,7 @@ let ``click below the last sidebar entry does nothing`` () =
     let model = sidebarModelWithFiles [ "a.fs" ]
 
     let next, effects =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 20 1)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 20 1, 1)) model
 
     next |> should equal model
     effects |> should equal ([]: Effect list)
@@ -2037,3 +2942,663 @@ let ``PastedText with sidebar focus is ignored`` () =
     Buffer.text (activeBuffer next) |> should equal ""
     next.Focus |> should equal Sidebar
     effects |> should equal ([]: Effect list)
+
+// ─────────────────────────────────────────────────────────────────────
+// Clipboard paste (ClipboardPasted, the Ctrl+V effect result) routes by
+// focus exactly like bracketed paste: prompt takes the first line, the
+// sidebar ignores it, the buffer only changes in editor focus.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``ClipboardPasted with prompt focus inserts into the prompt, not the buffer`` () =
+    let opened, _ = Editor.update (KeyPressed(ck 'p')) (initModel ())
+    opened.Focus |> should equal Prompt
+
+    let next, _ = Editor.update (ClipboardPasted(Result.Ok "src/x.fs\nrest")) opened
+
+    next.Prompt.Active |> should equal true
+    next.Prompt.Text |> should equal (opened.Prompt.Text + "src/x.fs")
+    Buffer.text (activeBuffer next) |> should equal ""
+
+[<Fact>]
+let ``ClipboardPasted with sidebar focus is ignored`` () =
+    let model = { initModel () with Focus = Sidebar }
+    let next, effects = Editor.update (ClipboardPasted(Result.Ok "hello")) model
+
+    Buffer.text (activeBuffer next) |> should equal ""
+    next.Focus |> should equal Sidebar
+    effects |> should equal ([]: Effect list)
+
+// ─────────────────────────────────────────────────────────────────────
+// Global buffer-editing chords are inert while the prompt is open: the
+// hidden buffer must not change behind a modal surface.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``undo and redo in the prompt leave the buffer untouched`` () =
+    let typed = withText "abc"
+    let opened, _ = Editor.update (KeyPressed(ck 'p')) typed
+
+    let afterUndo, undoEffects = Editor.update (KeyPressed(ck 'z')) opened
+    Buffer.text (activeBuffer afterUndo) |> should equal "abc"
+    undoEffects |> should equal ([]: Effect list)
+    afterUndo.Prompt.Active |> should equal true
+
+    let afterRedo, redoEffects = Editor.update (KeyPressed(ck 'y')) afterUndo
+    Buffer.text (activeBuffer afterRedo) |> should equal "abc"
+    redoEffects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``select-all in the prompt does not select in the buffer`` () =
+    let opened, _ = Editor.update (KeyPressed(ck 'p')) (withText "abc")
+    let next, _ = Editor.update (KeyPressed(ck 'a')) opened
+
+    (activeBuffer next).Selection |> should equal (None: SelectionSpan option)
+    next.Prompt.Active |> should equal true
+
+[<Fact>]
+let ``cut in the prompt leaves the buffer selection untouched`` () =
+    let selected, _ = Editor.update (KeyPressed(ck 'a')) (withText "abc")
+    let opened, _ = Editor.update (KeyPressed(ck 'p')) selected
+    let next, effects = Editor.update (KeyPressed(ck 'x')) opened
+
+    Buffer.text (activeBuffer next) |> should equal "abc"
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``undo after closing the prompt works again`` () =
+    let typed = withText "a"
+    let opened, _ = Editor.update (KeyPressed(ck 'p')) typed
+    let closed, _ = Editor.update (KeyPressed(nk Escape)) opened
+    closed.Focus |> should equal Editor
+
+    let undone, _ = Editor.update (KeyPressed(ck 'z')) closed
+    Buffer.text (activeBuffer undone) |> should equal ""
+
+[<Fact>]
+let ``Ctrl+W in a prompt session leaves the buffer open`` () =
+    // Ctrl+W is a common readline delete-word habit inside text prompts;
+    // the Global close-buffer chord must be inert behind the modal, like
+    // the other buffer-mutating verbs.
+    let inSearch = press (ck 'f') (withText "x")
+    let next, effects = Editor.update (KeyPressed(ck 'w')) inSearch
+
+    next.Editors.Buffers |> should equal inSearch.Editors.Buffers
+    next.CloseArmed |> should equal (None: int option)
+    next.Prompt.Active |> should equal true
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``guarded chords in the prompt are not captured as macro steps`` () =
+    // While the prompt is up, Ctrl+Z is a live no-op (the focus guard) —
+    // capturing it anyway would make the replay do MORE than the
+    // recording did.
+    let recording, _ = Editor.runAction (RecordMacro 'a') (withText "ab")
+    let prompted = press (ck 'p') recording
+    let undone = press (ck 'z') prompted
+
+    Buffer.text (activeBuffer undone) |> should equal "ab"
+    undone.RecordingSteps |> should equal ([]: MacroStep list)
+
+// ─────────────────────────────────────────────────────────────────────
+// Escape in editor focus clears the selection (and keeps its keypress
+// preamble: notifications clear on any dispatch).
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``Escape clears the selection in editor focus`` () =
+    let selected, _ = Editor.update (KeyPressed(ck 'a')) (withText "abc")
+    (activeBuffer selected).Selection.IsSome |> should equal true
+
+    let next, effects = Editor.update (KeyPressed(nk Escape)) selected
+
+    (activeBuffer next).Selection |> should equal (None: SelectionSpan option)
+    Buffer.text (activeBuffer next) |> should equal "abc"
+    next.Notification |> should equal (None: Notification option)
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``Escape without a selection is a harmless no-op`` () =
+    let model = withText "abc"
+    let cursorBefore = (activeBuffer model).Cursor
+
+    let next, effects = Editor.update (KeyPressed(nk Escape)) model
+
+    Buffer.text (activeBuffer next) |> should equal "abc"
+    (activeBuffer next).Cursor |> should equal cursorBefore
+    effects |> should equal ([]: Effect list)
+
+// ─────────────────────────────────────────────────────────────────────
+// Quit guard shared across routes (Ctrl+Q, `:quit`, `quit force`) and
+// close-buffer lifecycle (two-step dirty confirm, last-buffer scratch,
+// MRU fallback activation).
+// ─────────────────────────────────────────────────────────────────────
+
+let private pressKey chord m =
+    fst (Editor.update (KeyPressed chord) m)
+
+/// Open the palette on an existing model, type `text`, and press Enter.
+let private runCommandText (text: string) model =
+    let opened = pressKey (ck 'p') model
+    text |> Seq.fold (fun m c -> pressKey (chr c) m) opened |> pressKey (nk Enter)
+
+let private notificationMessage (model: Model) =
+    model.Notification |> Option.map (fun n -> n.Message)
+
+[<Fact>]
+let ``palette quit with a dirty buffer arms instead of quitting`` () =
+    let next = runCommandText "quit" (withText "x")
+
+    next.ShouldQuit |> should equal false
+    next.QuitArmed |> should equal true
+
+    notificationMessage next
+    |> should equal (Some "Unsaved changes in scratch. Quit again to discard.")
+
+[<Fact>]
+let ``second palette quit quits despite dirty buffers`` () =
+    let armed = runCommandText "quit" (withText "x")
+    let final = runCommandText "quit" armed
+    final.ShouldQuit |> should equal true
+
+[<Fact>]
+let ``quit force quits immediately despite dirty buffers`` () =
+    let final = runCommandText "quit force" (withText "x")
+    final.ShouldQuit |> should equal true
+
+[<Fact>]
+let ``Ctrl+q pressed twice with a dirty buffer quits`` () =
+    let armed = pressKey (ck 'q') (withText "x")
+    armed.ShouldQuit |> should equal false
+
+    let final = pressKey (ck 'q') armed
+    final.ShouldQuit |> should equal true
+
+[<Fact>]
+let ``a non-quit key disarms the quit warning`` () =
+    let armed = pressKey (ck 'q') (withText "x")
+    let moved = pressKey (nk Right) armed
+    moved.QuitArmed |> should equal false
+
+    // The next quit warns again instead of discarding.
+    let rewarned = pressKey (ck 'q') moved
+    rewarned.ShouldQuit |> should equal false
+    rewarned.QuitArmed |> should equal true
+
+[<Fact>]
+let ``a chord-armed quit survives prompt keystrokes and disarms on leaving`` () =
+    // Pins the two-step-confirm semantics around prompt sessions: keys
+    // that keep the prompt focused are exempt from the disarm chokepoint
+    // (the `:quit` → `:quit` palette round trip depends on it), and the
+    // keypress that returns focus to the editor disarms as usual.
+    let armed = pressKey (ck 'q') (withText "x")
+    armed.QuitArmed |> should equal true
+
+    let prompted = pressKey (ck 'p') armed
+    let typed = pressKey (chr 'z') prompted
+    typed.QuitArmed |> should equal true
+
+    let closed = pressKey (nk Escape) typed
+    closed.Focus |> should equal Editor
+    closed.QuitArmed |> should equal false
+
+[<Fact>]
+let ``quit warning names up to three dirty buffers then counts the rest`` () =
+    let model = initModel ()
+
+    let dirtyBuffer id name =
+        { Buffer.fromText id None name "x" "\n" with
+            Dirty = true }
+
+    let seeded =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers =
+                        Map.ofList
+                            [ for i, name in List.indexed [ "a.fs"; "b.fs"; "c.fs"; "d.fs"; "e.fs" ] ->
+                                  i + 1, dirtyBuffer (i + 1) name ] } }
+
+    let warned = pressKey (ck 'q') seeded
+
+    notificationMessage warned
+    |> should equal (Some "Unsaved changes in a.fs, b.fs, c.fs +2 more. Quit again to discard.")
+
+[<Fact>]
+let ``close-buffer activates the most recently active buffer`` () =
+    let model = initModel ()
+
+    let openedA, _ =
+        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok "a")) model
+
+    let openedB, _ =
+        Editor.update (FileOpened("/root/b.fs", OpenPermanent, None, Result.Ok "b")) openedA
+
+    // Buffers: 1 scratch, 2 a.fs, 3 b.fs (active). Jump to the scratch,
+    // then close it: the fallback must be the most recently active b.fs
+    // (3), not the adjacent a.fs (2).
+    let onScratch = pressKey (ck '1') openedB
+    onScratch.Editors.ActiveBufferId |> should equal 1
+
+    let closed = pressKey (ck 'w') onScratch
+    closed.Editors.Buffers.Count |> should equal 2
+    closed.Editors.Buffers.ContainsKey 1 |> should equal false
+    closed.Editors.ActiveBufferId |> should equal 3
+
+[<Fact>]
+let ``closing the last buffer leaves a fresh scratch`` () =
+    let closed = pressKey (ck 'w') (initModel ())
+
+    closed.Editors.Buffers.Count |> should equal 1
+    closed.Editors.ActiveBufferId |> should equal 2
+
+    let scratch = Editor.activeBufferState closed
+    scratch.Dirty |> should equal false
+    Buffer.text scratch |> should equal ""
+
+[<Fact>]
+let ``Ctrl+w on a dirty buffer arms then closes on repeat`` () =
+    let warned = pressKey (ck 'w') (withText "x")
+
+    warned.Editors.Buffers.Count |> should equal 1
+    warned.CloseArmed |> should equal (Some 1)
+
+    notificationMessage warned
+    |> should equal (Some "Unsaved changes in scratch. Close again to discard.")
+
+    let closed = pressKey (ck 'w') warned
+    closed.CloseArmed |> should equal (None: int option)
+    closed.Editors.ActiveBufferId |> should equal 2
+    Buffer.text (Editor.activeBufferState closed) |> should equal ""
+
+[<Fact>]
+let ``a non-close key disarms the close warning`` () =
+    let warned = pressKey (ck 'w') (withText "x")
+    let moved = pressKey (nk Right) warned
+    moved.CloseArmed |> should equal (None: int option)
+
+    // The next close warns again instead of discarding.
+    let rewarned = pressKey (ck 'w') moved
+    rewarned.Editors.Buffers.Count |> should equal 1
+    rewarned.CloseArmed |> should equal (Some 1)
+
+[<Fact>]
+let ``palette close on a dirty buffer arms then closes on repeat`` () =
+    let warned = runCommandText "close" (withText "x")
+    warned.Editors.Buffers.Count |> should equal 1
+    warned.CloseArmed |> should equal (Some 1)
+
+    let closed = runCommandText "close" warned
+    closed.Editors.ActiveBufferId |> should equal 2
+    Buffer.text (Editor.activeBufferState closed) |> should equal ""
+
+[<Fact>]
+let ``palette close by name closes the named buffer without switching`` () =
+    let model = initModel ()
+
+    let openedA, _ =
+        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok "a")) model
+
+    let openedB, _ =
+        Editor.update (FileOpened("/root/b.fs", OpenPermanent, None, Result.Ok "b")) openedA
+
+    let closed = runCommandText "close a.fs" openedB
+
+    closed.Editors.Buffers
+    |> Map.exists (fun _ buffer -> buffer.Name = "a.fs")
+    |> should equal false
+
+    closed.Editors.ActiveBufferId |> should equal openedB.Editors.ActiveBufferId
+
+[<Fact>]
+let ``palette close with an unknown name reports an error`` () =
+    let next = runCommandText "close nosuch" (initModel ())
+    next.Editors.Buffers.Count |> should equal 1
+    (notificationMessage next).Value.Contains "Unknown buffer" |> should equal true
+
+[<Fact>]
+let ``buffer switcher completions mark dirty buffers`` () =
+    let prompt = withText "x" |> pressKey (ck 'o') |> pressKey (chr '@')
+
+    prompt.Prompt.Completions
+    |> List.map (fun item -> item.Label)
+    |> should contain "1  scratch [+]"
+
+// ─────────────────────────────────────────────────────────────────────
+// Notification surfacing (U3): errors persist until Escape, transient
+// info/warning still clear on the next keypress, and every message
+// lands in the NotificationLog ring behind `:messages`.
+// ─────────────────────────────────────────────────────────────────────
+
+/// Surface an Error notification through a real message round-trip, so
+/// the notify chokepoint (status line + log) runs exactly as in prod.
+let private withErrorNotification model =
+    fst (Editor.update (PluginsScanned(Result.Error "boom")) model)
+
+[<Fact>]
+let ``an error notification survives keypresses`` () =
+    let errored = withErrorNotification (initModel ())
+    let typed = errored |> pressKey (chr 'x') |> pressKey (chr 'y')
+
+    match typed.Notification with
+    | Some n ->
+        n.Severity |> should equal Severity.Error
+        n.Message |> should equal "Plugin scan failed: boom"
+    | None -> failwith "expected the error to persist across keypresses"
+
+[<Fact>]
+let ``Escape dismisses a persistent error notification`` () =
+    let errored = withErrorNotification (initModel ())
+    let dismissed = pressKey (nk Escape) errored
+    dismissed.Notification |> should equal (None: Notification option)
+
+[<Fact>]
+let ``Escape dismisses the error before clearing the selection`` () =
+    let selected = pressKey (ck 'a') (withText "abc")
+    (activeBuffer selected).Selection.IsSome |> should equal true
+
+    let errored = withErrorNotification selected
+
+    // First Escape: the error goes, the selection stays.
+    let first = pressKey (nk Escape) errored
+    first.Notification |> should equal (None: Notification option)
+    (activeBuffer first).Selection.IsSome |> should equal true
+
+    // Second Escape resolves normally: the selection clears.
+    let second = pressKey (nk Escape) first
+    (activeBuffer second).Selection |> should equal (None: SelectionSpan option)
+
+[<Fact>]
+let ``an info notification still clears on the next keypress`` () =
+    let model = initModel ()
+    model.Notification |> Option.map _.Severity |> should equal (Some Severity.Info)
+
+    let typed = pressKey (chr 'x') model
+    typed.Notification |> should equal (None: Notification option)
+
+[<Fact>]
+let ``a warning notification still clears on the next keypress`` () =
+    let warned = pressKey (ck 'q') (withText "x")
+
+    warned.Notification
+    |> Option.map _.Severity
+    |> should equal (Some Severity.Warning)
+
+    let moved = pressKey (nk Right) warned
+    moved.Notification |> should equal (None: Notification option)
+
+[<Fact>]
+let ``the notification log records messages newest first`` () =
+    let first, _ = Editor.update (PluginsScanned(Result.Error "one")) (initModel ())
+    let second, _ = Editor.update (PluginsScanned(Result.Error "two")) first
+
+    second.NotificationLog
+    |> List.map _.Message
+    |> List.take 2
+    |> should equal [ "Plugin scan failed: two"; "Plugin scan failed: one" ]
+
+    // The seeded startup hint stays the oldest entry.
+    (List.last second.NotificationLog).Severity |> should equal Severity.Info
+
+[<Fact>]
+let ``the notification log caps at the limit`` () =
+    let overflow = Notification.logLimit + 20
+
+    let flooded =
+        [ 1..overflow ]
+        |> List.fold (fun m i -> fst (Editor.update (PluginsScanned(Result.Error(string i))) m)) (initModel ())
+
+    flooded.NotificationLog.Length |> should equal Notification.logLimit
+
+    flooded.NotificationLog.Head.Message
+    |> should equal $"Plugin scan failed: {overflow}"
+
+[<Fact>]
+let ``messages command opens the messages picker session`` () =
+    let opened = runCommandText "messages" (initModel ())
+
+    opened.Prompt.Active |> should equal true
+    opened.Prompt.Session |> should equal PromptSessionKind.MessagesSession
+    opened.Prompt.SelectedItemId.IsSome |> should equal true
+    opened.Focus |> should equal Prompt
+
+[<Fact>]
+let ``opening the messages picker keeps a visible error for review`` () =
+    let opened = runCommandText "messages" (withErrorNotification (initModel ()))
+
+    opened.Notification
+    |> Option.map _.Severity
+    |> should equal (Some Severity.Error)
+
+[<Fact>]
+let ``Enter closes the messages picker`` () =
+    let opened = runCommandText "messages" (initModel ())
+    let closed = pressKey (nk Enter) opened
+    closed.Prompt.Active |> should equal false
+    closed.Focus |> should equal Editor
+
+[<Fact>]
+let ``Escape closes the messages picker`` () =
+    let opened = runCommandText "messages" (initModel ())
+    let closed = pressKey (nk Escape) opened
+    closed.Prompt.Active |> should equal false
+    closed.Focus |> should equal Editor
+
+[<Fact>]
+let ``clear-log in the messages picker empties the ring`` () =
+    let opened = runCommandText "messages" (withErrorNotification (initModel ()))
+    opened.NotificationLog.IsEmpty |> should equal false
+
+    let cleared = pressKey (chr 'c') opened
+    cleared.NotificationLog |> should equal ([]: Notification list)
+    cleared.Notification |> should equal (None: Notification option)
+    // The picker stays open showing the empty state.
+    cleared.Prompt.Active |> should equal true
+    cleared.Prompt.Session |> should equal PromptSessionKind.MessagesSession
+
+// ─────────────────────────────────────────────────────────────────────
+// Text-editing actions (macros stage M1): InsertText / DeleteBackward /
+// DeleteForward — the single code path the typing fallthrough delegates
+// to, so keybindings and macro replay edit exactly like typed keys.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``InsertText inserts a multi-character payload as one edit`` () =
+    let model = withText "ab"
+    let next, _ = Editor.runAction (InsertText "XY\nZ") model
+    PieceTable.toString (activeBuffer next).Document |> should equal "abXY\nZ"
+    (activeBuffer next).Dirty |> should equal true
+    // One bulk insert = one undo entry: a single Undo removes the payload.
+    let undone, _ = Editor.runAction Undo next
+    PieceTable.toString (activeBuffer undone).Document |> should equal "ab"
+
+[<Fact>]
+let ``InsertText replaces the selection and clears it`` () =
+    let selected, _ = Editor.runAction SelectAll (withText "abc")
+    let next, _ = Editor.runAction (InsertText "x") selected
+    PieceTable.toString (activeBuffer next).Document |> should equal "x"
+    (activeBuffer next).Selection |> should equal (None: SelectionSpan option)
+
+[<Fact>]
+let ``DeleteBackward removes the character before the cursor`` () =
+    let next, _ = Editor.runAction DeleteBackward (withText "abc")
+    PieceTable.toString (activeBuffer next).Document |> should equal "ab"
+
+[<Fact>]
+let ``DeleteBackward deletes the selection when one exists`` () =
+    let selected, _ = Editor.runAction SelectAll (withText "abc")
+    let next, _ = Editor.runAction DeleteBackward selected
+    PieceTable.toString (activeBuffer next).Document |> should equal ""
+
+[<Fact>]
+let ``DeleteForward removes the character after the cursor`` () =
+    let home = pressKey (nk Home) (withText "abc")
+    let next, _ = Editor.runAction DeleteForward home
+    PieceTable.toString (activeBuffer next).Document |> should equal "bc"
+
+[<Fact>]
+let ``DeleteForward deletes the selection when one exists`` () =
+    let selected, _ = Editor.runAction SelectAll (withText "abc")
+    let next, _ = Editor.runAction DeleteForward selected
+    PieceTable.toString (activeBuffer next).Document |> should equal ""
+
+[<Fact>]
+let ``text-editing actions are inert while the prompt is focused`` () =
+    let prompted = pressKey (ck 'p') (withText "ab")
+
+    for action in [ InsertText "x"; DeleteBackward; DeleteForward ] do
+        let next, effects = Editor.runAction action prompted
+        PieceTable.toString (activeBuffer next).Document |> should equal "ab"
+        effects |> List.isEmpty |> should equal true
+
+// ── macros: plain-text persistence + editability (stage M3) ──────────────
+
+[<Fact>]
+let ``init loads the macros file beside the keybinds file`` () =
+    let _, effects =
+        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) []
+
+    effects |> List.contains (LoadMacros false) |> should equal true
+
+[<Fact>]
+let ``stopping a recording writes the registers through to disk`` () =
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+    let typed = recording |> press (chr 'x')
+    let committed, effects = Editor.runAction (RecordMacro 'a') typed
+
+    effects |> should equal [ SaveMacros committed.Registers ]
+
+[<Fact>]
+let ``an empty stop saves nothing`` () =
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+    let _, effects = Editor.runAction (RecordMacro 'a') recording
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``MacrosLoaded replaces the registers and announces a reload`` () =
+    let registers = Map.ofList [ 'a', [ RunAction Undo ]; 'b', [ RunAction Redo ] ]
+
+    let loaded, effects =
+        Editor.update (MacrosLoaded(registers, [], true)) (initModel ())
+
+    loaded.Registers |> should equal registers
+    effects |> should equal ([]: Effect list)
+    notificationText loaded |> should equal "Macros reloaded (2 register(s))"
+
+[<Fact>]
+let ``the startup macros load is silent`` () =
+    let model = initModel ()
+
+    let loaded, _ =
+        Editor.update (MacrosLoaded(Map.ofList [ 'a', [ RunAction Undo ] ], [], false)) model
+
+    loaded.Registers |> Map.containsKey 'a' |> should equal true
+    // The seeded welcome hint stays; no reload chatter on boot.
+    loaded.Notification |> should equal model.Notification
+
+[<Fact>]
+let ``MacrosLoaded surfaces parse errors naming their lines`` () =
+    let loaded, _ =
+        Editor.update (MacrosLoaded(Map.empty, [ "macros:4: unknown action 'wat'" ], true)) (initModel ())
+
+    notificationText loaded |> should equal "macros:4: unknown action 'wat'"
+
+    match loaded.Notification with
+    | Some { Severity = Severity.Warning } -> ()
+    | other -> failwith $"expected a warning, got {other}"
+
+[<Fact>]
+let ``MacrosLoaded keeps an in-flight recording untouched`` () =
+    let model =
+        { initModel () with
+            Recording = Some 'q'
+            RecordingSteps = [ RunAction Undo ] }
+
+    let loaded, _ =
+        Editor.update (MacrosLoaded(Map.ofList [ 'a', [ RunAction Redo ] ], [], true)) model
+
+    loaded.Recording |> should equal (Some 'q')
+    loaded.RecordingSteps |> should equal [ RunAction Undo ]
+
+[<Fact>]
+let ``saving the macros file through fedit schedules a reload`` () =
+    let saved, effects =
+        Editor.update (BufferSaved(1, MacroIO.path (), 0, Result.Ok())) (initModel ())
+
+    effects |> List.contains (LoadMacros true) |> should equal true
+    saved.Registers |> should equal (Map.empty: Map<char, MacroStep list>)
+
+[<Fact>]
+let ``saving an unrelated file does not reload macros`` () =
+    let _, effects =
+        Editor.update (BufferSaved(1, "/root/notes.txt", 0, Result.Ok())) (initModel ())
+
+    effects
+    |> List.exists (function
+        | LoadMacros _ -> true
+        | _ -> false)
+    |> should equal false
+
+[<Fact>]
+let ``the macro picker's edit action closes the picker and ensures the file`` () =
+    let registers = Map.ofList [ 'a', [ RunAction Undo ] ]
+
+    let model =
+        { initModel () with
+            Registers = registers
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.MacrosSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "a"
+                    PendingConfirmation = None } }
+
+    let next, effects = Editor.update (KeyPressed(chr 'e')) model
+
+    next.Prompt.Active |> should equal false
+    effects |> should equal [ EnsureMacrosFile registers ]
+
+[<Fact>]
+let ``MacrosFileReady opens the macros file in a buffer`` () =
+    let next, effects =
+        Editor.update (MacrosFileReady(Result.Ok "/tmp/fedit-macros")) (initModel ())
+
+    next.Focus |> should equal Editor
+
+    effects
+    |> List.contains (LoadFile("/tmp/fedit-macros", OpenPermanent, None))
+    |> should equal true
+
+[<Fact>]
+let ``clearing a register from the picker writes the registers through`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'd', [ RunAction Undo ] ]
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.MacrosSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "d"
+                    PendingConfirmation = None } }
+
+    // 'c' is a confirmed destructive action: the first press arms it,
+    // the second executes the clear and the write-through save.
+    let armed, armedEffects = Editor.update (KeyPressed(chr 'c')) model
+    armedEffects |> should equal ([]: Effect list)
+
+    let cleared, effects = Editor.update (KeyPressed(chr 'c')) armed
+
+    cleared.Registers |> should equal (Map.empty: Map<char, MacroStep list>)
+    effects |> should equal [ SaveMacros Map.empty ]
+
+[<Fact>]
+let ``a failed macro save surfaces as a warning`` () =
+    let next, _ = Editor.update (MacrosSaved(Result.Error "disk full")) (initModel ())
+
+    notificationText next |> should equal "Macro file save failed: disk full"

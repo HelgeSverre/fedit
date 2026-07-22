@@ -44,6 +44,10 @@ let actionMeta (action: Action) : string * string =
     | ExtendHome -> "selection", "Extend the selection to the start of the line"
     | ExtendEnd -> "selection", "Extend the selection to the end of the line"
     | SelectAll -> "selection", "Select the whole buffer"
+    | ClearSelection -> "selection", "Clear the selection, keeping the cursor in place"
+    | InsertText _ -> "edit", "Insert literal text at the cursor"
+    | DeleteBackward -> "edit", "Delete the selection or the character before the cursor"
+    | DeleteForward -> "edit", "Delete the selection or the character after the cursor"
     | Indent -> "edit", "Indent the current line or selection"
     | Unindent -> "edit", "Unindent the current line or selection"
     | DeleteWordBack -> "edit", "Delete the word before the cursor"
@@ -58,9 +62,14 @@ let actionMeta (action: Action) : string * string =
     | Save -> "file", "Save the active buffer"
     | SaveAs _ -> "file", "Save the active buffer to a new path"
     | Quit -> "file", "Quit the editor"
+    | ForceQuit -> "file", "Quit the editor, discarding unsaved changes"
+    | CloseBuffer -> "buffer", "Close the active buffer"
     | OpenPalette -> "prompt", "Open the command palette"
     | OpenFilePicker -> "prompt", "Open the file picker"
     | OpenSearch -> "prompt", "Open in-buffer search"
+    | SearchNext -> "motion", "Jump to the next match of the last search"
+    | SearchPrevious -> "motion", "Jump to the previous match of the last search"
+    | SearchFor _ -> "motion", "Search for a query and jump to its first match"
     | NextBuffer -> "buffer", "Switch to the next buffer"
     | PrevBuffer -> "buffer", "Switch to the previous buffer"
     | JumpToBuffer _ -> "buffer", "Jump to a buffer by number"
@@ -70,6 +79,10 @@ let actionMeta (action: Action) : string * string =
     | OpenConfig -> "config", "Open the config directory"
     | ReloadKeybinds -> "config", "Reload the user keybinds file"
     | RunPlugin _ -> "plugin", "Run a plugin command"
+    | GotoDefinition -> "lsp", "Jump to the symbol's definition"
+    | FindReferences -> "lsp", "List references to the symbol"
+    | Hover -> "lsp", "Show hover info for the symbol"
+    | JumpBack -> "lsp", "Return to where the last jump left from"
     | RevealSidebar -> "panel", "Reveal the sidebar"
     | HideSidebar -> "panel", "Hide the sidebar"
     | ToggleSidebar -> "panel", "Toggle the sidebar"
@@ -115,6 +128,10 @@ let allActions: Action list =
       ExtendHome
       ExtendEnd
       SelectAll
+      ClearSelection
+      InsertText ""
+      DeleteBackward
+      DeleteForward
       Indent
       Unindent
       DeleteWordBack
@@ -129,9 +146,14 @@ let allActions: Action list =
       Save
       SaveAs ""
       Quit
+      ForceQuit
+      CloseBuffer
       OpenPalette
       OpenFilePicker
       OpenSearch
+      SearchNext
+      SearchPrevious
+      SearchFor ""
       NextBuffer
       PrevBuffer
       JumpToBuffer 0
@@ -141,6 +163,10 @@ let allActions: Action list =
       OpenConfig
       ReloadKeybinds
       RunPlugin("", "", "")
+      GotoDefinition
+      FindReferences
+      Hover
+      JumpBack
       RevealSidebar
       HideSidebar
       ToggleSidebar

@@ -184,6 +184,30 @@ module Status =
             match model.PendingPrefix with
             | Some chords -> Chord.renderStroke chords + " …"
             | None -> ""
+        // Compact language-server diagnostic counts for the active buffer,
+        // e.g. "E2 W1". Like [DIRTY] it carries its own leading spaces so
+        // it vanishes cleanly when the buffer has no diagnostics.
+        | "diagnostics", _ ->
+            let diagnostics =
+                buffer.FilePath
+                |> Option.bind (fun path -> Map.tryFind path model.Lsp.Diagnostics)
+                |> Option.defaultValue []
+
+            let countOf severity =
+                diagnostics
+                |> List.filter (fun diagnostic -> diagnostic.Severity = severity)
+                |> List.length
+
+            let segments =
+                [ "E", countOf LspDiagnosticSeverity.Error
+                  "W", countOf LspDiagnosticSeverity.Warning
+                  "I", countOf LspDiagnosticSeverity.Information
+                  "H", countOf LspDiagnosticSeverity.Hint ]
+                |> List.choose (fun (label, count) -> if count > 0 then Some(label + string count) else None)
+
+            match segments with
+            | [] -> ""
+            | _ -> "  " + String.concat " " segments
         | _ ->
             // Surface typos by rendering the token literally.
             match modifier with
@@ -194,28 +218,42 @@ module Status =
     // Layout
     // ─────────────────────────────────────────────────────────────────────
 
-    /// Substitute every Token with its resolved Literal, leaving Expand
+    /// A format part resolved against the model, ready for layout.
+    /// `NotificationText` is the resolved `[NOTIFICATION]` token, kept
+    /// distinct from plain text so the view can restyle its final column
+    /// span by severity.
+    type private ResolvedPart =
+        | ResolvedText of string
+        | NotificationText of string
+        | ResolvedExpand
+
+    /// Substitute every Token with its resolved text, leaving Expand
     /// parts in place.
     let private resolve (model: Model) (part: Part) =
         match part with
-        | Token(name, modifier) -> Literal(resolveToken model name modifier)
-        | other -> other
+        | Token("notification", modifier) -> NotificationText(resolveToken model "notification" modifier)
+        | Token(name, modifier) -> ResolvedText(resolveToken model name modifier)
+        | Literal s -> ResolvedText s
+        | Expand -> ResolvedExpand
 
     /// Lay parts into `width` columns. `<EXPAND>` placeholders share
     /// whatever space the literals don't consume; any odd remainder is
     /// distributed left-to-right one column at a time. Overflow truncates
-    /// the right side rather than wrapping.
-    let private layout (width: int) (parts: Part list) =
+    /// the right side rather than wrapping. Also reports the (start,
+    /// length) span of the first non-empty notification part, clipped to
+    /// what survives truncation.
+    let private layout (width: int) (parts: ResolvedPart list) =
         let fixedLen =
             parts
             |> List.sumBy (function
-                | Literal s -> s.Length
-                | _ -> 0)
+                | ResolvedText s -> s.Length
+                | NotificationText s -> s.Length
+                | ResolvedExpand -> 0)
 
         let expandCount =
             parts
             |> List.sumBy (function
-                | Expand -> 1
+                | ResolvedExpand -> 1
                 | _ -> 0)
 
         let remaining = max 0 (width - fixedLen)
@@ -228,32 +266,55 @@ module Status =
 
         let sb = StringBuilder()
         let mutable expandsSeen = 0
+        let mutable notificationSpan = None
 
         for part in parts do
             match part with
-            | Literal s -> sb.Append s |> ignore
-            | Expand ->
+            | ResolvedText s -> sb.Append s |> ignore
+            | NotificationText s ->
+                if s.Length > 0 && Option.isNone notificationSpan then
+                    notificationSpan <- Some(sb.Length, s.Length)
+
+                sb.Append s |> ignore
+            | ResolvedExpand ->
                 let pad = perExpand + (if expandsSeen < extra then 1 else 0)
                 sb.Append(String.replicate pad " ") |> ignore
                 expandsSeen <- expandsSeen + 1
-            | Token _ -> ()
 
         let result = sb.ToString()
 
-        if width > 0 && result.Length > width then
-            result.Substring(0, width)
-        else
-            result
+        let truncated =
+            if width > 0 && result.Length > width then
+                result.Substring(0, width)
+            else
+                result
+
+        let clippedSpan =
+            notificationSpan
+            |> Option.bind (fun (start, length) ->
+                if start >= truncated.Length then
+                    None
+                else
+                    Some(start, min length (truncated.Length - start)))
+
+        truncated, clippedSpan
 
     // ─────────────────────────────────────────────────────────────────────
-    // Public entry point
+    // Public entry points
     // ─────────────────────────────────────────────────────────────────────
+
+    /// Render the status bar plus the column span (start, length) where
+    /// the `[NOTIFICATION]` token landed — `None` when the format has no
+    /// notification token, it resolved empty, or truncation cut it off.
+    /// The view restyles that span by the notification's severity.
+    let renderWithNotificationSpan (width: int) (model: Model) : string * (int * int) option =
+        model.Config.StatusFormat
+        |> parseFormat
+        |> List.map (resolve model)
+        |> layout width
 
     /// Render the status bar for the current model into a string of
     /// exactly `width` columns (or fewer if the format produces less
     /// content and contains no `<EXPAND>`).
     let render (width: int) (model: Model) : string =
-        model.Config.StatusFormat
-        |> parseFormat
-        |> List.map (resolve model)
-        |> layout width
+        fst (renderWithNotificationSpan width model)

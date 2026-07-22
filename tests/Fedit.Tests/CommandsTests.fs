@@ -117,6 +117,61 @@ let ``bare numeric is no longer a command (goto requires colon prefix at prompt 
     | other -> failwithf "expected Invalid for bare '42', got %A" other
 
 [<Fact>]
+let ``open completions match case-insensitive substrings like the file picker`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = [ "src/Fedit/Editor.fs"; "README.md" ]
+          Recent = []
+          Buffers = []
+          Themes = Themes.all
+          LanguageServers = []
+          CompletionLimit = 8 }
+
+    // Neither a prefix of the relative path nor exact case — must still hit,
+    // matching the Ctrl+O picker's substring semantics.
+    let comps = Commands.completions ctx "open editor"
+    comps |> List.map (fun c -> c.Label) |> should equal [ "src/Fedit/Editor.fs" ]
+
+    comps
+    |> List.head
+    |> fun c -> c.ApplyText |> should equal "open src/Fedit/Editor.fs"
+
+[<Fact>]
+let ``writeas completions use the same substring matcher`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = [ "src/Fedit/Editor.fs"; "README.md" ]
+          Recent = []
+          Buffers = []
+          Themes = Themes.all
+          LanguageServers = []
+          CompletionLimit = 8 }
+
+    let comps = Commands.completions ctx "writeas editor"
+    comps |> List.map (fun c -> c.Label) |> should equal [ "src/Fedit/Editor.fs" ]
+
+[<Fact>]
+let ``recent completions match substrings of the file name or path`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = []
+          Recent = [ "/home/user/notes.md"; "/home/user/todo.txt" ]
+          Buffers = []
+          Themes = Themes.all
+          LanguageServers = []
+          CompletionLimit = 8 }
+
+    let comps = Commands.completions ctx "recent otes"
+    comps |> List.map (fun c -> c.Detail) |> should equal [ "/home/user/notes.md" ]
+
+[<Fact>]
+let ``matchesFileQuery matches file name or path, and everything on empty`` () =
+    Commands.matchesFileQuery "" "src/Editor.fs" |> should equal true
+    Commands.matchesFileQuery "editor" "src/Editor.fs" |> should equal true
+    Commands.matchesFileQuery "src/edi" "src/Editor.fs" |> should equal true
+    Commands.matchesFileQuery "buffer" "src/Editor.fs" |> should equal false
+
+[<Fact>]
 let ``completionLimit caps file completions`` () =
     let ctx =
         { RootPath = "/"
@@ -124,6 +179,7 @@ let ``completionLimit caps file completions`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 2 }
 
     let comps = Commands.completions ctx "open "
@@ -142,6 +198,7 @@ let ``completions for theme prefix return matches`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx "theme g"
@@ -155,6 +212,7 @@ let ``completions for empty input list all command names`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx ""
@@ -174,6 +232,7 @@ let ``hidden commands stay parseable but never appear in completions`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx ""
@@ -232,6 +291,7 @@ let ``syntax completions suggest on/off/toggle`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx "syntax "
@@ -258,8 +318,71 @@ let ``plugins and macros appear in command completions`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 32 }
 
     let labels = Commands.completions ctx "" |> List.map _.Label
     labels |> should contain "plugins"
     labels |> should contain "macros"
+
+[<Fact>]
+let ``quit force parses to Ready ForceQuit`` () =
+    Commands.parse "quit force" |> should equal (Ready ForceQuit)
+
+[<Fact>]
+let ``unknown quit argument is Invalid`` () =
+    match Commands.parse "quit now" with
+    | ParsedCommand.Invalid _ -> ()
+    | other -> failwithf "expected Invalid, got %A" other
+
+[<Fact>]
+let ``close parses to Ready (Close None)`` () =
+    Commands.parse "close" |> should equal (Ready(Close None))
+
+[<Fact>]
+let ``close with id or name parses to the matching buffer reference`` () =
+    Commands.parse "close 2" |> should equal (Ready(Close(Some(ById 2))))
+    Commands.parse "close a.fs" |> should equal (Ready(Close(Some(ByName "a.fs"))))
+
+[<Fact>]
+let ``quit completions suggest force`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = []
+          Recent = []
+          Buffers = []
+          Themes = Themes.all
+          LanguageServers = []
+          CompletionLimit = 8 }
+
+    Commands.completions ctx "quit " |> List.map _.Label |> should equal [ "force" ]
+
+[<Fact>]
+let ``buffers completions mark dirty buffers`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = []
+          Recent = []
+          Buffers = [ 1, "a.fs", Some "/root/a.fs", true; 2, "b.fs", None, false ]
+          Themes = Themes.all
+          LanguageServers = []
+          CompletionLimit = 8 }
+
+    Commands.completions ctx "buffers "
+    |> List.map _.Label
+    |> should equal [ "1  a.fs [+]"; "2  b.fs" ]
+
+[<Fact>]
+let ``close completions list open buffers with the close verb`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = []
+          Recent = []
+          Buffers = [ 1, "a.fs", Some "/root/a.fs", true; 2, "b.fs", None, false ]
+          Themes = Themes.all
+          LanguageServers = []
+          CompletionLimit = 8 }
+
+    let comps = Commands.completions ctx "close "
+    comps |> List.map _.ApplyText |> should equal [ "close 1"; "close 2" ]
+    comps |> List.map _.Label |> should equal [ "1  a.fs [+]"; "2  b.fs" ]

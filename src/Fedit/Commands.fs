@@ -15,7 +15,12 @@ type Command =
     | Open of string
     | Write
     | WriteAs of string
+    /// Quit with the dirty-buffer guard (warn + arm, quit on repeat).
     | Quit
+    /// `quit force` — quit unconditionally, discarding unsaved changes.
+    | ForceQuit
+    /// `close [id-or-name]` — close a buffer; `None` closes the active one.
+    | Close of BufferRef option
     | ToggleSidebar
     | FocusTree
     | FocusEditor
@@ -35,6 +40,8 @@ type Command =
     | Plugins
     /// Open the macro manager dock.
     | Macros
+    /// Open the notification message log picker.
+    | Messages
     /// Open the user's config file (`~/.config/fedit/config.json`) in a
     /// buffer. Creates the file with the running config if absent.
     | OpenConfig
@@ -49,6 +56,11 @@ type Command =
     /// `:keybind [reload | <stroke>]` — list effective keybindings, reload the
     /// user file, or show what a stroke resolves to in each context.
     | Keybind of argument: string
+    /// Built-in language-server manager. `lsp [status|restart|enable|disable|log] [server]`;
+    /// an empty verb opens the manager picker.
+    | Lsp of verb: string * argument: string
+    /// Open the active buffer's language-server diagnostics in a picker.
+    | Diagnostics
 
 type ParsedCommand =
     | Empty
@@ -57,12 +69,18 @@ type ParsedCommand =
     | Invalid of string
 
 type CommandContext =
-    { RootPath: string
-      Files: string list
-      Recent: string list
-      Buffers: (int * string * string option) list
-      Themes: Theme list
-      CompletionLimit: int }
+    {
+        RootPath: string
+        Files: string list
+        Recent: string list
+        /// `(id, name, filePath, dirty)` per open buffer.
+        Buffers: (int * string * string option * bool) list
+        Themes: Theme list
+        /// Configured language-server names, for `:lsp <verb> <server>`
+        /// completion.
+        LanguageServers: string list
+        CompletionLimit: int
+    }
 
 [<RequireQualifiedAccess>]
 module Commands =
@@ -115,10 +133,15 @@ module Commands =
                   else
                       Ready(WriteAs(argument.Trim())) }
           { Name = "quit"
-            Usage = "quit"
-            Summary = "Exit fedit."
+            Usage = "quit [force]"
+            Summary = "Exit fedit. `quit force` discards unsaved changes."
             Hidden = false
-            Constructor = simple Quit }
+            Constructor =
+              fun argument ->
+                  match argument.Trim().ToLowerInvariant() with
+                  | "" -> Ready Quit
+                  | "force" -> Ready ForceQuit
+                  | other -> Invalid $"Unknown quit argument '{other}'." }
           { Name = "config"
             Usage = "config"
             Summary = "Open the fedit config file (~/.config/fedit/config.json) in a buffer."
@@ -204,6 +227,23 @@ module Commands =
                           | _ -> ByName trimmed
 
                       Ready(SwitchBuffer bufferRef) }
+          { Name = "close"
+            Usage = "close [id-or-name]"
+            Summary = "Close a buffer (the active one by default)."
+            Hidden = false
+            Constructor =
+              fun argument ->
+                  let trimmed = argument.Trim()
+
+                  if String.IsNullOrWhiteSpace trimmed then
+                      Ready(Close None)
+                  else
+                      let bufferRef =
+                          match Int32.TryParse trimmed with
+                          | true, id -> ById id
+                          | _ -> ByName trimmed
+
+                      Ready(Close(Some bufferRef)) }
           { Name = "syntax"
             Usage = "syntax <on|off|toggle>"
             Summary = "Toggle syntax highlighting."
@@ -261,11 +301,52 @@ module Commands =
             Summary = "Open the macro manager."
             Hidden = false
             Constructor = simple Macros }
+          { Name = "messages"
+            Usage = "messages"
+            Summary = "Review recent notifications, newest first."
+            Hidden = false
+            Constructor = simple Messages }
           { Name = "keybind"
             Usage = "keybind [reload | <stroke>]"
             Summary = "List effective keybindings, reload the file, or show what a stroke is bound to."
             Hidden = false
-            Constructor = fun argument -> Ready(Keybind(argument.Trim())) } ]
+            Constructor = fun argument -> Ready(Keybind(argument.Trim())) }
+          { Name = "lsp"
+            Usage = "lsp [status|restart|enable|disable|log] [server]"
+            Summary = "Manage language servers. Bare `lsp` opens the manager."
+            Hidden = false
+            Constructor =
+              fun argument ->
+                  let trimmed = argument.Trim()
+
+                  if String.IsNullOrWhiteSpace trimmed then
+                      Ready(Lsp("", ""))
+                  else
+                      let firstSpace = trimmed.IndexOf ' '
+
+                      let verb, rest =
+                          if firstSpace < 0 then
+                              trimmed, ""
+                          else
+                              trimmed[.. firstSpace - 1], trimmed[firstSpace + 1 ..].Trim()
+
+                      let known = Set.ofList [ "status"; "restart"; "enable"; "disable"; "log" ]
+                      let verbLower = verb.ToLowerInvariant()
+
+                      if not (known.Contains verbLower) then
+                          Invalid $"Unknown lsp verb '{verb}'."
+                      else
+                          let needsArgument = Set.ofList [ "enable"; "disable" ]
+
+                          if needsArgument.Contains verbLower && String.IsNullOrWhiteSpace rest then
+                              Pending $"lsp {verbLower} requires a server name."
+                          else
+                              Ready(Lsp(verbLower, rest)) }
+          { Name = "diagnostics"
+            Usage = "diagnostics"
+            Summary = "List the active buffer's language-server diagnostics."
+            Hidden = false
+            Constructor = simple Diagnostics } ]
 
     /// Specs synthesized from currently-loaded plugin commands. Each tuple
     /// is `(commandName, summary, sourcePluginName)`. Plugin specs sit
@@ -340,6 +421,19 @@ module Commands =
     /// Built-ins-only parser. Plugin-aware callers should use `parseWith`.
     let parse (input: string) = parseWith specs input
 
+    /// Case-insensitive substring match on the file name or the full path —
+    /// the Ctrl+O file picker's matcher, shared with the `open`/`writeas`/
+    /// `recent` argument completions so every file-completion surface
+    /// matches the same way. An empty query matches everything.
+    let matchesFileQuery (query: string) (path: string) : bool =
+        if String.IsNullOrEmpty query then
+            true
+        else
+            let fileName = Path.GetFileName path |> Option.ofObj |> Option.defaultValue path
+
+            fileName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
+            || path.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
+
     /// Completion using an explicit spec list. The plugin-aware variant.
     let completionsWith (availableSpecs: Spec list) context (input: string) =
         let trimmed = input.TrimStart()
@@ -369,11 +463,28 @@ module Commands =
                 let commandName = trimmed[.. firstSpace - 1].ToLowerInvariant()
                 let argument = trimmed[firstSpace + 1 ..].TrimStart()
 
+                // Shared by `buffers` and `close`: one item per matching open
+                // buffer, dirty ones marked with the status bar's ` [+]`.
+                let bufferItems (verb: string) =
+                    context.Buffers
+                    |> List.filter (fun (id, name, _, _) ->
+                        name.StartsWith(argument, StringComparison.OrdinalIgnoreCase)
+                        || (string id).StartsWith argument)
+                    |> List.truncate context.CompletionLimit
+                    |> List.map (fun (id, name, filePath, dirty) ->
+                        let detail = filePath |> Option.defaultValue "scratch"
+                        let marker = if dirty then " [+]" else ""
+
+                        { Label = $"{id}  {name}{marker}"
+                          ApplyText = $"{verb} {id}"
+                          Detail = detail
+                          Kind = PathItem })
+
                 match commandName with
                 | "open"
                 | "writeas" ->
                     context.Files
-                    |> List.filter (fun filePath -> filePath.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
+                    |> List.filter (matchesFileQuery argument)
                     |> List.truncate context.CompletionLimit
                     |> List.map (fun filePath ->
                         { Label = filePath
@@ -390,12 +501,7 @@ module Commands =
                           Kind = PathItem })
                 | "recent" ->
                     context.Recent
-                    |> List.filter (fun filePath ->
-                        let display =
-                            Path.GetFileName filePath |> Option.ofObj |> Option.defaultValue filePath
-
-                        display.StartsWith(argument, StringComparison.OrdinalIgnoreCase)
-                        || filePath.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
+                    |> List.filter (matchesFileQuery argument)
                     |> List.truncate context.CompletionLimit
                     |> List.map (fun filePath ->
                         let label =
@@ -405,19 +511,16 @@ module Commands =
                           ApplyText = $"recent {filePath}"
                           Detail = filePath
                           Kind = PathItem })
-                | "buffers" ->
-                    context.Buffers
-                    |> List.filter (fun (id, name, _) ->
-                        name.StartsWith(argument, StringComparison.OrdinalIgnoreCase)
-                        || (string id).StartsWith argument)
-                    |> List.truncate context.CompletionLimit
-                    |> List.map (fun (id, name, filePath) ->
-                        let detail = filePath |> Option.defaultValue "scratch"
-
-                        { Label = $"{id}  {name}"
-                          ApplyText = $"buffers {id}"
-                          Detail = detail
-                          Kind = PathItem })
+                | "buffers" -> bufferItems "buffers"
+                | "close" -> bufferItems "close"
+                | "quit" ->
+                    [ "force" ]
+                    |> List.filter (fun verb -> verb.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
+                    |> List.map (fun verb ->
+                        { Label = verb
+                          ApplyText = $"quit {verb}"
+                          Detail = "discard unsaved changes and exit"
+                          Kind = Command })
                 | "plugin" ->
                     [ "list"; "enable"; "disable"; "install"; "remove"; "reload"; "validate" ]
                     |> List.filter (fun verb -> verb.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
@@ -434,6 +537,35 @@ module Commands =
                           ApplyText = $"syntax {verb}"
                           Detail = "syntax highlighting toggle"
                           Kind = Command })
+                | "lsp" ->
+                    // Verb first; once a server-taking verb is typed, complete
+                    // the configured server names (the plugin-verb precedent,
+                    // extended one level).
+                    let verbSpace = argument.IndexOf ' '
+
+                    if verbSpace < 0 then
+                        [ "status"; "restart"; "enable"; "disable"; "log" ]
+                        |> List.filter (fun verb -> verb.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
+                        |> List.map (fun verb ->
+                            { Label = verb
+                              ApplyText = $"lsp {verb}"
+                              Detail = "language server verb"
+                              Kind = Command })
+                    else
+                        let verb = argument[.. verbSpace - 1].ToLowerInvariant()
+                        let serverQuery = argument[verbSpace + 1 ..].TrimStart()
+
+                        if List.contains verb [ "restart"; "enable"; "disable"; "log" ] then
+                            context.LanguageServers
+                            |> List.filter (fun name ->
+                                name.StartsWith(serverQuery, StringComparison.OrdinalIgnoreCase))
+                            |> List.map (fun name ->
+                                { Label = name
+                                  ApplyText = $"lsp {verb} {name}"
+                                  Detail = "language server"
+                                  Kind = Command })
+                        else
+                            []
                 | _ -> []
 
     /// Built-ins-only completion. Plugin-aware callers should use `completionsWith`.

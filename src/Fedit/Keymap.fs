@@ -30,6 +30,14 @@ type Resolution =
 [<RequireQualifiedAccess>]
 module Keymap =
 
+    /// Keymap context of a focus target — the one mapping shared by key
+    /// dispatch (`Editor.update`) and the which-key dock panel (`Dock`).
+    let contextOf (focus: FocusTarget) : Context =
+        match focus with
+        | FocusTarget.Editor -> Context.Editor
+        | FocusTarget.Sidebar -> Context.Sidebar
+        | FocusTarget.Prompt -> Context.Prompt
+
     // ── DSL helpers (devs only; mirror the file 1:1, spec §6.6) ───────────
     let chord mods key : Chord = { Mods = Set.ofList mods; Key = key }
 
@@ -42,8 +50,10 @@ module Keymap =
 
     /// Compiled-in defaults. Reproduces today's dispatch exactly — every chord
     /// the global Ctrl handler / runEditor / runSidebar matched gets one entry.
-    /// `Ctrl+Q` is deliberately absent: its two-stage quit owns `QuitArmed` and
-    /// stays bespoke in `Editor.update`. Guarded by the parity test.
+    /// `Ctrl+Q` is deliberately absent: it dispatches ahead of the keymap in
+    /// `Editor.update` so quitting survives a broken keybinds file; the
+    /// two-stage dirty guard lives in `runAction Quit`. Guarded by the parity
+    /// test.
     let defaults: Keymap =
         [
           // ── global Ctrl chords (fire in every focus → Context.Global) ──
@@ -64,6 +74,7 @@ module Keymap =
           single (chord [ Ctrl ] (Named PageDown)) Action.NextBuffer
           |> inCtx Context.Global
           single (chord [ Ctrl ] (Named PageUp)) PrevBuffer |> inCtx Context.Global
+          single (chord [ Ctrl ] (Key.Char 'w')) CloseBuffer |> inCtx Context.Global
 
           // ── tri-state sidebar Ctrl+B, split per spec §6.5/§11.1 ──
           //   editor/global/prompt view: reveal+focus when hidden, focus when visible
@@ -104,6 +115,24 @@ module Keymap =
           single (chord [ Ctrl ] (Named Delete)) DeleteWordForward
           single (chord [ Alt ] (Named Up)) (MoveLinesUp 1)
           single (chord [ Alt ] (Named Down)) (MoveLinesDown 1)
+          // Escape dismisses the selection; prefix-cancel runs ahead of the
+          // keymap, and notification/QuitArmed clearing are keypress preamble.
+          single (chord [] (Named Escape)) ClearSelection
+
+          // ── repeat the last accepted search without reopening the prompt ──
+          single (chord [] (Fn 3)) SearchNext
+          single (chord [ Shift ] (Fn 3)) SearchPrevious
+
+          // ── LSP navigation (Context.Editor) ──
+          // F12 / Shift+F12 match the VSCode convention and were unbound.
+          // Hover is F1: VSCode's ctrl+k ctrl+i would make bare ctrl+k a
+          // sequence prefix and silently shadow plugin/user ctrl+k chords.
+          // Jump-back is alt+minus: ctrl+o (helix's choice) is taken by
+          // the file picker.
+          single (chord [] (Fn 12)) GotoDefinition
+          single (chord [ Shift ] (Fn 12)) FindReferences
+          single (chord [ Alt ] (Key.Char '-')) JumpBack
+          single (chord [] (Fn 1)) Hover
 
           // ── macros: modifier chords only (bare Char is reserved for text) ──
           single (chord [ Ctrl; Shift ] (Key.Char 'm')) (RecordMacro 'a')
@@ -164,6 +193,30 @@ module Keymap =
             (b.Context = ctx || b.Context = Context.Global)
             && b.Action.IsSome
             && isProperPrefix stroke b.Stroke)
+
+    /// Bound continuations of an in-flight sequence prefix in `ctx`: every
+    /// stroke reachable from this context that properly extends `pending`,
+    /// rendered as (remaining stroke, action name) and sorted by the
+    /// remainder. Strokes whose effective resolution is an unbind are
+    /// dropped. Drives the which-key dock panel.
+    let continuations (ctx: Context) (pending: KeyStroke) (keymap: Keymap) : (string * string) list =
+        keymap
+        |> List.choose (fun b ->
+            if
+                (b.Context = ctx || b.Context = Context.Global)
+                && isProperPrefix pending b.Stroke
+            then
+                Some b.Stroke
+            else
+                None)
+        |> List.distinct
+        |> List.choose (fun stroke ->
+            match resolve ctx stroke keymap with
+            | Bound action -> Some(Chord.renderStroke (List.skip pending.Length stroke), Action.name action)
+            | Unbound
+            | NotBound -> None)
+        |> List.distinct
+        |> List.sortBy fst
 
     /// A standalone (length-1) binding that is also a proper prefix of a bound
     /// sequence in the same context cannot coexist (it would silently shadow
@@ -258,24 +311,122 @@ module Keymap =
         | true, n -> Some n
         | _ -> None
 
-    /// Map a kebab-case action name (+ the raw remainder after the first ':')
-    /// to an Action. `run-plugin` is special-cased: its arg is itself
-    /// structured `<source>/<name> [plugin-arg]` (split once on '/', then once
-    /// on whitespace; an embedded '/' in the plugin-arg is preserved).
-    let private parseAction (name: string) (arg: string) : Result<Action, string> =
-        match name with
+    /// Decode a free-text payload (`insert-text` / `search-for` here; the
+    /// macros file reuses it for `command:` steps — `verb` only labels the
+    /// error messages). Two forms:
+    ///   - double-quoted: `"…"` with backslash escapes \" \\ \n \t \r —
+    ///     the only way to carry whitespace, and what `Action.toSyntax` emits
+    ///   - bare: a single whitespace-free token taken literally (convenience)
+    let parseTextPayload (verb: string) (raw: string) : Result<string, string> =
+        let trimmed = raw.Trim()
+
+        if trimmed = "" then
+            Result.Error $"{verb} needs a payload, e.g. {verb}:\"text\""
+        elif trimmed.StartsWith "\"" then
+            let rec decode index (sb: System.Text.StringBuilder) =
+                if index >= trimmed.Length then
+                    Result.Error $"{verb}: unterminated quoted payload"
+                else
+                    match trimmed[index] with
+                    | '"' when index = trimmed.Length - 1 -> Ok(sb.ToString())
+                    | '"' -> Result.Error $"{verb}: text after the closing quote"
+                    | '\\' when index = trimmed.Length - 1 -> Result.Error $"{verb}: dangling backslash"
+                    | '\\' ->
+                        match trimmed[index + 1] with
+                        | '"' -> decode (index + 2) (sb.Append '"')
+                        | '\\' -> decode (index + 2) (sb.Append '\\')
+                        | 'n' -> decode (index + 2) (sb.Append '\n')
+                        | 't' -> decode (index + 2) (sb.Append '\t')
+                        | 'r' -> decode (index + 2) (sb.Append '\r')
+                        | unknown -> Result.Error $"{verb}: unknown escape '\\{unknown}'"
+                    | c -> decode (index + 1) (sb.Append c)
+
+            decode 1 (System.Text.StringBuilder())
+        elif trimmed |> Seq.exists System.Char.IsWhiteSpace then
+            Result.Error $"{verb}: quote a payload containing whitespace, e.g. {verb}:\"a b\""
+        else
+            Ok trimmed
+
+    /// Split a line into whitespace-separated tokens under the shared
+    /// quoted-payload grammar: inside a double-quoted span — which may
+    /// start mid-token, e.g. `insert-text:"a b"` — whitespace is literal
+    /// and `\` protects the next character from closing the quote. Pure
+    /// lexing: escapes are NOT decoded here (that is `parseTextPayload`'s
+    /// job), so an unterminated quote simply consumes the rest of the line
+    /// as one token and the payload decoder reports it. Shared by the
+    /// macros-file step grammar; keybind lines stay one-action-per-line.
+    let tokenize (line: string) : string list =
+        let tokens = ResizeArray<string>()
+        let current = System.Text.StringBuilder()
+        let mutable inQuotes = false
+        let mutable index = 0
+
+        while index < line.Length do
+            let c = line[index]
+
+            if inQuotes && c = '\\' && index + 1 < line.Length then
+                current.Append(c).Append(line[index + 1]) |> ignore
+                index <- index + 2
+            elif not inQuotes && System.Char.IsWhiteSpace c then
+                if current.Length > 0 then
+                    tokens.Add(current.ToString())
+                    current.Clear() |> ignore
+
+                index <- index + 1
+            else
+                if c = '"' then
+                    inQuotes <- not inQuotes
+
+                current.Append c |> ignore
+                index <- index + 1
+
+        if current.Length > 0 then
+            tokens.Add(current.ToString())
+
+        List.ofSeq tokens
+
+    /// Parse the action side of a binding line (the text right of '='), the
+    /// exact inverse of `Action.toSyntax`. Grammar:
+    ///
+    ///   action  = name [ ':' payload ]
+    ///   name    = kebab-case verb (the match below is exhaustive)
+    ///   payload = verb-specific remainder after the FIRST ':':
+    ///     insert-text     double-quoted string with \" \\ \n \t \r escapes,
+    ///                     or a bare whitespace-free token taken literally
+    ///     search-for      same free-text grammar as insert-text
+    ///     move-lines-*    positive count (omitted = 1)
+    ///     jump-to-buffer  buffer number 1..9
+    ///     set-theme       theme name (trimmed; may itself contain ':')
+    ///     goto            LINE or LINE:COL
+    ///     run-plugin      <source>/<name> [plugin-arg] — split once on '/',
+    ///                     then once on whitespace; later '/' are preserved
+    ///     record-macro    single-character register
+    ///     replay-macro    REGISTER or REGISTER:COUNT
+    let parseAction (syntax: string) : Result<Action, string> =
+        let name, arg =
+            match syntax.IndexOf(':') with
+            | -1 -> syntax, ""
+            | colon -> syntax.Substring(0, colon), syntax.Substring(colon + 1)
+
+        match name.Trim() with
         | "save" -> Ok Save
         | "quit" -> Ok Quit
+        | "force-quit" -> Ok ForceQuit
+        | "close-buffer" -> Ok CloseBuffer
         | "command-palette"
         | "open-palette" -> Ok OpenPalette
         | "open-file" -> Ok OpenFilePicker
         | "search" -> Ok OpenSearch
+        | "search-next" -> Ok SearchNext
+        | "search-previous" -> Ok SearchPrevious
+        | "search-for" -> parseTextPayload "search-for" arg |> Result.map SearchFor
         | "undo" -> Ok Undo
         | "redo" -> Ok Redo
         | "copy" -> Ok Copy
         | "cut" -> Ok Cut
         | "paste" -> Ok Paste
         | "select-all" -> Ok SelectAll
+        | "clear-selection" -> Ok ClearSelection
         | "move-left" -> Ok MoveLeft
         | "move-right" -> Ok MoveRight
         | "move-up" -> Ok MoveUp
@@ -292,6 +443,9 @@ module Keymap =
         | "extend-down" -> Ok ExtendDown
         | "extend-home" -> Ok ExtendHome
         | "extend-end" -> Ok ExtendEnd
+        | "insert-text" -> parseTextPayload "insert-text" arg |> Result.map InsertText
+        | "delete-backward" -> Ok DeleteBackward
+        | "delete-forward" -> Ok DeleteForward
         | "indent" -> Ok Indent
         | "unindent" -> Ok Unindent
         | "delete-word-back" -> Ok DeleteWordBack
@@ -326,6 +480,10 @@ module Keymap =
                 | Some line, Some col -> Ok(Goto(line, Some col))
                 | _ -> Result.Error "goto needs LINE or LINE:COL numbers"
             | _ -> Result.Error "goto: bad argument"
+        | "goto-definition" -> Ok GotoDefinition
+        | "find-references" -> Ok FindReferences
+        | "hover" -> Ok Hover
+        | "jump-back" -> Ok JumpBack
         | "reload-workspace" -> Ok ReloadWorkspace
         | "reload-keybinds" -> Ok ReloadKeybinds
         | "open-config" -> Ok OpenConfig
@@ -416,12 +574,7 @@ module Keymap =
                                       Action = None }
                             ) // unbind
                         else
-                            let name, arg =
-                                match rhs.IndexOf(':') with
-                                | -1 -> rhs, ""
-                                | colon -> rhs.Substring(0, colon), rhs.Substring(colon + 1)
-
-                            parseAction (name.Trim()) arg
+                            parseAction rhs
                             |> Result.map (fun a ->
                                 Some
                                     { Stroke = stroke

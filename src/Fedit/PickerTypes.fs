@@ -8,6 +8,12 @@ type PickerKind =
     | PluginPicker
     | MacroPicker
     | KeyBindingPicker
+    | MessagePicker
+    /// LSP locations (definitions, references, diagnostics): one row per
+    /// location, Enter jumps. Rows come from `Model.Lsp.Locations`.
+    | LocationPicker
+    /// The `:lsp` manager: one row per configured language server.
+    | LanguageServerPicker
 
 /// Presentation style for a picker kind.
 type PickerLayout =
@@ -37,7 +43,6 @@ type PickerInspectorLine =
     | TextLine of string
     | PathLine of string
     | ErrorLine of string
-    | ShortcutSequenceLine of Chord list
 
 /// Structured detail content for the selected item in ListWithInspector layout.
 type PickerInspector =
@@ -55,6 +60,12 @@ type PickerActionId =
     | MacroRecord
     | MacroMarkLast
     | MacroClear
+    | MacroEdit
+    | MessagesClear
+    | LocationJump
+    | LanguageServerRestart
+    | LanguageServerToggle
+    | LanguageServerLog
     | PickerClose
 
 /// Semantic role for a picker action, determining its styling.

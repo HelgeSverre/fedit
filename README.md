@@ -199,6 +199,62 @@ RID or `just build-grammars-all` for all five. The compiled `.dylib` /
 `.so` / `.dll` files are not tracked — CI builds the matching RID on
 each matrix leg.
 
+## Language servers
+
+`fedit` speaks the Language Server Protocol over stdio. Three servers are
+configured out of the box — `sema` (`sema lsp`), `typescript`
+(`typescript-language-server --stdio`), and `rust` (`rust-analyzer`) — and
+start on demand when a matching file opens. Diagnostics render as compact
+severity counts in the status bar (`E2 W1`); `:diagnostics` opens them in
+a picker whose `Enter` jumps to the offending line.
+
+Navigate from the editor:
+
+- `F12` jumps to the symbol's definition; multiple candidates open a picker.
+- `Shift+F12` lists references in a picker — `Enter` jumps, `Esc` closes.
+- `F1` shows hover info in the dock panel; the next keypress dismisses it.
+- `Alt+-` jumps back to where the last jump left from (a 50-entry stack).
+
+The chords map to the `goto-definition`, `find-references`, `hover`, and
+`jump-back` actions — rebindable in `~/.config/fedit/keybinds` like
+everything else. On macOS Terminal.app and iTerm2 default profiles,
+`Alt+-` needs "Use Option as Meta key" (Terminal) / "Esc+" (iTerm2)
+enabled — otherwise Option+minus types an en dash (`–`) instead of
+sending the chord. Alternatively rebind `jump-back` to a chord your
+terminal delivers.
+
+Manage servers with `:lsp`:
+
+- `:lsp` opens the manager picker — a status badge per server; `r`
+  restarts, `e` enables/disables, `l` shows the server's recent log.
+- `:lsp status` prints one status word per configured server.
+- `:lsp restart [server]` restarts one server (or all) and re-opens its
+  documents.
+- `:lsp enable <server>` / `:lsp disable <server>` toggle a server and
+  persist the choice to config under `disabledLanguageServers`.
+- `:lsp log [server]` shows the recent stderr ring in the dock.
+
+Add or override servers with a `languageServers` block in
+`~/.config/fedit/config.json` — a user entry with a default's name
+replaces it entirely:
+
+```json
+{
+    "languageServers": {
+        "gopls": {
+            "command": "gopls",
+            "args": [],
+            "fileTypes": ["go"],
+            "roots": ["go.mod"]
+        }
+    },
+    "disabledLanguageServers": ["typescript"]
+}
+```
+
+Full guide — config schema, architecture, troubleshooting — in
+[docs/lsp.md](docs/lsp.md).
+
 ## Plugins
 
 `fedit` supports third-party plugins written in F#. Plugins register
@@ -228,7 +284,8 @@ Global shortcuts:
 - `Ctrl+E`: Focus the editor.
 - `Ctrl+S`: Save the active buffer.
 - `Ctrl+R`: Reload the workspace tree.
-- `Ctrl+Q`: Quit (prompts once if buffers are dirty; press again to discard).
+- `Ctrl+Q`: Quit (warns once if buffers are dirty, naming them; quit again to discard).
+- `Ctrl+W`: Close the active buffer (warns once if dirty; close again to discard). Activation falls back to the most recently active buffer; closing the last buffer leaves a fresh scratch.
 - `Ctrl+Z`: Undo.
 - `Ctrl+Y`: Redo.
 - `Ctrl+PageDown` / `Ctrl+PageUp`: Cycle to the next / previous open buffer.
@@ -238,6 +295,7 @@ Editor keys:
 
 - Arrow keys, `Home`, `End`, `PageUp`, and `PageDown` move the cursor.
 - `Alt+Left` / `Alt+Right` (or `Ctrl+Left` / `Ctrl+Right`) move the cursor by word.
+- `F3` / `Shift+F3` jump to the next / previous occurrence of the last accepted search, wrapping at the buffer edges (see Find keys).
 - `Alt+Up` / `Alt+Down` move the current line or selected lines. The move clamps at the buffer boundary and is one undo step.
 - `Ctrl+Backspace` / `Ctrl+Delete` delete the previous / next word.
 - `Shift+Arrow`, `Shift+Home`, `Shift+End` extend the text selection.
@@ -246,16 +304,20 @@ Editor keys:
 - `Ctrl+V` pastes from the system clipboard.
 - `Tab` indents the current line.
 - `Shift+Tab` unindents the current line.
+- `F12` / `Shift+F12` jump to the symbol's definition / list its references (needs a language server — see [Language servers](#language-servers)).
+- `F1` shows hover info in the dock; `Alt+-` jumps back to where the last jump left from.
 - `Enter`, `Backspace`, and `Delete` edit text normally; with a selection, they replace it.
 - The mouse wheel scrolls the viewport; the cursor follows only when it would cross the `scrollOff` margin. Set `scrollMode` to `line` to make the wheel move the cursor instead. While fedit runs it captures the mouse — hold `Shift` (or `Option` on macOS) for the terminal's own selection and scrollback.
-- **Click** in the editor to place the cursor. **Drag** to select text. Clicking also restores focus to the editor when the sidebar or prompt had it.
+- **Click** in the editor to place the cursor. **Double-click** selects the word under the cursor, **triple-click** the whole line. **Drag** to select text. Clicking also restores focus to the editor when the sidebar or prompt had it.
 
 Find keys (after `Ctrl+F`):
 
 - Type to extend the query; matches highlight live and the cursor jumps to the first hit.
-- `Enter` or `Down` advances to the next match; `Up` goes to the previous.
+- `Down` / `Up` cycle to the next / previous match, wrapping.
 - `Backspace` shortens the query (no-op once empty).
-- `Escape` closes the prompt and clears the highlights.
+- `Enter` accepts the search: the prompt closes with the cursor at the current match, and the query is remembered.
+- `Escape` cancels: the prompt closes, highlights clear, and the cursor and viewport return to where the search began.
+- `F3` / `Shift+F3` (in the editor, actions `search-next` / `search-previous`) repeat the accepted query from the cursor — forward or backward, wrapping — without reopening the prompt. Handy after edits: no retyping the query. A search with no matches left in the buffer reports `No matches`.
 
 File tree keys:
 
@@ -273,9 +335,9 @@ Prompt keys (any mode):
 - `Up` / `Down` (and `Shift+Tab`) move the highlight through the completion list. The viewport scrolls so the selected item stays visible. In Search mode `Up` / `Down` cycle through matches instead.
 - `Tab` autofills the prompt with the highlighted completion's text — `:o<Tab>` becomes `:open`, ready for arguments. No-op when the completion list is empty.
 - `Alt+Up` / `Alt+Down` walk through recent prompt history (up to 20 entries).
-- `Enter` runs the parsed command, applies the highlighted completion, opens the selected file/buffer, or advances to the next search match — depending on the mode.
+- `Enter` runs the parsed command, applies the highlighted completion, opens the selected file/buffer, or accepts the search at the current match — depending on the mode.
 - `Left`, `Right`, `Home`, `End`, `Backspace`, and `Delete` edit the input. Backspace through the prefix character flips the mode (e.g. `/foo` → backspace → empty FilePicker); backspace at the start of an empty prompt is a no-op (use `Escape` to close).
-- `Escape` is the sole way to close the prompt; in Search mode it also clears the match highlights.
+- `Escape` is the sole way to close the prompt; in Search mode it also clears the match highlights and restores the cursor and viewport to where the search began.
 
 Prompt modes — type the prefix to switch modes inside the prompt, or use the dedicated chord to open in that mode directly:
 
@@ -283,7 +345,7 @@ Prompt modes — type the prefix to switch modes inside the prompt, or use the d
 | :----: | ---------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 |  `:`   | Command    | `Ctrl+P`  | Named commands and `:LINE[:COL]` cursor jumps. Argument starting with a digit is parsed as goto (`:42` or `:100:6`); otherwise as a command name. |
 | (none) | FilePicker | `Ctrl+O`  | Recent files first, then workspace files; type to filter; Enter opens.                                                                            |
-|  `/`   | Search     | `Ctrl+F`  | Incremental search in the active buffer. Cursor jumps live to the first match.                                                                    |
+|  `/`   | Search     | `Ctrl+F`  | Incremental search in the active buffer. Cursor jumps live to the first match; Enter accepts, Escape cancels back to the origin.                  |
 |  `@`   | Buffers    | —         | Switch to an open buffer by numeric id or name.                                                                                                   |
 
 Named commands (typed after `:`):
@@ -291,18 +353,22 @@ Named commands (typed after `:`):
 - `open <path>`: Open a file from the current workspace. Activates the existing buffer if the file is already open.
 - `write`: Save the active buffer.
 - `writeas <path>`: Save the active buffer to another path.
-- `quit`: Exit the editor.
+- `quit [force]`: Exit the editor. With dirty buffers, plain `quit` warns once and quits on repeat; `quit force` discards unsaved changes immediately.
+- `close [id-or-name]`: Close a buffer (the active one by default). Dirty buffers warn once and close on repeat, like `quit`.
 - `config`: Open `~/.config/fedit/config.json` in a buffer; creates it from the running config on first call.
 - `reload`: Reload the workspace tree.
 - `next` / `prev`: Cycle buffers (also bound to `Ctrl+PageDown` / `Ctrl+PageUp`).
 - `theme <name>`: Switch the theme. The accent themes — `green` (default), `blue`, `orange`, `cyan`, `teal`, `yellow`, `red`, `graphite`, `evergreen`, `mono-amber` — swap the accent family and keep the terminal-default chrome; `github-light`, `github-dark`, and `ayu` repaint the full surface. The UI live-previews each highlight as you cycle. The choice persists to `~/.config/fedit/config.json` and is restored on next launch.
 - `recent <path>`: Pick a recently opened file. Tab to cycle through the last 20 files; the list persists in the same config file.
-- `buffers <id-or-name>`: Switch to an open buffer by numeric id or name. Completion shows `{id} {name}` with the file path as detail.
+- `buffers <id-or-name>`: Switch to an open buffer by numeric id or name. Completion shows `{id} {name}` with the file path as detail; dirty buffers carry a ` [+]` marker.
 - `syntax <on|off|toggle>`: Toggle syntax highlighting; persists to config under `syntaxHighlighting`.
 - `plugin <verb> [arg]`: In-editor plugin manager. See `docs/plugins.md` for the verbs.
 - `plugins`: Open the plugin manager picker.
-- `macros`: Open the macro manager picker.
+- `macros`: Open the macro manager picker (`Enter` replays, `r` records, `m` marks last, `c` clears, `e` opens the macros file in a buffer).
+- `messages`: Review the last 100 notifications, newest first, with severity badges and the full message text in the detail panel (the status bar truncates; this surface doesn't). `c` clears the log. Error notifications also persist on the status bar until dismissed with `Esc` — info/warning still clear on the next keypress.
 - `keybind [reload | <stroke>]`: List the effective keybindings, reload the keybinds file (`keybind reload`), or show what a stroke resolves to in each context (`keybind ctrl+s`).
+- `lsp [status|restart|enable|disable|log] [server]`: Manage language servers; bare `lsp` opens the manager picker. See [Language servers](#language-servers).
+- `diagnostics`: List the active buffer's language-server diagnostics in a picker; `Enter` jumps to the line.
 
 A few keyboard-first verbs (`sidebar`, `tree`, `editor`) still parse if typed, but are hidden from the completion menu since `Ctrl+B` / `Ctrl+E` cover the same ground more richly.
 
@@ -321,7 +387,8 @@ Each line is `[context] stroke[ stroke…] = action[:arg]`:
 ctrl+s            = save
 # Contexts: global, editor, sidebar, prompt. Global fires in every focus.
 global  ctrl+r    = reload-workspace
-# A multi-key sequence (press in order; the status bar shows the pending prefix).
+# A multi-key sequence (press in order; the status bar shows the pending
+# prefix and the dock lists its bound continuations).
 editor  ctrl+k ctrl+s = save
 # Free a binding entirely with an empty right-hand side (does NOT fall through).
 global  ctrl+r    =
@@ -339,11 +406,31 @@ lives at [`examples/keybinds`](examples/keybinds).
 
 ### Macros
 
-Record a run of keystrokes and replay it. `Ctrl+Shift+M` starts and stops
-recording into register `a` — the status bar shows `REC @a` while it captures.
+Record what you do and replay it. `Ctrl+Shift+M` starts and stops recording
+into register `a` — the status bar shows `REC @a` while it captures.
 `Ctrl+Shift+R` replays the register; `Ctrl+Shift+.` repeats the last macro.
-Triggers are modifier chords so bare keys stay text input. Macros live in
-memory for the session; they are not yet persisted to the keybinds file.
+Triggers are modifier chords so bare keys stay text input; reach other
+registers through the `:macros` picker or by binding `record-macro:<r>` /
+`replay-macro:<r>[:count]` in the keybinds file.
+
+Recording is semantic: a register holds action and command steps (what you
+did), never raw chords — replay re-executes outcomes, so prompt navigation
+can never end up inside a macro. Registers persist to
+`~/.config/fedit/macros`, a plain-text file written through on every
+recording. Open it with `e` in the `:macros` picker; saving it through
+fedit reloads the registers on the spot. One macro per line, in the same
+action syntax the keybinds file uses, plus `command:"…"` for palette
+command lines:
+
+```
+a = insert-text:"TODO: " move-home
+b = search-for:"let x" delete-forward command:"open README.md"
+```
+
+The full grammar — payload quoting, `command:` steps, replay fencing,
+nested replays — lives in [`docs/macros.md`](docs/macros.md). The
+last-macro marker is per-session; file comments are not preserved across
+the canonical rewrite.
 
 ## Configuration
 
@@ -376,23 +463,26 @@ Changes take effect on next launch. Out-of-range values clamp to the nearest val
 The default format is:
 
 ```
-[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]
+[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION][DIAGNOSTICS]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]
 ```
 
 Tokens are case-insensitive. Unknown tokens render literally so typos are visible (e.g. `[xyx]` stays as `[xyx]`). Multiple `<EXPAND>` placeholders share leftover width; odd remainder distributes left-to-right.
 
-| Token                  | Resolves to                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------------ |
-| `[MODE]`               | Focus label (`EDIT` / `CMD` / `FILE` / `FIND` / `BUF` / `TREE`).                           |
-| `[CURRENT_FILE]`       | Filename only (e.g. `README.md`); `[scratch]` for unsaved buffers.                         |
-| `[CURRENT_FILE:short]` | Path with `$HOME` tildified (e.g. `~/code/fedit/README.md`).                               |
-| `[CURRENT_FILE:full]`  | Absolute path.                                                                             |
-| `[DIRTY]`              | ` [+]` when the buffer is dirty (with leading space so it disappears cleanly), else empty. |
-| `[LINE]` / `[COLUMN]`  | 1-based cursor position.                                                                   |
-| `[LINE_ENDING]`        | `LF` or `CRLF`.                                                                            |
-| `[BUFFER]`             | Sorted index / count (e.g. `2/5`).                                                         |
-| `[NOTIFICATION]`       | Active notification message, or empty.                                                     |
-| `<EXPAND>`             | Flex spacer; multiple expand placeholders split remaining columns evenly.                  |
+| Token                  | Resolves to                                                                                                                |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `[MODE]`               | Focus label (`EDIT` / `CMD` / `FILE` / `FIND` / `BUF` / `TREE`).                                                           |
+| `[CURRENT_FILE]`       | Filename only (e.g. `README.md`); `[scratch]` for unsaved buffers.                                                         |
+| `[CURRENT_FILE:short]` | Path with `$HOME` tildified (e.g. `~/code/fedit/README.md`).                                                               |
+| `[CURRENT_FILE:full]`  | Absolute path.                                                                                                             |
+| `[DIRTY]`              | ` [+]` when the buffer is dirty (with leading space so it disappears cleanly), else empty.                                 |
+| `[LINE]` / `[COLUMN]`  | 1-based cursor position.                                                                                                   |
+| `[LINE_ENDING]`        | `LF` or `CRLF`.                                                                                                            |
+| `[BUFFER]`             | Sorted index / count (e.g. `2/5`).                                                                                         |
+| `[NOTIFICATION]`       | Active notification message, or empty.                                                                                     |
+| `[DIAGNOSTICS]`        | Compact severity counts for the active buffer (e.g. `E2 W1`, own leading spaces so it vanishes cleanly); empty when clean. |
+| `<EXPAND>`             | Flex spacer; multiple expand placeholders split remaining columns evenly.                                                  |
+
+A custom `statusFormat` only shows the segments it names — add `[DIAGNOSTICS]` to yours or language-server diagnostics never reach the status bar. Configs saved before the token existed migrate automatically when they still carry the old default string.
 
 ### User themes
 

@@ -70,6 +70,19 @@ module Runtime =
 
         output
 
+    /// Read a file for `LoadFile`, classifying "not there" (missing file or
+    /// missing parent directory) apart from real I/O errors so the editor
+    /// can treat a permanent open of a nonexistent path as creating a new
+    /// file. Other failures (permissions, the path is a directory) surface
+    /// verbatim as `FileOpenFailed`.
+    let readFileForOpen (path: string) : Result<string, FileOpenError> =
+        try
+            Result.Ok(File.ReadAllText path)
+        with
+        | :? FileNotFoundException
+        | :? DirectoryNotFoundException -> Result.Error FileNotFound
+        | ex -> Result.Error(FileOpenFailed ex.Message)
+
     let private renderTextResult (result: Result<string, string>) =
         match result with
         | Result.Ok text -> $"Ok(<len={text.Length}>)"
@@ -80,6 +93,12 @@ module Runtime =
         | Result.Ok() -> "Ok"
         | Result.Error error -> $"Error({error})"
 
+    let private renderFileOpenResult (result: Result<string, FileOpenError>) =
+        match result with
+        | Result.Ok text -> $"Ok(<len={text.Length}>)"
+        | Result.Error FileNotFound -> "Error(FileNotFound)"
+        | Result.Error(FileOpenFailed error) -> $"Error({error})"
+
     let private renderTarget (target: Position option) =
         match target with
         | Some pos -> $"{pos.Line}:{pos.Column}"
@@ -89,6 +108,27 @@ module Runtime =
         match intent with
         | OpenPermanent -> "permanent"
         | OpenPreview -> "preview"
+
+    let private renderLspServerStatus (status: LspServerStatus) =
+        match status with
+        | LspServerStatus.NotStarted -> "NotStarted"
+        | LspServerStatus.Starting -> "Starting"
+        | LspServerStatus.Running -> "Running"
+        | LspServerStatus.Failed reason -> $"Failed({reason})"
+        | LspServerStatus.Stopped -> "Stopped"
+
+    let private renderLocationsResult (result: Result<LspResolvedLocation list, string>) =
+        match result with
+        | Result.Ok locations -> $"Ok(count={locations.Length})"
+        | Result.Error error -> $"Error({error})"
+
+    let private renderHoverResult (result: Result<string list, string>) =
+        match result with
+        | Result.Ok lines -> $"Ok(lines={lines.Length})"
+        | Result.Error error -> $"Error({error})"
+
+    let private renderLspPositionRequest (request: LspPositionRequest) =
+        $"{request.Path}:{request.Position.Line}:{request.Position.Column}, tick={request.EditTick}, buffer={request.BufferId}"
 
     // NOTE: every case is rendered explicitly — there is deliberately NO `_`
     // catch-all. A wildcard would have to interpolate the bare DU (`$"{msg}"`),
@@ -103,7 +143,7 @@ module Runtime =
         | SequenceTimedOut -> "SequenceTimedOut"
         | Resize size -> $"Resize({size.Width}x{size.Height})"
         | MouseScrolled(ticks, position) -> $"MouseScrolled(ticks={ticks}, at={position.Line}:{position.Column})"
-        | MousePressed e -> $"MousePressed({e.Position.Line}:{e.Position.Column})"
+        | MousePressed(e, clickCount) -> $"MousePressed({e.Position.Line}:{e.Position.Column}, clicks={clickCount})"
         | MouseReleased e -> $"MouseReleased({e.Position.Line}:{e.Position.Column})"
         | MouseDragged e -> $"MouseDragged({e.Position.Line}:{e.Position.Column})"
         | FocusGained -> "FocusGained"
@@ -111,7 +151,7 @@ module Runtime =
         | WorkspaceLoaded(Result.Ok _) -> "WorkspaceLoaded(Ok)"
         | WorkspaceLoaded(Result.Error error) -> $"WorkspaceLoaded(Error({error}))"
         | FileOpened(path, intent, target, result) ->
-            $"FileOpened({path}, {renderIntent intent}, target={renderTarget target}, {renderTextResult result})"
+            $"FileOpened({path}, {renderIntent intent}, target={renderTarget target}, {renderFileOpenResult result})"
         | BufferSaved(bufferId, path, revision, result) ->
             $"BufferSaved(buffer={bufferId}, path={path}, revision={revision}, {renderUnitResult result})"
         | ConfigSaved result -> $"ConfigSaved({renderUnitResult result})"
@@ -123,8 +163,8 @@ module Runtime =
         | SearchCompleted(bufferId, query, matches) ->
             $"SearchCompleted(buffer={bufferId}, queryLen={query.Length}, matches={matches.Length})"
         | WorkspaceChangedExternally -> "WorkspaceChangedExternally"
-        | MacroReplayStart -> "MacroReplayStart"
-        | MacroReplayEnd -> "MacroReplayEnd"
+        | ReplayStepReady -> "ReplayStepReady"
+        | ReplayFenceTimeout -> "ReplayFenceTimeout"
         | HighlightParsed(bufferId, editTick, spans) ->
             $"HighlightParsed(buffer={bufferId}, tick={editTick}, spans={spans.Length})"
         | PluginsScanned(Result.Ok _) -> "PluginsScanned(Ok)"
@@ -138,6 +178,20 @@ module Runtime =
         | PluginValidated(Result.Ok report) -> $"PluginValidated(Ok(<len={report.Length}>))"
         | PluginValidated(Result.Error error) -> $"PluginValidated(Error({error}))"
         | KeybindsLoaded(_, errors) -> $"KeybindsLoaded(errors={errors.Length})"
+        | MacrosLoaded(registers, errors, announce) ->
+            $"MacrosLoaded(registers={registers.Count}, errors={errors.Length}, announce={announce})"
+        | MacrosSaved result -> $"MacrosSaved({renderUnitResult result})"
+        | MacrosFileReady(Result.Ok path) -> $"MacrosFileReady(Ok({path}))"
+        | MacrosFileReady(Result.Error error) -> $"MacrosFileReady(Error({error}))"
+        | LspServerStatusChanged(name, status) -> $"LspServerStatusChanged({name}, {renderLspServerStatus status})"
+        | LspDiagnosticsPublished(path, diagnostics) -> $"LspDiagnosticsPublished({path}, count={diagnostics.Length})"
+        | LspDefinitionResolved(outcome, requestedEditTick, bufferId) ->
+            $"LspDefinitionResolved(buffer={bufferId}, tick={requestedEditTick}, {renderLocationsResult outcome})"
+        | LspReferencesResolved(outcome, requestedEditTick, bufferId) ->
+            $"LspReferencesResolved(buffer={bufferId}, tick={requestedEditTick}, {renderLocationsResult outcome})"
+        | LspHoverResolved(outcome, requestedEditTick, bufferId) ->
+            $"LspHoverResolved(buffer={bufferId}, tick={requestedEditTick}, {renderHoverResult outcome})"
+        | LspLogFetched(title, lines) -> $"LspLogFetched({title}, lines={lines.Length})"
 
     let private renderEffect effect =
         match effect with
@@ -160,7 +214,29 @@ module Runtime =
         | BuildPlugin pluginPath -> $"BuildPlugin({pluginPath})"
         | ValidatePlugin path -> $"ValidatePlugin({path})"
         | LoadKeybinds -> "LoadKeybinds"
-        | ReplayKeys(chords, count) -> $"ReplayKeys(chords={chords.Length}, count={count})"
+        | LoadMacros announce -> $"LoadMacros(announce={announce})"
+        | SaveMacros registers -> $"SaveMacros(registers={registers.Count})"
+        | EnsureMacrosFile registers -> $"EnsureMacrosFile(registers={registers.Count})"
+        | ReplayPump -> "ReplayPump"
+        | LspSyncDocuments(workspaceRoot, documents) ->
+            $"LspSyncDocuments(root={workspaceRoot}, documents={documents.Length})"
+        | LspRestart name ->
+            let target =
+                match name with
+                | Some serverName -> serverName
+                | None -> "all"
+
+            $"LspRestart({target})"
+        | LspRequestDefinition request -> $"LspRequestDefinition({renderLspPositionRequest request})"
+        | LspRequestHover request -> $"LspRequestHover({renderLspPositionRequest request})"
+        | LspRequestReferences request -> $"LspRequestReferences({renderLspPositionRequest request})"
+        | LspFetchLog name ->
+            let target =
+                match name with
+                | Some serverName -> serverName
+                | None -> "all"
+
+            $"LspFetchLog({target})"
 
     /// Build a FileNode, using the basename (or full path when the name is
     /// empty). Paths are canonicalized to `/` here — this is the OS boundary
@@ -224,6 +300,59 @@ module Runtime =
         { Width = max 1 Console.WindowWidth
           Height = max 1 Console.WindowHeight }
 
+    /// Resolve symlinks in every component of a path (realpath semantics),
+    /// returning the canonical `/`-separated result. Language servers
+    /// canonicalize the URIs they publish (sema realpaths macOS's
+    /// `/tmp` -> `/private/tmp`; rust-analyzer does the same), so paths
+    /// received from a server must be comparable against the editor's
+    /// buffer paths through this resolution. Components that don't exist
+    /// (or can't be probed) pass through unchanged. Impure — filesystem
+    /// probing lives here, never in the pure layers.
+    let canonicalizePath (path: string) : string =
+        let resolveLink (candidate: string) : string option =
+            try
+                let info =
+                    if Directory.Exists candidate then
+                        Directory.ResolveLinkTarget(candidate, true)
+                    elif File.Exists candidate then
+                        File.ResolveLinkTarget(candidate, true)
+                    else
+                        null
+
+                match info with
+                | null -> None
+                | resolved -> Some(Paths.norm resolved.FullName)
+            with _ ->
+                None
+
+        // Walk from the root, resolving each accumulated prefix, so a
+        // symlinked directory anywhere in the path is replaced by its
+        // target before the deeper components are appended. A link's
+        // target can itself pass through symlinked directories (a link
+        // into `/var/...` on macOS), so each substitution re-walks the
+        // target; the depth guard bounds symlink cycles.
+        let rec walk (depth: int) (path: string) : string =
+            let mutable current = ""
+            let mutable first = true
+
+            for segment in path.Split '/' do
+                if first then
+                    // "" for absolute Unix paths, "C:" for Windows drives.
+                    current <- segment
+                    first <- false
+                else
+                    let candidate = current + "/" + segment
+
+                    current <-
+                        match resolveLink candidate with
+                        | Some target when depth < 16 -> walk (depth + 1) target
+                        | Some target -> target
+                        | None -> candidate
+
+            current
+
+        walk 0 (Paths.norm path)
+
     let run rootPath initialFile (logPath: string option) =
         // Canonicalize the workspace root + initial file to `/` at this OS
         // boundary so every downstream path comparison is platform-independent.
@@ -241,11 +370,16 @@ module Runtime =
 
                 new StreamWriter(path, append = true, encoding = utf8WithoutBom))
 
+        // LSP client callbacks log from their reader threads, so writes are
+        // serialized — StreamWriter is not thread-safe.
+        let logLock = obj ()
+
         let log (s: string) =
             match logWriter with
             | Some w ->
-                w.WriteLine($"{DateTime.UtcNow:o} {s}")
-                w.Flush()
+                lock logLock (fun () ->
+                    w.WriteLine($"{DateTime.UtcNow:o} {s}")
+                    w.Flush())
             | None -> ()
 
         // Async effect machinery.
@@ -261,6 +395,11 @@ module Runtime =
         // task, preserving dispatch order by construction.
         let configSaveLock = obj ()
         let mutable configSaveChain: Task = Task.CompletedTask
+        // Serialize macros-file writes the same way (write-through saves
+        // fire on every recording commit / register clear); `ensureFile`
+        // joins the chain so an edit-flow create can't race a save.
+        let macroSaveLock = obj ()
+        let mutable macroSaveChain: Task = Task.CompletedTask
         // Serialize buffer writes per canonical path so repeated saves cannot
         // land out of dispatch order on disk.
         let bufferSaveLock = obj ()
@@ -279,6 +418,167 @@ module Runtime =
         // NativeAOT. Scans and invocations go through this client; the Model
         // only ever sees the registry (stub Run closures) and PluginActions.
         let pluginHost = new PluginHostClient(PluginHostClient.defaultHostPath ())
+
+        // Language servers: one out-of-process client per server name +
+        // resolved workspace root, spawned lazily by the LspSyncDocuments
+        // interpreter. All document notifications (and restarts) chain onto
+        // one task — the configSaveChain pattern — so they reach each server
+        // in dispatch order: a didChange can never outrun its didOpen, and a
+        // restart cannot race an in-flight notification. Client callbacks
+        // enqueue Msgs exactly like the FileSystemWatcher below.
+        let lspLock = obj ()
+        let lspClients = System.Collections.Generic.Dictionary<string, LspClient>()
+        let mutable lspSyncChain: Task = Task.CompletedTask
+
+        let lspMarkerExists (path: string) =
+            File.Exists path || Directory.Exists path
+
+        // Canonical (symlink-resolved) path aliases: canonical -> the path
+        // the editor knows the document by. Servers may publish URIs for
+        // the resolved path (sema realpaths `/tmp` -> `/private/tmp`), so
+        // every path received from a server translates back through this
+        // table — otherwise diagnostics would never match the open buffer
+        // and goto-definition would open a duplicate of it. Documents
+        // register identity entries too, so an explicitly-canonical open
+        // wins over a workspace-root prefix rewrite. Entries are tiny and
+        // bounded by the session's file set; they are never removed.
+        let lspPathAliases = System.Collections.Generic.Dictionary<string, string>()
+        let lspCanonicalCache = System.Collections.Generic.Dictionary<string, string>()
+
+        // Resolution is cached per path so the reader-thread diagnostics
+        // callback stays cheap after the first sighting of a path.
+        let lspCanonicalFor (path: string) : string =
+            let cached =
+                lock lspLock (fun () ->
+                    match lspCanonicalCache.TryGetValue path with
+                    | true, canonical -> Some canonical
+                    | _ -> None)
+
+            match cached with
+            | Some canonical -> canonical
+            | None ->
+                let canonical = canonicalizePath path
+                lock lspLock (fun () -> lspCanonicalCache[path] <- canonical)
+                canonical
+
+        let lspRegisterPathAlias (editorPath: string) : unit =
+            let canonical = lspCanonicalFor editorPath
+            lock lspLock (fun () -> lspPathAliases[canonical] <- editorPath)
+
+        /// A path received from a server, mapped back to the editor's form:
+        /// exact document alias first, then a workspace-root prefix rewrite
+        /// (covers never-opened files inside a symlinked root), else the
+        /// canonical form as-is.
+        let lspTranslateServerPath (serverPath: string) : string =
+            let canonical = lspCanonicalFor serverPath
+
+            lock lspLock (fun () ->
+                match lspPathAliases.TryGetValue canonical with
+                | true, editorPath -> editorPath
+                | _ ->
+                    lspPathAliases
+                    |> Seq.tryPick (fun (KeyValue(aliasCanonical, aliasEditorPath)) ->
+                        if
+                            aliasEditorPath <> aliasCanonical
+                            && canonical.StartsWith(aliasCanonical + "/", StringComparison.Ordinal)
+                        then
+                            Some(aliasEditorPath + canonical.Substring aliasCanonical.Length)
+                        else
+                            None)
+                    |> Option.defaultValue canonical)
+
+        // A document's workspace root resolves once, on first sync, and
+        // stays pinned for its whole open/change/close lifecycle:
+        // re-resolving against the live filesystem could route a later
+        // didChange to a different client — one that never saw the didOpen —
+        // when a root marker appears or disappears mid-session. Entries
+        // drop on Closed and on LspRestart (documents re-pin on the reopen
+        // sync that follows a restart).
+        let lspDocumentRoots = System.Collections.Generic.Dictionary<string, string>()
+
+        let lspRootFor (server: LanguageServerConfig) (path: string) (workspaceFallbackRoot: string) : string =
+            let pinned =
+                lock lspLock (fun () ->
+                    match lspDocumentRoots.TryGetValue path with
+                    | true, root -> Some root
+                    | _ -> None)
+
+            match pinned with
+            | Some root -> root
+            | None ->
+                let resolved =
+                    LanguageServers.findWorkspaceRoot lspMarkerExists server.RootMarkers path workspaceFallbackRoot
+
+                lock lspLock (fun () -> lspDocumentRoots[path] <- resolved)
+                resolved
+
+        let lspContinueWith (work: unit -> unit) =
+            lock lspLock (fun () ->
+                lspSyncChain <- lspSyncChain.ContinueWith((fun (_: Task) -> work ()), TaskContinuationOptions.None))
+
+        let lspClientFor (server: LanguageServerConfig) (rootPath: string) : LspClient =
+            // The workspace root registers as an alias so server paths
+            // under a symlinked root rewrite back to the editor's form.
+            lspRegisterPathAlias rootPath
+
+            lock lspLock (fun () ->
+                let key = LspClient.key server rootPath
+
+                match lspClients.TryGetValue key with
+                | true, client -> client
+                | false, _ ->
+                    let callbacks =
+                        { OnDiagnostics =
+                            fun (path, diagnostics) ->
+                                queue.Enqueue(LspDiagnosticsPublished(lspTranslateServerPath path, diagnostics))
+                          OnStatusChanged = fun status -> queue.Enqueue(LspServerStatusChanged(key, status))
+                          OnLog = fun line -> log $"lsp[{server.Name}]: {line}" }
+
+                    let client = LspClient.create server rootPath callbacks
+                    lspClients[key] <- client
+                    client)
+
+        /// Resolve the client owning a position request (get-or-spawn, the
+        /// document's pinned root — same resolution as document sync).
+        let lspClientForRequest (request: LspPositionRequest) : LspClient =
+            lspRegisterPathAlias request.Path
+            lspClientFor request.Server (lspRootFor request.Server request.Path request.WorkspaceRoot)
+
+        /// One preview line off disk for the location picker. The update
+        /// layer swaps in the open buffer's line where the document is open;
+        /// this covers everything else (unopened files, indexed workspace).
+        let lspPreviewLine (path: string) (lineIndex: int) : string =
+            try
+                use reader = new StreamReader(path)
+                let mutable current = reader.ReadLine()
+                let mutable index = 0
+
+                while index < lineIndex && current <> null do
+                    current <- reader.ReadLine()
+                    index <- index + 1
+
+                match current with
+                | null -> ""
+                | line -> line.Trim()
+            with _ ->
+                ""
+
+        /// URI -> canonical path + preview line, dropping non-file URIs.
+        /// The path translates back through the symlink alias table so a
+        /// location lands on the buffer the editor already has open, never
+        /// a duplicate under the server's resolved spelling. Involves disk
+        /// reads, so callers run it off the reader thread.
+        let lspResolveLocations (locations: LspLocation list) : LspResolvedLocation list =
+            locations
+            |> List.choose (fun location ->
+                LspUri.toPath location.Uri
+                |> Option.map (fun serverPath ->
+                    let path = lspTranslateServerPath serverPath
+                    let position = LspPosition.toPosition location.Range.Start
+
+                    { Path = path
+                      Position = position
+                      Preview = lspPreviewLine path position.Line }))
 
         let cancelAndReplace (existing: CancellationTokenSource option) =
             existing
@@ -320,13 +620,7 @@ module Runtime =
                 let token = cts.Token
 
                 Task.Run(fun () ->
-                    let msg =
-                        try
-                            FileOpened(path, intent, target, Result.Ok(File.ReadAllText path))
-                        with ex ->
-                            FileOpened(path, intent, target, Result.Error ex.Message)
-
-                    enqueueUnlessCancelled token msg)
+                    enqueueUnlessCancelled token (FileOpened(path, intent, target, readFileForOpen path)))
                 |> ignore
             | SaveBuffer(bufferId, path, revision, contents) ->
                 let key =
@@ -407,23 +701,13 @@ module Runtime =
 
                 Task.Run(fun () ->
                     // Materialize the haystack here, off the UI thread; the
-                    // effect carries only the shared piece table.
+                    // effect carries only the shared piece table. The scan
+                    // itself is `Buffer.findAllMatches` — the same core the
+                    // search-next/search-previous repeat actions use, so the
+                    // two paths can never disagree on match semantics.
                     let haystack = PieceTable.toString document
-                    // Plain IndexOf loop — same logic as the old in-update
-                    // `Buffer.findAll`, just off the UI thread.
-                    let mutable matches: int list = []
-
-                    let mutable index =
-                        if String.IsNullOrEmpty query then
-                            -1
-                        else
-                            haystack.IndexOf(query, StringComparison.OrdinalIgnoreCase)
-
-                    while index >= 0 do
-                        matches <- index :: matches
-                        index <- haystack.IndexOf(query, index + 1, StringComparison.OrdinalIgnoreCase)
-
-                    enqueueUnlessCancelled token (SearchCompleted(bufferId, query, List.rev matches)))
+                    let matches = Buffer.findAllMatches query haystack
+                    enqueueUnlessCancelled token (SearchCompleted(bufferId, query, matches)))
                 |> ignore
             | ClipboardPaste ->
                 Task.Run(fun () ->
@@ -571,23 +855,237 @@ module Runtime =
                     let keymap, errors = KeymapIO.load ()
                     queue.Enqueue(KeybindsLoaded(keymap, errors)))
                 |> ignore
-            | ReplayKeys(chords, count) ->
-                // Pure in-memory queue manipulation — runs synchronously on the
-                // dispatch thread (unlike the I/O effects). Bracket the injected
-                // keys with markers so the record-append hook suppresses
-                // self-recording; the main loop drains them on later ticks.
-                queue.Enqueue MacroReplayStart
+            | LoadMacros announce ->
+                Task.Run(fun () ->
+                    let registers, errors = MacroIO.load ()
+                    queue.Enqueue(MacrosLoaded(registers, errors, announce)))
+                |> ignore
+            | SaveMacros registers ->
+                // Chain onto the previous macros-file write so write-through
+                // saves land in dispatch order (config-save pattern).
+                lock macroSaveLock (fun () ->
+                    macroSaveChain <-
+                        macroSaveChain.ContinueWith(
+                            (fun (_: Task) ->
+                                let msg =
+                                    try
+                                        MacroIO.save registers
+                                        MacrosSaved(Result.Ok())
+                                    with ex ->
+                                        MacrosSaved(Result.Error ex.Message)
 
-                for _ in 1..count do
-                    for chord in chords do
-                        queue.Enqueue(KeyPressed chord)
+                                queue.Enqueue msg),
+                            TaskContinuationOptions.None
+                        ))
+            | EnsureMacrosFile registers ->
+                // Joins the macros-file write chain: a create for the edit
+                // flow must not interleave with an in-flight write-through
+                // save of the same file.
+                lock macroSaveLock (fun () ->
+                    macroSaveChain <-
+                        macroSaveChain.ContinueWith(
+                            (fun (_: Task) ->
+                                let msg =
+                                    try
+                                        MacroIO.ensureFile registers
+                                        // Normalized here — the OS boundary —
+                                        // so the buffer opened on it compares
+                                        // canonically on every platform.
+                                        MacrosFileReady(Result.Ok(Paths.norm (MacroIO.path ())))
+                                    with ex ->
+                                        MacrosFileReady(Result.Error ex.Message)
 
-                queue.Enqueue MacroReplayEnd
+                                queue.Enqueue msg),
+                            TaskContinuationOptions.None
+                        ))
+            | ReplayPump ->
+                // Pure queue manipulation — runs synchronously on the
+                // dispatch thread. Round-tripping the step trigger through
+                // the queue lets pending input and effect completions
+                // interleave with macro steps instead of the whole replay
+                // running ahead of them.
+                queue.Enqueue ReplayStepReady
+            | LspSyncDocuments(workspaceRoot, documents) ->
+                // Serialized on the LSP chain (dispatch order preserved by
+                // construction). Text is materialized here, off the update
+                // thread — the effect carries only the shared piece table.
+                lspContinueWith (fun () ->
+                    for document in documents do
+                        try
+                            lspRegisterPathAlias document.Path
+                            let rootPath = lspRootFor document.Server document.Path workspaceRoot
+                            let client = lspClientFor document.Server rootPath
+
+                            match document.Kind with
+                            | LspDocumentSyncKind.Opened text ->
+                                client.NotifyOpened(
+                                    document.Path,
+                                    document.LanguageId,
+                                    document.Version,
+                                    PieceTable.toString text
+                                )
+                            | LspDocumentSyncKind.Changed text ->
+                                client.NotifyChanged(document.Path, document.Version, PieceTable.toString text)
+                            | LspDocumentSyncKind.Closed ->
+                                client.NotifyClosed document.Path
+                                lock lspLock (fun () -> lspDocumentRoots.Remove document.Path |> ignore)
+                        with ex ->
+                            log $"lsp: sync failed for {document.Path}: {ex.Message}")
+            | LspRestart name ->
+                // Also on the chain so a restart cannot race an in-flight
+                // notification. Removed clients respawn lazily on the next
+                // LspSyncDocuments that needs them (documents re-open on the
+                // next edit; the `:lsp` verbs landing later force a resync).
+                lspContinueWith (fun () ->
+                    let removed =
+                        lock lspLock (fun () ->
+                            let matching =
+                                [ for KeyValue(key, client) in lspClients do
+                                      let selected =
+                                          match name with
+                                          | None -> true
+                                          | Some serverName -> client.Config.Name = serverName
+
+                                      if selected then
+                                          key, client ]
+
+                            for key, _ in matching do
+                                lspClients.Remove key |> ignore
+
+                            // Unpin every document root so the reopen sync
+                            // that follows the restart re-resolves against
+                            // the current filesystem.
+                            lspDocumentRoots.Clear()
+
+                            matching |> List.map snd)
+
+                    for client in removed do
+                        try
+                            client.Shutdown()
+                        with ex ->
+                            log $"lsp: shutdown failed for {client.Config.Name}: {ex.Message}")
+            | LspRequestDefinition request ->
+                // Chained after any pending document sync so the server sees
+                // the request-time text. The reply callback runs on the
+                // client's reader thread; the URI->path + preview-line
+                // enrichment does disk reads, so it hops to the pool first.
+                lspContinueWith (fun () ->
+                    let client = lspClientForRequest request
+
+                    client.SendDefinition(
+                        request.Path,
+                        request.Position,
+                        fun outcome ->
+                            Task.Run(fun () ->
+                                queue.Enqueue(
+                                    LspDefinitionResolved(
+                                        Result.map lspResolveLocations outcome,
+                                        request.EditTick,
+                                        request.BufferId
+                                    )
+                                ))
+                            |> ignore
+                    ))
+            | LspRequestReferences request ->
+                lspContinueWith (fun () ->
+                    let client = lspClientForRequest request
+
+                    client.SendReferences(
+                        request.Path,
+                        request.Position,
+                        fun outcome ->
+                            Task.Run(fun () ->
+                                queue.Enqueue(
+                                    LspReferencesResolved(
+                                        Result.map lspResolveLocations outcome,
+                                        request.EditTick,
+                                        request.BufferId
+                                    )
+                                ))
+                            |> ignore
+                    ))
+            | LspRequestHover request ->
+                lspContinueWith (fun () ->
+                    let client = lspClientForRequest request
+
+                    client.SendHover(
+                        request.Path,
+                        request.Position,
+                        fun outcome -> queue.Enqueue(LspHoverResolved(outcome, request.EditTick, request.BufferId))
+                    ))
+            | LspFetchLog name ->
+                Task.Run(fun () ->
+                    let clients =
+                        lock lspLock (fun () ->
+                            [ for KeyValue(_, client) in lspClients do
+                                  match name with
+                                  | None -> yield client
+                                  | Some serverName when client.Config.Name = serverName -> yield client
+                                  | Some _ -> () ])
+
+                    let title =
+                        match name with
+                        | Some serverName -> $"LSP log — {serverName}"
+                        | None -> "LSP log"
+
+                    let lines =
+                        match clients with
+                        | [] -> [ "No running language-server client." ]
+                        | [ client ] -> client.RecentLog()
+                        | many ->
+                            many
+                            |> List.collect (fun client ->
+                                client.RecentLog() |> List.map (fun line -> $"[{client.Config.Name}] {line}"))
+
+                    queue.Enqueue(LspLogFetched(title, lines)))
+                |> ignore
 
         // The pure update layer records only the pending chords; the
         // wall-clock deadline lives here so `update` stays deterministic.
-        // Reset whenever a dispatch produces a new pending prefix.
+        // Reset whenever a dispatch produces a new pending prefix. 3 s:
+        // long enough to read the which-key panel the prefix opens.
         let mutable prefixDeadline: DateTime voption = ValueNone
+
+        // Macro replay fence safety valve, also wall clock and also here:
+        // while the model waits on a fenced step's async result, a 5 s
+        // deadline is armed; if no completion pumps the queue in time,
+        // ReplayFenceTimeout cancels the replay with an error naming the
+        // step instead of leaving it parked forever.
+        let mutable replayFenceDeadline: DateTime voption = ValueNone
+
+        // Replay fairness/cancellability bound: ReplayPump enqueues
+        // ReplayStepReady synchronously, so an unbounded queue drain would
+        // run a whole replay (every step of every iteration) inside one
+        // tick — no render, no terminal read, and no way to cancel a
+        // runaway `replay-macro:<r>:<count>`. The drain below dispatches at
+        // most this many replay steps per tick, then paints and reads input
+        // (the Escape cancel path); the idle sleep is skipped while the
+        // queue holds work, so a bounded replay still runs at full speed.
+        let maxReplayStepsPerTick = 100
+
+        // Multi-click synthesis also lives here, not in `update`: the
+        // double-click window is a wall-clock decision, like prefixDeadline.
+        // A left press on the same cell within the window bumps the count
+        // (1 → 2 → 3 → …); `update` maps 2 to word- and 3 to line-selection.
+        // Any other button press breaks the chain.
+        let multiClickWindow = TimeSpan.FromMilliseconds 500.0
+        let mutable lastLeftClick: (DateTime * Position * int) voption = ValueNone
+
+        let clickCountFor (event: MouseEvent) =
+            if event.Button = LeftButton then
+                let now = DateTime.UtcNow
+
+                let count =
+                    match lastLeftClick with
+                    | ValueSome(at, position, previous) when position = event.Position && now - at <= multiClickWindow ->
+                        previous + 1
+                    | _ -> 1
+
+                lastLeftClick <- ValueSome(now, event.Position, count)
+                count
+            else
+                lastLeftClick <- ValueNone
+                1
 
         let dispatch model msg =
             // renderMsg/renderEffect are AOT-safe (no reflective DU printing), so
@@ -609,9 +1107,28 @@ module Runtime =
             prefixDeadline <-
                 match nextModel.PendingPrefix with
                 | Some _ when nextModel.PendingPrefix <> model.PendingPrefix ->
-                    ValueSome(DateTime.UtcNow.AddSeconds 1.0)
+                    ValueSome(DateTime.UtcNow.AddSeconds 3.0)
                 | Some _ -> prefixDeadline
                 | None -> ValueNone
+
+            replayFenceDeadline <-
+                match nextModel.Replay with
+                | Some state when not (Map.isEmpty state.PendingFences) ->
+                    // Re-arm whenever the pending fence set CHANGES — a
+                    // completion that chains into a fresh fenced effect
+                    // (ConfigFileReady → LoadFile) gets its own full
+                    // window instead of inheriting the remainder of the
+                    // previous fence's deadline.
+                    let previousFences =
+                        match model.Replay with
+                        | Some previousState -> previousState.PendingFences
+                        | None -> Map.empty
+
+                    if state.PendingFences <> previousFences then
+                        ValueSome(DateTime.UtcNow.AddSeconds 5.0)
+                    else
+                        replayFenceDeadline
+                | _ -> ValueNone
 
             nextModel
 
@@ -633,8 +1150,13 @@ module Runtime =
             match allErrors with
             | [] -> initialModel
             | errs ->
+                let startupWarning = Notification.warning (String.concat "; " errs)
+
                 { initialModel with
-                    Notification = Some(Notification.warning (String.concat "; " errs)) }
+                    Notification = Some startupWarning
+                    // Keep the `:messages` log in step with what is shown —
+                    // the warning replaces the seeded welcome hint.
+                    NotificationLog = [ startupWarning ] }
 
         startupEffects |> List.iter startEffect
 
@@ -708,12 +1230,24 @@ module Runtime =
                     model <- dispatch model (Resize size)
                     needsRender <- true
 
-                // Drain async effect results.
+                // Drain async effect results, budgeting replay steps (see
+                // maxReplayStepsPerTick above) so a long replay stays
+                // interruptible and visibly paints progress.
                 let mutable next = Unchecked.defaultof<Msg>
+                let mutable replayStepBudget = maxReplayStepsPerTick
+                let mutable draining = true
 
-                while queue.TryDequeue(&next) do
+                while draining && queue.TryDequeue(&next) do
                     model <- dispatch model next
                     needsRender <- true
+
+                    match next with
+                    | ReplayStepReady ->
+                        replayStepBudget <- replayStepBudget - 1
+
+                        if replayStepBudget <= 0 then
+                            draining <- false
+                    | _ -> ()
 
                 match lastFsChange with
                 | Some t when (DateTime.UtcNow - t).TotalMilliseconds > 300.0 ->
@@ -725,6 +1259,13 @@ module Runtime =
                 match prefixDeadline with
                 | ValueSome deadline when DateTime.UtcNow > deadline ->
                     model <- dispatch model SequenceTimedOut
+                    needsRender <- true
+                | _ -> ()
+
+                match replayFenceDeadline with
+                | ValueSome deadline when DateTime.UtcNow > deadline ->
+                    replayFenceDeadline <- ValueNone
+                    model <- dispatch model ReplayFenceTimeout
                     needsRender <- true
                 | _ -> ()
 
@@ -748,7 +1289,7 @@ module Runtime =
                     | Press ->
                         match MouseProtocol.toWheelTicks event with
                         | Some ticks -> model <- dispatch model (MouseScrolled(ticks, event.Position))
-                        | None -> model <- dispatch model (MousePressed event)
+                        | None -> model <- dispatch model (MousePressed(event, clickCountFor event))
                     | Release -> model <- dispatch model (MouseReleased event)
                     | Drag -> model <- dispatch model (MouseDragged event)
 
@@ -762,7 +1303,13 @@ module Runtime =
                 | Some(TerminalEvent.Paste text) ->
                     model <- dispatch model (PastedText text)
                     needsRender <- true
-                | None -> Thread.Sleep 16
+                | None ->
+                    // Idle nap only when the queue is empty: a
+                    // budget-paused replay (or an effect completion that
+                    // landed mid-tick) must be drained on the next
+                    // iteration, not 16 ms later.
+                    if queue.IsEmpty then
+                        Thread.Sleep 16
         finally
             // Wait briefly for in-flight disk writes: ShouldQuit can flip
             // while a save chain is still running on the pool (Ctrl+S then
@@ -773,7 +1320,8 @@ module Runtime =
                     lock bufferSaveLock (fun () -> bufferSaveChains.Values |> Seq.toArray)
 
                 let configChain = lock configSaveLock (fun () -> configSaveChain)
-                Array.append bufferChains [| configChain |]
+                let macroChain = lock macroSaveLock (fun () -> macroSaveChain)
+                Array.append bufferChains [| configChain; macroChain |]
 
             try
                 Task.WaitAll(pendingWrites, TimeSpan.FromSeconds 5.0) |> ignore
@@ -821,6 +1369,34 @@ module Runtime =
 
             try
                 (pluginHost :> IDisposable).Dispose()
+            with _ ->
+                ()
+
+            // Polite shutdown for every language server, chained as the
+            // LAST item on the LSP task so any queued notification (the
+            // user's final edits) drains first — and so no in-flight chain
+            // task can lose a race with the teardown and respawn a client
+            // into an abandoned table. Nothing enqueues chain work after
+            // the dispatch loop exits, so the chain is complete once this
+            // continuation has run; the bounded Wait keeps a wedged server
+            // from stalling quit forever (at worst its child leaks once).
+            lspContinueWith (fun () ->
+                let clients =
+                    lock lspLock (fun () ->
+                        let clients = List.ofSeq lspClients.Values
+                        lspClients.Clear()
+                        clients)
+
+                for client in clients do
+                    try
+                        (client :> IDisposable).Dispose()
+                    with _ ->
+                        ())
+
+            let lspChain = lock lspLock (fun () -> lspSyncChain)
+
+            try
+                lspChain.Wait(TimeSpan.FromSeconds 10.0) |> ignore
             with _ ->
                 ()
 

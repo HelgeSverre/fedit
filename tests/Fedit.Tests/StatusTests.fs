@@ -174,3 +174,51 @@ let ``default format used by Config.defaults parses without unknown tokens`` () 
     rendered |> should not' (haveSubstring "[current_file")
     rendered |> should not' (haveSubstring "[line]")
     rendered |> should not' (haveSubstring "[buffer]")
+
+// ─────────────────────────────────────────────────────────────────────
+// Notification span — feeds the view's severity restyle of the
+// [NOTIFICATION] segment.
+// ─────────────────────────────────────────────────────────────────────
+
+let private withNotification notification (model: Model) =
+    { model with
+        Notification = notification }
+
+[<Fact>]
+let ``renderWithNotificationSpan reports where the notification landed`` () =
+    let model =
+        freshModel ()
+        |> withFormat "[MODE] [NOTIFICATION]"
+        |> withNotification (Some(Notification.error "boom"))
+
+    let rendered, span = Status.renderWithNotificationSpan 40 model
+
+    match span with
+    | Some(start, length) -> rendered.Substring(start, length) |> should equal "boom"
+    | None -> failwith "expected a notification span"
+
+[<Fact>]
+let ``renderWithNotificationSpan is None without a notification`` () =
+    let model =
+        freshModel () |> withFormat "[MODE] [NOTIFICATION]" |> withNotification None
+
+    let _, span = Status.renderWithNotificationSpan 40 model
+    span |> should equal (None: (int * int) option)
+
+[<Fact>]
+let ``renderWithNotificationSpan clips the span at the status width`` () =
+    let model =
+        freshModel ()
+        |> withFormat "[NOTIFICATION]"
+        |> withNotification (Some(Notification.error "0123456789"))
+
+    let rendered, span = Status.renderWithNotificationSpan 4 model
+    rendered |> should equal "0123"
+    span |> should equal (Some(0, 4))
+
+[<Fact>]
+let ``render still matches renderWithNotificationSpan's line`` () =
+    let model = freshModel () |> withNotification (Some(Notification.warning "careful"))
+
+    Status.render 60 model
+    |> should equal (fst (Status.renderWithNotificationSpan 60 model))

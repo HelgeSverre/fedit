@@ -35,7 +35,19 @@ type Action =
     | ExtendHome
     | ExtendEnd
     | SelectAll
+    /// Drop the selection, leaving the cursor where it is.
+    | ClearSelection
     // editing
+    /// Insert literal text at the cursor, replacing any selection. Multi-char
+    /// payloads (including embedded newlines) insert as one bulk edit — one
+    /// undo entry — so grapheme clusters are never split by a per-char loop.
+    | InsertText of string
+    /// Backspace semantics: delete the selection if one exists, else the
+    /// character before the cursor.
+    | DeleteBackward
+    /// Forward-delete semantics: delete the selection if one exists, else the
+    /// character after the cursor.
+    | DeleteForward
     | Indent
     | Unindent
     | DeleteWordBack
@@ -50,10 +62,26 @@ type Action =
     // commands
     | Save
     | SaveAs of string
+    /// Quit with the shared dirty-buffer guard: with unsaved changes the
+    /// first invocation warns and arms; the second discards and quits.
     | Quit
+    /// Quit unconditionally, discarding unsaved changes.
+    | ForceQuit
+    /// Close the active buffer, with the same two-step dirty confirmation
+    /// as `Quit`. Closing the last buffer leaves a fresh scratch buffer.
+    | CloseBuffer
     | OpenPalette
     | OpenFilePicker
     | OpenSearch
+    /// Jump to the next occurrence of the last accepted search query,
+    /// wrapping at the end of the buffer. Pure and synchronous — no prompt.
+    | SearchNext
+    /// Jump to the previous occurrence, wrapping at the start.
+    | SearchPrevious
+    /// Search for `query` synchronously: remember it as the last search
+    /// and jump to its first match — the macro-recordable form of an
+    /// accepted search prompt (no prompt, no async `RunSearch`).
+    | SearchFor of query: string
     | NextBuffer
     | PrevBuffer
     | JumpToBuffer of int
@@ -63,6 +91,12 @@ type Action =
     | OpenConfig
     | ReloadKeybinds
     | RunPlugin of source: string * name: string * arg: string
+    // language servers (interpreted via Lsp* effects in Editor.runAction)
+    | GotoDefinition
+    | FindReferences
+    | Hover
+    /// Pop the jump stack: return to where the last LSP jump left from.
+    | JumpBack
     // panel / focus primitives — each a COMPLETE, valid transition
     | RevealSidebar
     | HideSidebar
@@ -102,6 +136,8 @@ module Action =
         | Command.Write -> Some Action.Save
         | Command.WriteAs path -> Some(Action.SaveAs path)
         | Command.Quit -> Some Action.Quit
+        | Command.ForceQuit -> Some Action.ForceQuit
+        | Command.Close None -> Some Action.CloseBuffer
         | Command.NextBuffer -> Some Action.NextBuffer
         | Command.PreviousBuffer -> Some Action.PrevBuffer
         | Command.ReloadWorkspace -> Some Action.ReloadWorkspace
@@ -133,6 +169,10 @@ module Action =
         | ExtendHome -> "extend-home"
         | ExtendEnd -> "extend-end"
         | SelectAll -> "select-all"
+        | ClearSelection -> "clear-selection"
+        | InsertText _ -> "insert-text"
+        | DeleteBackward -> "delete-backward"
+        | DeleteForward -> "delete-forward"
         | Indent -> "indent"
         | Unindent -> "unindent"
         | DeleteWordBack -> "delete-word-back"
@@ -147,9 +187,14 @@ module Action =
         | Save -> "save"
         | SaveAs _ -> "save-as"
         | Quit -> "quit"
+        | ForceQuit -> "force-quit"
+        | CloseBuffer -> "close-buffer"
         | OpenPalette -> "command-palette"
         | OpenFilePicker -> "open-file"
         | OpenSearch -> "search"
+        | SearchNext -> "search-next"
+        | SearchPrevious -> "search-previous"
+        | SearchFor _ -> "search-for"
         | NextBuffer -> "next-buffer"
         | PrevBuffer -> "prev-buffer"
         | JumpToBuffer _ -> "jump-to-buffer"
@@ -159,6 +204,10 @@ module Action =
         | OpenConfig -> "open-config"
         | ReloadKeybinds -> "reload-keybinds"
         | RunPlugin _ -> "run-plugin"
+        | GotoDefinition -> "goto-definition"
+        | FindReferences -> "find-references"
+        | Hover -> "hover"
+        | JumpBack -> "jump-back"
         | RevealSidebar -> "reveal-sidebar"
         | HideSidebar -> "hide-sidebar"
         | ToggleSidebar -> "toggle-sidebar"
@@ -180,3 +229,53 @@ module Action =
         | RecordMacro _ -> "record-macro"
         | ReplayMacro _ -> "replay-macro"
         | RepeatLastMacro -> "repeat-last-macro"
+
+    /// Quote a free-text payload (`insert-text` / `search-for`) for
+    /// `toSyntax`: always the double-quoted form, with the same backslash
+    /// escapes `Keymap.parseAction` decodes (\" \\ \n \t \r), so any
+    /// payload survives a line-based file. Public because the macros file
+    /// reuses it for `command:"…"` steps and whole-step quoting.
+    let quoteTextPayload (payload: string) =
+        let sb = System.Text.StringBuilder(payload.Length + 2)
+        sb.Append '"' |> ignore
+
+        for c in payload do
+            match c with
+            | '\\' -> sb.Append "\\\\" |> ignore
+            | '"' -> sb.Append "\\\"" |> ignore
+            | '\n' -> sb.Append "\\n" |> ignore
+            | '\t' -> sb.Append "\\t" |> ignore
+            | '\r' -> sb.Append "\\r" |> ignore
+            | other -> sb.Append other |> ignore
+
+        sb.Append('"').ToString()
+
+    /// Payload-preserving parse syntax per action — the exact inverse of
+    /// `Keymap.parseAction` for every case that parser accepts (guarded by the
+    /// round-trip property test). Complements `name`, which deliberately drops
+    /// payloads to feed display labels. Payload-carrying cases are listed
+    /// explicitly; everything else serializes as its `name` — a new
+    /// payload-carrying case must be added above the fallback.
+    ///
+    /// `None` only for the three cases with no parse syntax: `Chain`/`When`
+    /// are composition forms that exist solely in the compiled-in defaults
+    /// DSL, and `SaveAs` carries a path that only ever arises from the
+    /// `:w <path>` prompt — macros never record any of them.
+    let toSyntax (action: Action) : string option =
+        match action with
+        | Chain _
+        | When _
+        | SaveAs _ -> None
+        | InsertText payload -> Some("insert-text:" + quoteTextPayload payload)
+        | SearchFor query -> Some("search-for:" + quoteTextPayload query)
+        | MoveLinesUp count -> Some $"move-lines-up:{count}"
+        | MoveLinesDown count -> Some $"move-lines-down:{count}"
+        | JumpToBuffer n -> Some $"jump-to-buffer:{n}"
+        | SetTheme themeName -> Some $"set-theme:{themeName}"
+        | Goto(line, None) -> Some $"goto:{line}"
+        | Goto(line, Some col) -> Some $"goto:{line}:{col}"
+        | RunPlugin(source, pluginName, "") -> Some $"run-plugin:{source}/{pluginName}"
+        | RunPlugin(source, pluginName, arg) -> Some $"run-plugin:{source}/{pluginName} {arg}"
+        | RecordMacro register -> Some $"record-macro:{register}"
+        | ReplayMacro(register, count) -> Some $"replay-macro:{register}:{count}"
+        | payloadFree -> Some(name payloadFree)

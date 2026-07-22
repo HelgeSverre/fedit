@@ -120,6 +120,14 @@
     "bound": true
   },
   {
+    "stroke": "ctrl+w",
+    "action": "close-buffer",
+    "context": "global",
+    "category": "buffer",
+    "description": "Close the active buffer",
+    "bound": true
+  },
+  {
     "stroke": "ctrl+b",
     "action": "when",
     "context": "global",
@@ -360,6 +368,62 @@
     "bound": true
   },
   {
+    "stroke": "esc",
+    "action": "clear-selection",
+    "context": "editor",
+    "category": "selection",
+    "description": "Clear the selection, keeping the cursor in place",
+    "bound": true
+  },
+  {
+    "stroke": "f3",
+    "action": "search-next",
+    "context": "editor",
+    "category": "motion",
+    "description": "Jump to the next match of the last search",
+    "bound": true
+  },
+  {
+    "stroke": "shift+f3",
+    "action": "search-previous",
+    "context": "editor",
+    "category": "motion",
+    "description": "Jump to the previous match of the last search",
+    "bound": true
+  },
+  {
+    "stroke": "f12",
+    "action": "goto-definition",
+    "context": "editor",
+    "category": "lsp",
+    "description": "Jump to the symbol's definition",
+    "bound": true
+  },
+  {
+    "stroke": "shift+f12",
+    "action": "find-references",
+    "context": "editor",
+    "category": "lsp",
+    "description": "List references to the symbol",
+    "bound": true
+  },
+  {
+    "stroke": "alt+-",
+    "action": "jump-back",
+    "context": "editor",
+    "category": "lsp",
+    "description": "Return to where the last jump left from",
+    "bound": true
+  },
+  {
+    "stroke": "f1",
+    "action": "hover",
+    "context": "editor",
+    "category": "lsp",
+    "description": "Show hover info for the symbol",
+    "bound": true
+  },
+  {
     "stroke": "ctrl+shift+m",
     "action": "record-macro",
     "context": "editor",
@@ -537,6 +601,30 @@
   },
   {
     "stroke": "",
+    "action": "insert-text",
+    "context": "",
+    "category": "edit",
+    "description": "Insert literal text at the cursor",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "delete-backward",
+    "context": "",
+    "category": "edit",
+    "description": "Delete the selection or the character before the cursor",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "delete-forward",
+    "context": "",
+    "category": "edit",
+    "description": "Delete the selection or the character after the cursor",
+    "bound": false
+  },
+  {
+    "stroke": "",
     "action": "save-as",
     "context": "",
     "category": "file",
@@ -549,6 +637,22 @@
     "context": "",
     "category": "file",
     "description": "Quit the editor",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "force-quit",
+    "context": "",
+    "category": "file",
+    "description": "Quit the editor, discarding unsaved changes",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "search-for",
+    "context": "",
+    "category": "motion",
+    "description": "Search for a query and jump to its first match",
     "bound": false
   },
   {

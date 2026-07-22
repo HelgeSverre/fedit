@@ -410,6 +410,29 @@ module Buffer =
 
     let hasSelection (buffer: BufferState) = buffer.Selection.IsSome
 
+    /// Double-click: select the word under `idx`, using the same
+    /// word-boundary scans as the word motions so click- and key-selection
+    /// can never disagree on what a word is. Sitting on whitespace lands on
+    /// the next word, mirroring `wordIndexRight`.
+    let selectWordAt (idx: int) (buffer: BufferState) =
+        let txt = text buffer
+        let finish = wordIndexRight WordEnd txt idx
+        let start = wordIndexLeft txt finish
+
+        if finish > start then
+            selectRange start finish buffer
+        else
+            buffer
+
+    /// Triple-click: select the whole of line `lineIndex`, including its
+    /// trailing newline so consecutive line selections tile cleanly. The
+    /// last line has no newline to include.
+    let selectLineAt (lineIndex: int) (buffer: BufferState) =
+        let lineIndex = max 0 (min lineIndex (lineCount buffer - 1))
+        let start = positionToIndex { Line = lineIndex; Column = 0 } buffer
+        let finish = start + (line lineIndex buffer).Length + 1
+        selectRange start (min finish (PieceTable.length buffer.Document)) buffer
+
     /// Shift+motion: pin the anchor (when no selection), run the motion,
     /// then sync the span's Head to the new cursor. If a detached scroll
     /// moved the cursor away from Head, snap it back first so extension
@@ -557,11 +580,15 @@ module Buffer =
 
     let moveLinesDown count buffer = moveLines false count buffer
 
-    let findAll (needle: string) buffer =
-        if String.IsNullOrEmpty needle then
+    /// Every match offset of `needle` in `haystack`, in document order.
+    /// Literal, case-insensitive ordinal match — the single definition of
+    /// fedit's search semantics, shared by the prompt's `RunSearch` effect
+    /// and the `search-next` / `search-previous` repeat actions. Takes the
+    /// text (not a buffer) so both callers use the same pure core.
+    let findAllMatches (needle: string) (haystack: string) : int list =
+        if String.IsNullOrEmpty needle || String.IsNullOrEmpty haystack then
             []
         else
-            let haystack = text buffer
             let mutable matches = []
             let mutable index = haystack.IndexOf(needle, StringComparison.OrdinalIgnoreCase)
 
@@ -570,6 +597,31 @@ module Buffer =
                 index <- haystack.IndexOf(needle, index + 1, StringComparison.OrdinalIgnoreCase)
 
             List.rev matches
+
+    let findAll (needle: string) buffer = findAllMatches needle (text buffer)
+
+    /// Offset of the first match at or after `fromIndex`, wrapping to the
+    /// start of the text when nothing follows — the same cyclic semantics
+    /// as the search prompt's Up/Down match cycling. `None` when the needle
+    /// is empty or absent entirely.
+    let findNextMatch (needle: string) (fromIndex: int) (haystack: string) : int option =
+        match findAllMatches needle haystack with
+        | [] -> None
+        | matches ->
+            matches
+            |> List.tryFind (fun offset -> offset >= fromIndex)
+            |> Option.orElse (Some(List.head matches))
+
+    /// Offset of the last match at or before `fromIndex`, wrapping to the
+    /// end of the text when nothing precedes. Mirror of `findNextMatch`.
+    let findPreviousMatch (needle: string) (fromIndex: int) (haystack: string) : int option =
+        match findAllMatches needle haystack with
+        | [] -> None
+        | matches ->
+            matches
+            |> List.filter (fun offset -> offset <= fromIndex)
+            |> List.tryLast
+            |> Option.orElse (List.tryLast matches)
 
     let deleteForwardWord (landing: WordMotionLanding) buffer =
         let txt = text buffer

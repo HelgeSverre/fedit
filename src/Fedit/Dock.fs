@@ -28,6 +28,9 @@ module Dock =
         | PromptSessionKind.PluginsSession -> Some PickerKind.PluginPicker
         | PromptSessionKind.MacrosSession -> Some PickerKind.MacroPicker
         | PromptSessionKind.KeybindingsSession -> Some PickerKind.KeyBindingPicker
+        | PromptSessionKind.MessagesSession -> Some PickerKind.MessagePicker
+        | PromptSessionKind.LocationsSession -> Some PickerKind.LocationPicker
+        | PromptSessionKind.LanguageServersSession -> Some PickerKind.LanguageServerPicker
         | _ -> None
 
     let pickerPendingOfPrompt (pending: PromptPendingConfirmation option) : PickerPendingConfirmation option =
@@ -47,6 +50,26 @@ module Dock =
                   SelectedItemId = model.Prompt.SelectedItemId
                   Filter = model.Prompt.Text
                   PendingConfirmation = pickerPendingOfPrompt model.Prompt.PendingConfirmation })
+
+    /// Which-key: while a multi-key sequence prefix is pending, the dock
+    /// lists every bound continuation (remaining stroke + action name) for
+    /// the active context, as (title, aligned lines). `None` when no prefix
+    /// is pending or nothing continues it, so the panel clears the instant
+    /// the sequence fires, times out, or is cancelled with Escape.
+    let whichKeyPanel (model: Model) : (string * string list) option =
+        match model.PendingPrefix with
+        | Some pending when not pending.IsEmpty ->
+            match Keymap.continuations (Keymap.contextOf model.Focus) pending model.Keymap with
+            | [] -> None
+            | rows ->
+                let width = rows |> List.map (fst >> String.length) |> List.max
+
+                let lines =
+                    rows
+                    |> List.map (fun (remainder, actionName) -> remainder.PadRight width + "  " + actionName)
+
+                Some($"Keys  {Chord.renderStroke pending} …", lines)
+        | _ -> None
 
     let panel model =
         let prompt = model.Prompt
@@ -81,7 +104,22 @@ module Dock =
 
                 DockInfo("Find", [ line ])
         else
-            NoDock
+            // The transient LSP info panel (hover, `:lsp log`) uses the dock
+            // whenever the prompt doesn't. Dismissed on the next keypress
+            // (Editor's KeyPressed chokepoint); View truncates the lines to
+            // the dock height.
+            match model.Lsp.Panel with
+            | Some panel -> DockInfo(panel.Title, panel.Lines)
+            | None -> NoDock
+
+    /// Effective dock height cap: the configured height limited to a third
+    /// of the terminal (minimum 3 rows). The prose info dock (`DockInfo`)
+    /// always renders exactly this tall; list surfaces size to content
+    /// below it. Shared with `Editor`'s `:lsp log` tail so the kept lines
+    /// always fit the rows actually painted — this is layout arithmetic,
+    /// so it lives here, never in a single consumer.
+    let effectiveHeightCap (model: Model) : int =
+        min model.Panels.DockHeight (max 3 (max 1 model.Terminal.Height / 3))
 
     let metrics (model: Model) : DockMetrics =
         let width = max 1 model.Terminal.Width
@@ -89,27 +127,33 @@ module Dock =
 
         let pickerView = pickerViewOfPromptSession model
 
-        // The picker takes over the dock when open; otherwise the prompt
-        // panel does.
-        let activePanel =
-            match pickerView with
-            | Some _ -> NoDock
-            | None -> panel model
+        // The picker takes over the dock when open (a prefix cannot build in
+        // a picker session — keys route straight to the prompt); an in-flight
+        // sequence prefix shows its which-key panel ahead of the prompt
+        // panel; otherwise the prompt panel paints.
+        let whichKey = whichKeyPanel model
 
-        // Menu-style list surfaces (the picker and the completion lists) size
-        // to their content, capped at the configured dock height, so a filter
-        // that leaves few rows yields a short dock that grows back up to the
-        // cap. The dock is bottom-anchored, so a smaller height hands the
-        // freed rows to the editor. The prose info/help dock keeps the full
-        // configured height.
-        let configuredMax = min model.Panels.DockHeight (max 3 (height / 3))
+        let activePanel =
+            match pickerView, whichKey with
+            | Some _, _ -> NoDock
+            | None, Some(title, lines) -> DockInfo(title, lines)
+            | None, None -> panel model
+
+        // Menu-style list surfaces (the picker, the completion lists, and the
+        // which-key panel) size to their content, capped at the effective
+        // dock height, so a filter that leaves few rows yields a short dock
+        // that grows back up to the cap. The dock is bottom-anchored, so a
+        // smaller height hands the freed rows to the editor. The prose
+        // info/help dock keeps the full effective height.
+        let configuredMax = effectiveHeightCap model
 
         let dockHeight =
-            match pickerView, activePanel with
-            | Some view, _ -> min configuredMax (Pickers.desiredRows view)
-            | None, DockCompletions(_, items, _) -> min configuredMax (1 + max 1 items.Length)
-            | None, DockInfo _ -> configuredMax
-            | None, NoDock -> 0
+            match pickerView, whichKey, activePanel with
+            | Some view, _, _ -> min configuredMax (Pickers.desiredRows view)
+            | None, Some(_, lines), _ -> min configuredMax (1 + lines.Length)
+            | None, None, DockCompletions(_, items, _) -> min configuredMax (1 + max 1 items.Length)
+            | None, None, DockInfo _ -> configuredMax
+            | None, None, NoDock -> 0
 
         let statusY = max 0 (height - dockHeight - 2)
 

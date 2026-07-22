@@ -12,13 +12,21 @@ module Pickers =
         | PluginPicker -> ListWithInspector
         | MacroPicker -> ListWithInspector
         | KeyBindingPicker -> SearchResults
+        | MessagePicker -> ListWithInspector
+        | LocationPicker -> SearchResults
+        | LanguageServerPicker -> ListWithInspector
 
-    /// Map from PickerKind to its title.
+    /// Map from PickerKind to its title. The location picker's real title
+    /// (Definitions / References / Diagnostics) lives on the model's
+    /// `LspLocationSet`; `buildView` prefers it.
     let titleForKind =
         function
         | PluginPicker -> "Plugins"
         | MacroPicker -> "Macros"
         | KeyBindingPicker -> "Keybindings"
+        | MessagePicker -> "Messages"
+        | LocationPicker -> "Locations"
+        | LanguageServerPicker -> "Language servers"
 
     /// Default empty text for each picker kind.
     let defaultEmptyText =
@@ -26,6 +34,9 @@ module Pickers =
         | PluginPicker -> "No plugins found."
         | MacroPicker -> "No macros found."
         | KeyBindingPicker -> "No keybindings found."
+        | MessagePicker -> "No messages yet."
+        | LocationPicker -> "No locations."
+        | LanguageServerPicker -> "No language servers configured."
 
     /// Case-insensitive substring matching
     let private containsIgnoreCase (needle: string) (haystack: string) =
@@ -51,17 +62,17 @@ module Pickers =
                 { Label = "failed"
                   Role = PickerBadgeRole.Danger }
 
-    let private macroStatusBadge (model: Model) register chords =
+    let private macroStatusBadge (model: Model) register (steps: MacroStep list) =
         match model.Recording, model.LastMacro with
         | Some active, _ when active = register ->
             Some
                 { Label = "recording"
                   Role = PickerBadgeRole.Success }
-        | _, Some last when last = register && not (List.isEmpty chords) ->
+        | _, Some last when last = register && not (List.isEmpty steps) ->
             Some
                 { Label = "last"
                   Role = PickerBadgeRole.Neutral }
-        | _ when not (List.isEmpty chords) ->
+        | _ when not (List.isEmpty steps) ->
             Some
                 { Label = "ready"
                   Role = PickerBadgeRole.Success }
@@ -79,6 +90,35 @@ module Pickers =
             Some
                 { Label = "user"
                   Role = PickerBadgeRole.Success }
+
+    let private notificationSeverityBadge (severity: Severity) =
+        match severity with
+        | Severity.Info ->
+            Some
+                { Label = "info"
+                  Role = PickerBadgeRole.Neutral }
+        | Severity.Warning ->
+            Some
+                { Label = "warning"
+                  Role = PickerBadgeRole.Warning }
+        | Severity.Error ->
+            Some
+                { Label = "error"
+                  Role = PickerBadgeRole.Danger }
+
+    let private languageServerStatusBadge (model: Model) (server: LanguageServerConfig) =
+        let label =
+            LspState.statusLabel model.Config.DisabledLanguageServers model.Lsp server.Name
+
+        let role =
+            match label with
+            | "running" -> PickerBadgeRole.Success
+            | "failed" -> PickerBadgeRole.Danger
+            | "disabled"
+            | "stopped" -> PickerBadgeRole.Muted
+            | _ -> PickerBadgeRole.Neutral
+
+        Some { Label = label; Role = role }
 
     // ========================================================================
     // Action helpers
@@ -136,9 +176,9 @@ module Pickers =
             Confirmation = Some { Label = "uninstall" }
             Dismissal = PickerDismissal.KeepOpen } ]
 
-    let private macroActions (model: Model) (register: char) (chords: Chord list) : PickerAction list =
+    let private macroActions (model: Model) (register: char) (steps: MacroStep list) : PickerAction list =
         let isRecording = model.Recording = Some register
-        let isEmpty = List.isEmpty chords
+        let isEmpty = List.isEmpty steps
         let isLast = model.LastMacro = Some register
 
         [ { Id = PickerActionId.MacroReplay
@@ -149,13 +189,20 @@ module Pickers =
               if not isEmpty then
                   PickerActionState.Enabled
               else
-                  PickerActionState.Disabled "No keys recorded"
+                  PickerActionState.Disabled "No steps recorded"
             Confirmation = None
             Dismissal = PickerDismissal.Close }
           { Id = PickerActionId.MacroRecord
             Key = Chord.ofChar 'r'
             Label = if isRecording then "Stop recording" else "Record"
             Role = PickerActionRole.Primary
+            State = PickerActionState.Enabled
+            Confirmation = None
+            Dismissal = PickerDismissal.Close }
+          { Id = PickerActionId.MacroEdit
+            Key = Chord.ofChar 'e'
+            Label = "Edit file"
+            Role = PickerActionRole.Secondary
             State = PickerActionState.Enabled
             Confirmation = None
             Dismissal = PickerDismissal.Close }
@@ -167,7 +214,7 @@ module Pickers =
               if not isEmpty then
                   PickerActionState.Enabled
               else
-                  PickerActionState.Disabled "No keys recorded"
+                  PickerActionState.Disabled "No steps recorded"
             Confirmation = None
             Dismissal = PickerDismissal.KeepOpen }
           { Id = PickerActionId.MacroClear
@@ -181,6 +228,44 @@ module Pickers =
                   PickerActionState.Disabled "Nothing to clear"
             Confirmation = Some { Label = "clear" }
             Dismissal = PickerDismissal.KeepOpen } ]
+
+    let private locationActions: PickerAction list =
+        [ { Id = PickerActionId.LocationJump
+            Key = Chord.bareNamed Enter
+            Label = "Jump"
+            Role = PickerActionRole.Primary
+            State = PickerActionState.Enabled
+            Confirmation = None
+            Dismissal = PickerDismissal.Close } ]
+
+    let private languageServerActions (model: Model) (server: LanguageServerConfig) : PickerAction list =
+        let disabled = Set.contains server.Name model.Config.DisabledLanguageServers
+
+        [ { Id = PickerActionId.LanguageServerRestart
+            Key = Chord.ofChar 'r'
+            Label = "Restart"
+            Role = PickerActionRole.Primary
+            State =
+              if disabled then
+                  PickerActionState.Disabled "Server is disabled"
+              else
+                  PickerActionState.Enabled
+            Confirmation = None
+            Dismissal = PickerDismissal.Refresh }
+          { Id = PickerActionId.LanguageServerToggle
+            Key = Chord.ofChar 'e'
+            Label = (if disabled then "Enable" else "Disable")
+            Role = PickerActionRole.Primary
+            State = PickerActionState.Enabled
+            Confirmation = None
+            Dismissal = PickerDismissal.Refresh }
+          { Id = PickerActionId.LanguageServerLog
+            Key = Chord.ofChar 'l'
+            Label = "Log"
+            Role = PickerActionRole.Secondary
+            State = PickerActionState.Enabled
+            Confirmation = None
+            Dismissal = PickerDismissal.Close } ]
 
     let private keybindingActions: PickerAction list =
         [ { Id = PickerActionId.PickerClose
@@ -197,6 +282,27 @@ module Pickers =
             State = PickerActionState.Enabled
             Confirmation = None
             Dismissal = PickerDismissal.Close } ]
+
+    /// Read-only log review: Enter/Esc close; `c` empties the ring.
+    let private messageActions (model: Model) : PickerAction list =
+        [ { Id = PickerActionId.PickerClose
+            Key = Chord.bareNamed Enter
+            Label = "Close"
+            Role = PickerActionRole.Primary
+            State = PickerActionState.Enabled
+            Confirmation = None
+            Dismissal = PickerDismissal.Close }
+          { Id = PickerActionId.MessagesClear
+            Key = Chord.ofChar 'c'
+            Label = "Clear log"
+            Role = PickerActionRole.Destructive
+            State =
+              if List.isEmpty model.NotificationLog then
+                  PickerActionState.Disabled "Log is empty"
+              else
+                  PickerActionState.Enabled
+            Confirmation = None
+            Dismissal = PickerDismissal.Refresh } ]
 
     // ========================================================================
     // Plugin picker items
@@ -256,32 +362,33 @@ module Pickers =
         Set.union letters extra
         |> Set.toList
         |> List.map (fun register ->
-            let chords = model.Registers |> Map.tryFind register |> Option.defaultValue []
-            let sequence = Chord.renderStroke chords
-            let status = macroStatusBadge model register chords
+            let steps = model.Registers |> Map.tryFind register |> Option.defaultValue []
+            let stepLabels = steps |> List.map MacroStep.label
+            let summary = String.concat "; " stepLabels
+            let status = macroStatusBadge model register steps
 
-            let accessories = [ CountAccessory("chords", chords.Length) ]
+            let accessories = [ CountAccessory("steps", steps.Length) ]
 
             let inspector =
                 Some
                     { Title = $"@{register}"
-                      Subtitle = Some(if List.isEmpty chords then "No keys recorded" else sequence)
+                      Subtitle = Some(if List.isEmpty steps then "No steps recorded" else summary)
                       Lines =
-                        if List.isEmpty chords then
-                            [ TextLine "No keys recorded." ]
+                        if List.isEmpty steps then
+                            [ TextLine "No steps recorded." ]
                         else
-                            [ ShortcutSequenceLine chords ] }
+                            stepLabels |> List.map TextLine }
 
-            let searchTerms = [ $"@{register}"; sequence ]
+            let searchTerms = $"@{register}" :: stepLabels
 
             { Id = string register
               Title = $"@{register}"
-              Subtitle = Some(if List.isEmpty chords then "No keys recorded" else sequence)
+              Subtitle = Some(if List.isEmpty steps then "No steps recorded" else summary)
               Badge = status
               Accessories = accessories
               Inspector = inspector
               SearchTerms = searchTerms
-              Actions = macroActions model register chords })
+              Actions = macroActions model register steps })
 
     // ========================================================================
     // Keybinding picker items
@@ -336,6 +443,110 @@ module Pickers =
               Actions = keybindingActions })
 
     // ========================================================================
+    // Message picker items
+    // ========================================================================
+
+    let private severityLabel (severity: Severity) =
+        match severity with
+        | Severity.Info -> "Info"
+        | Severity.Warning -> "Warning"
+        | Severity.Error -> "Error"
+
+    /// One row per logged notification, newest first (`NotificationLog`
+    /// order). The inspector carries the full message text — the status
+    /// bar truncates, this surface doesn't.
+    let private messageItems (model: Model) : PickerItem list =
+        let actions = messageActions model
+
+        model.NotificationLog
+        |> List.mapi (fun index notification ->
+            let label = severityLabel notification.Severity
+
+            let inspector =
+                Some
+                    { Title = label
+                      Subtitle = None
+                      Lines =
+                        match notification.Severity with
+                        | Severity.Error -> [ ErrorLine notification.Message ]
+                        | _ -> [ TextLine notification.Message ] }
+
+            { Id = string index
+              Title = notification.Message
+              Subtitle = None
+              Badge = notificationSeverityBadge notification.Severity
+              Accessories = []
+              Inspector = inspector
+              SearchTerms = [ notification.Message; label ]
+              Actions = actions })
+
+    // ========================================================================
+    // Location picker items (definitions / references / diagnostics)
+    // ========================================================================
+
+    /// Display path relative to the workspace root. Pure string prefix on
+    /// canonical `/` paths — no Path.GetRelativePath (its output diverges
+    /// from the canonical model on Windows).
+    let private relativeToRoot (rootPath: string) (path: string) =
+        let root = rootPath.TrimEnd '/'
+
+        if path.StartsWith(root + "/", StringComparison.Ordinal) then
+            path.Substring(root.Length + 1)
+        else
+            path
+
+    let private locationItems (model: Model) : PickerItem list =
+        match model.Lsp.Locations with
+        | None -> []
+        | Some set ->
+            set.Entries
+            |> List.mapi (fun index entry ->
+                let relative = relativeToRoot model.Workspace.RootPath entry.Path
+                // Row shape: `relativePath:line:` + preview (1-based line).
+                // Id is the entry's index into `set.Entries` — the jump
+                // action resolves it back to a path + position.
+                { Id = string index
+                  Title = $"{relative}:{entry.Position.Line + 1}:"
+                  Subtitle = Some entry.Preview
+                  Badge = None
+                  Accessories = []
+                  Inspector = None
+                  SearchTerms = [ relative; entry.Preview ]
+                  Actions = locationActions })
+
+    // ========================================================================
+    // Language-server picker items (`:lsp`)
+    // ========================================================================
+
+    let private languageServerItems (model: Model) : PickerItem list =
+        model.Config.LanguageServers
+        |> List.map (fun server ->
+            let commandLine = String.concat " " (server.Command :: server.Args)
+
+            let inspector =
+                Some
+                    { Title = server.Name
+                      Subtitle = Some commandLine
+                      Lines =
+                        [ TextLine("file types: " + String.concat ", " server.FileTypes)
+                          TextLine("roots: " + String.concat ", " server.RootMarkers)
+                          // One server name can run several clients (one per
+                          // workspace root); surface every failed one.
+                          for status in LspState.statusesFor model.Lsp server.Name do
+                              match status with
+                              | LspServerStatus.Failed reason -> ErrorLine reason
+                              | _ -> () ] }
+
+            { Id = server.Name
+              Title = server.Name
+              Subtitle = Some commandLine
+              Badge = languageServerStatusBadge model server
+              Accessories = [ TextAccessory(String.concat " " server.FileTypes) ]
+              Inspector = inspector
+              SearchTerms = [ server.Name; commandLine; yield! server.FileTypes ]
+              Actions = languageServerActions model server })
+
+    // ========================================================================
     // Picker view construction
     // ========================================================================
 
@@ -361,12 +572,22 @@ module Pickers =
         | PickerKind.PluginPicker -> pluginItems model
         | PickerKind.MacroPicker -> macroItems model
         | PickerKind.KeyBindingPicker -> keybindingItems model
+        | PickerKind.MessagePicker -> messageItems model
+        | PickerKind.LocationPicker -> locationItems model
+        | PickerKind.LanguageServerPicker -> languageServerItems model
 
     /// Build a complete PickerView from model and picker state
     let buildView (model: Model) (pickerState: PickerState) : PickerView =
         let kind = pickerState.Kind
         let layout = layoutForKind kind
-        let title = titleForKind kind
+
+        let title =
+            match kind with
+            | PickerKind.LocationPicker ->
+                model.Lsp.Locations
+                |> Option.map (fun set -> set.Title)
+                |> Option.defaultValue (titleForKind kind)
+            | _ -> titleForKind kind
 
         let allItems = itemsForKind model kind
         let filteredItems = filterItems pickerState.Filter allItems
@@ -387,12 +608,11 @@ module Pickers =
             | None ->
                 let visibleActions =
                     match kind with
-                    | PickerKind.PluginPicker ->
-                        filteredItems
-                        |> List.tryItem selectedIndex
-                        |> Option.map (fun item -> item.Actions)
-                        |> Option.defaultValue []
-                    | PickerKind.MacroPicker ->
+                    | PickerKind.PluginPicker
+                    | PickerKind.MacroPicker
+                    | PickerKind.MessagePicker
+                    | PickerKind.LocationPicker
+                    | PickerKind.LanguageServerPicker ->
                         filteredItems
                         |> List.tryItem selectedIndex
                         |> Option.map (fun item -> item.Actions)

@@ -39,6 +39,11 @@ type Theme =
       LineNumberBg: Color
       ActiveLineFg: Color
       ActiveLineBg: Color
+      // Semantic severity foregrounds — the status-line notification segment,
+      // picker badges, and destructive action chips. Deliberately not the
+      // accent: error red / warning yellow carry meaning, not brand.
+      WarningFg: Color
+      ErrorFg: Color
       // Syntax palette — one Color per HighlightCapture case.
       // `Color.Default` means "no override; keep the surface foreground".
       SyntaxKeyword: Color
@@ -150,6 +155,10 @@ module Themes =
           LineNumberBg = Color.Default
           ActiveLineFg = Color.indexed 252
           ActiveLineBg = Color.indexed 236
+          // ANSI yellow/red match the previously-hardcoded picker badge
+          // colors, so every bundled dark theme keeps its exact look.
+          WarningFg = Color.yellow
+          ErrorFg = Color.red
           SyntaxKeyword = defaultSyntax.SyntaxKeyword
           SyntaxKeywordControl = defaultSyntax.SyntaxKeywordControl
           SyntaxKeywordOperator = defaultSyntax.SyntaxKeywordOperator
@@ -276,6 +285,10 @@ module Themes =
             LineNumberBg = Color.ofHex "#FFFFFF"
             ActiveLineFg = Color.ofHex "#1F2328"
             ActiveLineBg = Color.ofHex "#F6F8FA"
+            // Primer attention/danger foregrounds — the ANSI defaults are
+            // unreadable on this theme's light chrome.
+            WarningFg = Color.ofHex "#9A6700"
+            ErrorFg = Color.ofHex "#CF222E"
             SyntaxKeyword = githubLightSyntax.SyntaxKeyword
             SyntaxKeywordControl = githubLightSyntax.SyntaxKeywordControl
             SyntaxKeywordOperator = githubLightSyntax.SyntaxKeywordOperator
@@ -318,6 +331,9 @@ module Themes =
             LineNumberBg = Color.ofHex "#0D1117"
             ActiveLineFg = Color.ofHex "#E6EDF3"
             ActiveLineBg = Color.ofHex "#161B22"
+            // Primer dark attention/danger foregrounds.
+            WarningFg = Color.ofHex "#D29922"
+            ErrorFg = Color.ofHex "#F85149"
             SyntaxKeyword = githubDarkSyntax.SyntaxKeyword
             SyntaxKeywordControl = githubDarkSyntax.SyntaxKeywordControl
             SyntaxKeywordOperator = githubDarkSyntax.SyntaxKeywordOperator

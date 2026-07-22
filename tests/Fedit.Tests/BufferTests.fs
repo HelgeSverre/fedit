@@ -373,6 +373,35 @@ let ``findAll empty needle returns no matches`` () =
     let buffer = Buffer.fromText 1 None "test" "hello" "\n"
     Buffer.findAll "" buffer |> should be Empty
 
+// --- findNextMatch / findPreviousMatch: repeat-search core ---
+
+[<Fact>]
+let ``findNextMatch returns the first match at or after fromIndex`` () =
+    Buffer.findNextMatch "ab" 1 "ababab" |> should equal (Some 2)
+    Buffer.findNextMatch "ab" 2 "ababab" |> should equal (Some 2)
+
+[<Fact>]
+let ``findNextMatch wraps to the first match when nothing follows`` () =
+    Buffer.findNextMatch "ab" 5 "ababab" |> should equal (Some 0)
+
+[<Fact>]
+let ``findNextMatch is case-insensitive like the search prompt`` () =
+    Buffer.findNextMatch "AB" 1 "xxabxx" |> should equal (Some 2)
+
+[<Fact>]
+let ``findNextMatch returns None for an empty or absent needle`` () =
+    Buffer.findNextMatch "" 0 "hello" |> should equal None
+    Buffer.findNextMatch "zz" 0 "hello" |> should equal None
+
+[<Fact>]
+let ``findPreviousMatch returns the last match at or before fromIndex`` () =
+    Buffer.findPreviousMatch "ab" 3 "ababab" |> should equal (Some 2)
+    Buffer.findPreviousMatch "ab" 2 "ababab" |> should equal (Some 2)
+
+[<Fact>]
+let ``findPreviousMatch wraps to the last match when nothing precedes`` () =
+    Buffer.findPreviousMatch "ab" -1 "ababab" |> should equal (Some 4)
+
 // --- Viewport: scrolloff margin (cursor-led) + viewport-led scroll (wheel) ---
 
 let private linesBuffer n =
