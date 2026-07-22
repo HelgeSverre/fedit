@@ -206,3 +206,24 @@ let ``findWorkspaceRoot matches any of several markers`` () =
 let ``findWorkspaceRoot falls back to the workspace root when no marker exists`` () =
     LanguageServers.findWorkspaceRoot (fun _ -> false) [ "sema.toml" ] "/work/project/src/main.sema" "/work"
     |> should equal "/work"
+
+// -- statusFormat migration -------------------------------------------------
+
+[<Fact>]
+let ``a persisted pre-LSP default statusFormat migrates to the current default`` () =
+    // Every pre-LSP build persisted statusFormat unconditionally, so
+    // upgraded configs carry the exact old default — without migration the
+    // [DIAGNOSTICS] segment would stay hidden forever.
+    let config =
+        loadJson
+            """{ "statusFormat": "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]" }"""
+
+    config.StatusFormat
+    |> should equal (Config.defaults Themes.defaultTheme).StatusFormat
+
+    config.StatusFormat |> should haveSubstring "[DIAGNOSTICS]"
+
+[<Fact>]
+let ``a customized statusFormat is preserved verbatim on load`` () =
+    let config = loadJson """{ "statusFormat": "[MODE] <EXPAND> [LINE]" }"""
+    config.StatusFormat |> should equal "[MODE] <EXPAND> [LINE]"

@@ -273,6 +273,59 @@ module Runtime =
         { Width = max 1 Console.WindowWidth
           Height = max 1 Console.WindowHeight }
 
+    /// Resolve symlinks in every component of a path (realpath semantics),
+    /// returning the canonical `/`-separated result. Language servers
+    /// canonicalize the URIs they publish (sema realpaths macOS's
+    /// `/tmp` -> `/private/tmp`; rust-analyzer does the same), so paths
+    /// received from a server must be comparable against the editor's
+    /// buffer paths through this resolution. Components that don't exist
+    /// (or can't be probed) pass through unchanged. Impure — filesystem
+    /// probing lives here, never in the pure layers.
+    let canonicalizePath (path: string) : string =
+        let resolveLink (candidate: string) : string option =
+            try
+                let info =
+                    if Directory.Exists candidate then
+                        Directory.ResolveLinkTarget(candidate, true)
+                    elif File.Exists candidate then
+                        File.ResolveLinkTarget(candidate, true)
+                    else
+                        null
+
+                match info with
+                | null -> None
+                | resolved -> Some(Paths.norm resolved.FullName)
+            with _ ->
+                None
+
+        // Walk from the root, resolving each accumulated prefix, so a
+        // symlinked directory anywhere in the path is replaced by its
+        // target before the deeper components are appended. A link's
+        // target can itself pass through symlinked directories (a link
+        // into `/var/...` on macOS), so each substitution re-walks the
+        // target; the depth guard bounds symlink cycles.
+        let rec walk (depth: int) (path: string) : string =
+            let mutable current = ""
+            let mutable first = true
+
+            for segment in path.Split '/' do
+                if first then
+                    // "" for absolute Unix paths, "C:" for Windows drives.
+                    current <- segment
+                    first <- false
+                else
+                    let candidate = current + "/" + segment
+
+                    current <-
+                        match resolveLink candidate with
+                        | Some target when depth < 16 -> walk (depth + 1) target
+                        | Some target -> target
+                        | None -> candidate
+
+            current
+
+        walk 0 (Paths.norm path)
+
     let run rootPath initialFile (logPath: string option) =
         // Canonicalize the workspace root + initial file to `/` at this OS
         // boundary so every downstream path comparison is platform-independent.
@@ -348,11 +401,94 @@ module Runtime =
         let lspMarkerExists (path: string) =
             File.Exists path || Directory.Exists path
 
+        // Canonical (symlink-resolved) path aliases: canonical -> the path
+        // the editor knows the document by. Servers may publish URIs for
+        // the resolved path (sema realpaths `/tmp` -> `/private/tmp`), so
+        // every path received from a server translates back through this
+        // table — otherwise diagnostics would never match the open buffer
+        // and goto-definition would open a duplicate of it. Documents
+        // register identity entries too, so an explicitly-canonical open
+        // wins over a workspace-root prefix rewrite. Entries are tiny and
+        // bounded by the session's file set; they are never removed.
+        let lspPathAliases = System.Collections.Generic.Dictionary<string, string>()
+        let lspCanonicalCache = System.Collections.Generic.Dictionary<string, string>()
+
+        // Resolution is cached per path so the reader-thread diagnostics
+        // callback stays cheap after the first sighting of a path.
+        let lspCanonicalFor (path: string) : string =
+            let cached =
+                lock lspLock (fun () ->
+                    match lspCanonicalCache.TryGetValue path with
+                    | true, canonical -> Some canonical
+                    | _ -> None)
+
+            match cached with
+            | Some canonical -> canonical
+            | None ->
+                let canonical = canonicalizePath path
+                lock lspLock (fun () -> lspCanonicalCache[path] <- canonical)
+                canonical
+
+        let lspRegisterPathAlias (editorPath: string) : unit =
+            let canonical = lspCanonicalFor editorPath
+            lock lspLock (fun () -> lspPathAliases[canonical] <- editorPath)
+
+        /// A path received from a server, mapped back to the editor's form:
+        /// exact document alias first, then a workspace-root prefix rewrite
+        /// (covers never-opened files inside a symlinked root), else the
+        /// canonical form as-is.
+        let lspTranslateServerPath (serverPath: string) : string =
+            let canonical = lspCanonicalFor serverPath
+
+            lock lspLock (fun () ->
+                match lspPathAliases.TryGetValue canonical with
+                | true, editorPath -> editorPath
+                | _ ->
+                    lspPathAliases
+                    |> Seq.tryPick (fun (KeyValue(aliasCanonical, aliasEditorPath)) ->
+                        if
+                            aliasEditorPath <> aliasCanonical
+                            && canonical.StartsWith(aliasCanonical + "/", StringComparison.Ordinal)
+                        then
+                            Some(aliasEditorPath + canonical.Substring aliasCanonical.Length)
+                        else
+                            None)
+                    |> Option.defaultValue canonical)
+
+        // A document's workspace root resolves once, on first sync, and
+        // stays pinned for its whole open/change/close lifecycle:
+        // re-resolving against the live filesystem could route a later
+        // didChange to a different client — one that never saw the didOpen —
+        // when a root marker appears or disappears mid-session. Entries
+        // drop on Closed and on LspRestart (documents re-pin on the reopen
+        // sync that follows a restart).
+        let lspDocumentRoots = System.Collections.Generic.Dictionary<string, string>()
+
+        let lspRootFor (server: LanguageServerConfig) (path: string) (workspaceFallbackRoot: string) : string =
+            let pinned =
+                lock lspLock (fun () ->
+                    match lspDocumentRoots.TryGetValue path with
+                    | true, root -> Some root
+                    | _ -> None)
+
+            match pinned with
+            | Some root -> root
+            | None ->
+                let resolved =
+                    LanguageServers.findWorkspaceRoot lspMarkerExists server.RootMarkers path workspaceFallbackRoot
+
+                lock lspLock (fun () -> lspDocumentRoots[path] <- resolved)
+                resolved
+
         let lspContinueWith (work: unit -> unit) =
             lock lspLock (fun () ->
                 lspSyncChain <- lspSyncChain.ContinueWith((fun (_: Task) -> work ()), TaskContinuationOptions.None))
 
         let lspClientFor (server: LanguageServerConfig) (rootPath: string) : LspClient =
+            // The workspace root registers as an alias so server paths
+            // under a symlinked root rewrite back to the editor's form.
+            lspRegisterPathAlias rootPath
+
             lock lspLock (fun () ->
                 let key = LspClient.key server rootPath
 
@@ -361,25 +497,20 @@ module Runtime =
                 | false, _ ->
                     let callbacks =
                         { OnDiagnostics =
-                            fun (path, diagnostics) -> queue.Enqueue(LspDiagnosticsPublished(path, diagnostics))
-                          OnStatusChanged = fun status -> queue.Enqueue(LspServerStatusChanged(server.Name, status))
+                            fun (path, diagnostics) ->
+                                queue.Enqueue(LspDiagnosticsPublished(lspTranslateServerPath path, diagnostics))
+                          OnStatusChanged = fun status -> queue.Enqueue(LspServerStatusChanged(key, status))
                           OnLog = fun line -> log $"lsp[{server.Name}]: {line}" }
 
                     let client = LspClient.create server rootPath callbacks
                     lspClients[key] <- client
                     client)
 
-        /// Resolve the client owning a position request (get-or-spawn, same
-        /// root resolution as document sync).
+        /// Resolve the client owning a position request (get-or-spawn, the
+        /// document's pinned root — same resolution as document sync).
         let lspClientForRequest (request: LspPositionRequest) : LspClient =
-            let rootPath =
-                LanguageServers.findWorkspaceRoot
-                    lspMarkerExists
-                    request.Server.RootMarkers
-                    request.Path
-                    request.WorkspaceRoot
-
-            lspClientFor request.Server rootPath
+            lspRegisterPathAlias request.Path
+            lspClientFor request.Server (lspRootFor request.Server request.Path request.WorkspaceRoot)
 
         /// One preview line off disk for the location picker. The update
         /// layer swaps in the open buffer's line where the document is open;
@@ -401,12 +532,16 @@ module Runtime =
                 ""
 
         /// URI -> canonical path + preview line, dropping non-file URIs.
-        /// Involves disk reads, so callers run it off the reader thread.
+        /// The path translates back through the symlink alias table so a
+        /// location lands on the buffer the editor already has open, never
+        /// a duplicate under the server's resolved spelling. Involves disk
+        /// reads, so callers run it off the reader thread.
         let lspResolveLocations (locations: LspLocation list) : LspResolvedLocation list =
             locations
             |> List.choose (fun location ->
                 LspUri.toPath location.Uri
-                |> Option.map (fun path ->
+                |> Option.map (fun serverPath ->
+                    let path = lspTranslateServerPath serverPath
                     let position = LspPosition.toPosition location.Range.Start
 
                     { Path = path
@@ -723,13 +858,8 @@ module Runtime =
                 lspContinueWith (fun () ->
                     for document in documents do
                         try
-                            let rootPath =
-                                LanguageServers.findWorkspaceRoot
-                                    lspMarkerExists
-                                    document.Server.RootMarkers
-                                    document.Path
-                                    workspaceRoot
-
+                            lspRegisterPathAlias document.Path
+                            let rootPath = lspRootFor document.Server document.Path workspaceRoot
                             let client = lspClientFor document.Server rootPath
 
                             match document.Kind with
@@ -742,7 +872,9 @@ module Runtime =
                                 )
                             | LspDocumentSyncKind.Changed text ->
                                 client.NotifyChanged(document.Path, document.Version, PieceTable.toString text)
-                            | LspDocumentSyncKind.Closed -> client.NotifyClosed document.Path
+                            | LspDocumentSyncKind.Closed ->
+                                client.NotifyClosed document.Path
+                                lock lspLock (fun () -> lspDocumentRoots.Remove document.Path |> ignore)
                         with ex ->
                             log $"lsp: sync failed for {document.Path}: {ex.Message}")
             | LspRestart name ->
@@ -765,6 +897,11 @@ module Runtime =
 
                             for key, _ in matching do
                                 lspClients.Remove key |> ignore
+
+                            // Unpin every document root so the reopen sync
+                            // that follows the restart re-resolves against
+                            // the current filesystem.
+                            lspDocumentRoots.Clear()
 
                             matching |> List.map snd)
 
@@ -1089,20 +1226,33 @@ module Runtime =
             with _ ->
                 ()
 
-            // Polite shutdown for every language server. Snapshot under the
-            // lock, dispose outside it — Shutdown blocks (bounded) on child
-            // exit and must not hold up a concurrent chain task's lookup.
-            let lspClientsToDispose =
-                lock lspLock (fun () ->
-                    let clients = List.ofSeq lspClients.Values
-                    lspClients.Clear()
-                    clients)
+            // Polite shutdown for every language server, chained as the
+            // LAST item on the LSP task so any queued notification (the
+            // user's final edits) drains first — and so no in-flight chain
+            // task can lose a race with the teardown and respawn a client
+            // into an abandoned table. Nothing enqueues chain work after
+            // the dispatch loop exits, so the chain is complete once this
+            // continuation has run; the bounded Wait keeps a wedged server
+            // from stalling quit forever (at worst its child leaks once).
+            lspContinueWith (fun () ->
+                let clients =
+                    lock lspLock (fun () ->
+                        let clients = List.ofSeq lspClients.Values
+                        lspClients.Clear()
+                        clients)
 
-            for client in lspClientsToDispose do
-                try
-                    (client :> IDisposable).Dispose()
-                with _ ->
-                    ()
+                for client in clients do
+                    try
+                        (client :> IDisposable).Dispose()
+                    with _ ->
+                        ())
+
+            let lspChain = lock lspLock (fun () -> lspSyncChain)
+
+            try
+                lspChain.Wait(TimeSpan.FromSeconds 10.0) |> ignore
+            with _ ->
+                ()
 
             Terminal.leave terminal
             logWriter |> Option.iter (fun w -> w.Dispose())

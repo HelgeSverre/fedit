@@ -138,11 +138,16 @@ module Editor =
         Highlight.detectLanguage buffer.FilePath (Buffer.line 0 buffer)
 
     /// The enabled language server owning `path`, if any: extension match
-    /// over the configured servers minus the disabled set. Shared by the
+    /// over the configured servers minus the disabled set. The subtraction
+    /// happens BEFORE the match so a disabled server can never shadow an
+    /// enabled later server claiming the same extension. Shared by the
     /// document-sync chokepoint and every position request.
     let private enabledLanguageServerFor (config: Config) (path: string) =
-        LanguageServers.serverForFile config.LanguageServers path
-        |> Option.filter (fun server -> not (Set.contains server.Name config.DisabledLanguageServers))
+        let enabledServers =
+            config.LanguageServers
+            |> List.filter (fun server -> not (Set.contains server.Name config.DisabledLanguageServers))
+
+        LanguageServers.serverForFile enabledServers path
 
     /// v1 languageId decision: the server config's first FileType extension
     /// (fallback: the server name). Documented on
@@ -731,6 +736,13 @@ module Editor =
     let private setLanguageServerDisabled (disabled: bool) (name: string) (model: Model) : Model * Effect list =
         if not (isKnownLanguageServer name model) then
             notify (Some(Notification.error $"Unknown language server '{name}'.")) model, []
+        elif Set.contains name model.Config.DisabledLanguageServers = disabled then
+            // Requested state already holds. `:lsp enable` on a running
+            // server must not re-open its documents — a second didOpen
+            // without a close is an LSP protocol violation — and the
+            // notification should not pretend anything changed.
+            let stateWord = if disabled then "disabled" else "enabled"
+            notify (Some(Notification.info $"'{name}' is already {stateWord}.")) model, []
         else
             let nextDisabledSet =
                 if disabled then
@@ -744,11 +756,13 @@ module Editor =
 
             // Disabling also drops the server's published diagnostics so the
             // status segment doesn't keep counting a server that is gone.
+            // Ownership is resolved against the pre-toggle enabled subset —
+            // the same view that emitted the didOpens being torn down.
             let nextDiagnostics =
                 if disabled then
                     model.Lsp.Diagnostics
                     |> Map.filter (fun path _ ->
-                        match LanguageServers.serverForFile nextConfig.LanguageServers path with
+                        match enabledLanguageServerFor model.Config path with
                         | Some server -> server.Name <> name
                         | None -> true)
                 else
@@ -2416,31 +2430,41 @@ module Editor =
                     HighlightStates = Map.add bufferId spans model.HighlightStates },
                 []
             | _ -> model, []
-        | LspServerStatusChanged(name, status) ->
+        | LspServerStatusChanged(clientKey, status) ->
             { model with
                 Lsp =
                     { model.Lsp with
-                        Servers = Map.add name status model.Lsp.Servers } },
+                        Servers = Map.add clientKey status model.Lsp.Servers } },
             []
         | LspDiagnosticsPublished(path, diagnostics) ->
             // Last publish wins per path; an empty set removes the entry so
-            // the status segment (and later inline markers) disappear.
-            let nextDiagnostics =
-                match diagnostics with
-                | [] -> Map.remove path model.Lsp.Diagnostics
-                | _ -> Map.add path diagnostics model.Lsp.Diagnostics
+            // the status segment (and later inline markers) disappear. A
+            // publish the reader thread enqueued before an `:lsp disable`
+            // landed is dropped (mirror of the emission-side filter) — the
+            // disable purge must stay final, or a dead server's diagnostics
+            // would stick for the rest of the session.
+            if (enabledLanguageServerFor model.Config path).IsNone then
+                model, []
+            else
+                let nextDiagnostics =
+                    match diagnostics with
+                    | [] -> Map.remove path model.Lsp.Diagnostics
+                    | _ -> Map.add path diagnostics model.Lsp.Diagnostics
 
-            { model with
-                Lsp =
-                    { model.Lsp with
-                        Diagnostics = nextDiagnostics } },
-            []
+                { model with
+                    Lsp =
+                        { model.Lsp with
+                            Diagnostics = nextDiagnostics } },
+                []
         | LspDefinitionResolved(outcome, requestedEditTick, bufferId) ->
             // Positions were computed against the request-time revision; a
             // moved-on buffer (or a vanished one) invalidates them — the
-            // HighlightParsed stale guard.
+            // HighlightParsed stale guard. The requesting buffer must also
+            // still be active (the SearchCompleted convention): a late
+            // response must never yank the view away from a buffer the
+            // user switched to mid-flight.
             match Map.tryFind bufferId model.Editors.Buffers with
-            | Some buffer when buffer.EditTick = requestedEditTick ->
+            | Some buffer when buffer.EditTick = requestedEditTick && model.Editors.ActiveBufferId = bufferId ->
                 match outcome with
                 | Result.Error message -> notify (Some(Notification.error $"Definition failed: {message}")) model, []
                 | Result.Ok [] -> notify (Some(Notification.info "No definition found.")) model, []
@@ -2450,7 +2474,7 @@ module Editor =
             | _ -> model, []
         | LspReferencesResolved(outcome, requestedEditTick, bufferId) ->
             match Map.tryFind bufferId model.Editors.Buffers with
-            | Some buffer when buffer.EditTick = requestedEditTick ->
+            | Some buffer when buffer.EditTick = requestedEditTick && model.Editors.ActiveBufferId = bufferId ->
                 match outcome with
                 | Result.Error message -> notify (Some(Notification.error $"References failed: {message}")) model, []
                 | Result.Ok [] -> notify (Some(Notification.info "No references found.")) model, []
@@ -2459,7 +2483,7 @@ module Editor =
             | _ -> model, []
         | LspHoverResolved(outcome, requestedEditTick, bufferId) ->
             match Map.tryFind bufferId model.Editors.Buffers with
-            | Some buffer when buffer.EditTick = requestedEditTick ->
+            | Some buffer when buffer.EditTick = requestedEditTick && model.Editors.ActiveBufferId = bufferId ->
                 match outcome with
                 | Result.Error message -> notify (Some(Notification.error $"Hover failed: {message}")) model, []
                 | Result.Ok [] -> notify (Some(Notification.info "No hover info.")) model, []
@@ -2474,8 +2498,11 @@ module Editor =
             | _ -> model, []
         | LspLogFetched(title, lines) ->
             // Keep the tail: DockInfo paints top-down, and the newest log
-            // lines are the ones worth reading.
-            let visible = max 1 (model.Panels.DockHeight - 1)
+            // lines are the ones worth reading. Sized against the dock rows
+            // actually painted (`Dock.effectiveHeightCap` shrinks on short
+            // terminals), never the configured height — the View truncates
+            // from the top, which would otherwise cut the newest lines.
+            let visible = max 1 (Dock.effectiveHeightCap model - 1)
 
             let tail =
                 if lines.Length > visible then
@@ -2699,9 +2726,20 @@ module Editor =
         | MouseReleased _event -> { model with MouseDrag = None }, []
         | FocusGained -> model, []
         | FocusLost -> model, []
-        | KeyPressed chord when model.Lsp.Panel.IsSome && chord = kEscape ->
+        | KeyPressed chord when
+            model.Lsp.Panel.IsSome
+            && chord = kEscape
+            && not model.Prompt.Active
+            && model.PendingPrefix.IsNone
+            ->
             // Escape only dismisses the transient LSP info panel (hover,
-            // `:lsp log`) — consumed, no fallthrough.
+            // `:lsp log`) — consumed, no fallthrough. Only when the panel
+            // is actually visible and nothing else claims Escape: with the
+            // prompt open the panel isn't rendered (Dock.panel gives the
+            // prompt precedence), and a pending key-sequence prefix must
+            // keep its Escape-cancels semantics — both fall through to the
+            // general arm, which clears the panel alongside the normal
+            // action.
             { model with
                 Lsp = { model.Lsp with Panel = None } },
             []

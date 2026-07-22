@@ -151,12 +151,32 @@ let ``a scratch buffer gaining a path on save emits Opened`` () =
     | other -> failwith $"expected exactly one sync entry, got %A{other}"
 
 [<Fact>]
-let ``LspServerStatusChanged lands in the model`` () =
+let ``LspServerStatusChanged lands in the model keyed by client key`` () =
     let next, effects =
-        Editor.update (LspServerStatusChanged("sema", LspServerStatus.Running)) (initModel ())
+        Editor.update (LspServerStatusChanged("sema@/root", LspServerStatus.Running)) (initModel ())
 
-    next.Lsp.Servers["sema"] |> should equal LspServerStatus.Running
+    next.Lsp.Servers["sema@/root"] |> should equal LspServerStatus.Running
     lspSyncsOf effects |> List.isEmpty |> should equal true
+
+    LspState.statusLabel Set.empty next.Lsp "sema" |> should equal "running"
+
+[<Fact>]
+let ``statusLabel aggregates per-root clients worst-status-wins`` () =
+    // One server name can run several clients (one per workspace root); a
+    // dead client must never be masked by a healthy sibling.
+    let state =
+        { LspState.empty with
+            Servers =
+                Map.ofList
+                    [ "sema@/project-a", LspServerStatus.Running
+                      "sema@/project-b", LspServerStatus.Failed "spawn failed" ] }
+
+    LspState.statusLabel Set.empty state "sema" |> should equal "failed"
+
+    LspState.statusLabel (Set.ofList [ "sema" ]) state "sema"
+    |> should equal "disabled"
+
+    LspState.statusLabel Set.empty state "rust" |> should equal "idle"
 
 [<Fact>]
 let ``LspDiagnosticsPublished lands in the model and the status segment counts it`` () =
@@ -194,6 +214,55 @@ let ``an empty diagnostics publish removes the path entry`` () =
         Editor.update (LspDiagnosticsPublished("/root/main.sema", [])) published
 
     cleared.Lsp.Diagnostics.ContainsKey "/root/main.sema" |> should equal false
+
+[<Fact>]
+let ``a diagnostics publish for a disabled server's file is dropped`` () =
+    // A publish enqueued by the reader thread before `:lsp disable` landed
+    // must not resurrect diagnostics the disable purge removed — the dead
+    // server would never send the clearing empty set.
+    let model = initModel ()
+
+    let disabled =
+        { model with
+            Config =
+                { model.Config with
+                    DisabledLanguageServers = Set.ofList [ "sema" ] } }
+
+    let next, _ =
+        Editor.update
+            (LspDiagnosticsPublished("/root/main.sema", [ diagnostic LspDiagnosticSeverity.Error "stale" ]))
+            disabled
+
+    next.Lsp.Diagnostics.ContainsKey "/root/main.sema" |> should equal false
+
+[<Fact>]
+let ``a disabled server does not shadow an enabled server for the same file type`` () =
+    // The disabled set subtracts BEFORE extension matching: with the
+    // built-in sema disabled, an enabled user server claiming .sema files
+    // must own them (previously the match hit the disabled entry first and
+    // the whole file type silently lost its LSP).
+    let model = initModel ()
+
+    let alternate =
+        { Name = "sema-alt"
+          Command = "sema-alt"
+          Args = []
+          FileTypes = [ "sema" ]
+          RootMarkers = [ "sema.toml" ] }
+
+    let configured =
+        { model with
+            Config =
+                { model.Config with
+                    LanguageServers = model.Config.LanguageServers @ [ alternate ]
+                    DisabledLanguageServers = Set.ofList [ "sema" ] } }
+
+    let _, effects =
+        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) configured
+
+    match lspSyncsOf effects with
+    | [ sync ] -> sync.Server.Name |> should equal "sema-alt"
+    | other -> failwith $"expected exactly one sync entry, got %A{other}"
 
 [<Fact>]
 let ``the diagnostics segment is empty for a buffer without diagnostics`` () =
@@ -295,6 +364,46 @@ let ``a stale definition result is dropped`` () =
     next.Prompt.Active |> should equal false
     next.JumpStack |> should equal ([]: (string * Position) list)
     effects |> List.isEmpty |> should equal true
+
+[<Fact>]
+let ``a definition result for a no-longer-active buffer is dropped`` () =
+    // Switching buffers while the request is in flight makes the response
+    // stale even when the requesting buffer's EditTick is unchanged (the
+    // SearchCompleted convention): a late jump must never yank the view
+    // away from the buffer the user moved to.
+    let model = openedModel ()
+    let requestingBufferId = model.Editors.ActiveBufferId
+
+    let switched, _ =
+        Editor.update (FileOpened("/root/other.sema", OpenPermanent, None, Result.Ok "(other)")) model
+
+    switched.Editors.ActiveBufferId |> should not' (equal requestingBufferId)
+
+    let next, effects =
+        Editor.update
+            (LspDefinitionResolved(Result.Ok [ location "/root/main.sema" 1 0 ], 0, requestingBufferId))
+            switched
+
+    next.Editors.ActiveBufferId |> should equal switched.Editors.ActiveBufferId
+
+    next.Editors.Buffers[requestingBufferId].Cursor
+    |> should equal switched.Editors.Buffers[requestingBufferId].Cursor
+
+    next.JumpStack |> should equal ([]: (string * Position) list)
+    effects |> List.isEmpty |> should equal true
+
+[<Fact>]
+let ``a hover result for a no-longer-active buffer is dropped`` () =
+    let model = openedModel ()
+    let requestingBufferId = model.Editors.ActiveBufferId
+
+    let switched, _ =
+        Editor.update (FileOpened("/root/other.sema", OpenPermanent, None, Result.Ok "(other)")) model
+
+    let next, _ =
+        Editor.update (LspHoverResolved(Result.Ok [ "about main.sema" ], 0, requestingBufferId)) switched
+
+    next.Lsp.Panel |> should equal (None: LspInfoPanel option)
 
 [<Fact>]
 let ``a single definition in the same file moves the cursor and pushes the jump origin`` () =
@@ -424,6 +533,47 @@ let ``escape only dismisses the hover panel`` () =
     after.Editors.Buffers[model.Editors.ActiveBufferId].EditTick |> should equal 0
 
 [<Fact>]
+let ``escape closes the prompt even when an invisible panel is set`` () =
+    // A hover response landing after the prompt opened sets the panel while
+    // the dock shows the prompt (the panel is not rendered). Escape must
+    // close the prompt the user is looking at — not burn a keypress on the
+    // hidden panel.
+    let model = openedModel ()
+
+    let ctrlP: Chord =
+        { Mods = Set.ofList [ Ctrl ]
+          Key = Key.Char 'p' }
+
+    let prompted, _ = Editor.update (KeyPressed ctrlP) model
+
+    let hovered, _ =
+        Editor.update (LspHoverResolved(Result.Ok [ "late" ], 0, model.Editors.ActiveBufferId)) prompted
+
+    hovered.Prompt.Active |> should equal true
+
+    let after, _ = Editor.update (KeyPressed escapeKey) hovered
+    after.Prompt.Active |> should equal false
+    after.Lsp.Panel |> should equal (None: LspInfoPanel option)
+
+[<Fact>]
+let ``escape cancels a pending key-sequence prefix even when a panel is set`` () =
+    let model = openedModel ()
+
+    let hovered, _ =
+        Editor.update (LspHoverResolved(Result.Ok [ "info" ], 0, model.Editors.ActiveBufferId)) model
+
+    let pending =
+        { hovered with
+            PendingPrefix =
+                Some
+                    [ { Mods = Set.ofList [ Ctrl ]
+                        Key = Key.Char 'k' } ] }
+
+    let after, _ = Editor.update (KeyPressed escapeKey) pending
+    after.PendingPrefix |> should equal (None: Chord list option)
+    after.Lsp.Panel |> should equal (None: LspInfoPanel option)
+
+[<Fact>]
 let ``a stale hover result is dropped`` () =
     let model = openedModel ()
     let edited, _ = Editor.update (KeyPressed(chr 'z')) model
@@ -444,6 +594,26 @@ let ``a fetched log shows its tail in the dock panel`` () =
         panel.Title |> should equal "LSP log"
         panel.Lines |> List.last |> should equal "line 20"
         panel.Lines.Length |> should equal (model.Panels.DockHeight - 1)
+    | None -> failwith "expected a dock panel"
+
+[<Fact>]
+let ``a fetched log keeps the newest lines on a short terminal`` () =
+    // The dock's effective height shrinks to a third of a short terminal
+    // (Dock.effectiveHeightCap) and the View truncates from the top, so
+    // the tail must be sized against the rows actually painted — otherwise
+    // the newest lines (the reason the user ran `:lsp log`) are cut.
+    let model =
+        { initModel () with
+            Terminal = { Width = 80; Height = 15 } }
+
+    let lines = [ for i in 1..20 -> $"line {i}" ]
+    let next, _ = Editor.update (LspLogFetched("LSP log", lines)) model
+
+    match next.Lsp.Panel with
+    | Some panel ->
+        panel.Lines |> List.last |> should equal "line 20"
+        panel.Lines.Length |> should equal (Dock.effectiveHeightCap model - 1)
+        (Dock.effectiveHeightCap model) |> should be (lessThan model.Panels.DockHeight)
     | None -> failwith "expected a dock panel"
 
 [<Fact>]
@@ -512,6 +682,55 @@ let ``bare :lsp opens the manager and 'e' disables the selected server`` () =
         | LspRestart(Some "sema") -> true
         | _ -> false)
     |> should equal true
+
+[<Fact>]
+let ``:lsp enable on an already-enabled server is a no-op`` () =
+    // A running server must not receive a second didOpen for documents it
+    // already has open (an LSP protocol violation) — and nothing should be
+    // persisted for a state that didn't change.
+    let model = openedModel ()
+    let next, effects = typeAndRun "lsp enable sema" model
+
+    lspSyncsOf effects |> List.isEmpty |> should equal true
+
+    effects
+    |> List.exists (fun effect ->
+        match effect with
+        | SaveConfig _
+        | LspRestart _ -> true
+        | _ -> false)
+    |> should equal false
+
+    next.Notification
+    |> Option.map (fun notification -> notification.Message)
+    |> should equal (Some "'sema' is already enabled.")
+
+[<Fact>]
+let ``:lsp disable on an already-disabled server is a no-op`` () =
+    let model = openedModel ()
+
+    let disabled =
+        { model with
+            Config =
+                { model.Config with
+                    DisabledLanguageServers = Set.ofList [ "sema" ] } }
+
+    let next, effects = typeAndRun "lsp disable sema" disabled
+
+    effects
+    |> List.exists (fun effect ->
+        match effect with
+        | SaveConfig _
+        | LspRestart _
+        | LspSyncDocuments _ -> true
+        | _ -> false)
+    |> should equal false
+
+    next.Config.DisabledLanguageServers |> should equal (Set.ofList [ "sema" ])
+
+    next.Notification
+    |> Option.map (fun notification -> notification.Message)
+    |> should equal (Some "'sema' is already disabled.")
 
 [<Fact>]
 let ``:lsp restart tears the server down before re-opening its documents`` () =

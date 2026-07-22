@@ -445,9 +445,12 @@ module Pickers =
                       Lines =
                         [ TextLine("file types: " + String.concat ", " server.FileTypes)
                           TextLine("roots: " + String.concat ", " server.RootMarkers)
-                          match Map.tryFind server.Name model.Lsp.Servers with
-                          | Some(LspServerStatus.Failed reason) -> ErrorLine reason
-                          | _ -> () ] }
+                          // One server name can run several clients (one per
+                          // workspace root); surface every failed one.
+                          for status in LspState.statusesFor model.Lsp server.Name do
+                              match status with
+                              | LspServerStatus.Failed reason -> ErrorLine reason
+                              | _ -> () ] }
 
             { Id = server.Name
               Title = server.Name

@@ -96,39 +96,67 @@ type LspClient(config: LanguageServerConfig, rootPath: string, callbacks: LspCli
             let id = allocateRequestId ()
             pending.[id] <- continuation
 
-            match writeMessage (makeJson id) with
-            | Result.Ok() -> ()
-            | Result.Error e ->
+            let failRegistered (reason: string) =
                 match pending.TryRemove id with
-                | true, registered -> registered (Result.Error e)
+                | true, registered -> registered (Result.Error reason)
                 | _ -> ()
 
-    let flushQueuedDocuments () =
-        let queued =
-            lock gate (fun () ->
-                let items = [ for KeyValue(path, document) in queuedDocuments -> path, document ]
-
-                queuedDocuments.Clear()
-                items)
-
-        for path, document in queued do
-            writeMessage (
-                LspWire.didOpenNotification (LspUri.fromPath path) document.LanguageId document.Version document.Text
-            )
-            |> ignore
+            match writeMessage (makeJson id) with
+            | Result.Ok() ->
+                // The reader thread may have swept `pending` (EOF -> status
+                // flip -> failPending) between the status check above and
+                // the insert. The reader publishes the non-Running status
+                // BEFORE it sweeps, so re-checking here after the write
+                // guarantees every continuation is either swept there or
+                // failed here — never orphaned.
+                if lock gate (fun () -> status) <> LspServerStatus.Running then
+                    failRegistered "language server is not running"
+            | Result.Error e -> failRegistered e
 
     // Runs on the reader thread when the initialize response arrives:
-    // store capabilities, send initialized, go Running, flush deferred
-    // didOpens.
+    // store capabilities, send initialized, flush deferred didOpens, go
+    // Running. The flush and the status flip are ONE gate section so a
+    // concurrent Notify* either sees Starting (and folds into the queue
+    // drained here) or sees Running strictly after every queued didOpen is
+    // on the wire — a didChange can never outrun its didOpen. Monitor is
+    // reentrant, so writeMessage's inner `lock gate` is safe, and
+    // LspTransport's per-stream writer lock never wraps the gate, so there
+    // is no lock-order inversion.
     let onInitializeResponse (outcome: Result<JsonElement, string>) =
         match outcome with
         | Result.Error e -> setStatus (LspServerStatus.Failed("initialize failed: " + e))
         | Result.Ok result ->
             let parsed = LspWire.readInitializeResult result
-            lock gate (fun () -> capabilities <- parsed)
-            writeMessage LspWire.initializedNotification |> ignore
-            setStatus LspServerStatus.Running
-            flushQueuedDocuments ()
+
+            let becameRunning =
+                lock gate (fun () ->
+                    capabilities <- parsed
+                    writeMessage LspWire.initializedNotification |> ignore
+
+                    let queued = [ for KeyValue(path, document) in queuedDocuments -> path, document ]
+
+                    queuedDocuments.Clear()
+
+                    for path, document in queued do
+                        writeMessage (
+                            LspWire.didOpenNotification
+                                (LspUri.fromPath path)
+                                document.LanguageId
+                                document.Version
+                                document.Text
+                        )
+                        |> ignore
+
+                    // Only Starting flips to Running: a concurrent Shutdown
+                    // may already have moved the client to Stopped.
+                    if status = LspServerStatus.Starting then
+                        status <- LspServerStatus.Running
+                        true
+                    else
+                        false)
+
+            if becameRunning then
+                callbacks.OnStatusChanged LspServerStatus.Running
 
     // Route one message off the server's stdout. The JsonDocument lives only
     // for this call, so continuations decode their payload synchronously.
@@ -173,17 +201,19 @@ type LspClient(config: LanguageServerConfig, rootPath: string, callbacks: LspCli
 
         // stdout closed. During/after shutdown that is normal (sema
         // force-exits ~2s after `shutdown`); while active it is a crash.
+        // The status flips BEFORE the pending sweep so sendRequest's
+        // post-write re-check pairs with the sweep (see sendRequest).
         if lock gate (fun () -> shuttingDown) then
-            failPending "language server stopped"
             setStatus LspServerStatus.Stopped
+            failPending "language server stopped"
         else
             let reason =
                 match lock gate (fun () -> serverProcess) with
                 | Some p when p.WaitForExit 500 -> sprintf "language server exited unexpectedly (code %d)" p.ExitCode
                 | _ -> "language server closed its output stream"
 
-            failPending reason
             setStatus (LspServerStatus.Failed reason)
+            failPending reason
 
     let rec drainStandardError (reader: StreamReader) =
         match reader.ReadLine() with
@@ -366,8 +396,8 @@ type LspClient(config: LanguageServerConfig, rootPath: string, callbacks: LspCli
 
                     p.WaitForExit 1000 |> ignore
 
-            failPending "language server stopped"
             setStatus LspServerStatus.Stopped
+            failPending "language server stopped"
 
     interface IDisposable with
         member this.Dispose() = this.Shutdown()

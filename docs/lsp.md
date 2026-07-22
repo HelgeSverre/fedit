@@ -69,23 +69,33 @@ it.
 Rebind any of these in `~/.config/fedit/keybinds`, e.g.
 `editor f9 = goto-definition`. Hover deliberately avoids VSCode's
 `ctrl+k ctrl+i`: binding it by default would make bare `ctrl+k` a
-sequence prefix and shadow plugin or user `ctrl+k` chords.
+sequence prefix and shadow plugin or user `ctrl+k` chords. On macOS
+Terminal.app and iTerm2 default profiles, `Alt+-` needs "Use Option as
+Meta key" (Terminal) / "Esc+" (iTerm2) enabled — otherwise Option+minus
+types an en dash (`–`) instead of sending the chord; rebind `jump-back`
+if you'd rather keep Option as-is.
 
-Location pickers (definitions, references, diagnostics) show one row per
-location — `relativePath:line:` plus a preview of that line, read from
-the open buffer when the file is open and from disk otherwise. Type to
-filter, `Enter` jumps (and pushes the jump stack), `Esc` closes.
+Location pickers show one row per location — `relativePath:line:` plus a
+preview. For definitions and references the preview is that line, read
+from the open buffer when the file is open and from disk otherwise;
+diagnostics rows preview `severity: message` instead. Type to filter,
+`Enter` jumps (and pushes the jump stack), `Esc` closes.
 
 ## Diagnostics
 
 Servers push diagnostics after every open and change. The status bar's
 `[DIAGNOSTICS]` token shows compact severity counts for the active
 buffer — `E2 W1` means two errors and one warning; a clean buffer shows
-nothing. The segment stays uncolored on purpose (one accent per surface);
-severity color lives in the pickers instead.
+nothing. The segment stays uncolored on purpose (one accent per
+surface); severity shows as text, not color, in the pickers too.
+
+A custom `statusFormat` in config only renders the tokens it names —
+keep `[DIAGNOSTICS]` in yours or the counts never appear (configs saved
+before the token existed migrate automatically when they still carry
+the old default format).
 
 `:diagnostics` opens the active buffer's diagnostics in a location
-picker with `severity: message` previews.
+picker with `severity: message` previews (`error: unknown symbol`).
 
 ## Managing servers
 
@@ -115,7 +125,8 @@ thread.
 
 Requests (definition, hover, references) carry the buffer's `EditTick`;
 responses echo it, and the update layer drops any result whose tick no
-longer matches — a stale position must never move the cursor. Buffers are
+longer matches or whose buffer is no longer active — a stale position
+must never move the cursor or yank the view from another buffer. Buffers are
 LF-normalized in memory, and both fedit and LSP address positions as
 0-based line + UTF-16 code unit, so positions cross the wire without
 conversion.
@@ -129,9 +140,9 @@ exit code in the log.
 ## Troubleshooting
 
 - **Nothing happens on F12** — check `:lsp status`. `idle` means no
-  matching file has opened yet (or the binary is missing from `PATH`);
-  `failed` means the spawn or handshake broke — `:lsp log <server>` has
-  the stderr.
+  matching file has opened yet; `failed` means the spawn or handshake
+  broke, including a binary missing from `PATH` — `:lsp log <server>`
+  has the stderr.
 - **Definitions in other files come back empty right after startup** —
   servers index the workspace asynchronously (sema scans `.sema` files
   after `initialized`); retry after a moment.

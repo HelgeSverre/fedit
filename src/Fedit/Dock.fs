@@ -91,6 +91,15 @@ module Dock =
             | Some panel -> DockInfo(panel.Title, panel.Lines)
             | None -> NoDock
 
+    /// Effective dock height cap: the configured height limited to a third
+    /// of the terminal (minimum 3 rows). The prose info dock (`DockInfo`)
+    /// always renders exactly this tall; list surfaces size to content
+    /// below it. Shared with `Editor`'s `:lsp log` tail so the kept lines
+    /// always fit the rows actually painted — this is layout arithmetic,
+    /// so it lives here, never in a single consumer.
+    let effectiveHeightCap (model: Model) : int =
+        min model.Panels.DockHeight (max 3 (max 1 model.Terminal.Height / 3))
+
     let metrics (model: Model) : DockMetrics =
         let width = max 1 model.Terminal.Width
         let height = max 1 model.Terminal.Height
@@ -105,12 +114,12 @@ module Dock =
             | None -> panel model
 
         // Menu-style list surfaces (the picker and the completion lists) size
-        // to their content, capped at the configured dock height, so a filter
+        // to their content, capped at the effective dock height, so a filter
         // that leaves few rows yields a short dock that grows back up to the
         // cap. The dock is bottom-anchored, so a smaller height hands the
         // freed rows to the editor. The prose info/help dock keeps the full
-        // configured height.
-        let configuredMax = min model.Panels.DockHeight (max 3 (height / 3))
+        // effective height.
+        let configuredMax = effectiveHeightCap model
 
         let dockHeight =
             match pickerView, activePanel with

@@ -217,7 +217,11 @@ Navigate from the editor:
 
 The chords map to the `goto-definition`, `find-references`, `hover`, and
 `jump-back` actions — rebindable in `~/.config/fedit/keybinds` like
-everything else.
+everything else. On macOS Terminal.app and iTerm2 default profiles,
+`Alt+-` needs "Use Option as Meta key" (Terminal) / "Esc+" (iTerm2)
+enabled — otherwise Option+minus types an en dash (`–`) instead of
+sending the chord. Alternatively rebind `jump-back` to a chord your
+terminal delivers.
 
 Manage servers with `:lsp`:
 
@@ -432,23 +436,26 @@ Changes take effect on next launch. Out-of-range values clamp to the nearest val
 The default format is:
 
 ```
-[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]
+[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION][DIAGNOSTICS]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]
 ```
 
 Tokens are case-insensitive. Unknown tokens render literally so typos are visible (e.g. `[xyx]` stays as `[xyx]`). Multiple `<EXPAND>` placeholders share leftover width; odd remainder distributes left-to-right.
 
-| Token                  | Resolves to                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------------ |
-| `[MODE]`               | Focus label (`EDIT` / `CMD` / `FILE` / `FIND` / `BUF` / `TREE`).                           |
-| `[CURRENT_FILE]`       | Filename only (e.g. `README.md`); `[scratch]` for unsaved buffers.                         |
-| `[CURRENT_FILE:short]` | Path with `$HOME` tildified (e.g. `~/code/fedit/README.md`).                               |
-| `[CURRENT_FILE:full]`  | Absolute path.                                                                             |
-| `[DIRTY]`              | ` [+]` when the buffer is dirty (with leading space so it disappears cleanly), else empty. |
-| `[LINE]` / `[COLUMN]`  | 1-based cursor position.                                                                   |
-| `[LINE_ENDING]`        | `LF` or `CRLF`.                                                                            |
-| `[BUFFER]`             | Sorted index / count (e.g. `2/5`).                                                         |
-| `[NOTIFICATION]`       | Active notification message, or empty.                                                     |
-| `<EXPAND>`             | Flex spacer; multiple expand placeholders split remaining columns evenly.                  |
+| Token                  | Resolves to                                                                                                                |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `[MODE]`               | Focus label (`EDIT` / `CMD` / `FILE` / `FIND` / `BUF` / `TREE`).                                                           |
+| `[CURRENT_FILE]`       | Filename only (e.g. `README.md`); `[scratch]` for unsaved buffers.                                                         |
+| `[CURRENT_FILE:short]` | Path with `$HOME` tildified (e.g. `~/code/fedit/README.md`).                                                               |
+| `[CURRENT_FILE:full]`  | Absolute path.                                                                                                             |
+| `[DIRTY]`              | ` [+]` when the buffer is dirty (with leading space so it disappears cleanly), else empty.                                 |
+| `[LINE]` / `[COLUMN]`  | 1-based cursor position.                                                                                                   |
+| `[LINE_ENDING]`        | `LF` or `CRLF`.                                                                                                            |
+| `[BUFFER]`             | Sorted index / count (e.g. `2/5`).                                                                                         |
+| `[NOTIFICATION]`       | Active notification message, or empty.                                                                                     |
+| `[DIAGNOSTICS]`        | Compact severity counts for the active buffer (e.g. `E2 W1`, own leading spaces so it vanishes cleanly); empty when clean. |
+| `<EXPAND>`             | Flex spacer; multiple expand placeholders split remaining columns evenly.                                                  |
+
+A custom `statusFormat` only shows the segments it names — add `[DIAGNOSTICS]` to yours or language-server diagnostics never reach the status bar. Configs saved before the token existed migrate automatically when they still carry the old default string.
 
 ### User themes
 

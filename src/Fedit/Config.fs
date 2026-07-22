@@ -32,6 +32,15 @@ module ConfigIO =
 
     let private clampInt low high value = max low (min high value)
 
+    /// The default `statusFormat` before the LSP phase added
+    /// `[DIAGNOSTICS]`. `save` persists `statusFormat` unconditionally, so
+    /// every pre-LSP config carries this exact string; loading migrates it
+    /// to the current default (an exact match can only be the old default,
+    /// never a hand-customized format) so upgrades surface the diagnostics
+    /// segment instead of silently hiding it forever.
+    let private preLspDefaultStatusFormat =
+        "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]"
+
     /// A JSON string array as trimmed, non-empty entries. None when the
     /// property is missing or not an array.
     let private getStringListProp (root: System.Text.Json.JsonElement) (name: string) =
@@ -172,7 +181,10 @@ module ConfigIO =
                     | _ -> defaults.Icons
 
                 let statusFormat =
-                    getStringProp root "statusFormat" |> Option.defaultValue defaults.StatusFormat
+                    match getStringProp root "statusFormat" with
+                    | Some persisted when persisted = preLspDefaultStatusFormat -> defaults.StatusFormat
+                    | Some persisted -> persisted
+                    | None -> defaults.StatusFormat
 
                 let syntaxHighlightingEnabled =
                     match root.TryGetProperty "syntaxHighlighting" with

@@ -433,3 +433,54 @@ let ``built-in server handshake: initialize, didOpen, clean shutdown`` (serverNa
                 Directory.Delete(root, true)
             with _ ->
                 ()
+
+// ── Runtime.canonicalizePath: symlink resolution at the server boundary ──
+//
+// Servers publish URIs for the symlink-resolved path (sema realpaths
+// macOS's /tmp -> /private/tmp); the Runtime canonicalizes both sides so
+// received paths map back onto the editor's buffer paths. Skips when the
+// platform refuses symlink creation (Windows without developer mode).
+
+[<Fact>]
+let ``canonicalizePath resolves a symlinked directory component`` () =
+    let scratch =
+        Paths.norm (Path.Combine(Path.GetTempPath(), Path.GetRandomFileName()))
+
+    let realDirectory = scratch + "/real"
+    let linkDirectory = scratch + "/link"
+    Directory.CreateDirectory realDirectory |> ignore
+
+    let linked =
+        try
+            Directory.CreateSymbolicLink(linkDirectory, realDirectory) |> ignore
+            true
+        with _ ->
+            false
+
+    try
+        if not linked then
+            Console.Error.WriteLine "skipping canonicalizePath test: symlink creation not permitted"
+        else
+            File.WriteAllText(realDirectory + "/main.sema", "(def x 1)")
+
+            // The file itself is not a link — only the directory component
+            // is — so this exercises the per-component walk.
+            let resolved = Runtime.canonicalizePath (linkDirectory + "/main.sema")
+            let expected = Runtime.canonicalizePath (realDirectory + "/main.sema")
+            Assert.Equal(expected, resolved)
+            Assert.EndsWith("/real/main.sema", resolved)
+
+            // Components that exist nowhere pass through unchanged (the
+            // scratch prefix itself may still resolve — macOS tempdirs live
+            // under the /var -> /private/var symlink).
+            let canonicalScratch = Runtime.canonicalizePath scratch
+
+            Assert.Equal(
+                canonicalScratch + "/missing/file.sema",
+                Runtime.canonicalizePath (scratch + "/missing/file.sema")
+            )
+    finally
+        try
+            Directory.Delete(scratch, true)
+        with _ ->
+            ()

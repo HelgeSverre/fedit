@@ -168,12 +168,13 @@ type LspLocationSet =
 /// keypress; Escape only dismisses.
 type LspInfoPanel = { Title: string; Lines: string list }
 
-/// Language-server state surfaced to the UI. Minimal by design: per-server
-/// status (keyed by server name) for the status line and the `:lsp` manager,
-/// the latest published diagnostics per canonical file path (each
-/// publish replaces the previous set for that path; an empty set removes
-/// the entry), the rows behind an open location picker, and the transient
-/// info panel.
+/// Language-server state surfaced to the UI. Minimal by design: per-client
+/// status (keyed by `LspClient.key`, `name@root` — one server name can run
+/// several clients, one per resolved workspace root) for the status line and
+/// the `:lsp` manager, the latest published diagnostics per canonical file
+/// path (each publish replaces the previous set for that path; an empty set
+/// removes the entry), the rows behind an open location picker, and the
+/// transient info panel.
 type LspState =
     { Servers: Map<string, LspServerStatus>
       Diagnostics: Map<string, LspDiagnostic list>
@@ -188,21 +189,49 @@ module LspState =
           Locations = None
           Panel = None }
 
+    /// Every client status belonging to one configured server name. Clients
+    /// are keyed `name@root`; a bare `name` key is accepted too so the
+    /// helper stays total over hand-built states.
+    let statusesFor (state: LspState) (serverName: string) : LspServerStatus list =
+        state.Servers
+        |> Map.toList
+        |> List.choose (fun (key, status) ->
+            if
+                key = serverName
+                || key.StartsWith(serverName + "@", System.StringComparison.Ordinal)
+            then
+                Some status
+            else
+                None)
+
     /// Presentation label for one configured server — the user-facing status
     /// word shared by `:lsp status` and the manager picker. The one-accent
     /// rule keeps the status bar's diagnostics segment uniform; this label is
-    /// where severity/status color lives instead (picker badges).
+    /// where severity/status color lives instead (picker badges). A server
+    /// name aggregates across its per-root clients worst-status-wins, so a
+    /// dead client in one workspace root is never masked by a healthy one in
+    /// another.
     let statusLabel (disabledServers: Set<string>) (state: LspState) (serverName: string) : string =
         if Set.contains serverName disabledServers then
             "disabled"
         else
-            match Map.tryFind serverName state.Servers with
-            | Some LspServerStatus.Running -> "running"
-            | Some LspServerStatus.Starting -> "starting"
-            | Some(LspServerStatus.Failed _) -> "failed"
-            | Some LspServerStatus.Stopped -> "stopped"
-            | Some LspServerStatus.NotStarted
-            | None -> "idle"
+            let severity status =
+                match status with
+                | LspServerStatus.Failed _ -> 4
+                | LspServerStatus.Starting -> 3
+                | LspServerStatus.Running -> 2
+                | LspServerStatus.Stopped -> 1
+                | LspServerStatus.NotStarted -> 0
+
+            match statusesFor state serverName with
+            | [] -> "idle"
+            | statuses ->
+                match statuses |> List.maxBy severity with
+                | LspServerStatus.Failed _ -> "failed"
+                | LspServerStatus.Starting -> "starting"
+                | LspServerStatus.Running -> "running"
+                | LspServerStatus.Stopped -> "stopped"
+                | LspServerStatus.NotStarted -> "idle"
 
 type Model =
     {
@@ -362,9 +391,12 @@ type Msg =
     /// The user keybinds file was (re)loaded: the effective keymap plus any
     /// parse/conflict errors to surface as a notification.
     | KeybindsLoaded of Keymap * string list
-    /// A language server changed state (spawn, handshake done, crash,
-    /// shutdown). Posted by the client callbacks the Runtime wires up.
-    | LspServerStatusChanged of name: string * status: LspServerStatus
+    /// A language server client changed state (spawn, handshake done,
+    /// crash, shutdown). Posted by the client callbacks the Runtime wires
+    /// up. `clientKey` is `LspClient.key` (`name@root`) — one server name
+    /// can run several clients, one per resolved workspace root, and each
+    /// reports independently.
+    | LspServerStatusChanged of clientKey: string * status: LspServerStatus
     /// A server pushed textDocument/publishDiagnostics: the full set for
     /// one canonical file path, replacing any previous set for that path.
     | LspDiagnosticsPublished of path: string * diagnostics: LspDiagnostic list
