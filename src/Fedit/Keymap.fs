@@ -300,12 +300,63 @@ module Keymap =
         | true, n -> Some n
         | _ -> None
 
-    /// Map a kebab-case action name (+ the raw remainder after the first ':')
-    /// to an Action. `run-plugin` is special-cased: its arg is itself
-    /// structured `<source>/<name> [plugin-arg]` (split once on '/', then once
-    /// on whitespace; an embedded '/' in the plugin-arg is preserved).
-    let private parseAction (name: string) (arg: string) : Result<Action, string> =
-        match name with
+    /// Decode an `insert-text` payload. Two forms:
+    ///   - double-quoted: `"…"` with backslash escapes \" \\ \n \t \r —
+    ///     the only way to carry whitespace, and what `Action.toSyntax` emits
+    ///   - bare: a single whitespace-free token taken literally (convenience)
+    let private parseInsertTextPayload (raw: string) : Result<string, string> =
+        let trimmed = raw.Trim()
+
+        if trimmed = "" then
+            Result.Error "insert-text needs a payload, e.g. insert-text:\"fn \""
+        elif trimmed.StartsWith "\"" then
+            let rec decode index (sb: System.Text.StringBuilder) =
+                if index >= trimmed.Length then
+                    Result.Error "insert-text: unterminated quoted payload"
+                else
+                    match trimmed[index] with
+                    | '"' when index = trimmed.Length - 1 -> Ok(sb.ToString())
+                    | '"' -> Result.Error "insert-text: text after the closing quote"
+                    | '\\' when index = trimmed.Length - 1 -> Result.Error "insert-text: dangling backslash"
+                    | '\\' ->
+                        match trimmed[index + 1] with
+                        | '"' -> decode (index + 2) (sb.Append '"')
+                        | '\\' -> decode (index + 2) (sb.Append '\\')
+                        | 'n' -> decode (index + 2) (sb.Append '\n')
+                        | 't' -> decode (index + 2) (sb.Append '\t')
+                        | 'r' -> decode (index + 2) (sb.Append '\r')
+                        | unknown -> Result.Error $"insert-text: unknown escape '\\{unknown}'"
+                    | c -> decode (index + 1) (sb.Append c)
+
+            decode 1 (System.Text.StringBuilder())
+        elif trimmed |> Seq.exists System.Char.IsWhiteSpace then
+            Result.Error "insert-text: quote a payload containing whitespace, e.g. insert-text:\"a b\""
+        else
+            Ok trimmed
+
+    /// Parse the action side of a binding line (the text right of '='), the
+    /// exact inverse of `Action.toSyntax`. Grammar:
+    ///
+    ///   action  = name [ ':' payload ]
+    ///   name    = kebab-case verb (the match below is exhaustive)
+    ///   payload = verb-specific remainder after the FIRST ':':
+    ///     insert-text     double-quoted string with \" \\ \n \t \r escapes,
+    ///                     or a bare whitespace-free token taken literally
+    ///     move-lines-*    positive count (omitted = 1)
+    ///     jump-to-buffer  buffer number 1..9
+    ///     set-theme       theme name (trimmed; may itself contain ':')
+    ///     goto            LINE or LINE:COL
+    ///     run-plugin      <source>/<name> [plugin-arg] — split once on '/',
+    ///                     then once on whitespace; later '/' are preserved
+    ///     record-macro    single-character register
+    ///     replay-macro    REGISTER or REGISTER:COUNT
+    let parseAction (syntax: string) : Result<Action, string> =
+        let name, arg =
+            match syntax.IndexOf(':') with
+            | -1 -> syntax, ""
+            | colon -> syntax.Substring(0, colon), syntax.Substring(colon + 1)
+
+        match name.Trim() with
         | "save" -> Ok Save
         | "quit" -> Ok Quit
         | "force-quit" -> Ok ForceQuit
@@ -339,6 +390,9 @@ module Keymap =
         | "extend-down" -> Ok ExtendDown
         | "extend-home" -> Ok ExtendHome
         | "extend-end" -> Ok ExtendEnd
+        | "insert-text" -> parseInsertTextPayload arg |> Result.map InsertText
+        | "delete-backward" -> Ok DeleteBackward
+        | "delete-forward" -> Ok DeleteForward
         | "indent" -> Ok Indent
         | "unindent" -> Ok Unindent
         | "delete-word-back" -> Ok DeleteWordBack
@@ -463,12 +517,7 @@ module Keymap =
                                       Action = None }
                             ) // unbind
                         else
-                            let name, arg =
-                                match rhs.IndexOf(':') with
-                                | -1 -> rhs, ""
-                                | colon -> rhs.Substring(0, colon), rhs.Substring(colon + 1)
-
-                            parseAction (name.Trim()) arg
+                            parseAction rhs
                             |> Result.map (fun a ->
                                 Some
                                     { Stroke = stroke

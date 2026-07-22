@@ -2826,3 +2826,58 @@ let ``clear-log in the messages picker empties the ring`` () =
     // The picker stays open showing the empty state.
     cleared.Prompt.Active |> should equal true
     cleared.Prompt.Session |> should equal PromptSessionKind.MessagesSession
+
+// ─────────────────────────────────────────────────────────────────────
+// Text-editing actions (macros stage M1): InsertText / DeleteBackward /
+// DeleteForward — the single code path the typing fallthrough delegates
+// to, so keybindings and macro replay edit exactly like typed keys.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``InsertText inserts a multi-character payload as one edit`` () =
+    let model = withText "ab"
+    let next, _ = Editor.runAction (InsertText "XY\nZ") model
+    PieceTable.toString (activeBuffer next).Document |> should equal "abXY\nZ"
+    (activeBuffer next).Dirty |> should equal true
+    // One bulk insert = one undo entry: a single Undo removes the payload.
+    let undone, _ = Editor.runAction Undo next
+    PieceTable.toString (activeBuffer undone).Document |> should equal "ab"
+
+[<Fact>]
+let ``InsertText replaces the selection and clears it`` () =
+    let selected, _ = Editor.runAction SelectAll (withText "abc")
+    let next, _ = Editor.runAction (InsertText "x") selected
+    PieceTable.toString (activeBuffer next).Document |> should equal "x"
+    (activeBuffer next).Selection |> should equal (None: SelectionSpan option)
+
+[<Fact>]
+let ``DeleteBackward removes the character before the cursor`` () =
+    let next, _ = Editor.runAction DeleteBackward (withText "abc")
+    PieceTable.toString (activeBuffer next).Document |> should equal "ab"
+
+[<Fact>]
+let ``DeleteBackward deletes the selection when one exists`` () =
+    let selected, _ = Editor.runAction SelectAll (withText "abc")
+    let next, _ = Editor.runAction DeleteBackward selected
+    PieceTable.toString (activeBuffer next).Document |> should equal ""
+
+[<Fact>]
+let ``DeleteForward removes the character after the cursor`` () =
+    let home = pressKey (nk Home) (withText "abc")
+    let next, _ = Editor.runAction DeleteForward home
+    PieceTable.toString (activeBuffer next).Document |> should equal "bc"
+
+[<Fact>]
+let ``DeleteForward deletes the selection when one exists`` () =
+    let selected, _ = Editor.runAction SelectAll (withText "abc")
+    let next, _ = Editor.runAction DeleteForward selected
+    PieceTable.toString (activeBuffer next).Document |> should equal ""
+
+[<Fact>]
+let ``text-editing actions are inert while the prompt is focused`` () =
+    let prompted = pressKey (ck 'p') (withText "ab")
+
+    for action in [ InsertText "x"; DeleteBackward; DeleteForward ] do
+        let next, effects = Editor.runAction action prompted
+        PieceTable.toString (activeBuffer next).Document |> should equal "ab"
+        effects |> List.isEmpty |> should equal true

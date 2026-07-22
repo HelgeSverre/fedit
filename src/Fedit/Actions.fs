@@ -38,6 +38,16 @@ type Action =
     /// Drop the selection, leaving the cursor where it is.
     | ClearSelection
     // editing
+    /// Insert literal text at the cursor, replacing any selection. Multi-char
+    /// payloads (including embedded newlines) insert as one bulk edit — one
+    /// undo entry — so grapheme clusters are never split by a per-char loop.
+    | InsertText of string
+    /// Backspace semantics: delete the selection if one exists, else the
+    /// character before the cursor.
+    | DeleteBackward
+    /// Forward-delete semantics: delete the selection if one exists, else the
+    /// character after the cursor.
+    | DeleteForward
     | Indent
     | Unindent
     | DeleteWordBack
@@ -150,6 +160,9 @@ module Action =
         | ExtendEnd -> "extend-end"
         | SelectAll -> "select-all"
         | ClearSelection -> "clear-selection"
+        | InsertText _ -> "insert-text"
+        | DeleteBackward -> "delete-backward"
+        | DeleteForward -> "delete-forward"
         | Indent -> "indent"
         | Unindent -> "unindent"
         | DeleteWordBack -> "delete-word-back"
@@ -201,3 +214,50 @@ module Action =
         | RecordMacro _ -> "record-macro"
         | ReplayMacro _ -> "replay-macro"
         | RepeatLastMacro -> "repeat-last-macro"
+
+    /// Quote an `insert-text` payload for `toSyntax`: always the double-quoted
+    /// form, with the same backslash escapes `Keymap.parseAction` decodes
+    /// (\" \\ \n \t \r), so any payload survives a line-based file.
+    let private quoteInsertTextPayload (payload: string) =
+        let sb = System.Text.StringBuilder(payload.Length + 2)
+        sb.Append '"' |> ignore
+
+        for c in payload do
+            match c with
+            | '\\' -> sb.Append "\\\\" |> ignore
+            | '"' -> sb.Append "\\\"" |> ignore
+            | '\n' -> sb.Append "\\n" |> ignore
+            | '\t' -> sb.Append "\\t" |> ignore
+            | '\r' -> sb.Append "\\r" |> ignore
+            | other -> sb.Append other |> ignore
+
+        sb.Append('"').ToString()
+
+    /// Payload-preserving parse syntax per action — the exact inverse of
+    /// `Keymap.parseAction` for every case that parser accepts (guarded by the
+    /// round-trip property test). Complements `name`, which deliberately drops
+    /// payloads to feed display labels. Payload-carrying cases are listed
+    /// explicitly; everything else serializes as its `name` — a new
+    /// payload-carrying case must be added above the fallback.
+    ///
+    /// `None` only for the three cases with no parse syntax: `Chain`/`When`
+    /// are composition forms that exist solely in the compiled-in defaults
+    /// DSL, and `SaveAs` carries a path that only ever arises from the
+    /// `:w <path>` prompt — macros never record any of them.
+    let toSyntax (action: Action) : string option =
+        match action with
+        | Chain _
+        | When _
+        | SaveAs _ -> None
+        | InsertText payload -> Some("insert-text:" + quoteInsertTextPayload payload)
+        | MoveLinesUp count -> Some $"move-lines-up:{count}"
+        | MoveLinesDown count -> Some $"move-lines-down:{count}"
+        | JumpToBuffer n -> Some $"jump-to-buffer:{n}"
+        | SetTheme themeName -> Some $"set-theme:{themeName}"
+        | Goto(line, None) -> Some $"goto:{line}"
+        | Goto(line, Some col) -> Some $"goto:{line}:{col}"
+        | RunPlugin(source, pluginName, "") -> Some $"run-plugin:{source}/{pluginName}"
+        | RunPlugin(source, pluginName, arg) -> Some $"run-plugin:{source}/{pluginName} {arg}"
+        | RecordMacro register -> Some $"record-macro:{register}"
+        | ReplayMacro(register, count) -> Some $"replay-macro:{register}:{count}"
+        | payloadFree -> Some(name payloadFree)

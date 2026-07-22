@@ -1366,7 +1366,10 @@ module Editor =
         | Undo
         | Redo
         | SelectAll
-        | Cut when model.Focus = Prompt -> model, []
+        | Cut
+        | InsertText _
+        | DeleteBackward
+        | DeleteForward when model.Focus = Prompt -> model, []
 
         // motion / selection
         | MoveLeft -> moveCursor Buffer.moveLeft model
@@ -1395,6 +1398,32 @@ module Editor =
         | ClearSelection -> updateActiveBuffer Buffer.clearSelection model, []
 
         // editing
+        | InsertText text ->
+            // One bulk insert (one undo entry), replacing any selection —
+            // the same shape as typing a character or pasting.
+            let buffer = activeBufferState model
+
+            let transform =
+                if Buffer.hasSelection buffer then
+                    Buffer.deleteSelection >> Buffer.insertText text
+                else
+                    Buffer.insertText text
+
+            updateActiveBuffer (transform >> Buffer.clearSelection) model, []
+        | DeleteBackward ->
+            let buffer = activeBufferState model
+
+            if Buffer.hasSelection buffer then
+                updateActiveBuffer Buffer.deleteSelection model, []
+            else
+                updateActiveBuffer Buffer.backspace model, []
+        | DeleteForward ->
+            let buffer = activeBufferState model
+
+            if Buffer.hasSelection buffer then
+                updateActiveBuffer Buffer.deleteSelection model, []
+            else
+                updateActiveBuffer Buffer.deleteForward model, []
         | Indent -> moveCursor (Buffer.indent model.Config.TabWidth) model
         | Unindent -> moveCursor (Buffer.unindent model.Config.TabWidth) model
         | DeleteWordBack ->
@@ -1714,21 +1743,13 @@ module Editor =
     /// Editor fallthrough core: literal text insertion. Motions/edits are
     /// keymap-driven (Context.Editor / Context.Global) and resolve before this;
     /// plugin chords are tried between the keymap and this core (spec §6.7.4).
+    /// Every editing chord delegates to its text-editing Action so typing and
+    /// action dispatch (keybinds, macro replay) share one code path.
     let private runEditor (chord: Chord) model =
-        let hasSelection = Buffer.hasSelection (activeBufferState model)
-
-        let editTransform editFn =
-            if hasSelection then
-                Buffer.deleteSelection >> editFn
-            else
-                editFn
-
         match chord with
-        | { Mods = m; Key = Char value } when m.IsEmpty ->
-            updateActiveBuffer (editTransform (Buffer.insertText (string value)) >> Buffer.clearSelection) model, []
+        | { Mods = m; Key = Char value } when m.IsEmpty -> runAction (InsertText(string value)) model
         // Spacebar maps to `Named Space`, not `Char ' '`; insert it as literal text.
-        | { Mods = m; Key = Named Space } when m.IsEmpty ->
-            updateActiveBuffer (editTransform (Buffer.insertText " ") >> Buffer.clearSelection) model, []
+        | { Mods = m; Key = Named Space } when m.IsEmpty -> runAction (InsertText " ") model
         | { Mods = m; Key = Named Enter } when m.IsEmpty ->
             // A buffer with a plugin line-activation treats Enter as
             // "activate the cursor line" instead of inserting a newline —
@@ -1737,13 +1758,9 @@ module Editor =
             // parity: the same command stays invocable from the prompt.
             match model.Editors.BufferActivations.TryFind model.Editors.ActiveBufferId with
             | Some(source, commandName) -> executeCommand (PluginInvoke(source, commandName, "")) model
-            | None -> updateActiveBuffer (editTransform Buffer.insertNewline >> Buffer.clearSelection) model, []
-        | { Mods = m; Key = Named Backspace } when m.IsEmpty && hasSelection ->
-            updateActiveBuffer Buffer.deleteSelection model, []
-        | { Mods = m; Key = Named Backspace } when m.IsEmpty -> updateActiveBuffer Buffer.backspace model, []
-        | { Mods = m; Key = Named Delete } when m.IsEmpty && hasSelection ->
-            updateActiveBuffer Buffer.deleteSelection model, []
-        | { Mods = m; Key = Named Delete } when m.IsEmpty -> updateActiveBuffer Buffer.deleteForward model, []
+            | None -> runAction (InsertText "\n") model
+        | { Mods = m; Key = Named Backspace } when m.IsEmpty -> runAction DeleteBackward model
+        | { Mods = m; Key = Named Delete } when m.IsEmpty -> runAction DeleteForward model
         | _ -> model, []
 
     /// Plugin keybinding lookup — consulted only after the keymap returns

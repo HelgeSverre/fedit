@@ -1,6 +1,8 @@
 module Fedit.Tests.KeymapTests
 
 open Fedit
+open FsCheck
+open FsCheck.FSharp
 open Xunit
 open FsUnit.Xunit
 
@@ -155,6 +157,14 @@ let ``contextOf maps every focus target onto its keymap context`` () =
 [<InlineData("editor  alt+down = move-lines-down")>]
 [<InlineData("editor  ctrl+k ctrl+w = run-plugin:wordcount/wc")>]
 [<InlineData("editor  ctrl+k ctrl+e = run-plugin:wordcount/wc selection")>]
+[<InlineData("editor  ctrl+k ctrl+t = insert-text:\"TODO: \"")>] // quoted payload
+[<InlineData("editor  ctrl+k ctrl+f = insert-text:fn")>] // bare payload
+[<InlineData("editor  backspace = delete-backward")>]
+[<InlineData("editor  delete = delete-forward")>]
+[<InlineData("editor  escape = clear-selection")>]
+[<InlineData("editor  ctrl+w = close-buffer")>]
+[<InlineData("global  f3 = search-next")>]
+[<InlineData("global  shift+f3 = search-previous")>]
 let ``parseLine accepts valid forms`` (line: string) =
     Keymap.parseLine line |> Result.isOk |> should equal true
 
@@ -360,3 +370,184 @@ let ``renderDoc lists each context+stroke once, reflecting later-wins overrides`
 
     csLines.Length |> should equal 1
     Assert.Contains("quit", csLines[0])
+
+// ── action syntax: parseAction / Action.toSyntax (macros stage M1) ────
+
+[<Fact>]
+let ``parseAction accepts the text-editing and search verbs`` () =
+    [ "delete-backward", DeleteBackward
+      "delete-forward", DeleteForward
+      "clear-selection", ClearSelection
+      "close-buffer", CloseBuffer
+      "search-next", SearchNext
+      "search-previous", SearchPrevious ]
+    |> List.iter (fun (syntax, expected) ->
+        Keymap.parseAction syntax |> should equal (Ok expected: Result<Action, string>))
+
+[<Fact>]
+let ``insert-text decodes a quoted payload with every escape`` () =
+    Keymap.parseAction "insert-text:\"a \\\"b\\\" \\\\ \\n\\t\\r:c\""
+    |> should equal (Ok(InsertText "a \"b\" \\ \n\t\r:c"): Result<Action, string>)
+
+[<Fact>]
+let ``insert-text accepts a bare whitespace-free payload`` () =
+    Keymap.parseAction "insert-text:fn"
+    |> should equal (Ok(InsertText "fn"): Result<Action, string>)
+
+    // Only the FIRST ':' splits verb from payload; later ones are literal.
+    Keymap.parseAction "insert-text:a:b"
+    |> should equal (Ok(InsertText "a:b"): Result<Action, string>)
+
+[<Fact>]
+let ``insert-text decodes an empty quoted payload`` () =
+    Keymap.parseAction "insert-text:\"\""
+    |> should equal (Ok(InsertText ""): Result<Action, string>)
+
+[<Theory>]
+[<InlineData("insert-text")>] // no payload
+[<InlineData("insert-text:")>] // empty payload
+[<InlineData("insert-text:a b")>] // unquoted whitespace
+[<InlineData("insert-text:\"unterminated")>] // unterminated quote
+[<InlineData("insert-text:\"a\" b")>] // text after the closing quote
+[<InlineData("insert-text:\"a\\q\"")>] // unknown escape
+[<InlineData("insert-text:\"a\\")>] // dangling backslash
+let ``insert-text rejects malformed payloads`` (syntax: string) =
+    Keymap.parseAction syntax |> Result.isError |> should equal true
+
+[<Fact>]
+let ``parseLine binds insert-text with a quoted payload`` () =
+    match Keymap.parseLine "editor  ctrl+k ctrl+t = insert-text:\"TODO: \"" with
+    | Ok(Some b) -> b.Action |> should equal (Some(InsertText "TODO: "))
+    | other -> failwithf "unexpected %A" other
+
+[<Fact>]
+let ``toSyntax quotes an insert-text payload with escapes`` () =
+    Action.toSyntax (InsertText "he said \"hi\"\n")
+    |> should equal (Some "insert-text:\"he said \\\"hi\\\"\\n\"")
+
+[<Fact>]
+let ``toSyntax preserves payloads for the arg-taking actions`` () =
+    Action.toSyntax (MoveLinesUp 3) |> should equal (Some "move-lines-up:3")
+    Action.toSyntax (MoveLinesDown 2) |> should equal (Some "move-lines-down:2")
+    Action.toSyntax (JumpToBuffer 7) |> should equal (Some "jump-to-buffer:7")
+    Action.toSyntax (SetTheme "gruvbox") |> should equal (Some "set-theme:gruvbox")
+    Action.toSyntax (Action.Goto(12, None)) |> should equal (Some "goto:12")
+    Action.toSyntax (Action.Goto(12, Some 4)) |> should equal (Some "goto:12:4")
+
+    Action.toSyntax (RunPlugin("wordcount", "wc", ""))
+    |> should equal (Some "run-plugin:wordcount/wc")
+
+    Action.toSyntax (RunPlugin("wordcount", "wc", "selection"))
+    |> should equal (Some "run-plugin:wordcount/wc selection")
+
+    Action.toSyntax (RecordMacro 'q') |> should equal (Some "record-macro:q")
+    Action.toSyntax (ReplayMacro('q', 3)) |> should equal (Some "replay-macro:q:3")
+
+[<Fact>]
+let ``toSyntax returns None only for the cases without parse syntax`` () =
+    Action.toSyntax (Chain []) |> should equal (None: string option)
+
+    Action.toSyntax (When(HasSelection, NoOp, NoOp))
+    |> should equal (None: string option)
+
+    Action.toSyntax (SaveAs "/tmp/x") |> should equal (None: string option)
+
+// ── round-trip property: parseAction (toSyntax a) = Ok a ──────────────
+
+/// Cases whose syntax carries a payload (or has none at all) — excluded
+/// when deriving the payload-free pool from `Keybinds.allActions`, whose
+/// own coverage test guarantees it lists every `Action` case, so a future
+/// payload-free case joins the round-trip pool automatically.
+let private carriesPayload (action: Action) =
+    match action with
+    | InsertText _
+    | MoveLinesUp _
+    | MoveLinesDown _
+    | JumpToBuffer _
+    | SetTheme _
+    | Action.Goto _
+    | RunPlugin _
+    | RecordMacro _
+    | ReplayMacro _
+    | Chain _
+    | When _
+    | SaveAs _ -> true
+    | _ -> false
+
+let private payloadFreeActions =
+    Fedit.Cli.Commands.Keybinds.allActions |> List.filter (carriesPayload >> not)
+
+/// Generator over the serializable subset of `Action`, with payloads drawn
+/// from each verb's accepted domain. `InsertText` payloads deliberately mix
+/// quotes, backslashes, the escape letters, the ':'/'='/'#' syntax
+/// characters, whitespace, combining marks, and an astral-plane emoji.
+let private serializableActionGen: Gen<Action> =
+    let registerGen = Gen.elements ([ 'a' .. 'z' ] @ [ '0' .. '9' ])
+
+    let wordGen =
+        Gen.nonEmptyListOf (Gen.elements ([ 'a' .. 'z' ] @ [ '-' ]))
+        |> Gen.map (List.toArray >> System.String)
+
+    let insertTextPayloadGen =
+        Gen.listOf (
+            Gen.elements
+                [ "\""
+                  "\\"
+                  "\n"
+                  "\t"
+                  "\r"
+                  " "
+                  ":"
+                  "="
+                  "#"
+                  "a"
+                  "B"
+                  "0"
+                  "æ"
+                  "→"
+                  "🎉"
+                  "e\u0301" ]
+        )
+        |> Gen.map (String.concat "")
+
+    let pluginArgGen =
+        Gen.oneof [ Gen.constant ""; Gen.nonEmptyListOf wordGen |> Gen.map (String.concat " ") ]
+
+    Gen.oneof
+        [ Gen.elements payloadFreeActions
+          Gen.map InsertText insertTextPayloadGen
+          Gen.map MoveLinesUp (Gen.choose (1, 99))
+          Gen.map MoveLinesDown (Gen.choose (1, 99))
+          Gen.map JumpToBuffer (Gen.choose (1, 9))
+          Gen.map SetTheme wordGen
+          Gen.map2
+              (fun line column -> Action.Goto(line, column))
+              (Gen.choose (1, 9999))
+              (Gen.optionOf (Gen.choose (1, 999)))
+          Gen.map3 (fun source name arg -> RunPlugin(source, name, arg)) wordGen wordGen pluginArgGen
+          Gen.map RecordMacro registerGen
+          Gen.map2 (fun register count -> ReplayMacro(register, count)) registerGen (Gen.choose (1, 99)) ]
+
+[<Fact>]
+let ``parseAction inverts toSyntax for every serializable action`` () =
+    Check.QuickThrowOnFailure(
+        Prop.forAll (Arb.fromGen serializableActionGen) (fun action ->
+            let syntax =
+                match Action.toSyntax action with
+                | Some s -> s
+                | None -> failwithf "toSyntax returned None for %A" action
+
+            match Keymap.parseAction syntax with
+            | Ok parsed -> parsed = action
+            | Result.Error message -> failwithf "parseAction rejected %s (from %A): %s" syntax action message)
+    )
+
+[<Fact>]
+let ``insert-text payloads survive the round trip verbatim`` () =
+    Check.QuickThrowOnFailure(fun (payload: string) ->
+        let safe = if isNull payload then "" else payload
+        let syntax = (Action.toSyntax (InsertText safe)).Value
+
+        match Keymap.parseAction syntax with
+        | Ok(InsertText decoded) -> decoded = safe
+        | other -> failwithf "unexpected %A for %s" other syntax)

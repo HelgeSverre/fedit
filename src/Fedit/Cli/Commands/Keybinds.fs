@@ -45,6 +45,9 @@ let actionMeta (action: Action) : string * string =
     | ExtendEnd -> "selection", "Extend the selection to the end of the line"
     | SelectAll -> "selection", "Select the whole buffer"
     | ClearSelection -> "selection", "Clear the selection, keeping the cursor in place"
+    | InsertText _ -> "edit", "Insert literal text at the cursor"
+    | DeleteBackward -> "edit", "Delete the selection or the character before the cursor"
+    | DeleteForward -> "edit", "Delete the selection or the character after the cursor"
     | Indent -> "edit", "Indent the current line or selection"
     | Unindent -> "edit", "Unindent the current line or selection"
     | DeleteWordBack -> "edit", "Delete the word before the cursor"
@@ -121,6 +124,9 @@ let allActions: Action list =
       ExtendEnd
       SelectAll
       ClearSelection
+      InsertText ""
+      DeleteBackward
+      DeleteForward
       Indent
       Unindent
       DeleteWordBack
