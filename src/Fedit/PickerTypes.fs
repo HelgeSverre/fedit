@@ -8,6 +8,7 @@ type PickerKind =
     | PluginPicker
     | MacroPicker
     | KeyBindingPicker
+    | MessagePicker
 
 /// Presentation style for a picker kind.
 type PickerLayout =
@@ -55,6 +56,7 @@ type PickerActionId =
     | MacroRecord
     | MacroMarkLast
     | MacroClear
+    | MessagesClear
     | PickerClose
 
 /// Semantic role for a picker action, determining its styling.

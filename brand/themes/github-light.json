@@ -19,6 +19,8 @@
   "lineNumberBg": "#FFFFFF",
   "activeLineFg": "#1F2328",
   "activeLineBg": "#F6F8FA",
+  "warningFg": "#9A6700",
+  "errorFg": "#CF222E",
   "syntax": {
     "keyword": "#CF222E",
     "keywordControl": "#CF222E",

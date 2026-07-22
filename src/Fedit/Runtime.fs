@@ -646,8 +646,13 @@ module Runtime =
             match allErrors with
             | [] -> initialModel
             | errs ->
+                let startupWarning = Notification.warning (String.concat "; " errs)
+
                 { initialModel with
-                    Notification = Some(Notification.warning (String.concat "; " errs)) }
+                    Notification = Some startupWarning
+                    // Keep the `:messages` log in step with what is shown —
+                    // the warning replaces the seeded welcome hint.
+                    NotificationLog = [ startupWarning ] }
 
         startupEffects |> List.iter startEffect
 

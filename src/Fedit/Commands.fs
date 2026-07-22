@@ -40,6 +40,8 @@ type Command =
     | Plugins
     /// Open the macro manager dock.
     | Macros
+    /// Open the notification message log picker.
+    | Messages
     /// Open the user's config file (`~/.config/fedit/config.json`) in a
     /// buffer. Creates the file with the running config if absent.
     | OpenConfig
@@ -291,6 +293,11 @@ module Commands =
             Summary = "Open the macro manager."
             Hidden = false
             Constructor = simple Macros }
+          { Name = "messages"
+            Usage = "messages"
+            Summary = "Review recent notifications, newest first."
+            Hidden = false
+            Constructor = simple Messages }
           { Name = "keybind"
             Usage = "keybind [reload | <stroke>]"
             Summary = "List effective keybindings, reload the file, or show what a stroke is bound to."

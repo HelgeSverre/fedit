@@ -28,6 +28,7 @@ module Dock =
         | PromptSessionKind.PluginsSession -> Some PickerKind.PluginPicker
         | PromptSessionKind.MacrosSession -> Some PickerKind.MacroPicker
         | PromptSessionKind.KeybindingsSession -> Some PickerKind.KeyBindingPicker
+        | PromptSessionKind.MessagesSession -> Some PickerKind.MessagePicker
         | _ -> None
 
     let pickerPendingOfPrompt (pending: PromptPendingConfirmation option) : PickerPendingConfirmation option =

@@ -32,6 +32,19 @@ module Layout =
     let private statusOf (theme: Theme) =
         Style.withColors theme.StatusFg theme.StatusBg
 
+    /// Status-line notification segment style: severity-colored (and bold)
+    /// on the status background so warnings/errors read at a glance. Info
+    /// keeps the plain status style.
+    let private notificationStyleOf (theme: Theme) (severity: Severity) =
+        match severity with
+        | Severity.Info -> statusOf theme
+        | Severity.Warning ->
+            { Style.withColors theme.WarningFg theme.StatusBg with
+                Bold = true }
+        | Severity.Error ->
+            { Style.withColors theme.ErrorFg theme.StatusBg with
+                Bold = true }
+
     let private selectedOf (theme: Theme) =
         { Style.withColors theme.SelectionFg theme.SelectedBg with
             Bold = true }
@@ -95,6 +108,7 @@ module Layout =
         | PromptSessionKind.PluginsSession -> "Plugins: "
         | PromptSessionKind.MacrosSession -> "Macros: "
         | PromptSessionKind.KeybindingsSession -> "Keybindings: "
+        | PromptSessionKind.MessagesSession -> "Messages: "
         | _ -> ""
 
     let private pad width (text: string) =
@@ -331,14 +345,14 @@ module Layout =
     // Model, so row and layout generation stay testable apart from rendering.
 
     /// Semantic badge role → terminal color. Success reuses the theme accent;
-    /// warning/danger fall back to ANSI yellow/red because the theme schema has
-    /// no notification slots yet (see the picker design doc).
+    /// warning/danger pull the theme's severity slots (shared with the
+    /// status-line notification segment).
     let private badgeStyleOf (theme: Theme) (role: PickerBadgeRole) =
         let fg =
             match role with
             | Success -> theme.Accent
-            | Warning -> Color.yellow
-            | Danger -> Color.red
+            | Warning -> theme.WarningFg
+            | Danger -> theme.ErrorFg
             | Neutral
             | Muted -> theme.ChromeFg
 
@@ -358,7 +372,7 @@ module Layout =
                 match role with
                 | Primary -> theme.Accent
                 | Secondary -> theme.ChromeFg
-                | Destructive -> Color.red
+                | Destructive -> theme.ErrorFg
 
             { Style.withColors fg theme.ChromeBg with
                 Bold = true }
@@ -415,7 +429,7 @@ module Layout =
             function
             | TextLine s -> chrome, s
             | PathLine s -> chrome, s
-            | ErrorLine s -> Style.withColors Color.red theme.ChromeBg, s
+            | ErrorLine s -> Style.withColors theme.ErrorFg theme.ChromeBg, s
             | ShortcutSequenceLine chords -> chrome, Chord.renderStroke chords
 
         let rows =
@@ -556,7 +570,23 @@ module Layout =
         let statusInner = max 0 (width - 2)
         // Status.render lays the format itself, including `<EXPAND>`
         // spacing, so we don't pad after the fact.
-        Screen.writeText 1 statusY status statusInner (Status.render statusInner model) current
+        let statusLine, notificationSpan =
+            Status.renderWithNotificationSpan statusInner model
+
+        Screen.writeText 1 statusY status statusInner statusLine current
+
+        // Severity overlay: repaint the notification's span in its severity
+        // color. Info stays plain status style (one accent per surface).
+        match model.Notification, notificationSpan with
+        | Some notification, Some(spanStart, spanLength) when notification.Severity <> Severity.Info ->
+            Screen.writeText
+                (1 + spanStart)
+                statusY
+                (notificationStyleOf theme notification.Severity)
+                spanLength
+                (statusLine.Substring(spanStart, spanLength))
+                current
+        | _ -> ()
 
         if dockHeight > 0 then
             Screen.fillRect 0 dockY width dockHeight chrome ' ' current

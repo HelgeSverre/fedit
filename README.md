@@ -304,6 +304,7 @@ Named commands (typed after `:`):
 - `plugin <verb> [arg]`: In-editor plugin manager. See `docs/plugins.md` for the verbs.
 - `plugins`: Open the plugin manager picker.
 - `macros`: Open the macro manager picker.
+- `messages`: Review the last 100 notifications, newest first, with severity badges and the full message text in the detail panel (the status bar truncates; this surface doesn't). `c` clears the log. Error notifications also persist on the status bar until dismissed with `Esc` — info/warning still clear on the next keypress.
 - `keybind [reload | <stroke>]`: List the effective keybindings, reload the keybinds file (`keybind reload`), or show what a stroke resolves to in each context (`keybind ctrl+s`).
 
 A few keyboard-first verbs (`sidebar`, `tree`, `editor`) still parse if typed, but are hidden from the completion menu since `Ctrl+B` / `Ctrl+E` cover the same ground more richly.

@@ -12,6 +12,7 @@ module Pickers =
         | PluginPicker -> ListWithInspector
         | MacroPicker -> ListWithInspector
         | KeyBindingPicker -> SearchResults
+        | MessagePicker -> ListWithInspector
 
     /// Map from PickerKind to its title.
     let titleForKind =
@@ -19,6 +20,7 @@ module Pickers =
         | PluginPicker -> "Plugins"
         | MacroPicker -> "Macros"
         | KeyBindingPicker -> "Keybindings"
+        | MessagePicker -> "Messages"
 
     /// Default empty text for each picker kind.
     let defaultEmptyText =
@@ -26,6 +28,7 @@ module Pickers =
         | PluginPicker -> "No plugins found."
         | MacroPicker -> "No macros found."
         | KeyBindingPicker -> "No keybindings found."
+        | MessagePicker -> "No messages yet."
 
     /// Case-insensitive substring matching
     let private containsIgnoreCase (needle: string) (haystack: string) =
@@ -79,6 +82,21 @@ module Pickers =
             Some
                 { Label = "user"
                   Role = PickerBadgeRole.Success }
+
+    let private notificationSeverityBadge (severity: Severity) =
+        match severity with
+        | Severity.Info ->
+            Some
+                { Label = "info"
+                  Role = PickerBadgeRole.Neutral }
+        | Severity.Warning ->
+            Some
+                { Label = "warning"
+                  Role = PickerBadgeRole.Warning }
+        | Severity.Error ->
+            Some
+                { Label = "error"
+                  Role = PickerBadgeRole.Danger }
 
     // ========================================================================
     // Action helpers
@@ -197,6 +215,27 @@ module Pickers =
             State = PickerActionState.Enabled
             Confirmation = None
             Dismissal = PickerDismissal.Close } ]
+
+    /// Read-only log review: Enter/Esc close; `c` empties the ring.
+    let private messageActions (model: Model) : PickerAction list =
+        [ { Id = PickerActionId.PickerClose
+            Key = Chord.bareNamed Enter
+            Label = "Close"
+            Role = PickerActionRole.Primary
+            State = PickerActionState.Enabled
+            Confirmation = None
+            Dismissal = PickerDismissal.Close }
+          { Id = PickerActionId.MessagesClear
+            Key = Chord.ofChar 'c'
+            Label = "Clear log"
+            Role = PickerActionRole.Destructive
+            State =
+              if List.isEmpty model.NotificationLog then
+                  PickerActionState.Disabled "Log is empty"
+              else
+                  PickerActionState.Enabled
+            Confirmation = None
+            Dismissal = PickerDismissal.Refresh } ]
 
     // ========================================================================
     // Plugin picker items
@@ -336,6 +375,44 @@ module Pickers =
               Actions = keybindingActions })
 
     // ========================================================================
+    // Message picker items
+    // ========================================================================
+
+    let private severityLabel (severity: Severity) =
+        match severity with
+        | Severity.Info -> "Info"
+        | Severity.Warning -> "Warning"
+        | Severity.Error -> "Error"
+
+    /// One row per logged notification, newest first (`NotificationLog`
+    /// order). The inspector carries the full message text — the status
+    /// bar truncates, this surface doesn't.
+    let private messageItems (model: Model) : PickerItem list =
+        let actions = messageActions model
+
+        model.NotificationLog
+        |> List.mapi (fun index notification ->
+            let label = severityLabel notification.Severity
+
+            let inspector =
+                Some
+                    { Title = label
+                      Subtitle = None
+                      Lines =
+                        match notification.Severity with
+                        | Severity.Error -> [ ErrorLine notification.Message ]
+                        | _ -> [ TextLine notification.Message ] }
+
+            { Id = string index
+              Title = notification.Message
+              Subtitle = None
+              Badge = notificationSeverityBadge notification.Severity
+              Accessories = []
+              Inspector = inspector
+              SearchTerms = [ notification.Message; label ]
+              Actions = actions })
+
+    // ========================================================================
     // Picker view construction
     // ========================================================================
 
@@ -361,6 +438,7 @@ module Pickers =
         | PickerKind.PluginPicker -> pluginItems model
         | PickerKind.MacroPicker -> macroItems model
         | PickerKind.KeyBindingPicker -> keybindingItems model
+        | PickerKind.MessagePicker -> messageItems model
 
     /// Build a complete PickerView from model and picker state
     let buildView (model: Model) (pickerState: PickerState) : PickerView =
@@ -387,12 +465,9 @@ module Pickers =
             | None ->
                 let visibleActions =
                     match kind with
-                    | PickerKind.PluginPicker ->
-                        filteredItems
-                        |> List.tryItem selectedIndex
-                        |> Option.map (fun item -> item.Actions)
-                        |> Option.defaultValue []
-                    | PickerKind.MacroPicker ->
+                    | PickerKind.PluginPicker
+                    | PickerKind.MacroPicker
+                    | PickerKind.MessagePicker ->
                         filteredItems
                         |> List.tryItem selectedIndex
                         |> Option.map (fun item -> item.Actions)

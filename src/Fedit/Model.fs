@@ -152,6 +152,11 @@ type Model =
         Focus: FocusTarget
         Terminal: Size
         Notification: Notification option
+        /// Ring of the last `Notification.logLimit` notifications shown,
+        /// newest first. Appended only by the `notify` chokepoint in
+        /// `Editor` — every surfaced message goes through it, so the
+        /// `:messages` picker can never miss one.
+        NotificationLog: Notification list
         Config: Config
         UserThemes: Theme list
         Plugins: PluginRegistry

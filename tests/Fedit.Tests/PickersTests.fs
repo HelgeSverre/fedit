@@ -327,3 +327,67 @@ let ``command completion dock shrinks to the number of completions`` () =
     let titleRow = renderRows model |> Array.findIndex (fun r -> r.Contains "Commands")
 
     (titleRow > 31) |> should equal true
+
+// ── Messages picker ───────────────────────────────────────────────────
+
+let private messagePicker selected : PickerState =
+    { Kind = MessagePicker
+      SelectedItemId = selected
+      Filter = ""
+      PendingConfirmation = None }
+
+let private withNotificationLog log (model: Model) = { model with NotificationLog = log }
+
+[<Fact>]
+let ``message picker lists the log newest first with severity badges`` () =
+    let model =
+        baseModel ()
+        |> withNotificationLog
+            [ Notification.error "save failed"
+              Notification.warning "keybind conflict"
+              Notification.info "saved a.fs" ]
+
+    let view = Pickers.buildView model (messagePicker None)
+
+    view.Layout |> should equal ListWithInspector
+    view.Title |> should equal "Messages"
+
+    view.Items
+    |> List.map (fun item -> item.Title)
+    |> should equal [ "save failed"; "keybind conflict"; "saved a.fs" ]
+
+    view.Items
+    |> List.map (fun item -> item.Badge |> Option.map (fun badge -> badge.Label, badge.Role))
+    |> should
+        equal
+        [ Some("error", PickerBadgeRole.Danger)
+          Some("warning", PickerBadgeRole.Warning)
+          Some("info", PickerBadgeRole.Neutral) ]
+
+[<Fact>]
+let ``message picker inspector carries the full message text`` () =
+    let longMessage = String.replicate 30 "0123456789"
+
+    let model = baseModel () |> withNotificationLog [ Notification.error longMessage ]
+    let view = Pickers.buildView model (messagePicker (Some "0"))
+
+    match view.Items.Head.Inspector with
+    | Some inspector ->
+        inspector.Title |> should equal "Error"
+        inspector.Lines |> should equal [ ErrorLine longMessage ]
+    | None -> failwith "expected an inspector with the full message"
+
+[<Fact>]
+let ``message picker exposes close and clear-log actions`` () =
+    let model = baseModel () |> withNotificationLog [ Notification.info "hello" ]
+    let view = Pickers.buildView model (messagePicker None)
+
+    view.Items.Head.Actions
+    |> List.map (fun action -> action.Id)
+    |> should equal [ PickerActionId.PickerClose; PickerActionId.MessagesClear ]
+
+    let clearAction =
+        view.Items.Head.Actions
+        |> List.find (fun action -> action.Id = PickerActionId.MessagesClear)
+
+    clearAction.State |> should equal PickerActionState.Enabled

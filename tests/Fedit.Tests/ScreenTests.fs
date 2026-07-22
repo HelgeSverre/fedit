@@ -150,3 +150,44 @@ let ``terminal enables and restores Kitty keyboard protocol around the alternate
 
     enterWriter.ToString() |> should haveSubstring "\u001b[>1u"
     leaveWriter.ToString() |> should haveSubstring "\u001b[<u"
+
+[<Fact>]
+let ``an error notification paints its status segment in the theme error color`` () =
+    let model, _ =
+        Editor.init "/root" { Width = 80; Height = 10 } (Config.defaults Themes.defaultTheme) []
+
+    let model =
+        { model with
+            Notification = Some(Notification.error "boom")
+            Config =
+                { model.Config with
+                    StatusFormat = "[NOTIFICATION]" } }
+
+    let screen = Layout.render model
+    // No dock is open, so the status row sits two rows above the bottom.
+    let statusRow = screen.Height - 2
+    let cell = screen.Cells[statusRow, 1]
+
+    cell.Glyph |> should equal 'b'
+    cell.Style.Foreground |> should equal Themes.defaultTheme.ErrorFg
+    cell.Style.Bold |> should equal true
+
+[<Fact>]
+let ``an info notification keeps the plain status style`` () =
+    let model, _ =
+        Editor.init "/root" { Width = 80; Height = 10 } (Config.defaults Themes.defaultTheme) []
+
+    let model =
+        { model with
+            Notification = Some(Notification.info "saved")
+            Config =
+                { model.Config with
+                    StatusFormat = "[NOTIFICATION]" } }
+
+    let screen = Layout.render model
+    let statusRow = screen.Height - 2
+    let cell = screen.Cells[statusRow, 1]
+
+    cell.Glyph |> should equal 's'
+    cell.Style.Foreground |> should equal Themes.defaultTheme.StatusFg
+    cell.Style.Bold |> should equal false

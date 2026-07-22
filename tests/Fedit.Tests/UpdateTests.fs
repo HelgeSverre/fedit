@@ -2425,3 +2425,135 @@ let ``buffer switcher completions mark dirty buffers`` () =
     prompt.Prompt.Completions
     |> List.map (fun item -> item.Label)
     |> should contain "1  scratch [+]"
+
+// ─────────────────────────────────────────────────────────────────────
+// Notification surfacing (U3): errors persist until Escape, transient
+// info/warning still clear on the next keypress, and every message
+// lands in the NotificationLog ring behind `:messages`.
+// ─────────────────────────────────────────────────────────────────────
+
+/// Surface an Error notification through a real message round-trip, so
+/// the notify chokepoint (status line + log) runs exactly as in prod.
+let private withErrorNotification model =
+    fst (Editor.update (PluginsScanned(Result.Error "boom")) model)
+
+[<Fact>]
+let ``an error notification survives keypresses`` () =
+    let errored = withErrorNotification (initModel ())
+    let typed = errored |> pressKey (chr 'x') |> pressKey (chr 'y')
+
+    match typed.Notification with
+    | Some n ->
+        n.Severity |> should equal Severity.Error
+        n.Message |> should equal "Plugin scan failed: boom"
+    | None -> failwith "expected the error to persist across keypresses"
+
+[<Fact>]
+let ``Escape dismisses a persistent error notification`` () =
+    let errored = withErrorNotification (initModel ())
+    let dismissed = pressKey (nk Escape) errored
+    dismissed.Notification |> should equal (None: Notification option)
+
+[<Fact>]
+let ``Escape dismisses the error before clearing the selection`` () =
+    let selected = pressKey (ck 'a') (withText "abc")
+    (activeBuffer selected).Selection.IsSome |> should equal true
+
+    let errored = withErrorNotification selected
+
+    // First Escape: the error goes, the selection stays.
+    let first = pressKey (nk Escape) errored
+    first.Notification |> should equal (None: Notification option)
+    (activeBuffer first).Selection.IsSome |> should equal true
+
+    // Second Escape resolves normally: the selection clears.
+    let second = pressKey (nk Escape) first
+    (activeBuffer second).Selection |> should equal (None: SelectionSpan option)
+
+[<Fact>]
+let ``an info notification still clears on the next keypress`` () =
+    let model = initModel ()
+    model.Notification |> Option.map _.Severity |> should equal (Some Severity.Info)
+
+    let typed = pressKey (chr 'x') model
+    typed.Notification |> should equal (None: Notification option)
+
+[<Fact>]
+let ``a warning notification still clears on the next keypress`` () =
+    let warned = pressKey (ck 'q') (withText "x")
+
+    warned.Notification
+    |> Option.map _.Severity
+    |> should equal (Some Severity.Warning)
+
+    let moved = pressKey (nk Right) warned
+    moved.Notification |> should equal (None: Notification option)
+
+[<Fact>]
+let ``the notification log records messages newest first`` () =
+    let first, _ = Editor.update (PluginsScanned(Result.Error "one")) (initModel ())
+    let second, _ = Editor.update (PluginsScanned(Result.Error "two")) first
+
+    second.NotificationLog
+    |> List.map _.Message
+    |> List.take 2
+    |> should equal [ "Plugin scan failed: two"; "Plugin scan failed: one" ]
+
+    // The seeded startup hint stays the oldest entry.
+    (List.last second.NotificationLog).Severity |> should equal Severity.Info
+
+[<Fact>]
+let ``the notification log caps at the limit`` () =
+    let overflow = Notification.logLimit + 20
+
+    let flooded =
+        [ 1..overflow ]
+        |> List.fold (fun m i -> fst (Editor.update (PluginsScanned(Result.Error(string i))) m)) (initModel ())
+
+    flooded.NotificationLog.Length |> should equal Notification.logLimit
+
+    flooded.NotificationLog.Head.Message
+    |> should equal $"Plugin scan failed: {overflow}"
+
+[<Fact>]
+let ``messages command opens the messages picker session`` () =
+    let opened = runCommandText "messages" (initModel ())
+
+    opened.Prompt.Active |> should equal true
+    opened.Prompt.Session |> should equal PromptSessionKind.MessagesSession
+    opened.Prompt.SelectedItemId.IsSome |> should equal true
+    opened.Focus |> should equal Prompt
+
+[<Fact>]
+let ``opening the messages picker keeps a visible error for review`` () =
+    let opened = runCommandText "messages" (withErrorNotification (initModel ()))
+
+    opened.Notification
+    |> Option.map _.Severity
+    |> should equal (Some Severity.Error)
+
+[<Fact>]
+let ``Enter closes the messages picker`` () =
+    let opened = runCommandText "messages" (initModel ())
+    let closed = pressKey (nk Enter) opened
+    closed.Prompt.Active |> should equal false
+    closed.Focus |> should equal Editor
+
+[<Fact>]
+let ``Escape closes the messages picker`` () =
+    let opened = runCommandText "messages" (initModel ())
+    let closed = pressKey (nk Escape) opened
+    closed.Prompt.Active |> should equal false
+    closed.Focus |> should equal Editor
+
+[<Fact>]
+let ``clear-log in the messages picker empties the ring`` () =
+    let opened = runCommandText "messages" (withErrorNotification (initModel ()))
+    opened.NotificationLog.IsEmpty |> should equal false
+
+    let cleared = pressKey (chr 'c') opened
+    cleared.NotificationLog |> should equal ([]: Notification list)
+    cleared.Notification |> should equal (None: Notification option)
+    // The picker stays open showing the empty state.
+    cleared.Prompt.Active |> should equal true
+    cleared.Prompt.Session |> should equal PromptSessionKind.MessagesSession

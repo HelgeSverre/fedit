@@ -109,6 +109,10 @@ module File =
             reraise ()
 
 module Notification =
+    /// Cap for the notification ring buffer (`Model.NotificationLog`):
+    /// the `:messages` picker reviews the most recent entries only.
+    let logLimit = 100
+
     let info message = { Severity = Info; Message = message }
 
     let warning message =

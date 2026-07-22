@@ -16,12 +16,13 @@ module Editor =
         | Buffers -> PromptSessionKind.BufferSwitchSession
 
     /// True for picker sessions that display a scrollable list
-    /// (plugins, macros, keybindings).
+    /// (plugins, macros, keybindings, messages).
     let private isPromptListSession =
         function
         | PromptSessionKind.PluginsSession
         | PromptSessionKind.MacrosSession
-        | PromptSessionKind.KeybindingsSession -> true
+        | PromptSessionKind.KeybindingsSession
+        | PromptSessionKind.MessagesSession -> true
         | _ -> false
 
     let private emptyPrompt =
@@ -63,9 +64,27 @@ module Editor =
         let normalized = text.Replace("\r\n", "\n").Replace("\r", "\n")
         normalized, newline
 
+    /// The single notification chokepoint: sets (or clears) the status-line
+    /// notification and appends every set message to the capped
+    /// `NotificationLog` ring, newest first, so the `:messages` picker can
+    /// never miss one. Always route through here — a direct
+    /// `Notification = Some …` record update would bypass the log.
     let private notify notification model =
-        { model with
-            Notification = notification }
+        match notification with
+        | Some newNotification ->
+            { model with
+                Notification = notification
+                NotificationLog = newNotification :: model.NotificationLog |> List.truncate Notification.logLimit }
+        | None -> { model with Notification = None }
+
+    /// Clear a transient (Info/Warning) notification. Errors persist until
+    /// the Escape dismissal in the KeyPressed handler (or a newer
+    /// notification) removes them — a background failure must not vanish
+    /// mid-typing.
+    let private clearTransientNotification model =
+        match model.Notification with
+        | Some { Severity = Severity.Error } -> model
+        | _ -> { model with Notification = None }
 
     let private scanPluginsEffect model =
         ScanPlugins model.Config.DisabledPlugins
@@ -343,7 +362,6 @@ module Editor =
 
         { model with
             Focus = Prompt
-            Notification = None
             Prompt =
                 { model.Prompt with
                     Active = true
@@ -357,7 +375,8 @@ module Editor =
                     SelectedItemId = selected
                     HistoryIndex = None
                     PendingConfirmation = None
-                    SearchPreview = None } },
+                    SearchPreview = None } }
+        |> clearTransientNotification,
         []
 
     /// Close the prompt and return focus to the editor.
@@ -549,8 +568,8 @@ module Editor =
         | None -> notify (Some(Notification.error $"Unknown buffer '{bufferId}'.")) model, []
         | Some buffer when buffer.Dirty && model.CloseArmed <> Some bufferId ->
             { model with
-                CloseArmed = Some bufferId
-                Notification = Some(Notification.warning $"Unsaved changes in {buffer.Name}. Close again to discard.") },
+                CloseArmed = Some bufferId }
+            |> notify (Some(Notification.warning $"Unsaved changes in {buffer.Name}. Close again to discard.")),
             []
         | Some buffer ->
             let editors = model.Editors
@@ -593,8 +612,8 @@ module Editor =
                 Editors = nextEditors
                 CloseArmed = None
                 HighlightStates = model.HighlightStates |> Map.remove bufferId
-                MouseDrag = model.MouseDrag |> Option.filter (fun drag -> drag.AnchorBufferId <> bufferId)
-                Notification = Some(Notification.info $"Closed {buffer.Name}") },
+                MouseDrag = model.MouseDrag |> Option.filter (fun drag -> drag.AnchorBufferId <> bufferId) }
+            |> notify (Some(Notification.info $"Closed {buffer.Name}")),
             []
 
     /// Sidebar selection for a just-opened file: with `autoReveal` on,
@@ -916,9 +935,10 @@ module Editor =
                           Key = action.Key
                           Label = confirmation.Label }
 
-                    { model with
-                        Notification =
-                            Some(Notification.warning $"Press {Chord.render action.Key} again to {confirmation.Label}.") },
+                    model
+                    |> notify (
+                        Some(Notification.warning $"Press {Chord.render action.Key} again to {confirmation.Label}.")
+                    ),
                     Some
                         { pickerState with
                             PendingConfirmation = Some pending },
@@ -936,8 +956,7 @@ module Editor =
             | Some item -> togglePluginInPicker true item.Id model pickerState
             | None -> model, Some pickerState, []
         | PluginPicker, PickerActionId.PluginReloadAll ->
-            { model with
-                Notification = Some(Notification.info "Reloading plugins...") },
+            model |> notify (Some(Notification.info "Reloading plugins...")),
             Some
                 { pickerState with
                     PendingConfirmation = None },
@@ -945,8 +964,7 @@ module Editor =
         | PluginPicker, PickerActionId.PluginUninstall ->
             match trySelectedItem model pickerState with
             | Some item ->
-                { model with
-                    Notification = Some(Notification.info $"Removing {item.Id}...") },
+                model |> notify (Some(Notification.info $"Removing {item.Id}...")),
                 Some
                     { pickerState with
                         PendingConfirmation = None },
@@ -967,9 +985,8 @@ module Editor =
         | MacroPicker, PickerActionId.MacroMarkLast ->
             match trySelectedRegister model pickerState with
             | Some register ->
-                { model with
-                    LastMacro = Some register
-                    Notification = Some(Notification.info $"Last macro: @{register}") },
+                { model with LastMacro = Some register }
+                |> notify (Some(Notification.info $"Last macro: @{register}")),
                 Some
                     { pickerState with
                         PendingConfirmation = None },
@@ -979,6 +996,18 @@ module Editor =
             match trySelectedRegister model pickerState with
             | Some register -> clearPickerMacro register model pickerState
             | None -> model, Some pickerState, []
+        | MessagePicker, PickerActionId.PickerClose -> model, None, []
+        | MessagePicker, PickerActionId.MessagesClear ->
+            // Empty the ring and drop the status-line notification with it —
+            // a cleared log must not leave a message the picker can't show.
+            let nextModel = notify None { model with NotificationLog = [] }
+
+            let nextPicker =
+                { pickerState with
+                    PendingConfirmation = None }
+                |> Pickers.clampSelection nextModel
+
+            nextModel, Some nextPicker, []
         | _ -> model, Some pickerState, []
 
     /// Toggle a plugin's enabled state in config, persist, and rescan. Used by
@@ -994,17 +1023,17 @@ module Editor =
             { model.Config with
                 DisabledPlugins = nextDisabled }
 
-        { model with
-            Config = nextConfig
-            Notification =
-                Some(
-                    Notification.info (
-                        if disabled then
-                            $"Disabled '{pluginName}'."
-                        else
-                            $"Enabled '{pluginName}'."
-                    )
-                ) },
+        { model with Config = nextConfig }
+        |> notify (
+            Some(
+                Notification.info (
+                    if disabled then
+                        $"Disabled '{pluginName}'."
+                    else
+                        $"Enabled '{pluginName}'."
+                )
+            )
+        ),
         [ SaveConfig nextConfig; ScanPlugins nextConfig.DisabledPlugins ]
 
     and private togglePluginInPicker disabled pluginName model pickerState =
@@ -1042,8 +1071,8 @@ module Editor =
         { model with
             Registers = nextRegisters
             Recording = nextRecording
-            LastMacro = nextLast
-            Notification = Some(Notification.info $"Cleared macro @{register}") },
+            LastMacro = nextLast }
+        |> notify (Some(Notification.info $"Cleared macro @{register}")),
         Some nextPicker,
         []
 
@@ -1185,6 +1214,7 @@ module Editor =
         | Plugin("list", _)
         | Command.Plugins -> openPromptSession PromptSessionKind.PluginsSession model
         | Command.Macros -> openPromptSession PromptSessionKind.MacrosSession model
+        | Command.Messages -> openPromptSession PromptSessionKind.MessagesSession model
 
         | Plugin("install", arg) ->
             let source = Plugins.detectSource arg
@@ -1343,9 +1373,7 @@ module Editor =
             if String.IsNullOrEmpty text then
                 model, []
             else
-                { model with
-                    Notification = Some(Notification.info $"Copied {text.Length} char(s)") },
-                [ ClipboardCopy text ]
+                model |> notify (Some(Notification.info $"Copied {text.Length} char(s)")), [ ClipboardCopy text ]
         | Cut ->
             let buffer = activeBufferState model
             let text = Buffer.selectionText buffer
@@ -1355,8 +1383,7 @@ module Editor =
             else
                 updateActiveBuffer
                     Buffer.deleteSelection
-                    { model with
-                        Notification = Some(Notification.info $"Cut {text.Length} char(s)") },
+                    (model |> notify (Some(Notification.info $"Cut {text.Length} char(s)"))),
                 [ ClipboardCopy text ]
         | Paste -> model, [ ClipboardPaste ]
         | MoveLinesUp count -> updateActiveBuffer (Buffer.moveLinesUp count) model, []
@@ -1384,9 +1411,8 @@ module Editor =
                 let shown = String.concat ", " names
                 let listed = if overflow > 0 then $"{shown} +{overflow} more" else shown
 
-                { model with
-                    QuitArmed = true
-                    Notification = Some(Notification.warning $"Unsaved changes in {listed}. Quit again to discard.") },
+                { model with QuitArmed = true }
+                |> notify (Some(Notification.warning $"Unsaved changes in {listed}. Quit again to discard.")),
                 []
         | ForceQuit ->
             { model with
@@ -1523,15 +1549,15 @@ module Editor =
                 // Toggle off: the just-recorded register becomes the repeat target.
                 { model with
                     Recording = None
-                    LastMacro = Some register
-                    Notification = Some(Notification.info $"Recorded macro @{register}") },
+                    LastMacro = Some register }
+                |> notify (Some(Notification.info $"Recorded macro @{register}")),
                 []
             | _ ->
                 // Start (or switch) recording: clear the register, begin capture.
                 { model with
                     Recording = Some register
-                    Registers = model.Registers |> Map.add register []
-                    Notification = Some(Notification.info $"Recording @{register}…") },
+                    Registers = model.Registers |> Map.add register [] }
+                |> notify (Some(Notification.info $"Recording @{register}…")),
                 []
         | ReplayMacro(register, count) ->
             // A replayed chord must not spawn another replay (runaway guard); a
@@ -1547,17 +1573,11 @@ module Editor =
                 match model.Registers |> Map.tryFind register with
                 | Some chords when not (List.isEmpty chords) && count > 0 ->
                     { model with LastMacro = Some register }, [ ReplayKeys(chords, count) ]
-                | _ ->
-                    { model with
-                        Notification = Some(Notification.warning $"No macro in @{register}") },
-                    []
+                | _ -> model |> notify (Some(Notification.warning $"No macro in @{register}")), []
         | RepeatLastMacro ->
             match model.LastMacro with
             | Some register -> runAction (ReplayMacro(register, 1)) model
-            | None ->
-                { model with
-                    Notification = Some(Notification.info "No macro to repeat") },
-                []
+            | None -> model |> notify (Some(Notification.info "No macro to repeat")), []
 
     /// Move to the next/previous search match, wrapping cyclically.
     let private moveSearchMatch delta model =
@@ -1802,6 +1822,7 @@ module Editor =
                 | PickerKind.PluginPicker -> Set.ofList [ 'e'; 'd'; 'r'; 'u' ]
                 | PickerKind.MacroPicker -> Set.ofList [ 'r'; 'm'; 'c' ]
                 | PickerKind.KeyBindingPicker -> Set.empty
+                | PickerKind.MessagePicker -> Set.ofList [ 'c' ]
 
             let hasActions =
                 match kind with
@@ -1952,13 +1973,18 @@ module Editor =
                |> Option.map (fun path -> LoadFile(path, OpenPermanent, None))
                |> Option.toList)
 
+        let startupHint =
+            Notification.info "Ctrl+P prompt  Ctrl+B tree  Ctrl+S save  Ctrl+Q quit"
+
         { Workspace = Workspace.create rootPath
           Editors = initialEditors
           Prompt = emptyPrompt
           Panels = initialPanels config
           Focus = Editor
           Terminal = size
-          Notification = Some(Notification.info "Ctrl+P prompt  Ctrl+B tree  Ctrl+S save  Ctrl+Q quit")
+          Notification = Some startupHint
+          // Seeded with the hint so the log holds every message ever shown.
+          NotificationLog = [ startupHint ]
           Config = config
           UserThemes = userThemes
           Plugins = PluginRegistry.empty
@@ -2069,8 +2095,8 @@ module Editor =
                 let suffix = if skipped > 0 then $" ({skipped} skipped)" else ""
 
                 { model with
-                    Workspace = Workspace.setTreeFromPrecomputed (sorted, byPath, files) model.Workspace
-                    Notification = Some(Notification.info $"Indexed {sorted.Name}{suffix}") },
+                    Workspace = Workspace.setTreeFromPrecomputed (sorted, byPath, files) model.Workspace }
+                |> notify (Some(Notification.info $"Indexed {sorted.Name}{suffix}")),
                 []
             | Result.Error message -> notify (Some(Notification.error message)) model, []
         | FileOpened(path, intent, target, result) ->
@@ -2116,8 +2142,8 @@ module Editor =
                                     NextBufferId = buffer.Id + 1 }
                             Workspace = selectOrReveal path model model.Workspace
                             Focus = Editor
-                            Config = nextConfig
-                            Notification = Some(Notification.info $"Opened {buffer.Name}") }
+                            Config = nextConfig }
+                        |> notify (Some(Notification.info $"Opened {buffer.Name}"))
                         |> applyTarget target,
                         []
                     | OpenPreview ->
@@ -2149,8 +2175,8 @@ module Editor =
                                         BufferActivations = Map.remove old.Id model.Editors.BufferActivations }
                                 HighlightStates = Map.remove old.Id model.HighlightStates
                                 Workspace = selectOrReveal path model model.Workspace
-                                Config = nextConfig
-                                Notification = Some(Notification.info $"Previewing {displayName}") }
+                                Config = nextConfig }
+                            |> notify (Some(Notification.info $"Previewing {displayName}"))
                             |> applyTarget target,
                             []
                         | None ->
@@ -2165,8 +2191,8 @@ module Editor =
                                         NextBufferId = buffer.Id + 1
                                         PreviewBufferId = Some buffer.Id }
                                 Workspace = selectOrReveal path model model.Workspace
-                                Config = nextConfig
-                                Notification = Some(Notification.info $"Previewing {displayName}") }
+                                Config = nextConfig }
+                            |> notify (Some(Notification.info $"Previewing {displayName}"))
                             |> applyTarget target,
                             []
             | Result.Error FileNotFound when intent = OpenPermanent ->
@@ -2190,8 +2216,8 @@ module Editor =
                                 Buffers = model.Editors.Buffers |> Map.add buffer.Id buffer
                                 ActiveBufferId = buffer.Id
                                 NextBufferId = buffer.Id + 1 }
-                        Focus = Editor
-                        Notification = Some(Notification.info $"New file {buffer.Name}") }
+                        Focus = Editor }
+                    |> notify (Some(Notification.info $"New file {buffer.Name}"))
                     |> applyTarget target,
                     []
             | Result.Error FileNotFound ->
@@ -2234,8 +2260,8 @@ module Editor =
                     { model with
                         Editors =
                             { model.Editors with
-                                Buffers = model.Editors.Buffers |> Map.add bufferId updated }
-                        Notification = Some(Notification.info note) },
+                                Buffers = model.Editors.Buffers |> Map.add bufferId updated } }
+                    |> notify (Some(Notification.info note)),
                     reloadFx
             | Result.Error message -> notify (Some(Notification.error $"Failed to save {path}: {message}")) model, []
         | ConfigSaved result ->
@@ -2298,15 +2324,12 @@ module Editor =
         | PluginsScanned(Result.Ok registry) ->
             // Conflict warnings surface as a notification; absent conflicts
             // leave any existing notification (startup hint) intact.
-            let conflictNotice =
-                match registry.Conflicts with
-                | [] -> model.Notification
-                | xs -> Some(Notification.warning (String.concat "; " xs))
-
             let nextModel =
-                { model with
-                    Plugins = registry
-                    Notification = conflictNotice }
+                match registry.Conflicts with
+                | [] -> { model with Plugins = registry }
+                | conflicts ->
+                    { model with Plugins = registry }
+                    |> notify (Some(Notification.warning (String.concat "; " conflicts)))
 
             let nextModel =
                 if
@@ -2512,8 +2535,25 @@ module Editor =
                         // guard lives in `runAction Quit`, shared with `:quit`
                         // and any rebound quit key.
                         | [ c ] when c = kCtrlQ -> runAction Quit model
+                        // A visible Error claims Escape ahead of the keymap:
+                        // dismissing it wins over clear-selection (or any
+                        // other Esc binding), so one press can't both flick
+                        // the error away and mutate state; the next Escape
+                        // resolves normally. Prompt focus is exempt — Esc
+                        // there closes the prompt and the error stays for a
+                        // deliberate dismissal later.
+                        | [ c ] when
+                            c = kEscape
+                            && model.Focus <> Prompt
+                            && (match model.Notification with
+                                | Some { Severity = Severity.Error } -> true
+                                | _ -> false)
+                            ->
+                            notify None model, []
                         | _ ->
-                            let model = { model with Notification = None }
+                            // Info/Warning notifications are transient — any
+                            // keypress clears them; Errors persist (U3).
+                            let model = clearTransientNotification model
 
                             match Keymap.resolve ctx candidate model.Keymap with
                             | Bound action -> runAction action model
