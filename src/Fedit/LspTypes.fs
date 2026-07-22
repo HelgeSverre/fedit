@@ -85,6 +85,94 @@ type LanguageServerConfig =
         RootMarkers: string list
     }
 
+/// Built-in server registry plus pure matching helpers. Defaults live in
+/// code (like bundled themes); a user config entry with a default's name
+/// replaces it entirely, other entries extend the set.
+[<RequireQualifiedAccess>]
+module LanguageServers =
+    let defaults: LanguageServerConfig list =
+        [ { Name = "sema"
+            Command = "sema"
+            Args = [ "lsp" ]
+            FileTypes = [ "sema" ]
+            RootMarkers = [ "sema.toml" ] }
+          { Name = "typescript"
+            Command = "typescript-language-server"
+            Args = [ "--stdio" ]
+            FileTypes = [ "ts"; "tsx"; "js"; "jsx" ]
+            RootMarkers = [ "tsconfig.json"; "package.json" ] }
+          { Name = "rust"
+            Command = "rust-analyzer"
+            Args = []
+            FileTypes = [ "rs" ]
+            RootMarkers = [ "Cargo.toml" ] } ]
+
+    /// Merge user-configured servers over the defaults: a user entry whose
+    /// name matches a default replaces it wholesale (no per-field fallback);
+    /// the rest extend the set.
+    let merge (userServers: LanguageServerConfig list) : LanguageServerConfig list =
+        let defaultNames = defaults |> List.map (fun server -> server.Name) |> Set.ofList
+
+        let replaced =
+            defaults
+            |> List.map (fun bundled ->
+                userServers
+                |> List.tryFind (fun user -> user.Name = bundled.Name)
+                |> Option.defaultValue bundled)
+
+        let extras =
+            userServers
+            |> List.filter (fun user -> not (Set.contains user.Name defaultNames))
+
+        replaced @ extras
+
+    /// The first configured server whose FileTypes contains the file's
+    /// extension (without the dot, case-insensitive). None for files
+    /// without an extension.
+    let serverForFile (servers: LanguageServerConfig list) (filePath: string) : LanguageServerConfig option =
+        let normalized = Paths.norm filePath
+
+        let fileName =
+            match normalized.LastIndexOf '/' with
+            | -1 -> normalized
+            | i -> normalized.Substring(i + 1)
+
+        match fileName.LastIndexOf '.' with
+        | i when i > 0 && i < fileName.Length - 1 ->
+            let extension = fileName.Substring(i + 1)
+
+            servers
+            |> List.tryFind (fun server ->
+                server.FileTypes
+                |> List.exists (fun fileType -> String.Equals(fileType, extension, StringComparison.OrdinalIgnoreCase)))
+        | _ -> None
+
+    /// Walk up from the file's directory looking for any root marker; the
+    /// nearest match wins, the workspace root is the fallback. `markerExists`
+    /// abstracts the file-system probe (a marker may be a file or a
+    /// directory) so this stays pure — the caller passes
+    /// `File.Exists || Directory.Exists`. All paths canonical (`Paths.norm`).
+    let findWorkspaceRoot
+        (markerExists: string -> bool)
+        (rootMarkers: string list)
+        (filePath: string)
+        (workspaceFallbackRoot: string)
+        : string =
+        let rec walk (directory: string) =
+            if
+                rootMarkers
+                |> List.exists (fun marker -> markerExists (directory + "/" + marker))
+            then
+                Some directory
+            else
+                match Paths.parent directory with
+                | Some parentDirectory -> walk parentDirectory
+                | None -> None
+
+        Paths.parent (Paths.norm filePath)
+        |> Option.bind walk
+        |> Option.defaultValue (Paths.norm workspaceFallbackRoot)
+
 [<RequireQualifiedAccess>]
 type LspServerStatus =
     | NotStarted

@@ -17,6 +17,7 @@
     <Compile Include="CommandsTests.fs" />
     <Compile Include="PromptTests.fs" />
     <Compile Include="WorkspaceTests.fs" />
+    <Compile Include="ConfigTests.fs" />
     <Compile Include="UpdateTests.fs" />
     <Compile Include="PickersTests.fs" />
     <Compile Include="InputTests.fs" />

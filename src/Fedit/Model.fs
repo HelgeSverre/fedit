@@ -66,6 +66,13 @@ type Config =
         Theme: Theme
         Recent: string list
         DisabledPlugins: Set<string>
+        /// Language servers available to the LSP layer: the built-in
+        /// defaults merged with the user's `languageServers` config block
+        /// (a user entry with a default's name replaces it entirely).
+        LanguageServers: LanguageServerConfig list
+        /// Server names the user has switched off. Persisted as
+        /// `disabledLanguageServers`, exactly like `disabledPlugins`.
+        DisabledLanguageServers: Set<string>
         CompletionLimit: int
         SidebarIndent: int
         SidebarWidth: int
@@ -116,6 +123,8 @@ module Config =
         { Theme = theme
           Recent = []
           DisabledPlugins = Set.empty
+          LanguageServers = LanguageServers.defaults
+          DisabledLanguageServers = Set.empty
           CompletionLimit = 8
           SidebarIndent = 2
           SidebarWidth = 30
