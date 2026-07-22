@@ -60,6 +60,21 @@ let ``whole-step quoting round-trips syntaxes that carry whitespace`` () =
     parsed |> should equal registers
 
 [<Fact>]
+let ``an unbalanced quote in a payload renders whole-step quoted`` () =
+    // `set-theme:a"b` lexes as ONE token, but re-tokenizing the line
+    // would open a quote there and swallow every later step — the
+    // renderer must fall back to the whole-step quoted form.
+    let registers =
+        Map.ofList [ 'a', [ RunAction(SetTheme "a\"b"); RunAction(InsertText "x") ] ]
+
+    let rendered = MacroFile.render registers
+    rendered |> _.Contains("\"set-theme:a\\\"b\"") |> should equal true
+
+    let parsed, errors = roundTrip registers
+    errors |> should equal ([]: string list)
+    parsed |> should equal registers
+
+[<Fact>]
 let ``command steps accept a bare whitespace-free payload`` () =
     let registers, errors = MacroFile.parse [ "a = command:messages undo" ]
     errors |> should equal ([]: string list)

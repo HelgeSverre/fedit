@@ -56,19 +56,25 @@ module MacroFile =
             Keymap.parseAction token |> Result.map RunAction
 
     /// Render one step as a single token `parseStepToken` reads back.
-    /// Actions serialize via `Action.toSyntax`; a syntax that tokenizes to
-    /// more than one token (`run-plugin:… arg`, `set-theme:a b`) is wrapped
-    /// in the whole-step quoted form. `None` only for the actions with no
-    /// parse syntax (`Chain`/`When`/`SaveAs`) — recorded macros never
-    /// contain them, so a `None` here can only come from hand-built state.
+    /// Actions serialize via `Action.toSyntax`; a syntax that does not lex
+    /// as one clean token followed by the next is wrapped in the
+    /// whole-step quoted form. That covers whitespace outside a quoted
+    /// payload (`run-plugin:… arg`, `set-theme:a b`) AND an unbalanced
+    /// quote in a payload (`set-theme:a"b`), which would otherwise swallow
+    /// every later step on the line into one merged token at reload. The
+    /// probe token detects both: the rendered token must come back
+    /// verbatim with the probe still separate. `None` only for the
+    /// actions with no parse syntax (`Chain`/`When`/`SaveAs`) — recorded
+    /// macros never contain them (capture decomposes composites), so a
+    /// `None` here can only come from hand-built state.
     let renderStep (step: MacroStep) : string option =
         match step with
         | RunCommand commandLine -> Some("command:" + Action.quoteTextPayload commandLine)
         | RunAction action ->
             Action.toSyntax action
             |> Option.map (fun syntax ->
-                match Keymap.tokenize syntax with
-                | [ _ ] -> syntax
+                match Keymap.tokenize (syntax + " probe") with
+                | [ onlyToken; "probe" ] when onlyToken = syntax -> syntax
                 | _ -> Action.quoteTextPayload syntax)
 
     /// Parse one line. `Ok None` = blank/comment. `Error` = malformed

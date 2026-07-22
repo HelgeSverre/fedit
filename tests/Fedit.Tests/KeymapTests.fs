@@ -505,8 +505,11 @@ let private payloadFreeActions =
 let serializableActionGen: Gen<Action> =
     let registerGen = Gen.elements ([ 'a' .. 'z' ] @ [ '0' .. '9' ])
 
+    // Quote and backslash are included so the macros-file round trip
+    // exercises bare payloads (`set-theme:a"b`) whose unbalanced quote
+    // must trigger the whole-step quoted form.
     let wordGen =
-        Gen.nonEmptyListOf (Gen.elements ([ 'a' .. 'z' ] @ [ '-' ]))
+        Gen.nonEmptyListOf (Gen.elements ([ 'a' .. 'z' ] @ [ '-'; '"'; '\\' ]))
         |> Gen.map (List.toArray >> System.String)
 
     let insertTextPayloadGen =
