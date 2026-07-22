@@ -54,17 +54,17 @@ module Pickers =
                 { Label = "failed"
                   Role = PickerBadgeRole.Danger }
 
-    let private macroStatusBadge (model: Model) register chords =
+    let private macroStatusBadge (model: Model) register (steps: MacroStep list) =
         match model.Recording, model.LastMacro with
         | Some active, _ when active = register ->
             Some
                 { Label = "recording"
                   Role = PickerBadgeRole.Success }
-        | _, Some last when last = register && not (List.isEmpty chords) ->
+        | _, Some last when last = register && not (List.isEmpty steps) ->
             Some
                 { Label = "last"
                   Role = PickerBadgeRole.Neutral }
-        | _ when not (List.isEmpty chords) ->
+        | _ when not (List.isEmpty steps) ->
             Some
                 { Label = "ready"
                   Role = PickerBadgeRole.Success }
@@ -154,9 +154,9 @@ module Pickers =
             Confirmation = Some { Label = "uninstall" }
             Dismissal = PickerDismissal.KeepOpen } ]
 
-    let private macroActions (model: Model) (register: char) (chords: Chord list) : PickerAction list =
+    let private macroActions (model: Model) (register: char) (steps: MacroStep list) : PickerAction list =
         let isRecording = model.Recording = Some register
-        let isEmpty = List.isEmpty chords
+        let isEmpty = List.isEmpty steps
         let isLast = model.LastMacro = Some register
 
         [ { Id = PickerActionId.MacroReplay
@@ -167,7 +167,7 @@ module Pickers =
               if not isEmpty then
                   PickerActionState.Enabled
               else
-                  PickerActionState.Disabled "No keys recorded"
+                  PickerActionState.Disabled "No steps recorded"
             Confirmation = None
             Dismissal = PickerDismissal.Close }
           { Id = PickerActionId.MacroRecord
@@ -185,7 +185,7 @@ module Pickers =
               if not isEmpty then
                   PickerActionState.Enabled
               else
-                  PickerActionState.Disabled "No keys recorded"
+                  PickerActionState.Disabled "No steps recorded"
             Confirmation = None
             Dismissal = PickerDismissal.KeepOpen }
           { Id = PickerActionId.MacroClear
@@ -295,32 +295,33 @@ module Pickers =
         Set.union letters extra
         |> Set.toList
         |> List.map (fun register ->
-            let chords = model.Registers |> Map.tryFind register |> Option.defaultValue []
-            let sequence = Chord.renderStroke chords
-            let status = macroStatusBadge model register chords
+            let steps = model.Registers |> Map.tryFind register |> Option.defaultValue []
+            let stepLabels = steps |> List.map MacroStep.label
+            let summary = String.concat "; " stepLabels
+            let status = macroStatusBadge model register steps
 
-            let accessories = [ CountAccessory("chords", chords.Length) ]
+            let accessories = [ CountAccessory("steps", steps.Length) ]
 
             let inspector =
                 Some
                     { Title = $"@{register}"
-                      Subtitle = Some(if List.isEmpty chords then "No keys recorded" else sequence)
+                      Subtitle = Some(if List.isEmpty steps then "No steps recorded" else summary)
                       Lines =
-                        if List.isEmpty chords then
-                            [ TextLine "No keys recorded." ]
+                        if List.isEmpty steps then
+                            [ TextLine "No steps recorded." ]
                         else
-                            [ ShortcutSequenceLine chords ] }
+                            stepLabels |> List.map TextLine }
 
-            let searchTerms = [ $"@{register}"; sequence ]
+            let searchTerms = $"@{register}" :: stepLabels
 
             { Id = string register
               Title = $"@{register}"
-              Subtitle = Some(if List.isEmpty chords then "No keys recorded" else sequence)
+              Subtitle = Some(if List.isEmpty steps then "No steps recorded" else summary)
               Badge = status
               Accessories = accessories
               Inspector = inspector
               SearchTerms = searchTerms
-              Actions = macroActions model register chords })
+              Actions = macroActions model register steps })
 
     // ========================================================================
     // Keybinding picker items

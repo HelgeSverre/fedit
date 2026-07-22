@@ -300,24 +300,25 @@ module Keymap =
         | true, n -> Some n
         | _ -> None
 
-    /// Decode an `insert-text` payload. Two forms:
+    /// Decode a free-text payload (`insert-text` / `search-for`; `verb`
+    /// only labels the error messages). Two forms:
     ///   - double-quoted: `"…"` with backslash escapes \" \\ \n \t \r —
     ///     the only way to carry whitespace, and what `Action.toSyntax` emits
     ///   - bare: a single whitespace-free token taken literally (convenience)
-    let private parseInsertTextPayload (raw: string) : Result<string, string> =
+    let private parseTextPayload (verb: string) (raw: string) : Result<string, string> =
         let trimmed = raw.Trim()
 
         if trimmed = "" then
-            Result.Error "insert-text needs a payload, e.g. insert-text:\"fn \""
+            Result.Error $"{verb} needs a payload, e.g. {verb}:\"text\""
         elif trimmed.StartsWith "\"" then
             let rec decode index (sb: System.Text.StringBuilder) =
                 if index >= trimmed.Length then
-                    Result.Error "insert-text: unterminated quoted payload"
+                    Result.Error $"{verb}: unterminated quoted payload"
                 else
                     match trimmed[index] with
                     | '"' when index = trimmed.Length - 1 -> Ok(sb.ToString())
-                    | '"' -> Result.Error "insert-text: text after the closing quote"
-                    | '\\' when index = trimmed.Length - 1 -> Result.Error "insert-text: dangling backslash"
+                    | '"' -> Result.Error $"{verb}: text after the closing quote"
+                    | '\\' when index = trimmed.Length - 1 -> Result.Error $"{verb}: dangling backslash"
                     | '\\' ->
                         match trimmed[index + 1] with
                         | '"' -> decode (index + 2) (sb.Append '"')
@@ -325,12 +326,12 @@ module Keymap =
                         | 'n' -> decode (index + 2) (sb.Append '\n')
                         | 't' -> decode (index + 2) (sb.Append '\t')
                         | 'r' -> decode (index + 2) (sb.Append '\r')
-                        | unknown -> Result.Error $"insert-text: unknown escape '\\{unknown}'"
+                        | unknown -> Result.Error $"{verb}: unknown escape '\\{unknown}'"
                     | c -> decode (index + 1) (sb.Append c)
 
             decode 1 (System.Text.StringBuilder())
         elif trimmed |> Seq.exists System.Char.IsWhiteSpace then
-            Result.Error "insert-text: quote a payload containing whitespace, e.g. insert-text:\"a b\""
+            Result.Error $"{verb}: quote a payload containing whitespace, e.g. {verb}:\"a b\""
         else
             Ok trimmed
 
@@ -342,6 +343,7 @@ module Keymap =
     ///   payload = verb-specific remainder after the FIRST ':':
     ///     insert-text     double-quoted string with \" \\ \n \t \r escapes,
     ///                     or a bare whitespace-free token taken literally
+    ///     search-for      same free-text grammar as insert-text
     ///     move-lines-*    positive count (omitted = 1)
     ///     jump-to-buffer  buffer number 1..9
     ///     set-theme       theme name (trimmed; may itself contain ':')
@@ -367,6 +369,7 @@ module Keymap =
         | "search" -> Ok OpenSearch
         | "search-next" -> Ok SearchNext
         | "search-previous" -> Ok SearchPrevious
+        | "search-for" -> parseTextPayload "search-for" arg |> Result.map SearchFor
         | "undo" -> Ok Undo
         | "redo" -> Ok Redo
         | "copy" -> Ok Copy
@@ -390,7 +393,7 @@ module Keymap =
         | "extend-down" -> Ok ExtendDown
         | "extend-home" -> Ok ExtendHome
         | "extend-end" -> Ok ExtendEnd
-        | "insert-text" -> parseInsertTextPayload arg |> Result.map InsertText
+        | "insert-text" -> parseTextPayload "insert-text" arg |> Result.map InsertText
         | "delete-backward" -> Ok DeleteBackward
         | "delete-forward" -> Ok DeleteForward
         | "indent" -> Ok Indent

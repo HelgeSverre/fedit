@@ -497,11 +497,12 @@ let ``manager key handling blocks editor text insertion`` () =
     next.Prompt.Text |> should equal "z"
 
 [<Fact>]
-let ``prompt session input is not recorded into an active macro`` () =
+let ``prompt session filter keys are never captured into an active macro`` () =
     let model =
         { initModel () with
             Recording = Some 'q'
-            Registers = Map.ofList [ 'q', [ chr 'x' ] ]
+            RecordingSteps = [ RunAction(InsertText "x") ]
+            Registers = Map.ofList [ 'q', [ RunAction(InsertText "old") ] ]
             Focus = Prompt
             Prompt =
                 { (initModel ()).Prompt with
@@ -515,7 +516,8 @@ let ``prompt session input is not recorded into an active macro`` () =
     let next, _ = Editor.update (KeyPressed(chr 'z')) model
 
     next.Prompt.Text |> should equal "z"
-    next.Registers |> Map.find 'q' |> should equal [ chr 'x' ]
+    next.RecordingSteps |> should equal [ RunAction(InsertText "x") ]
+    next.Registers |> Map.find 'q' |> should equal [ RunAction(InsertText "old") ]
 
 [<Fact>]
 let ``prompt session action keys are not shadowed by prompt keymap bindings`` () =
@@ -608,11 +610,11 @@ let ``plugin prompt session clamps selection after plugin scans`` () =
 
 [<Fact>]
 let ``macro manager replays a non-empty selected register`` () =
-    let chords = [ chr 'a'; chr 'b' ]
+    let steps = [ RunAction(InsertText "ab") ]
 
     let model =
         { initModel () with
-            Registers = Map.ofList [ 'b', chords ]
+            Registers = Map.ofList [ 'b', steps ]
             Focus = Prompt
             Prompt =
                 { (initModel ()).Prompt with
@@ -627,12 +629,20 @@ let ``macro manager replays a non-empty selected register`` () =
 
     next.LastMacro |> should equal (Some 'b')
     next.Prompt.Active |> should equal false
-    effects |> should equal [ ReplayKeys(chords, 1) ]
+    effects |> should equal [ ReplayPump ]
+
+    match next.Replay with
+    | Some state ->
+        state.Register |> should equal 'b'
+        state.Queue |> should equal (steps |> List.map ReplayStep)
+        state.RemainingIterations |> should equal 1
+    | None -> failwith "expected a replay state"
 
 [<Fact>]
-let ``macro manager starts recording and closes on overwrite`` () =
+let ``macro manager starts recording without touching the register`` () =
     let model =
         { initModel () with
+            Registers = Map.ofList [ 'c', [ RunAction(InsertText "keep") ] ]
             Focus = Prompt
             Prompt =
                 { (initModel ()).Prompt with
@@ -646,7 +656,10 @@ let ``macro manager starts recording and closes on overwrite`` () =
     let next, effects = Editor.update (KeyPressed(chr 'r')) model
 
     next.Recording |> should equal (Some 'c')
-    Assert.Empty(next.Registers |> Map.find 'c')
+    next.RecordingSteps |> should equal ([]: MacroStep list)
+    // Starting a recording never clears the register: it is rewritten
+    // only when the recording stops with at least one step.
+    next.Registers |> Map.find 'c' |> should equal [ RunAction(InsertText "keep") ]
     next.Prompt.Active |> should equal false
     Assert.Empty effects
 
@@ -1547,142 +1560,443 @@ let ``a plugin keybinding on a non-global Ctrl chord still fires through the edi
         | _ -> false)
     |> should equal true
 
-// ── macros: record / replay / repeat (keybindings phase 4) ───────────────
+// ── macros: semantic recording + step-fenced replay (stage M2) ───────────
+
+let private hasPump effects =
+    effects
+    |> List.exists (function
+        | ReplayPump -> true
+        | _ -> false)
+
+/// Dispatch ReplayStepReady while the update keeps asking for a
+/// ReplayPump — the pure-test stand-in for the runtime's queue
+/// round-trip. Stops on a fence (no pump requested) or when the replay
+/// finishes.
+let rec private drainReplay (model: Model) =
+    let next, effects = Editor.update ReplayStepReady model
+    if hasPump effects then drainReplay next else next
+
+/// Type prompt text character by character (space via the Named key,
+/// mirroring real terminal input).
+let private typeText (text: string) model =
+    text
+    |> Seq.fold (fun m character -> press (if character = ' ' then nk Space else chr character) m) model
+
+let private notificationText (model: Model) =
+    model.Notification |> Option.map (fun n -> n.Message) |> Option.defaultValue ""
 
 [<Fact>]
-let ``RecordMacro starts recording into the named register`` () =
+let ``RecordMacro starts recording with an empty capture`` () =
     let model = initModel ()
     let recording, _ = Editor.runAction (RecordMacro 'a') model
     recording.Recording |> should equal (Some 'a')
+    recording.RecordingSteps |> should equal ([]: MacroStep list)
 
 [<Fact>]
-let ``recording captures each subsequent chord into the register`` () =
+let ``typing while recording captures coalesced insert-text steps`` () =
     let model = initModel ()
     let recording, _ = Editor.runAction (RecordMacro 'a') model
-    let after, _ = Editor.update (KeyPressed(chr 'x')) recording
-    (after.Registers |> Map.find 'a') |> should equal [ chr 'x' ]
+    let typed = recording |> press (chr 'x') |> press (chr 'y')
+
+    typed.RecordingSteps |> should equal [ RunAction(InsertText "xy") ]
+    // The register is written only when the recording stops.
+    typed.Registers |> Map.containsKey 'a' |> should equal false
 
 [<Fact>]
-let ``RecordMacro again stops recording and remembers the register`` () =
+let ``stopping a recording commits the captured steps to the register`` () =
     let model = initModel ()
-    let on, _ = Editor.runAction (RecordMacro 'a') model
-    let off, _ = Editor.runAction (RecordMacro 'a') on
+    let recording, _ = Editor.runAction (RecordMacro 'a') model
+    let typed = recording |> press (chr 'x')
+    let off, _ = Editor.runAction (RecordMacro 'a') typed
+
     off.Recording |> should equal None
+    off.RecordingSteps |> should equal ([]: MacroStep list)
     off.LastMacro |> should equal (Some 'a')
+    off.Registers |> Map.find 'a' |> should equal [ RunAction(InsertText "x") ]
 
 [<Fact>]
-let ``ReplayMacro emits a ReplayKeys effect carrying the recorded chords`` () =
+let ``an empty stop cancels the recording and leaves the register untouched`` () =
+    let seeded =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "keep") ] ] }
+
+    let recording, _ = Editor.runAction (RecordMacro 'a') seeded
+    let off, _ = Editor.runAction (RecordMacro 'a') recording
+
+    off.Recording |> should equal None
+    off.Registers |> Map.find 'a' |> should equal [ RunAction(InsertText "keep") ]
+    off.LastMacro |> should equal (None: char option)
+    notificationText off |> should equal "Recording cancelled — @a unchanged"
+
+[<Fact>]
+let ``ReplayMacro loads the replay queue and pumps`` () =
+    let steps = [ RunAction(InsertText "x"); RunAction DeleteBackward ]
+
     let model =
         { initModel () with
-            Registers = Map.ofList [ 'a', [ chr 'x'; chr 'y' ] ] }
+            Registers = Map.ofList [ 'a', steps ] }
 
-    let _, effects = Editor.runAction (ReplayMacro('a', 2)) model
+    let next, effects = Editor.runAction (ReplayMacro('a', 2)) model
 
-    match effects with
-    | [ ReplayKeys(chords, count) ] ->
-        chords |> should equal [ chr 'x'; chr 'y' ]
-        count |> should equal 2
-    | other -> failwithf "expected one ReplayKeys effect, got %A" other
+    effects |> should equal [ ReplayPump ]
+    next.LastMacro |> should equal (Some 'a')
+
+    match next.Replay with
+    | Some state ->
+        state.Queue |> should equal (steps |> List.map ReplayStep)
+        state.Steps |> should equal steps
+        state.RemainingIterations |> should equal 2
+        state.Register |> should equal 'a'
+    | None -> failwith "expected a replay state"
 
 [<Fact>]
-let ``replaying an empty register produces no effect`` () =
+let ``replaying an empty register warns and starts nothing`` () =
     let model = initModel ()
-    let _, effects = Editor.runAction (ReplayMacro('z', 1)) model
-    effects |> List.isEmpty |> should equal true
+    let next, effects = Editor.runAction (ReplayMacro('z', 1)) model
+    effects |> should equal ([]: Effect list)
+    next.Replay |> should equal (None: ReplayState option)
+    notificationText next |> should equal "No macro in @z"
 
 [<Fact>]
 let ``replaying the register currently being recorded is refused`` () =
     let model =
         { initModel () with
             Recording = Some 'a'
-            Registers = Map.ofList [ 'a', [ chr 'x' ] ] }
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "x") ] ] }
 
-    let _, effects = Editor.runAction (ReplayMacro('a', 1)) model
-    effects |> List.isEmpty |> should equal true
+    let next, effects = Editor.runAction (ReplayMacro('a', 1)) model
+    effects |> should equal ([]: Effect list)
+    next.Replay |> should equal (None: ReplayState option)
 
 [<Fact>]
-let ``ReplayMacro does not start a nested replay while already replaying`` () =
+let ``a refused self-replay chord is never captured as a step`` () =
+    // Ctrl+Shift+R replays @a; while @a is recording, the replay is
+    // refused — so it must not be captured either, or the register would
+    // commit a guaranteed self-cycle step.
     let model =
         { initModel () with
-            Replaying = true
-            Registers = Map.ofList [ 'a', [ chr 'x' ] ] }
+            Recording = Some 'a'
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "x") ] ] }
 
-    let _, effects = Editor.runAction (ReplayMacro('a', 1)) model
-    effects |> List.isEmpty |> should equal true
-
-[<Fact>]
-let ``keys injected during replay are not appended to a recording register`` () =
-    // Recording @b while a replay is in flight must not capture the injected
-    // keys — the Replaying flag suppresses the record-append hook.
-    let model =
-        { initModel () with
-            Recording = Some 'b'
-            Replaying = true }
-
-    let after, _ = Editor.update (KeyPressed(chr 'z')) model
-
-    (after.Registers |> Map.tryFind 'b' |> Option.defaultValue [])
-    |> List.isEmpty
-    |> should equal true
+    let next, _ = Editor.update (KeyPressed(csk 'r')) model
+    next.RecordingSteps |> should equal ([]: MacroStep list)
+    next.Replay |> should equal (None: ReplayState option)
 
 [<Fact>]
-let ``MacroReplayStart and MacroReplayEnd bracket the replaying flag`` () =
-    let model = initModel ()
-    let started, _ = Editor.update MacroReplayStart model
-    started.Replaying |> should equal true
-    let ended, _ = Editor.update MacroReplayEnd started
-    ended.Replaying |> should equal false
-
-[<Fact>]
-let ``replaying a recorded edit re-applies it through the marker bracket`` () =
-    // Record "xy", stop, then drive the runtime's replay sequence by hand
-    // (MacroReplayStart, the keys, MacroReplayEnd) and confirm the edit repeats
-    // without re-recording the injected keys.
-    let model = initModel ()
-    let rec0, _ = Editor.runAction (RecordMacro 'a') model
-    let r1, _ = Editor.update (KeyPressed(chr 'x')) rec0
-    let r2, _ = Editor.update (KeyPressed(chr 'y')) r1
-    let recorded, _ = Editor.runAction (RecordMacro 'a') r2
-    let chords = recorded.Registers |> Map.find 'a'
-
-    let afterStart, _ = Editor.update MacroReplayStart recorded
-
-    let afterKeys =
-        chords |> List.fold (fun m c -> fst (Editor.update (KeyPressed c) m)) afterStart
-
-    let afterEnd, _ = Editor.update MacroReplayEnd afterKeys
-
-    let buffer = afterEnd.Editors.Buffers[afterEnd.Editors.ActiveBufferId]
-    Buffer.text buffer |> should equal "xyxy"
-    // injected keys were not re-recorded into the still-present register
-    (afterEnd.Registers |> Map.find 'a') |> should equal chords
-
-[<Fact>]
-let ``the stop-recording chord is not captured into the register`` () =
-    // Drive through the bound default chord (Ctrl+Shift+M → record-macro:a) so
-    // the record-append hook's record-toggle guard is exercised end to end.
+let ``a recorded edit replays end to end through the pump loop`` () =
+    // Record "xy" through the bound default chords (Ctrl+Shift+M toggles,
+    // Ctrl+Shift+R replays), then drive the pump loop and confirm the
+    // edit repeats without polluting the still-present register.
     let model = initModel ()
     let on, _ = Editor.update (KeyPressed(csk 'm')) model
     on.Recording |> should equal (Some 'a')
-    let typed, _ = Editor.update (KeyPressed(chr 'x')) on
+    let typed = on |> press (chr 'x') |> press (chr 'y')
     let off, _ = Editor.update (KeyPressed(csk 'm')) typed
     off.Recording |> should equal None
-    (off.Registers |> Map.find 'a') |> should equal [ chr 'x' ]
+    off.Registers |> Map.find 'a' |> should equal [ RunAction(InsertText "xy") ]
+
+    let started, effects = Editor.update (KeyPressed(csk 'r')) off
+    effects |> should equal [ ReplayPump ]
+    let replayed = drainReplay started
+
+    Buffer.text (activeBuffer replayed) |> should equal "xyxy"
+    replayed.Replay |> should equal (None: ReplayState option)
+
+    replayed.Registers
+    |> Map.find 'a'
+    |> should equal [ RunAction(InsertText "xy") ]
+
+[<Fact>]
+let ``replay iterations reload the queue`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "x") ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 3)) model
+    let replayed = drainReplay started
+
+    Buffer.text (activeBuffer replayed) |> should equal "xxx"
+    replayed.Replay |> should equal (None: ReplayState option)
+
+[<Fact>]
+let ``the stop chord works from sidebar focus and never becomes a step`` () =
+    let model =
+        { initModel () with
+            Recording = Some 'a'
+            RecordingSteps = [ RunAction(InsertText "x") ]
+            Focus = Sidebar }
+
+    let off, _ = Editor.update (KeyPressed(csk 'm')) model
+
+    off.Recording |> should equal None
+    // Only the typed step was committed — the toggle chord left no trace.
+    off.Registers |> Map.find 'a' |> should equal [ RunAction(InsertText "x") ]
+
+[<Fact>]
+let ``the stop chord works while a picker session is open`` () =
+    let model =
+        { initModel () with
+            Recording = Some 'a'
+            RecordingSteps = [ RunAction(InsertText "x") ]
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.MacrosSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "a"
+                    PendingConfirmation = None } }
+
+    let off, _ = Editor.update (KeyPressed(csk 'm')) model
+
+    off.Recording |> should equal None
+    off.Registers |> Map.find 'a' |> should equal [ RunAction(InsertText "x") ]
+    // The chord toggled recording instead of feeding the picker filter.
+    off.Prompt.Text |> should equal ""
+
+[<Fact>]
+let ``a palette command records as one command step, not prompt keys`` () =
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+
+    let submitted =
+        recording |> press (ck 'p') |> typeText "theme blue" |> press (nk Enter)
+
+    submitted.Config.Theme.Name |> should equal "blue"
+    submitted.RecordingSteps |> should equal [ RunCommand "theme blue" ]
+
+[<Fact>]
+let ``a replayed command step executes with the prompt closed`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunCommand "theme blue" ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let replayed = drainReplay started
+
+    replayed.Config.Theme.Name |> should equal "blue"
+    replayed.Prompt.Active |> should equal false
+    replayed.Focus |> should equal Editor
+    replayed.Replay |> should equal (None: ReplayState option)
+
+[<Fact>]
+let ``a command step that no longer parses cancels the replay`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunCommand "bogus-command"; RunAction(InsertText "x") ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let cancelled = drainReplay started
+
+    cancelled.Replay |> should equal (None: ReplayState option)
+    Buffer.text (activeBuffer cancelled) |> should equal ""
+
+    cancelled.Notification
+    |> Option.map (fun n -> n.Severity)
+    |> should equal (Some Severity.Error)
+
+[<Fact>]
+let ``recording over a list picker captures picker actions but no filter keys`` () =
+    let model =
+        { initModel () with
+            Recording = Some 'q'
+            Registers = Map.ofList [ 'b', [ RunAction(InsertText "z") ] ]
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.MacrosSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "a"
+                    PendingConfirmation = None } }
+
+    // 'b' is a filter key (never captured); Enter replays the selected
+    // register (captured as its semantic action).
+    let filtered = press (chr 'b') model
+    filtered.RecordingSteps |> should equal ([]: MacroStep list)
+
+    let replayedFromPicker, _ = Editor.update (KeyPressed(nk Enter)) filtered
+
+    replayedFromPicker.RecordingSteps
+    |> should equal [ RunAction(ReplayMacro('b', 1)) ]
+
+[<Fact>]
+let ``replayed steps are not captured into an active recording`` () =
+    let model =
+        { initModel () with
+            Recording = Some 'b'
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "x") ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let replayed = drainReplay started
+
+    Buffer.text (activeBuffer replayed) |> should equal "x"
+    replayed.RecordingSteps |> should equal ([]: MacroStep list)
+
+[<Fact>]
+let ``a load-file fence parks the queue until FileOpened pumps it`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunCommand "open /root/new.txt"; RunAction(InsertText "hi") ] ] }
+
+    let started, startEffects = Editor.runAction (ReplayMacro('a', 1)) model
+    startEffects |> should equal [ ReplayPump ]
+
+    // Step 1 schedules the async load: fenced, no pump.
+    let opened, openEffects = Editor.update ReplayStepReady started
+
+    openEffects
+    |> List.exists (function
+        | LoadFile("/root/new.txt", OpenPermanent, None) -> true
+        | _ -> false)
+    |> should equal true
+
+    hasPump openEffects |> should equal false
+
+    // A stray pump while fenced must not advance the queue.
+    let parked, parkedEffects = Editor.update ReplayStepReady opened
+    parkedEffects |> should equal ([]: Effect list)
+
+    (match parked.Replay with
+     | Some state -> state.Queue
+     | None -> failwith "replay vanished while fenced")
+    |> should equal [ ReplayStep(RunAction(InsertText "hi")) ]
+
+    // The completion clears the fence and pumps; the typed text lands in
+    // the NEW buffer.
+    let landed, landedEffects =
+        Editor.update (FileOpened("/root/new.txt", OpenPermanent, None, Result.Ok "content")) parked
+
+    hasPump landedEffects |> should equal true
+
+    let finished = drainReplay landed
+    (activeBuffer finished).FilePath |> should equal (Some "/root/new.txt")
+    Buffer.text (activeBuffer finished) |> should equal "hicontent"
+    finished.Replay |> should equal (None: ReplayState option)
+
+[<Fact>]
+let ``search-for jumps to the first match synchronously`` () =
+    let model = openBufferWith "alpha beta alpha"
+    let next, effects = Editor.runAction (SearchFor "beta") model
+
+    effects |> should equal ([]: Effect list)
+    cursorIndex next |> should equal 6
+    next.LastSearchQuery |> should equal (Some "beta")
+
+[<Fact>]
+let ``accepting a search while recording captures a search-for step`` () =
+    let recording, _ =
+        Editor.runAction (RecordMacro 'a') (openBufferWith "alpha beta alpha")
+
+    let accepted = recording |> searchFor "beta" |> press (nk Enter)
+
+    // Only the accepted outcome is a step — not the prompt opener, not
+    // the typed query characters.
+    accepted.RecordingSteps |> should equal [ RunAction(SearchFor "beta") ]
+
+[<Fact>]
+let ``nested replay splices the inner register's steps`` () =
+    let model =
+        { initModel () with
+            Registers =
+                Map.ofList
+                    [ 'a',
+                      [ RunAction(InsertText "1")
+                        RunAction(ReplayMacro('b', 2))
+                        RunAction(InsertText "3") ]
+                      'b', [ RunAction(InsertText "2") ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let replayed = drainReplay started
+
+    Buffer.text (activeBuffer replayed) |> should equal "1223"
+    replayed.Replay |> should equal (None: ReplayState option)
+
+[<Fact>]
+let ``a nested replay cycle cancels with an error`` () =
+    let model =
+        { initModel () with
+            Registers =
+                Map.ofList
+                    [ 'a', [ RunAction(ReplayMacro('b', 1)) ]
+                      'b', [ RunAction(ReplayMacro('a', 1)) ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let cancelled = drainReplay started
+
+    cancelled.Replay |> should equal (None: ReplayState option)
+
+    cancelled.Notification
+    |> Option.map (fun n -> n.Severity)
+    |> should equal (Some Severity.Error)
+
+    Assert.Contains("would replay itself", notificationText cancelled)
+
+[<Fact>]
+let ``nested replay deeper than the cap cancels`` () =
+    // a → b → … → i each replay the next register; j would be the 9th
+    // splice, past the cap of 8.
+    let chained =
+        [ for i in 0..8 -> char (int 'a' + i), [ RunAction(ReplayMacro(char (int 'a' + i + 1), 1)) ] ]
+        @ [ 'j', [ RunAction(InsertText "x") ] ]
+
+    let model =
+        { initModel () with
+            Registers = Map.ofList chained }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let cancelled = drainReplay started
+
+    cancelled.Replay |> should equal (None: ReplayState option)
+    Buffer.text (activeBuffer cancelled) |> should equal ""
+    Assert.Contains("deeper than", notificationText cancelled)
+
+[<Fact>]
+let ``a fence timeout cancels the replay naming the step`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunCommand "open /root/slow.txt" ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let fenced, _ = Editor.update ReplayStepReady started
+
+    (match fenced.Replay with
+     | Some state -> Set.isEmpty state.PendingFences
+     | None -> failwith "expected a fenced replay")
+    |> should equal false
+
+    let cancelled, _ = Editor.update ReplayFenceTimeout fenced
+
+    cancelled.Replay |> should equal (None: ReplayState option)
+
+    cancelled.Notification
+    |> Option.map (fun n -> n.Severity)
+    |> should equal (Some Severity.Error)
+
+    Assert.Contains("open /root/slow.txt", notificationText cancelled)
+
+[<Fact>]
+let ``a stale fence timeout after the replay finished is a no-op`` () =
+    let model = initModel ()
+    let next, effects = Editor.update ReplayFenceTimeout model
+    effects |> should equal ([]: Effect list)
+    next.Replay |> should equal (None: ReplayState option)
 
 [<Fact>]
 let ``RepeatLastMacro replays the last recorded register`` () =
     let model =
         { initModel () with
-            Registers = Map.ofList [ 'a', [ chr 'x' ] ]
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "x") ] ]
             LastMacro = Some 'a' }
 
-    let _, effects = Editor.runAction RepeatLastMacro model
+    let next, effects = Editor.runAction RepeatLastMacro model
 
-    match effects with
-    | [ ReplayKeys(chords, count) ] ->
-        chords |> should equal [ chr 'x' ]
-        count |> should equal 1
-    | other -> failwithf "expected one ReplayKeys effect, got %A" other
+    effects |> should equal [ ReplayPump ]
+
+    match next.Replay with
+    | Some state -> state.Register |> should equal 'a'
+    | None -> failwith "expected a replay state"
 
 [<Fact>]
 let ``RepeatLastMacro with no prior macro produces no effect`` () =

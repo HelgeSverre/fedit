@@ -154,6 +154,81 @@ type MouseDragState =
     { AnchorBufferId: int
       AnchorPosition: Position }
 
+/// One recorded macro step. Capture is semantic: actions and palette
+/// command lines, never raw chords — replay re-executes outcomes, so
+/// prompt/picker navigation can never end up inside a macro.
+type MacroStep =
+    /// Execute an editor action exactly as a keybinding would.
+    /// (Qualified: `open System` above pulls in `System.Action`.)
+    | RunAction of Fedit.Action
+    /// Execute a palette command line (the text after `:`), parsed with
+    /// the same grammar the prompt uses. The prompt itself never opens.
+    | RunCommand of commandLine: string
+
+[<RequireQualifiedAccess>]
+module MacroStep =
+    /// Render a step for the macro picker and replay diagnostics: the
+    /// action's payload-preserving parse syntax (falling back to its
+    /// display name for the few unserializable cases), or the raw palette
+    /// line with its `:` prefix restored.
+    let label (step: MacroStep) : string =
+        match step with
+        | RunAction action -> Action.toSyntax action |> Option.defaultValue (Action.name action)
+        | RunCommand commandLine -> ":" + commandLine
+
+/// The async effect families a replayed macro step can be waiting on. A
+/// fenced step's completion message clears its fence, and the replay
+/// queue pumps only when no fences remain — so replayed steps can never
+/// outrun the async results they depend on.
+type ReplayFence =
+    /// `LoadFile` / `EnsureConfigFile` — cleared by `FileOpened` /
+    /// `ConfigFileReady` (the latter may chain into a fresh `LoadFile`).
+    | FileFence
+    /// `RunSearch` — cleared by `SearchCompleted`.
+    | SearchFence
+    /// `ClipboardPaste` — cleared by `ClipboardPasted`.
+    | PasteFence
+    /// `RunPluginCommand` — cleared by `PluginActionsReady`.
+    | PluginFence
+    /// `ScanPlugins` — cleared by `PluginsScanned`.
+    | PluginScanFence
+    /// `ScanWorkspace` — cleared by `WorkspaceLoaded`.
+    | WorkspaceFence
+
+/// An entry in the replay queue: a step to run, or the closing bracket of
+/// a spliced nested replay. The bracket pops its register from the
+/// active-expansion set, so replaying the same register twice in sequence
+/// is legal while a true cycle (a register splicing itself while its own
+/// expansion is still open) is refused.
+type ReplayQueueItem =
+    | ReplayStep of MacroStep
+    | CloseExpansion of register: char
+
+/// In-flight macro replay, driven one queue item per `ReplayStepReady`
+/// message (posted back through the runtime queue by the `ReplayPump`
+/// effect) so live input and effect completions interleave fairly.
+type ReplayState =
+    {
+        /// Items still to run in the current iteration, front first.
+        Queue: ReplayQueueItem list
+        /// The register's full program; reloaded into `Queue` between
+        /// iterations.
+        Steps: MacroStep list
+        /// Iterations left, counting the one in flight. 1 = last.
+        RemainingIterations: int
+        /// The register being replayed (diagnostics + cycle-guard root).
+        Register: char
+        /// Fences still open for the last executed step; the queue pumps
+        /// only when this empties. See `ReplayFence`.
+        PendingFences: Set<ReplayFence>
+        /// The fenced step, for the timeout diagnostic.
+        WaitingStep: MacroStep option
+        /// Registers whose splice is still open in `Queue` (cycle guard).
+        ActiveExpansions: Set<char>
+        /// Open splice count, capped so runaway nesting cancels cleanly.
+        ExpansionDepth: int
+    }
+
 type Model =
     {
         Workspace: WorkspaceState
@@ -195,17 +270,20 @@ type Model =
         /// clock — `update` stays deterministic); the runtime posts
         /// `SequenceTimedOut` when it expires.
         PendingPrefix: Chord list option
-        /// Named macro registers. Key is the register char (e.g. 'a'); value is
-        /// the chords recorded into it, in press order. In-memory only this
-        /// phase — not persisted to the keybinds file.
-        Registers: Map<char, Chord list>
-        /// `Some r` while recording into register `r`; `None` otherwise. The
-        /// record-append hook in `update` keys off this.
+        /// Named macro registers: register char → recorded steps in
+        /// execution order. Written only when a recording stops with at
+        /// least one captured step. In-memory only this phase — not
+        /// persisted to the keybinds file.
+        Registers: Map<char, MacroStep list>
+        /// `Some r` while recording into register `r`; `None` otherwise.
+        /// The semantic-capture chokepoints key off this.
         Recording: char option
-        /// True while a macro replay is in flight (bracketed by
-        /// `MacroReplayStart`/`MacroReplayEnd`). The record-append hook checks
-        /// it so injected keys are never re-recorded.
-        Replaying: bool
+        /// Steps captured since recording started, in order. Committed to
+        /// the register on a non-empty stop, discarded on an empty stop —
+        /// so a double-toggle can never wipe a register.
+        RecordingSteps: MacroStep list
+        /// In-flight macro replay; `None` when idle. See `ReplayState`.
+        Replay: ReplayState option
         /// The last register replayed or finished recording, for
         /// "repeat last macro".
         LastMacro: char option
@@ -274,11 +352,13 @@ type Msg =
     | PastedText of string
     | SearchCompleted of bufferId: int * query: string * matches: int list
     | WorkspaceChangedExternally
-    /// Brackets a macro replay batch so the record-append hook can suppress
-    /// recording of injected keys (sets/clears `Model.Replaying`). Enqueued by
-    /// the `ReplayKeys` effect interpreter around the injected `KeyPressed`s.
-    | MacroReplayStart
-    | MacroReplayEnd
+    /// Run the next queued macro replay item. Posted by the `ReplayPump`
+    /// effect interpreter — round-tripping through the queue keeps replay
+    /// steps fair with live input and effect completions.
+    | ReplayStepReady
+    /// A fenced replay step's async result never arrived (runtime wall
+    /// clock, ~5 s): cancel the replay with an error naming the step.
+    | ReplayFenceTimeout
     /// Spans for `bufferId` as of `editTick`. Stale ticks are dropped —
     /// a newer `ParseHighlight` is already in flight for the newer text.
     | HighlightParsed of bufferId: int * editTick: int * spans: HighlightSpan array
@@ -325,7 +405,7 @@ type Effect =
     /// report as `PluginValidated`.
     | ValidatePlugin of path: string
     | LoadKeybinds
-    /// Replay a recorded macro: re-enqueue these chords as `KeyPressed` msgs
-    /// `count` times. Interpreted in `Runtime.startEffect` (it owns the queue),
-    /// bracketed by `MacroReplayStart`/`MacroReplayEnd`.
-    | ReplayKeys of chords: Chord list * count: int
+    /// Post `ReplayStepReady` back through the runtime queue. Pure queue
+    /// manipulation — no I/O — but routed as an effect so replay stepping
+    /// interleaves with pending input instead of recursing inside `update`.
+    | ReplayPump

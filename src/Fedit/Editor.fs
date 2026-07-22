@@ -87,6 +87,101 @@ module Editor =
         | Some { Severity = Severity.Error } -> model
         | _ -> { model with Notification = None }
 
+    /// Append a captured step to the in-progress recording; a no-op unless
+    /// recording. Consecutive `InsertText` steps coalesce into one so a
+    /// typed run records (and replays) as a single bulk edit.
+    let private recordStep (step: MacroStep) (model: Model) =
+        match model.Recording with
+        | None -> model
+        | Some _ ->
+            let steps =
+                match step, List.rev model.RecordingSteps with
+                | RunAction(InsertText addition), RunAction(InsertText existing) :: earlierReversed ->
+                    List.rev (RunAction(InsertText(existing + addition)) :: earlierReversed)
+                | _ -> model.RecordingSteps @ [ step ]
+
+            { model with RecordingSteps = steps }
+
+    /// Fence classification for macro replay: the async effects whose
+    /// result message the NEXT replay step must wait for. Exhaustive on
+    /// purpose — a new Effect case must be classified here deliberately,
+    /// or replayed steps could outrun its async result.
+    let private fenceOfEffect (effect: Effect) : ReplayFence option =
+        match effect with
+        | LoadFile _ -> Some FileFence
+        | EnsureConfigFile _ -> Some FileFence
+        | RunSearch _ -> Some SearchFence
+        | ClipboardPaste -> Some PasteFence
+        | RunPluginCommand _ -> Some PluginFence
+        | ScanPlugins _ -> Some PluginScanFence
+        | ScanWorkspace _ -> Some WorkspaceFence
+        | SaveBuffer _
+        | SaveConfig _
+        | ClipboardCopy _
+        | ParseHighlight _
+        | InstallPluginFromSource _
+        | RemovePluginDir _
+        | BuildPlugin _
+        | ValidatePlugin _
+        | LoadKeybinds
+        | ReplayPump -> None
+
+    /// The completion message that clears each replay fence. `FileFence`
+    /// has two: `ConfigFileReady` completes `EnsureConfigFile` but chains
+    /// into a `LoadFile`, which `settleReplayFences` re-opens from the
+    /// dispatch's own effects.
+    let private fenceClearedBy (msg: Msg) : ReplayFence option =
+        match msg with
+        | FileOpened _ -> Some FileFence
+        | ConfigFileReady _ -> Some FileFence
+        | SearchCompleted _ -> Some SearchFence
+        | ClipboardPasted _ -> Some PasteFence
+        | PluginActionsReady _ -> Some PluginFence
+        | PluginsScanned _ -> Some PluginScanFence
+        | WorkspaceLoaded _ -> Some WorkspaceFence
+        | _ -> None
+
+    /// Nested-replay splice cap: deeper than this cancels the replay.
+    let private maxReplayExpansionDepth = 8
+
+    let private cancelReplay (reason: string) (model: Model) =
+        { model with Replay = None } |> notify (Some(Notification.error reason))
+
+    /// Splice a nested `replay-macro` step into the live replay queue:
+    /// the inner register's steps (repeated `count` times) run before the
+    /// remaining queue, bracketed by a `CloseExpansion` marker so the
+    /// cycle guard tracks exactly which expansions are still open. A
+    /// register whose own expansion is open cannot splice itself, and
+    /// nesting past `maxReplayExpansionDepth` cancels.
+    let private spliceNestedReplay
+        (register: char)
+        (count: int)
+        (state: ReplayState)
+        (model: Model)
+        : Model * Effect list =
+        if state.ActiveExpansions.Contains register then
+            cancelReplay $"Macro @{state.Register} cancelled: @{register} would replay itself" model, []
+        elif state.ExpansionDepth >= maxReplayExpansionDepth then
+            cancelReplay $"Macro @{state.Register} cancelled: replay nested deeper than {maxReplayExpansionDepth}" model,
+            []
+        else
+            match model.Registers |> Map.tryFind register with
+            | Some steps when not (List.isEmpty steps) && count > 0 ->
+                let spliced =
+                    (List.replicate count steps |> List.concat |> List.map ReplayStep)
+                    @ (CloseExpansion register :: state.Queue)
+
+                { model with
+                    LastMacro = Some register
+                    Replay =
+                        Some
+                            { state with
+                                Queue = spliced
+                                ActiveExpansions = state.ActiveExpansions |> Set.add register
+                                ExpansionDepth = state.ExpansionDepth + 1 } },
+                []
+            | _ -> model |> notify (Some(Notification.warning $"No macro in @{register}")), []
+
     let private scanPluginsEffect model =
         ScanPlugins model.Config.DisabledPlugins
 
@@ -1020,7 +1115,9 @@ module Editor =
         | MacroPicker, PickerActionId.MacroReplay ->
             match trySelectedRegister model pickerState with
             | Some register ->
-                let next, effects = runAction (ReplayMacro(register, 1)) model
+                // Captured like any user-invoked action, so a macro being
+                // recorded can include a picker-triggered replay.
+                let next, effects = runCapturedAction (ReplayMacro(register, 1)) model
                 next, None, effects
             | None -> model, Some pickerState, []
         | MacroPicker, PickerActionId.MacroRecord ->
@@ -1096,32 +1193,29 @@ module Editor =
     and private clearPickerMacro register model pickerState =
         let nextRegisters = model.Registers |> Map.remove register
 
-        let nextRecording =
+        let nextRecording, nextRecordingSteps =
             match model.Recording with
-            | Some active when active = register -> None
-            | other -> other
+            | Some active when active = register -> None, []
+            | other -> other, model.RecordingSteps
 
         let nextLast =
             match model.LastMacro with
             | Some last when last = register -> None
             | other -> other
 
+        let cleared =
+            { model with
+                Registers = nextRegisters
+                Recording = nextRecording
+                RecordingSteps = nextRecordingSteps
+                LastMacro = nextLast }
+
         let nextPicker =
             { pickerState with
                 PendingConfirmation = None }
-            |> Pickers.clampSelection
-                { model with
-                    Registers = nextRegisters
-                    Recording = nextRecording
-                    LastMacro = nextLast }
+            |> Pickers.clampSelection cleared
 
-        { model with
-            Registers = nextRegisters
-            Recording = nextRecording
-            LastMacro = nextLast }
-        |> notify (Some(Notification.info $"Cleared macro @{register}")),
-        Some nextPicker,
-        []
+        cleared |> notify (Some(Notification.info $"Cleared macro @{register}")), Some nextPicker, []
 
     and private executeCommand command model =
         match command with
@@ -1514,6 +1608,22 @@ module Editor =
                     Workspace = Workspace.clearSearch model.Workspace }
         | SearchNext -> repeatSearch 1 model
         | SearchPrevious -> repeatSearch -1 model
+        | SearchFor query ->
+            // The semantic form of an accepted search (what macro capture
+            // records): remember the query and jump to the first match —
+            // the landing incremental search produces when results arrive —
+            // synchronously, so replay never waits on the async RunSearch
+            // pipeline.
+            if String.IsNullOrEmpty query then
+                model, []
+            else
+                let remembered =
+                    { model with
+                        LastSearchQuery = Some query }
+
+                match Buffer.findAll query (activeBufferState model) with
+                | first :: _ -> updateActiveBuffer (Buffer.moveToOffset first) remembered, []
+                | [] -> remembered |> notify (Some(Notification.info $"No matches for '{query}'")), []
         | NextBuffer -> switchBuffer 1 model, []
         | PrevBuffer -> switchBuffer -1 model, []
         | JumpToBuffer n -> jumpToBuffer n model, []
@@ -1624,38 +1734,169 @@ module Editor =
         | RecordMacro register ->
             match model.Recording with
             | Some active when active = register ->
-                // Toggle off: the just-recorded register becomes the repeat target.
-                { model with
-                    Recording = None
-                    LastMacro = Some register }
-                |> notify (Some(Notification.info $"Recorded macro @{register}")),
-                []
+                // Toggle off. Commit only a non-empty capture — an
+                // accidental double-toggle must never wipe the register.
+                if List.isEmpty model.RecordingSteps then
+                    { model with Recording = None }
+                    |> notify (Some(Notification.info $"Recording cancelled — @{register} unchanged")),
+                    []
+                else
+                    { model with
+                        Recording = None
+                        RecordingSteps = []
+                        Registers = model.Registers |> Map.add register model.RecordingSteps
+                        LastMacro = Some register }
+                    |> notify (
+                        Some(Notification.info $"Recorded macro @{register} ({model.RecordingSteps.Length} step(s))")
+                    ),
+                    []
             | _ ->
-                // Start (or switch) recording: clear the register, begin capture.
+                // Start (or switch registers). Capture goes into
+                // RecordingSteps; the register is written only on a
+                // non-empty stop, so starting never destroys a macro.
                 { model with
                     Recording = Some register
-                    Registers = model.Registers |> Map.add register [] }
+                    RecordingSteps = [] }
                 |> notify (Some(Notification.info $"Recording @{register}…")),
                 []
         | ReplayMacro(register, count) ->
-            // A replayed chord must not spawn another replay (runaway guard); a
-            // register cannot replay itself while it is being recorded.
-            let selfRef =
-                match model.Recording with
-                | Some active -> active = register
-                | None -> false
-
-            if model.Replaying || selfRef then
-                model, []
+            if model.Recording = Some register then
+                // A register cannot replay itself while it is being recorded.
+                model
+                |> notify (Some(Notification.warning $"@{register} is recording — cannot replay it")),
+                []
             else
-                match model.Registers |> Map.tryFind register with
-                | Some chords when not (List.isEmpty chords) && count > 0 ->
-                    { model with LastMacro = Some register }, [ ReplayKeys(chords, count) ]
-                | _ -> model |> notify (Some(Notification.warning $"No macro in @{register}")), []
+                match model.Replay with
+                | Some state ->
+                    // Already replaying: splice the inner program into the
+                    // queue front (nested replay) instead of starting over.
+                    spliceNestedReplay register count state model
+                | None ->
+                    match model.Registers |> Map.tryFind register with
+                    | Some steps when not (List.isEmpty steps) && count > 0 ->
+                        { model with
+                            LastMacro = Some register
+                            Replay =
+                                Some
+                                    { Queue = steps |> List.map ReplayStep
+                                      Steps = steps
+                                      RemainingIterations = count
+                                      Register = register
+                                      PendingFences = Set.empty
+                                      WaitingStep = None
+                                      ActiveExpansions = Set.singleton register
+                                      ExpansionDepth = 0 } },
+                        [ ReplayPump ]
+                    | _ -> model |> notify (Some(Notification.warning $"No macro in @{register}")), []
         | RepeatLastMacro ->
             match model.LastMacro with
             | Some register -> runAction (ReplayMacro(register, 1)) model
             | None -> model |> notify (Some(Notification.info "No macro to repeat")), []
+
+    /// Execute a user-invoked action, capturing it as a macro step while
+    /// recording. The ONE capture chokepoint for action dispatch —
+    /// keybinding resolution, the editor text fallthrough, and
+    /// picker-invoked actions all route here, while internal recursion
+    /// (`Chain` bodies, command bodies, replayed steps) calls `runAction`
+    /// directly so composite actions record exactly once.
+    ///
+    /// Never captured: `RecordMacro` (the toggle is not part of a macro),
+    /// the prompt-session openers (`OpenPalette` / `OpenFilePicker` /
+    /// `OpenSearch` — macros record prompt OUTCOMES as `RunCommand` /
+    /// `SearchFor` steps at accept time, never session navigation), and a
+    /// `ReplayMacro` of the register being recorded (refused live, so it
+    /// must not become a self-cycle step either).
+    and runCapturedAction (action: Fedit.Action) (model: Model) : Model * Effect list =
+        let model =
+            match action with
+            | RecordMacro _
+            | OpenPalette
+            | OpenFilePicker
+            | OpenSearch -> model
+            | ReplayMacro(register, _) when model.Recording = Some register -> model
+            | captured -> recordStep (RunAction captured) model
+
+        runAction action model
+
+    /// Execute one replay step. `RunAction` runs through the action
+    /// dispatcher (nested `replay-macro` steps splice there); `RunCommand`
+    /// re-parses the palette line — plugin commands and the numeric
+    /// `:LINE[:COL]` goto included — and executes it directly, so the
+    /// prompt never opens. A line that no longer parses to a runnable
+    /// command cancels the replay: the environment changed since
+    /// recording, and later steps would compound the damage.
+    let private runReplayStep (register: char) (step: MacroStep) (model: Model) : Model * Effect list =
+        match step with
+        | RunAction action -> runAction action model
+        | RunCommand commandLine ->
+            let parsed =
+                let trimmed = commandLine.TrimStart()
+
+                if trimmed.Length > 0 && Char.IsDigit trimmed[0] then
+                    Commands.parseGoto commandLine
+                else
+                    Commands.parseWith (Commands.allSpecs (pluginCmdTuples model)) commandLine
+
+            match parsed with
+            | Ready command -> executeCommand command model
+            | Empty
+            | Pending _
+            | Invalid _ -> cancelReplay $"Macro @{register} cancelled: ':{commandLine}' is not runnable" model, []
+
+    /// Advance the replay by one queue item — the `ReplayStepReady`
+    /// handler. Executes the popped step, then either pumps (`ReplayPump`
+    /// round-trips through the runtime queue) or, when the step scheduled
+    /// fencing effects, parks until `settleReplayFences` sees their
+    /// completion messages. An empty queue reloads for the next iteration
+    /// or finishes the replay.
+    let private advanceReplay (model: Model) : Model * Effect list =
+        match model.Replay with
+        | None -> model, [] // replay cancelled or finished; stale pump
+        | Some state when not (Set.isEmpty state.PendingFences) -> model, [] // fenced; the completion pumps
+        | Some state ->
+            match state.Queue with
+            | [] ->
+                if state.RemainingIterations > 1 then
+                    { model with
+                        Replay =
+                            Some
+                                { state with
+                                    Queue = state.Steps |> List.map ReplayStep
+                                    RemainingIterations = state.RemainingIterations - 1 } },
+                    [ ReplayPump ]
+                else
+                    { model with Replay = None }, []
+            | CloseExpansion register :: rest ->
+                { model with
+                    Replay =
+                        Some
+                            { state with
+                                Queue = rest
+                                ActiveExpansions = state.ActiveExpansions |> Set.remove register
+                                ExpansionDepth = state.ExpansionDepth - 1 } },
+                [ ReplayPump ]
+            | ReplayStep step :: rest ->
+                let popped =
+                    { model with
+                        Replay = Some { state with Queue = rest } }
+
+                let next, effects = runReplayStep state.Register step popped
+
+                match next.Replay with
+                | None -> next, effects // the step cancelled the replay
+                | Some nextState ->
+                    let fences = effects |> List.choose fenceOfEffect |> Set.ofList
+
+                    if Set.isEmpty fences then
+                        next, effects @ [ ReplayPump ]
+                    else
+                        { next with
+                            Replay =
+                                Some
+                                    { nextState with
+                                        PendingFences = fences
+                                        WaitingStep = Some step } },
+                        effects
 
     /// Move to the next/previous search match, wrapping cyclically.
     let private moveSearchMatch delta model =
@@ -1747,20 +1988,22 @@ module Editor =
     /// action dispatch (keybinds, macro replay) share one code path.
     let private runEditor (chord: Chord) model =
         match chord with
-        | { Mods = m; Key = Char value } when m.IsEmpty -> runAction (InsertText(string value)) model
+        | { Mods = m; Key = Char value } when m.IsEmpty -> runCapturedAction (InsertText(string value)) model
         // Spacebar maps to `Named Space`, not `Char ' '`; insert it as literal text.
-        | { Mods = m; Key = Named Space } when m.IsEmpty -> runAction (InsertText " ") model
+        | { Mods = m; Key = Named Space } when m.IsEmpty -> runCapturedAction (InsertText " ") model
         | { Mods = m; Key = Named Enter } when m.IsEmpty ->
             // A buffer with a plugin line-activation treats Enter as
             // "activate the cursor line" instead of inserting a newline —
             // the registered command runs with the normal snapshot
             // context. Dispatching through executeCommand keeps agent
             // parity: the same command stays invocable from the prompt.
+            // Not macro-captured: the activation depends on the cursor
+            // line of a plugin listing, which replay cannot reproduce.
             match model.Editors.BufferActivations.TryFind model.Editors.ActiveBufferId with
             | Some(source, commandName) -> executeCommand (PluginInvoke(source, commandName, "")) model
-            | None -> runAction (InsertText "\n") model
-        | { Mods = m; Key = Named Backspace } when m.IsEmpty -> runAction DeleteBackward model
-        | { Mods = m; Key = Named Delete } when m.IsEmpty -> runAction DeleteForward model
+            | None -> runCapturedAction (InsertText "\n") model
+        | { Mods = m; Key = Named Backspace } when m.IsEmpty -> runCapturedAction DeleteBackward model
+        | { Mods = m; Key = Named Delete } when m.IsEmpty -> runCapturedAction DeleteForward model
         | _ -> model, []
 
     /// Plugin keybinding lookup — consulted only after the keymap returns
@@ -1775,11 +2018,17 @@ module Editor =
             |> List.tryFind (fun (c, _) -> c = kc)
             |> Option.map snd
             |> Option.map (fun commandName ->
+                // A plugin chord is palette-invocable by name, so a
+                // recording captures it as a command step; replay then
+                // runs the same command without the chord.
                 match model.Plugins.Commands.TryFind commandName with
-                | Some binding -> executeCommand (PluginInvoke(binding.Source, commandName, "")) model
+                | Some binding ->
+                    executeCommand
+                        (PluginInvoke(binding.Source, commandName, ""))
+                        (recordStep (RunCommand commandName) model)
                 | None ->
                     match Commands.parse commandName with
-                    | Ready cmd -> executeCommand cmd model
+                    | Ready cmd -> executeCommand cmd (recordStep (RunCommand commandName) model)
                     | _ ->
                         notify
                             (Some(Notification.error $"Plugin binding refers to unknown command '{commandName}'."))
@@ -2004,6 +2253,10 @@ module Editor =
             | c when c = kAltUp -> applyHistory -1 model
             | c when c = kAltDown -> applyHistory 1 model
             | c when c = kEnter ->
+                // Macro capture happens HERE, at accept time: the typed
+                // prompt keys are never steps — only the outcome is (a
+                // `SearchFor` action or the raw command line), so replay
+                // re-executes results without ever opening the prompt.
                 match prompt.Mode with
                 | Search ->
                     // Accept: close the prompt leaving the cursor at the
@@ -2019,12 +2272,16 @@ module Editor =
                         else
                             { remembered with
                                 LastSearchQuery = Some query }
+                            |> recordStep (RunAction(SearchFor query))
 
                     closePrompt accepted, []
                 | FilePicker ->
                     match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
                     | Some item ->
-                        let remembered = pushHistory prompt.Text model
+                        let remembered =
+                            pushHistory prompt.Text model
+                            |> recordStep (RunCommand("open " + item.ApplyText))
+
                         let closed = closePrompt remembered
                         executeCommand (Open item.ApplyText) closed
                     | None -> model, []
@@ -2036,7 +2293,10 @@ module Editor =
 
                     match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
                     | Some item ->
-                        let remembered = pushHistory prompt.Text model
+                        let remembered =
+                            pushHistory prompt.Text model
+                            |> recordStep (RunCommand("buffers " + item.ApplyText))
+
                         let closed = closePrompt remembered
                         executeCommand (SwitchBuffer(bufferRefOf item.ApplyText)) closed
                     | None ->
@@ -2045,13 +2305,19 @@ module Editor =
                         if String.IsNullOrWhiteSpace argument then
                             model, []
                         else
-                            let remembered = pushHistory prompt.Text model
+                            let remembered =
+                                pushHistory prompt.Text model
+                                |> recordStep (RunCommand("buffers " + argument.Trim()))
+
                             let closed = closePrompt remembered
                             executeCommand (SwitchBuffer(bufferRefOf (argument.Trim()))) closed
                 | Command ->
                     match prompt.Parsed with
                     | Ready command ->
-                        let remembered = pushHistory prompt.Text model
+                        let remembered =
+                            pushHistory prompt.Text model
+                            |> recordStep (RunCommand((Prompt.argumentOf prompt.Text).Trim()))
+
                         let closed = closePrompt remembered
                         executeCommand command closed
                     | Pending message ->
@@ -2093,7 +2359,8 @@ module Editor =
           PendingPrefix = None
           Registers = Map.empty
           Recording = None
-          Replaying = false
+          RecordingSteps = []
+          Replay = None
           LastMacro = None
           MouseDrag = None
           LastSearchQuery = None },
@@ -2472,8 +2739,15 @@ module Editor =
         | PluginValidated(Result.Ok report) -> notify (Some(Notification.info report)) model, []
         | PluginValidated(Result.Error report) -> notify (Some(Notification.error report)) model, []
         | SequenceTimedOut -> { model with PendingPrefix = None }, []
-        | MacroReplayStart -> { model with Replaying = true }, []
-        | MacroReplayEnd -> { model with Replaying = false }, []
+        | ReplayStepReady -> advanceReplay model
+        | ReplayFenceTimeout ->
+            match model.Replay with
+            | Some state when not (Set.isEmpty state.PendingFences) ->
+                let stepLabel =
+                    state.WaitingStep |> Option.map MacroStep.label |> Option.defaultValue "?"
+
+                cancelReplay $"Macro @{state.Register} cancelled: timed out waiting after '{stepLabel}'" model, []
+            | _ -> model, []
         | KeybindsLoaded(keymap, errors) ->
             let model = { model with Keymap = keymap }
 
@@ -2594,36 +2868,34 @@ module Editor =
         | FocusGained -> model, []
         | FocusLost -> model, []
         | KeyPressed chord ->
-            if model.Focus = Prompt && isPromptListSession model.Prompt.Session then
-                runPrompt chord model
-            else
+            // Stop-recording works from ANY focus: while recording (and no
+            // multi-chord sequence is in flight), a chord bound to
+            // record-macro in the current context OR the editor context
+            // toggles recording before focus dispatch — so the toggle
+            // works over pickers and prompts, and can never leak into a
+            // filter or become a macro step. (Multi-chord stop sequences
+            // still resolve through the normal sequence engine in
+            // editor/sidebar focus; chords are never captured as steps, so
+            // their prefixes cannot pollute a recording either.)
+            let recordToggle =
+                match model.Recording with
+                | Some _ when Option.isNone model.PendingPrefix ->
+                    [ Keymap.contextOf model.Focus; Context.Editor ]
+                    |> List.distinct
+                    |> List.tryPick (fun toggleContext ->
+                        match Keymap.resolve toggleContext [ chord ] model.Keymap with
+                        | Bound(RecordMacro register) -> Some register
+                        | _ -> None)
+                | _ -> None
+
+            match recordToggle with
+            | Some register -> runAction (RecordMacro register) model
+            | None when model.Focus = Prompt && isPromptListSession model.Prompt.Session -> runPrompt chord model
+            | None ->
                 // Armed quit/close confirmations are disarmed by the
                 // `disarmStaleConfirmations` chokepoint in `update`, not here:
                 // a prompt round-trip (`:quit` again) must keep them armed.
                 let ctx = Keymap.contextOf model.Focus
-
-                // Record-append hook: while recording (and not replaying), capture
-                // each incoming chord into the active register, except the chord
-                // that toggles recording off (which `runAction RecordMacro`
-                // consumes). Recording captures chords, not Actions, so replay
-                // re-runs live keymap resolution and reassembles any sequences.
-                let model =
-                    match model.Recording with
-                    | Some r when not model.Replaying ->
-                        let isRecordToggle =
-                            match Keymap.resolve ctx [ chord ] model.Keymap with
-                            | Bound(RecordMacro _) -> true
-                            | _ -> false
-
-                        if isRecordToggle then
-                            model
-                        else
-                            let appended =
-                                (model.Registers |> Map.tryFind r |> Option.defaultValue []) @ [ chord ]
-
-                            { model with
-                                Registers = model.Registers |> Map.add r appended }
-                    | _ -> model
 
                 let pending = model.PendingPrefix |> Option.defaultValue []
 
@@ -2657,7 +2929,7 @@ module Editor =
                         // survive a broken keybinds file); the two-stage dirty
                         // guard lives in `runAction Quit`, shared with `:quit`
                         // and any rebound quit key.
-                        | [ c ] when c = kCtrlQ -> runAction Quit model
+                        | [ c ] when c = kCtrlQ -> runCapturedAction Quit model
                         // A visible Error claims Escape ahead of the keymap:
                         // dismissing it wins over clear-selection (or any
                         // other Esc binding), so one press can't both flick
@@ -2679,7 +2951,7 @@ module Editor =
                             let model = clearTransientNotification model
 
                             match Keymap.resolve ctx candidate model.Keymap with
-                            | Bound action -> runAction action model
+                            | Bound action -> runCapturedAction action model
                             | Unbound -> model, [] // explicitly freed: consume, do nothing
                             | NotBound when wasSequence ->
                                 notify
@@ -2757,6 +3029,35 @@ module Editor =
         else
             model
 
+    /// Replay fence bookkeeping, applied to every dispatch: a fence's
+    /// completion message closes it — and any fencing effects the
+    /// completion itself scheduled re-open theirs (`:config` chains
+    /// `ConfigFileReady` into a fresh `LoadFile`). When the last fence
+    /// closes, pump the next step. One chokepoint after `updateCore`, so
+    /// no completion handler needs to know about replay at all.
+    let private settleReplayFences (msg: Msg) (model: Model) (effects: Effect list) : Model * Effect list =
+        match model.Replay with
+        | Some state when not (Set.isEmpty state.PendingFences) ->
+            match fenceClearedBy msg with
+            | None -> model, effects
+            | Some fence ->
+                let reopened = effects |> List.choose fenceOfEffect |> Set.ofList
+                let pending = Set.union (Set.remove fence state.PendingFences) reopened
+
+                if Set.isEmpty pending then
+                    { model with
+                        Replay =
+                            Some
+                                { state with
+                                    PendingFences = Set.empty
+                                    WaitingStep = None } },
+                    effects @ [ ReplayPump ]
+                else
+                    { model with
+                        Replay = Some { state with PendingFences = pending } },
+                    effects
+        | _ -> model, effects
+
     /// Two-step confirmations (quit / close-buffer) stay armed only while
     /// the user is re-invoking the verb: the immediate second chord, or the
     /// prompt round-trip for `:quit` / `:close` (opening and typing in the
@@ -2802,6 +3103,7 @@ module Editor =
 
     let update msg model =
         let next, effects = updateCore msg model
+        let next, effects = settleReplayFences msg next effects
         let next = disarmStaleConfirmations msg model next
         let next = recordBufferActivation model next
         let next = promoteDirtyPreview next

@@ -403,6 +403,25 @@ let ``insert-text decodes an empty quoted payload`` () =
     Keymap.parseAction "insert-text:\"\""
     |> should equal (Ok(InsertText ""): Result<Action, string>)
 
+[<Fact>]
+let ``search-for shares the free-text payload grammar`` () =
+    Keymap.parseAction "search-for:\"let x\""
+    |> should equal (Ok(SearchFor "let x"): Result<Action, string>)
+
+    Keymap.parseAction "search-for:needle"
+    |> should equal (Ok(SearchFor "needle"): Result<Action, string>)
+
+    Keymap.parseAction "search-for:" |> Result.isError |> should equal true
+
+    Keymap.parseAction "search-for:\"unterminated"
+    |> Result.isError
+    |> should equal true
+
+[<Fact>]
+let ``toSyntax quotes a search-for query`` () =
+    Action.toSyntax (SearchFor "let x")
+    |> should equal (Some "search-for:\"let x\"")
+
 [<Theory>]
 [<InlineData("insert-text")>] // no payload
 [<InlineData("insert-text:")>] // empty payload
@@ -461,6 +480,7 @@ let ``toSyntax returns None only for the cases without parse syntax`` () =
 let private carriesPayload (action: Action) =
     match action with
     | InsertText _
+    | SearchFor _
     | MoveLinesUp _
     | MoveLinesDown _
     | JumpToBuffer _
@@ -516,6 +536,7 @@ let private serializableActionGen: Gen<Action> =
     Gen.oneof
         [ Gen.elements payloadFreeActions
           Gen.map InsertText insertTextPayloadGen
+          Gen.map SearchFor insertTextPayloadGen
           Gen.map MoveLinesUp (Gen.choose (1, 99))
           Gen.map MoveLinesDown (Gen.choose (1, 99))
           Gen.map JumpToBuffer (Gen.choose (1, 9))

@@ -69,6 +69,7 @@ let actionMeta (action: Action) : string * string =
     | OpenSearch -> "prompt", "Open in-buffer search"
     | SearchNext -> "motion", "Jump to the next match of the last search"
     | SearchPrevious -> "motion", "Jump to the previous match of the last search"
+    | SearchFor _ -> "motion", "Search for a query and jump to its first match"
     | NextBuffer -> "buffer", "Switch to the next buffer"
     | PrevBuffer -> "buffer", "Switch to the previous buffer"
     | JumpToBuffer _ -> "buffer", "Jump to a buffer by number"
@@ -148,6 +149,7 @@ let allActions: Action list =
       OpenSearch
       SearchNext
       SearchPrevious
+      SearchFor ""
       NextBuffer
       PrevBuffer
       JumpToBuffer 0

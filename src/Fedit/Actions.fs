@@ -78,6 +78,10 @@ type Action =
     | SearchNext
     /// Jump to the previous occurrence, wrapping at the start.
     | SearchPrevious
+    /// Search for `query` synchronously: remember it as the last search
+    /// and jump to its first match — the macro-recordable form of an
+    /// accepted search prompt (no prompt, no async `RunSearch`).
+    | SearchFor of query: string
     | NextBuffer
     | PrevBuffer
     | JumpToBuffer of int
@@ -184,6 +188,7 @@ module Action =
         | OpenSearch -> "search"
         | SearchNext -> "search-next"
         | SearchPrevious -> "search-previous"
+        | SearchFor _ -> "search-for"
         | NextBuffer -> "next-buffer"
         | PrevBuffer -> "prev-buffer"
         | JumpToBuffer _ -> "jump-to-buffer"
@@ -215,10 +220,11 @@ module Action =
         | ReplayMacro _ -> "replay-macro"
         | RepeatLastMacro -> "repeat-last-macro"
 
-    /// Quote an `insert-text` payload for `toSyntax`: always the double-quoted
-    /// form, with the same backslash escapes `Keymap.parseAction` decodes
-    /// (\" \\ \n \t \r), so any payload survives a line-based file.
-    let private quoteInsertTextPayload (payload: string) =
+    /// Quote a free-text payload (`insert-text` / `search-for`) for
+    /// `toSyntax`: always the double-quoted form, with the same backslash
+    /// escapes `Keymap.parseAction` decodes (\" \\ \n \t \r), so any
+    /// payload survives a line-based file.
+    let private quoteTextPayload (payload: string) =
         let sb = System.Text.StringBuilder(payload.Length + 2)
         sb.Append '"' |> ignore
 
@@ -249,7 +255,8 @@ module Action =
         | Chain _
         | When _
         | SaveAs _ -> None
-        | InsertText payload -> Some("insert-text:" + quoteInsertTextPayload payload)
+        | InsertText payload -> Some("insert-text:" + quoteTextPayload payload)
+        | SearchFor query -> Some("search-for:" + quoteTextPayload query)
         | MoveLinesUp count -> Some $"move-lines-up:{count}"
         | MoveLinesDown count -> Some $"move-lines-down:{count}"
         | JumpToBuffer n -> Some $"jump-to-buffer:{n}"

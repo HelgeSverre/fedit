@@ -38,7 +38,6 @@ type PickerInspectorLine =
     | TextLine of string
     | PathLine of string
     | ErrorLine of string
-    | ShortcutSequenceLine of Chord list
 
 /// Structured detail content for the selected item in ListWithInspector layout.
 type PickerInspector =

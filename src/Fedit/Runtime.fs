@@ -142,8 +142,8 @@ module Runtime =
         | SearchCompleted(bufferId, query, matches) ->
             $"SearchCompleted(buffer={bufferId}, queryLen={query.Length}, matches={matches.Length})"
         | WorkspaceChangedExternally -> "WorkspaceChangedExternally"
-        | MacroReplayStart -> "MacroReplayStart"
-        | MacroReplayEnd -> "MacroReplayEnd"
+        | ReplayStepReady -> "ReplayStepReady"
+        | ReplayFenceTimeout -> "ReplayFenceTimeout"
         | HighlightParsed(bufferId, editTick, spans) ->
             $"HighlightParsed(buffer={bufferId}, tick={editTick}, spans={spans.Length})"
         | PluginsScanned(Result.Ok _) -> "PluginsScanned(Ok)"
@@ -179,7 +179,7 @@ module Runtime =
         | BuildPlugin pluginPath -> $"BuildPlugin({pluginPath})"
         | ValidatePlugin path -> $"ValidatePlugin({path})"
         | LoadKeybinds -> "LoadKeybinds"
-        | ReplayKeys(chords, count) -> $"ReplayKeys(chords={chords.Length}, count={count})"
+        | ReplayPump -> "ReplayPump"
 
     /// Build a FileNode, using the basename (or full path when the name is
     /// empty). Paths are canonicalized to `/` here — this is the OS boundary
@@ -574,24 +574,26 @@ module Runtime =
                     let keymap, errors = KeymapIO.load ()
                     queue.Enqueue(KeybindsLoaded(keymap, errors)))
                 |> ignore
-            | ReplayKeys(chords, count) ->
-                // Pure in-memory queue manipulation — runs synchronously on the
-                // dispatch thread (unlike the I/O effects). Bracket the injected
-                // keys with markers so the record-append hook suppresses
-                // self-recording; the main loop drains them on later ticks.
-                queue.Enqueue MacroReplayStart
-
-                for _ in 1..count do
-                    for chord in chords do
-                        queue.Enqueue(KeyPressed chord)
-
-                queue.Enqueue MacroReplayEnd
+            | ReplayPump ->
+                // Pure queue manipulation — runs synchronously on the
+                // dispatch thread. Round-tripping the step trigger through
+                // the queue lets pending input and effect completions
+                // interleave with macro steps instead of the whole replay
+                // running ahead of them.
+                queue.Enqueue ReplayStepReady
 
         // The pure update layer records only the pending chords; the
         // wall-clock deadline lives here so `update` stays deterministic.
         // Reset whenever a dispatch produces a new pending prefix. 3 s:
         // long enough to read the which-key panel the prefix opens.
         let mutable prefixDeadline: DateTime voption = ValueNone
+
+        // Macro replay fence safety valve, also wall clock and also here:
+        // while the model waits on a fenced step's async result, a 5 s
+        // deadline is armed; if no completion pumps the queue in time,
+        // ReplayFenceTimeout cancels the replay with an error naming the
+        // step instead of leaving it parked forever.
+        let mutable replayFenceDeadline: DateTime voption = ValueNone
 
         // Multi-click synthesis also lives here, not in `update`: the
         // double-click window is a wall-clock decision, like prefixDeadline.
@@ -640,6 +642,14 @@ module Runtime =
                     ValueSome(DateTime.UtcNow.AddSeconds 3.0)
                 | Some _ -> prefixDeadline
                 | None -> ValueNone
+
+            replayFenceDeadline <-
+                match nextModel.Replay with
+                | Some state when not (Set.isEmpty state.PendingFences) ->
+                    match replayFenceDeadline with
+                    | ValueSome _ -> replayFenceDeadline
+                    | ValueNone -> ValueSome(DateTime.UtcNow.AddSeconds 5.0)
+                | _ -> ValueNone
 
             nextModel
 
@@ -758,6 +768,13 @@ module Runtime =
                 match prefixDeadline with
                 | ValueSome deadline when DateTime.UtcNow > deadline ->
                     model <- dispatch model SequenceTimedOut
+                    needsRender <- true
+                | _ -> ()
+
+                match replayFenceDeadline with
+                | ValueSome deadline when DateTime.UtcNow > deadline ->
+                    replayFenceDeadline <- ValueNone
+                    model <- dispatch model ReplayFenceTimeout
                     needsRender <- true
                 | _ -> ()
 

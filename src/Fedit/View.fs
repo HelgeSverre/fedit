@@ -430,7 +430,6 @@ module Layout =
             | TextLine s -> chrome, s
             | PathLine s -> chrome, s
             | ErrorLine s -> Style.withColors theme.ErrorFg theme.ChromeBg, s
-            | ShortcutSequenceLine chords -> chrome, Chord.renderStroke chords
 
         let rows =
             [ yield accent, inspector.Title
