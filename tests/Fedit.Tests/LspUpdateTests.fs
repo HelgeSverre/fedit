@@ -8,9 +8,9 @@ open FsUnit.Xunit
 /// Update-level coverage for the LSP document-sync chokepoint
 /// (`Editor.lspSyncEffects`) and the LSP Msg handlers. Pure — no server
 /// process is ever spawned; assertions inspect the emitted effects.
-/// Note: no close-buffer action exists on this branch, so the Closed
-/// transition is covered through the preview-slot path swap (the
-/// FilePath-removed case).
+/// The Closed transition is covered both through the preview-slot path
+/// swap (the FilePath-removed case) and through close-buffer directly
+/// (the integration seam with the unified quit/close work).
 
 let private initModel () =
     let model, _ =
@@ -754,3 +754,128 @@ let ``:lsp restart tears the server down before re-opening its documents`` () =
     match restartIndex, reopenIndex with
     | Some restart, Some reopen -> restart |> should be (lessThan reopen)
     | other -> failwith $"expected both a restart and a re-opening sync, got %A{other}"
+
+// ── integration seams with the ux-macros work ────────────────────────────
+// These cover interactions that exist only on the merged branch: the
+// close-buffer action against the sync diff, the replay fence engine
+// against the LSP request effects, and the combined Escape chain.
+
+[<Fact>]
+let ``closing a synced buffer emits a Closed sync`` () =
+    let opened, _ =
+        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) (initModel ())
+
+    // Dispatch through `update` (not `runAction`): the Closed sync is
+    // emitted by the `lspSyncEffects` chokepoint, which only the full
+    // pipeline applies. The buffer is clean, so Ctrl+W closes at once.
+    let ctrlW: Chord =
+        { Mods = Set.ofList [ Ctrl ]
+          Key = Key.Char 'w' }
+
+    let closed, effects = Editor.update (KeyPressed ctrlW) opened
+
+    closed.Editors.Buffers
+    |> Map.exists (fun _ buffer -> buffer.FilePath = Some "/root/main.sema")
+    |> should equal false
+
+    match lspSyncsOf effects with
+    | [ sync ] ->
+        sync.Path |> should equal "/root/main.sema"
+        sync.Kind |> should equal LspDocumentSyncKind.Closed
+    | other -> failwith $"expected exactly one Closed sync, got %A{other}"
+
+[<Fact>]
+let ``a replayed goto-definition fences until the definition resolves`` () =
+    let hasPump effects =
+        effects
+        |> List.exists (fun effect ->
+            match effect with
+            | ReplayPump -> true
+            | _ -> false)
+
+    let opened, _ =
+        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) (initModel ())
+
+    let model =
+        { opened with
+            Registers = Map.ofList [ 'a', [ RunAction GotoDefinition; RunAction(InsertText "x") ] ] }
+
+    let started, startEffects = Editor.runAction (ReplayMacro('a', 1)) model
+    startEffects |> should equal [ ReplayPump ]
+
+    // Step 1 schedules the async definition request: fenced, no pump —
+    // the insert must not run before the jump lands.
+    let requested, requestEffects = Editor.update ReplayStepReady started
+
+    let request =
+        requestEffects
+        |> List.tryPick (fun effect ->
+            match effect with
+            | LspRequestDefinition request -> Some request
+            | _ -> None)
+        |> Option.defaultWith (fun () -> failwith "expected an LspRequestDefinition effect")
+
+    hasPump requestEffects |> should equal false
+
+    (match requested.Replay with
+     | Some state -> state.Queue
+     | None -> failwith "replay vanished while fenced")
+    |> should equal [ ReplayStep(RunAction(InsertText "x")) ]
+
+    // The resolution clears the fence and pumps; the insert lands at the
+    // jump target, not wherever the cursor was when the replay started.
+    let location: LspResolvedLocation =
+        { Path = "/root/main.sema"
+          Position = { Line = 0; Column = 5 }
+          Preview = "(def x 1)" }
+
+    let landed, landedEffects =
+        Editor.update (LspDefinitionResolved(Result.Ok [ location ], request.EditTick, request.BufferId)) requested
+
+    hasPump landedEffects |> should equal true
+
+    let rec drain (model: Model) =
+        let next, effects = Editor.update ReplayStepReady model
+        if hasPump effects then drain next else next
+
+    let finished = drain landed
+    let buffer = finished.Editors.Buffers[finished.Editors.ActiveBufferId]
+    Buffer.text buffer |> should equal "(def xx 1)"
+    finished.Replay |> should equal (None: ReplayState option)
+
+[<Fact>]
+let ``escape dismisses the error, then the panel, then the selection`` () =
+    // The combined Escape precedence chain: a visible Error outranks the
+    // LSP info panel, which outranks the keymap's clear-selection binding
+    // — one press, one dismissal, three presses to a bare editor.
+    let opened, _ =
+        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) (initModel ())
+
+    let selected, _ = Editor.runAction ExtendRight opened
+
+    let contested =
+        { selected with
+            Lsp =
+                { selected.Lsp with
+                    Panel = Some { Title = "Hover"; Lines = [ "doc" ] } }
+            Notification = Some(Notification.error "boom") }
+
+    let activeBuffer (model: Model) =
+        model.Editors.Buffers[model.Editors.ActiveBufferId]
+
+    (activeBuffer contested).Selection.IsSome |> should equal true
+
+    // First Escape: the error goes; the panel and the selection stay.
+    let first, _ = Editor.update (KeyPressed escapeKey) contested
+    first.Notification |> should equal (None: Notification option)
+    first.Lsp.Panel.IsSome |> should equal true
+    (activeBuffer first).Selection.IsSome |> should equal true
+
+    // Second Escape: the panel goes; the selection stays.
+    let second, _ = Editor.update (KeyPressed escapeKey) first
+    second.Lsp.Panel |> should equal (None: LspInfoPanel option)
+    (activeBuffer second).Selection.IsSome |> should equal true
+
+    // Third Escape resolves through the keymap: the selection clears.
+    let third, _ = Editor.update (KeyPressed escapeKey) second
+    (activeBuffer third).Selection.IsSome |> should equal false
