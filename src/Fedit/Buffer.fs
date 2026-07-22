@@ -410,6 +410,29 @@ module Buffer =
 
     let hasSelection (buffer: BufferState) = buffer.Selection.IsSome
 
+    /// Double-click: select the word under `idx`, using the same
+    /// word-boundary scans as the word motions so click- and key-selection
+    /// can never disagree on what a word is. Sitting on whitespace lands on
+    /// the next word, mirroring `wordIndexRight`.
+    let selectWordAt (idx: int) (buffer: BufferState) =
+        let txt = text buffer
+        let finish = wordIndexRight WordEnd txt idx
+        let start = wordIndexLeft txt finish
+
+        if finish > start then
+            selectRange start finish buffer
+        else
+            buffer
+
+    /// Triple-click: select the whole of line `lineIndex`, including its
+    /// trailing newline so consecutive line selections tile cleanly. The
+    /// last line has no newline to include.
+    let selectLineAt (lineIndex: int) (buffer: BufferState) =
+        let lineIndex = max 0 (min lineIndex (lineCount buffer - 1))
+        let start = positionToIndex { Line = lineIndex; Column = 0 } buffer
+        let finish = start + (line lineIndex buffer).Length + 1
+        selectRange start (min finish (PieceTable.length buffer.Document)) buffer
+
     /// Shift+motion: pin the anchor (when no selection), run the motion,
     /// then sync the span's Head to the new cursor. If a detached scroll
     /// moved the cursor away from Head, snap it back first so extension

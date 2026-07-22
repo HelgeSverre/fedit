@@ -30,6 +30,14 @@ type Resolution =
 [<RequireQualifiedAccess>]
 module Keymap =
 
+    /// Keymap context of a focus target — the one mapping shared by key
+    /// dispatch (`Editor.update`) and the which-key dock panel (`Dock`).
+    let contextOf (focus: FocusTarget) : Context =
+        match focus with
+        | FocusTarget.Editor -> Context.Editor
+        | FocusTarget.Sidebar -> Context.Sidebar
+        | FocusTarget.Prompt -> Context.Prompt
+
     // ── DSL helpers (devs only; mirror the file 1:1, spec §6.6) ───────────
     let chord mods key : Chord = { Mods = Set.ofList mods; Key = key }
 
@@ -174,6 +182,30 @@ module Keymap =
             (b.Context = ctx || b.Context = Context.Global)
             && b.Action.IsSome
             && isProperPrefix stroke b.Stroke)
+
+    /// Bound continuations of an in-flight sequence prefix in `ctx`: every
+    /// stroke reachable from this context that properly extends `pending`,
+    /// rendered as (remaining stroke, action name) and sorted by the
+    /// remainder. Strokes whose effective resolution is an unbind are
+    /// dropped. Drives the which-key dock panel.
+    let continuations (ctx: Context) (pending: KeyStroke) (keymap: Keymap) : (string * string) list =
+        keymap
+        |> List.choose (fun b ->
+            if
+                (b.Context = ctx || b.Context = Context.Global)
+                && isProperPrefix pending b.Stroke
+            then
+                Some b.Stroke
+            else
+                None)
+        |> List.distinct
+        |> List.choose (fun stroke ->
+            match resolve ctx stroke keymap with
+            | Bound action -> Some(Chord.renderStroke (List.skip pending.Length stroke), Action.name action)
+            | Unbound
+            | NotBound -> None)
+        |> List.distinct
+        |> List.sortBy fst
 
     /// A standalone (length-1) binding that is also a proper prefix of a bound
     /// sequence in the same context cannot coexist (it would silently shadow

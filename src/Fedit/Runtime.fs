@@ -122,7 +122,7 @@ module Runtime =
         | SequenceTimedOut -> "SequenceTimedOut"
         | Resize size -> $"Resize({size.Width}x{size.Height})"
         | MouseScrolled(ticks, position) -> $"MouseScrolled(ticks={ticks}, at={position.Line}:{position.Column})"
-        | MousePressed e -> $"MousePressed({e.Position.Line}:{e.Position.Column})"
+        | MousePressed(e, clickCount) -> $"MousePressed({e.Position.Line}:{e.Position.Column}, clicks={clickCount})"
         | MouseReleased e -> $"MouseReleased({e.Position.Line}:{e.Position.Column})"
         | MouseDragged e -> $"MouseDragged({e.Position.Line}:{e.Position.Column})"
         | FocusGained -> "FocusGained"
@@ -589,8 +589,33 @@ module Runtime =
 
         // The pure update layer records only the pending chords; the
         // wall-clock deadline lives here so `update` stays deterministic.
-        // Reset whenever a dispatch produces a new pending prefix.
+        // Reset whenever a dispatch produces a new pending prefix. 3 s:
+        // long enough to read the which-key panel the prefix opens.
         let mutable prefixDeadline: DateTime voption = ValueNone
+
+        // Multi-click synthesis also lives here, not in `update`: the
+        // double-click window is a wall-clock decision, like prefixDeadline.
+        // A left press on the same cell within the window bumps the count
+        // (1 → 2 → 3 → …); `update` maps 2 to word- and 3 to line-selection.
+        // Any other button press breaks the chain.
+        let multiClickWindow = TimeSpan.FromMilliseconds 500.0
+        let mutable lastLeftClick: (DateTime * Position * int) voption = ValueNone
+
+        let clickCountFor (event: MouseEvent) =
+            if event.Button = LeftButton then
+                let now = DateTime.UtcNow
+
+                let count =
+                    match lastLeftClick with
+                    | ValueSome(at, position, previous) when position = event.Position && now - at <= multiClickWindow ->
+                        previous + 1
+                    | _ -> 1
+
+                lastLeftClick <- ValueSome(now, event.Position, count)
+                count
+            else
+                lastLeftClick <- ValueNone
+                1
 
         let dispatch model msg =
             // renderMsg/renderEffect are AOT-safe (no reflective DU printing), so
@@ -612,7 +637,7 @@ module Runtime =
             prefixDeadline <-
                 match nextModel.PendingPrefix with
                 | Some _ when nextModel.PendingPrefix <> model.PendingPrefix ->
-                    ValueSome(DateTime.UtcNow.AddSeconds 1.0)
+                    ValueSome(DateTime.UtcNow.AddSeconds 3.0)
                 | Some _ -> prefixDeadline
                 | None -> ValueNone
 
@@ -756,7 +781,7 @@ module Runtime =
                     | Press ->
                         match MouseProtocol.toWheelTicks event with
                         | Some ticks -> model <- dispatch model (MouseScrolled(ticks, event.Position))
-                        | None -> model <- dispatch model (MousePressed event)
+                        | None -> model <- dispatch model (MousePressed(event, clickCountFor event))
                     | Release -> model <- dispatch model (MouseReleased event)
                     | Drag -> model <- dispatch model (MouseDragged event)
 

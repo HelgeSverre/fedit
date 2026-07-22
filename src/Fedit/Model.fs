@@ -189,8 +189,9 @@ type Model =
         /// editor is fully functional before the async `LoadKeybinds` lands.
         Keymap: Keymap
         /// In-flight multi-key sequence: the chords accumulated so far.
-        /// `None` when no sequence is pending. Rendered in the status bar.
-        /// The abandon-after-1s deadline lives in the Runtime (it owns the
+        /// `None` when no sequence is pending. Rendered in the status bar
+        /// and as the which-key dock panel. The abandon deadline (3 s —
+        /// reading time for that panel) lives in the Runtime (it owns the
         /// clock — `update` stays deterministic); the runtime posts
         /// `SequenceTimedOut` when it expires.
         PendingPrefix: Chord list option
@@ -245,7 +246,12 @@ type Msg =
     /// The position routes the scroll to the surface under the pointer
     /// (sidebar vs editor).
     | MouseScrolled of ticks: int * position: Position
-    | MousePressed of MouseEvent
+    /// `clickCount` is synthesized by the Runtime (the double-click window
+    /// is a wall-clock decision, so it lives beside `prefixDeadline`): rapid
+    /// presses on the same cell count 1, 2, 3, … `update` maps 2 to
+    /// word-selection and 3 to line-selection; anything else places the
+    /// cursor.
+    | MousePressed of event: MouseEvent * clickCount: int
     | MouseReleased of MouseEvent
     | MouseDragged of MouseEvent
     | FocusGained

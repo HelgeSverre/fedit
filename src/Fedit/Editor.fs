@@ -1680,12 +1680,6 @@ module Editor =
     let private kPageDown = nk PageDown
     let private kCtrlQ = cc 'q'
 
-    let private contextOf =
-        function
-        | FocusTarget.Editor -> Context.Editor
-        | FocusTarget.Sidebar -> Context.Sidebar
-        | FocusTarget.Prompt -> Context.Prompt
-
     /// Sidebar fallthrough core: the incremental filter. All navigation is
     /// keymap-driven (Context.Sidebar) and resolves before this is reached.
     let private runSidebar (chord: Chord) model =
@@ -2469,7 +2463,7 @@ module Editor =
             match errors with
             | [] -> model, []
             | _ -> notify (Some(Notification.warning (String.concat "; " errors))) model, []
-        | MousePressed event ->
+        | MousePressed(event, clickCount) ->
             match event.Button with
             | LeftButton ->
                 // Sidebar first: a click on a row selects it; a click on the
@@ -2505,24 +2499,49 @@ module Editor =
                         let buffer = activeBufferState model
                         let idx = Buffer.positionToIndex pos buffer
 
-                        let nextModel =
-                            { model with Focus = Editor } |> updateActiveBuffer (Buffer.selectRange idx idx)
-
                         match model.Editors.BufferActivations.TryFind buffer.Id with
                         | Some(source, commandName) ->
                             // Activation click: the cursor has just moved to
                             // the clicked line, so the plugin command sees it
                             // there. No drag anchor — a click that jumps to
                             // another buffer must not leave a stray selection
-                            // anchor behind in the listing.
+                            // anchor behind in the listing. Click count is
+                            // ignored: every press re-invokes, and selecting
+                            // words in an activation listing has no meaning.
+                            let nextModel =
+                                { model with Focus = Editor } |> updateActiveBuffer (Buffer.selectRange idx idx)
+
                             executeCommand (PluginInvoke(source, commandName, "")) { nextModel with MouseDrag = None }
                         | None ->
-                            { nextModel with
-                                MouseDrag =
-                                    Some
-                                        { AnchorBufferId = buffer.Id
-                                          AnchorPosition = pos } },
-                            []
+                            match clickCount with
+                            | 2 ->
+                                // Double-click: select the word under the
+                                // cursor. No drag anchor — extending by
+                                // words while dragging is deferred, and a
+                                // character anchor would collapse the word
+                                // selection on the first drag event.
+                                { model with
+                                    Focus = Editor
+                                    MouseDrag = None }
+                                |> updateActiveBuffer (Buffer.selectWordAt idx),
+                                []
+                            | 3 ->
+                                // Triple-click: select the whole line.
+                                { model with
+                                    Focus = Editor
+                                    MouseDrag = None }
+                                |> updateActiveBuffer (Buffer.selectLineAt pos.Line),
+                                []
+                            | _ ->
+                                let nextModel =
+                                    { model with Focus = Editor } |> updateActiveBuffer (Buffer.selectRange idx idx)
+
+                                { nextModel with
+                                    MouseDrag =
+                                        Some
+                                            { AnchorBufferId = buffer.Id
+                                              AnchorPosition = pos } },
+                                []
             | _ -> model, []
         | MouseDragged event ->
             match model.MouseDrag with
@@ -2564,7 +2583,7 @@ module Editor =
                 // Armed quit/close confirmations are disarmed by the
                 // `disarmStaleConfirmations` chokepoint in `update`, not here:
                 // a prompt round-trip (`:quit` again) must keep them armed.
-                let ctx = contextOf model.Focus
+                let ctx = Keymap.contextOf model.Focus
 
                 // Record-append hook: while recording (and not replaying), capture
                 // each incoming chord into the active register, except the chord

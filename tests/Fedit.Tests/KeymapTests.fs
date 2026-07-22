@@ -77,6 +77,70 @@ let ``a standalone that prefixes a bound sequence is flagged as a conflict`` () 
     conflicts |> List.length |> should equal 1
     (conflicts |> List.head |> fst).Stroke |> should equal [ ck ]
 
+// ── continuations (which-key, stage U5) ───────────────────────────────
+
+let private ctrlK = Keymap.chord [ Ctrl ] (Key.Char 'k')
+let private ctrlC = Keymap.chord [ Ctrl ] (Key.Char 'c')
+let private ctrlU = Keymap.chord [ Ctrl ] (Key.Char 'u')
+
+[<Fact>]
+let ``continuations lists context and global extensions sorted by remainder`` () =
+    let km =
+        [ { Stroke = [ ctrlK; ctrlU ]
+            Context = Context.Global
+            Action = Some Undo }
+          { Stroke = [ ctrlK; ctrlC ]
+            Context = Context.Editor
+            Action = Some Copy }
+          { Stroke = [ ctrlK; ctrlG ]
+            Context = Context.Sidebar
+            Action = Some Save } ]
+
+    Keymap.continuations Context.Editor [ ctrlK ] km
+    |> should equal [ "ctrl+c", "copy"; "ctrl+u", "undo" ]
+
+[<Fact>]
+let ``continuations renders a multi-chord remainder in full`` () =
+    let km =
+        [ { Stroke = [ ctrlK; ctrlC; ctrlU ]
+            Context = Context.Editor
+            Action = Some Save } ]
+
+    Keymap.continuations Context.Editor [ ctrlK ] km
+    |> should equal [ "ctrl+c ctrl+u", "save" ]
+
+[<Fact>]
+let ``continuations drops a stroke whose effective binding is an unbind`` () =
+    let km =
+        [ { Stroke = [ ctrlK; ctrlC ]
+            Context = Context.Editor
+            Action = Some Copy }
+          { Stroke = [ ctrlK; ctrlC ]
+            Context = Context.Editor
+            Action = None } ]
+
+    Keymap.continuations Context.Editor [ ctrlK ] km
+    |> should equal ([]: (string * string) list)
+
+[<Fact>]
+let ``continuations resolves an overridden stroke to its effective action`` () =
+    let km =
+        [ { Stroke = [ ctrlK; ctrlC ]
+            Context = Context.Global
+            Action = Some Save }
+          { Stroke = [ ctrlK; ctrlC ]
+            Context = Context.Editor
+            Action = Some Copy } ]
+
+    Keymap.continuations Context.Editor [ ctrlK ] km
+    |> should equal [ "ctrl+c", "copy" ]
+
+[<Fact>]
+let ``contextOf maps every focus target onto its keymap context`` () =
+    Keymap.contextOf FocusTarget.Editor |> should equal Context.Editor
+    Keymap.contextOf FocusTarget.Sidebar |> should equal Context.Sidebar
+    Keymap.contextOf FocusTarget.Prompt |> should equal Context.Prompt
+
 // ── parser (spec §6.6 + run-plugin grammar) ───────────────────────────
 
 [<Theory>]

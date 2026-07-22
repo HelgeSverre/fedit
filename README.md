@@ -250,7 +250,7 @@ Editor keys:
 - `Shift+Tab` unindents the current line.
 - `Enter`, `Backspace`, and `Delete` edit text normally; with a selection, they replace it.
 - The mouse wheel scrolls the viewport; the cursor follows only when it would cross the `scrollOff` margin. Set `scrollMode` to `line` to make the wheel move the cursor instead. While fedit runs it captures the mouse — hold `Shift` (or `Option` on macOS) for the terminal's own selection and scrollback.
-- **Click** in the editor to place the cursor. **Drag** to select text. Clicking also restores focus to the editor when the sidebar or prompt had it.
+- **Click** in the editor to place the cursor. **Double-click** selects the word under the cursor, **triple-click** the whole line. **Drag** to select text. Clicking also restores focus to the editor when the sidebar or prompt had it.
 
 Find keys (after `Ctrl+F`):
 
@@ -327,7 +327,8 @@ Each line is `[context] stroke[ stroke…] = action[:arg]`:
 ctrl+s            = save
 # Contexts: global, editor, sidebar, prompt. Global fires in every focus.
 global  ctrl+r    = reload-workspace
-# A multi-key sequence (press in order; the status bar shows the pending prefix).
+# A multi-key sequence (press in order; the status bar shows the pending
+# prefix and the dock lists its bound continuations).
 editor  ctrl+k ctrl+s = save
 # Free a binding entirely with an empty right-hand side (does NOT fall through).
 global  ctrl+r    =

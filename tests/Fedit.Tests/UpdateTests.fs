@@ -1431,6 +1431,64 @@ let ``SequenceTimedOut clears any pending prefix`` () =
     next.PendingPrefix |> should equal (None: Chord list option)
 
 // ─────────────────────────────────────────────────────────────────────
+// Which-key (stage U5) — a pending prefix surfaces its bound
+// continuations as a content-sized dock panel; it clears with the prefix.
+// ─────────────────────────────────────────────────────────────────────
+
+/// Defaults plus two editor-reachable `ctrl+k …` sequences and one that
+/// is sidebar-only (must not show while the editor is focused).
+let private modelWithSequences () =
+    let sequences =
+        [ { Stroke = [ kc 'k'; kc 'c' ]
+            Context = Context.Editor
+            Action = Some Save }
+          { Stroke = [ kc 'k'; kc 'u' ]
+            Context = Context.Global
+            Action = Some Undo }
+          { Stroke = [ kc 'k'; kc 's' ]
+            Context = Context.Sidebar
+            Action = Some SidebarUp } ]
+
+    { initModel () with
+        Keymap = Keymap.defaults @ sequences }
+
+[<Fact>]
+let ``pending prefix surfaces a which-key dock panel with its continuations`` () =
+    let pending, _ = Editor.update (KeyPressed(kc 'k')) (modelWithSequences ())
+    pending.PendingPrefix |> should equal (Some [ kc 'k' ])
+
+    let metrics = Dock.metrics pending
+
+    match metrics.Panel with
+    | DockInfo(title, lines) ->
+        title |> should equal "Keys  ctrl+k …"
+        lines |> should equal [ "ctrl+c  save"; "ctrl+u  undo" ]
+    | other -> failwithf "expected DockInfo, got %A" other
+
+    // Content-sized: title row + one row per continuation.
+    metrics.DockHeight |> should equal 3
+
+[<Fact>]
+let ``which-key panel clears when the sequence fires`` () =
+    let pending, _ = Editor.update (KeyPressed(kc 'k')) (modelWithSequences ())
+    let fired, _ = Editor.update (KeyPressed(kc 'u')) pending
+
+    fired.PendingPrefix |> should equal (None: Chord list option)
+    (Dock.metrics fired).Panel |> should equal NoDock
+    (Dock.metrics fired).DockHeight |> should equal 0
+
+[<Fact>]
+let ``which-key panel clears on timeout and on Escape`` () =
+    let pending, _ = Editor.update (KeyPressed(kc 'k')) (modelWithSequences ())
+
+    let timedOut, _ = Editor.update SequenceTimedOut pending
+    (Dock.metrics timedOut).Panel |> should equal NoDock
+
+    let cancelled, _ = Editor.update (KeyPressed(nk Escape)) pending
+    cancelled.PendingPrefix |> should equal (None: Chord list option)
+    (Dock.metrics cancelled).Panel |> should equal NoDock
+
+// ─────────────────────────────────────────────────────────────────────
 // Chord.toKeyChord — bridge to the frozen plugin-API KeyChord
 // ─────────────────────────────────────────────────────────────────────
 
@@ -1765,7 +1823,7 @@ let ``MousePressed in the text area moves the cursor to the clicked cell`` () =
     let contentX = textAreaX model
 
     let next, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 2 (contentX + 3))) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 2 (contentX + 3), 1)) model
 
     (activeBuffer next).Cursor |> should equal { Line = 2; Column = 3 }
     next.Focus |> should equal Editor
@@ -1782,7 +1840,7 @@ let ``MousePressed then MouseDragged selects between press and drag cells`` () =
     let contentX = textAreaX model
 
     let pressed, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX, 1)) model
 
     let dragged, _ =
         Editor.update (MouseDragged(mouseEvent LeftButton Drag 1 (contentX + 2))) pressed
@@ -1810,7 +1868,7 @@ let ``MouseDragged across a word selects the trailing character`` () =
 
     // Press on "h" (cell 0), drag onto the last "o" of "hello" (cell 4).
     let pressed, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX, 1)) model
 
     let dragged, _ =
         Editor.update (MouseDragged(mouseEvent LeftButton Drag 0 (contentX + 4))) pressed
@@ -1825,7 +1883,7 @@ let ``MouseReleased clears the drag anchor so later drags do not extend`` () =
     let contentX = textAreaX model
 
     let pressed, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX, 1)) model
 
     pressed.MouseDrag |> Option.isSome |> should equal true
 
@@ -1847,16 +1905,104 @@ let ``MousePressed in the gutter or empty sidebar leaves the model unchanged`` (
 
     // Last gutter cell, just left of the text area.
     let inGutter, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 0 (contentX - 1))) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 (contentX - 1), 1)) model
 
     inGutter |> should equal model
 
     // Inside the sidebar with no workspace tree (no entry under the click):
     // no cursor move, no focus change, no drag anchor.
     let inSidebar, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 0 0)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 0, 1)) model
 
     inSidebar |> should equal model
+
+// ─────────────────────────────────────────────────────────────────────
+// Multi-click (stage U5) — the Runtime synthesizes clickCount from its
+// wall clock; update maps 2 → word, 3 → line, anything else → cursor.
+// ─────────────────────────────────────────────────────────────────────
+
+let private modelWithText text =
+    let model = initModel ()
+    let buf = Buffer.fromText 1 None "test" text "\n"
+
+    { model with
+        Editors =
+            { model.Editors with
+                Buffers = Map.ofList [ 1, buf ] } }
+
+[<Fact>]
+let ``double-click selects the word under the cursor`` () =
+    let model = modelWithText "hello world"
+    let contentX = textAreaX model
+
+    // Cell 7 is the "o" of "world".
+    let next, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 (contentX + 7), 2)) model
+
+    Buffer.selectionText (activeBuffer next) |> should equal "world"
+    Buffer.selectionRange (activeBuffer next) |> should equal (Some(6, 11))
+    next.Focus |> should equal Editor
+    // No drag anchor: a drag straight after the double-click must not
+    // collapse the word selection (extend-by-words is deferred).
+    next.MouseDrag |> should equal (None: MouseDragState option)
+
+[<Fact>]
+let ``double-click selects a punctuation run as its own word`` () =
+    let model = modelWithText "let x == y"
+    let contentX = textAreaX model
+
+    let next, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 (contentX + 6), 2)) model
+
+    Buffer.selectionText (activeBuffer next) |> should equal "=="
+
+[<Fact>]
+let ``drag after a double-click keeps the word selection`` () =
+    let model = modelWithText "hello world"
+    let contentX = textAreaX model
+
+    let doubled, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 (contentX + 2), 2)) model
+
+    let dragged, _ =
+        Editor.update (MouseDragged(mouseEvent LeftButton Drag 0 (contentX + 9))) doubled
+
+    dragged |> should equal doubled
+
+[<Fact>]
+let ``triple-click selects the whole line including its newline`` () =
+    let model = modelWithLines 10
+    let contentX = textAreaX model
+
+    let next, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 1 (contentX + 2), 3)) model
+
+    Buffer.selectionText (activeBuffer next) |> should equal "line1\n"
+    Buffer.selectionRange (activeBuffer next) |> should equal (Some(6, 12))
+    next.MouseDrag |> should equal (None: MouseDragState option)
+
+[<Fact>]
+let ``triple-click on the last line selects it without a phantom newline`` () =
+    let model = modelWithLines 10
+    let contentX = textAreaX model
+
+    let next, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 9 contentX, 3)) model
+
+    Buffer.selectionText (activeBuffer next) |> should equal "line9"
+    Buffer.selectionRange (activeBuffer next) |> should equal (Some(54, 59))
+
+[<Fact>]
+let ``a fourth rapid click falls back to plain cursor placement`` () =
+    let model = modelWithLines 10
+    let contentX = textAreaX model
+
+    let next, _ =
+        Editor.update (MousePressed(mouseEvent LeftButton Press 2 (contentX + 3), 4)) model
+
+    (activeBuffer next).Cursor |> should equal { Line = 2; Column = 3 }
+    Buffer.selectionRange (activeBuffer next) |> should equal (Some(15, 15))
+    next.MouseDrag |> Option.isSome |> should equal true
 
 // ─────────────────────────────────────────────────────────────────────
 // Detached selection — the span lives independently of the cursor, so a
@@ -1890,7 +2036,7 @@ let ``wheel scroll while dragging keeps the drag anchor`` () =
     let contentX = textAreaX model
 
     let pressed, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 0 contentX, 1)) model
 
     let scrolled, _ = Editor.update (MouseScrolled(1, inEditor)) pressed
     (activeBuffer scrolled).ViewportTop |> should equal 3
@@ -2126,7 +2272,7 @@ let ``click on an unselected sidebar row selects it and focuses the sidebar`` ()
     let idx = entries |> List.findIndex (fun entry -> entry.Path = "/root/c.fs")
 
     let next, effects =
-        Editor.update (MousePressed(mouseEvent LeftButton Press (idx - startIndex) 1)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press (idx - startIndex) 1, 1)) model
 
     next.Workspace.SelectedPath |> should equal (Some "/root/c.fs")
     next.Focus |> should equal Sidebar
@@ -2162,7 +2308,7 @@ let ``click on the selected directory row toggles its expansion`` () =
         (entries |> List.findIndex (fun entry -> entry.Path = "/root/src")) - startIndex
 
     let expanded, effects =
-        Editor.update (MousePressed(mouseEvent LeftButton Press row 1)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press row 1, 1)) model
 
     expanded.Workspace.Expanded |> Set.contains "/root/src" |> should equal true
     expanded.Focus |> should equal Sidebar
@@ -2170,7 +2316,7 @@ let ``click on the selected directory row toggles its expansion`` () =
 
     // The row is still selected, so a second click collapses it again.
     let collapsed, _ =
-        Editor.update (MousePressed(mouseEvent LeftButton Press row 1)) expanded
+        Editor.update (MousePressed(mouseEvent LeftButton Press row 1, 1)) expanded
 
     collapsed.Workspace.Expanded |> Set.contains "/root/src" |> should equal false
 
@@ -2184,7 +2330,7 @@ let ``click on the selected file row opens it as a preview`` () =
         - startIndex
 
     let next, effects =
-        Editor.update (MousePressed(mouseEvent LeftButton Press row 1)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press row 1, 1)) model
 
     effects |> should equal [ LoadFile("/root/a.fs", OpenPreview, None) ]
     next.Focus |> should equal Sidebar
@@ -2206,7 +2352,7 @@ let ``sidebar row mapping honours the centered scroll origin`` () =
     startIndex > 0 |> should equal true
 
     // Screen row 0 is the entry painted at the scroll origin, not entry 0.
-    let next, _ = Editor.update (MousePressed(mouseEvent LeftButton Press 0 1)) model
+    let next, _ = Editor.update (MousePressed(mouseEvent LeftButton Press 0 1, 1)) model
     next.Workspace.SelectedPath |> should equal (Some entries[startIndex].Path)
 
 [<Fact>]
@@ -2216,7 +2362,7 @@ let ``click below the last sidebar entry does nothing`` () =
     let model = sidebarModelWithFiles [ "a.fs" ]
 
     let next, effects =
-        Editor.update (MousePressed(mouseEvent LeftButton Press 20 1)) model
+        Editor.update (MousePressed(mouseEvent LeftButton Press 20 1, 1)) model
 
     next |> should equal model
     effects |> should equal ([]: Effect list)
