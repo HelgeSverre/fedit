@@ -194,6 +194,15 @@ type ReplayFence =
     | PluginScanFence
     /// `ScanWorkspace` — cleared by `WorkspaceLoaded`.
     | WorkspaceFence
+    /// `SaveBuffer` — cleared by `BufferSaved`, so a replayed save →
+    /// close/quit sequence sees `Dirty` clear before the next step runs
+    /// (live recording always has the async save land between keystrokes;
+    /// replay must wait for it explicitly).
+    | SaveFence
+    /// `ClipboardCopy` — cleared by `ClipboardCopied`, so a replayed
+    /// copy/cut → paste never races the OS clipboard write (the two
+    /// effects run as independent tasks in the Runtime).
+    | CopyFence
 
 /// An entry in the replay queue: a step to run, or the closing bracket of
 /// a spliced nested replay. The bracket pops its register from the
@@ -218,9 +227,11 @@ type ReplayState =
         RemainingIterations: int
         /// The register being replayed (diagnostics + cycle-guard root).
         Register: char
-        /// Fences still open for the last executed step; the queue pumps
-        /// only when this empties. See `ReplayFence`.
-        PendingFences: Set<ReplayFence>
+        /// Fences still open for the last executed step, counted per kind
+        /// (two same-kind fenced effects from one step must both
+        /// complete); the queue pumps only when this empties. See
+        /// `ReplayFence`.
+        PendingFences: Map<ReplayFence, int>
         /// The fenced step, for the timeout diagnostic.
         WaitingStep: MacroStep option
         /// Registers whose splice is still open in `Queue` (cycle guard).

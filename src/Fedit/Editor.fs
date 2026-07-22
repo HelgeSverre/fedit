@@ -116,9 +116,9 @@ module Editor =
         | RunPluginCommand _ -> Some PluginFence
         | ScanPlugins _ -> Some PluginScanFence
         | ScanWorkspace _ -> Some WorkspaceFence
-        | SaveBuffer _
+        | SaveBuffer _ -> Some SaveFence
+        | ClipboardCopy _ -> Some CopyFence
         | SaveConfig _
-        | ClipboardCopy _
         | ParseHighlight _
         | InstallPluginFromSource _
         | RemovePluginDir _
@@ -143,6 +143,8 @@ module Editor =
         | PluginActionsReady _ -> Some PluginFence
         | PluginsScanned _ -> Some PluginScanFence
         | WorkspaceLoaded _ -> Some WorkspaceFence
+        | BufferSaved _ -> Some SaveFence
+        | ClipboardCopied _ -> Some CopyFence
         | _ -> None
 
     /// Nested-replay splice cap: deeper than this cancels the replay.
@@ -869,6 +871,24 @@ module Editor =
     let private toHostPosition (pos: Fedit.PluginApi.CursorPosition) : Position =
         { Line = max 0 (pos.Line - 1)
           Column = max 0 (pos.Column - 1) }
+
+    /// The buffer-mutating verbs that are inert while the prompt is up:
+    /// the focus guard in `runAction` makes them no-ops (a Global chord
+    /// must never mutate the buffer hidden behind a modal surface), and
+    /// macro capture skips them for the same reason — a live no-op has no
+    /// outcome to replay. One list, two consumers, so the guard and the
+    /// capture exclusion can never drift apart.
+    let private isPromptInert (action: Fedit.Action) : bool =
+        match action with
+        | Undo
+        | Redo
+        | SelectAll
+        | Cut
+        | InsertText _
+        | DeleteBackward
+        | DeleteForward
+        | CloseBuffer -> true
+        | _ -> false
 
     /// Translate a plugin's `PluginAction list` return into core model
     /// updates + effects. Each action is applied in declaration order;
@@ -1800,7 +1820,7 @@ module Editor =
                                       Steps = steps
                                       RemainingIterations = count
                                       Register = register
-                                      PendingFences = Set.empty
+                                      PendingFences = Map.empty
                                       WaitingStep = None
                                       ActiveExpansions = Set.singleton register
                                       ExpansionDepth = 0 } },
@@ -1815,26 +1835,53 @@ module Editor =
     /// recording. The ONE capture chokepoint for action dispatch —
     /// keybinding resolution, the editor text fallthrough, and
     /// picker-invoked actions all route here, while internal recursion
-    /// (`Chain` bodies, command bodies, replayed steps) calls `runAction`
-    /// directly so composite actions record exactly once.
+    /// (command bodies, replayed steps) calls `runAction` directly so
+    /// composite actions record exactly once.
+    ///
+    /// Composites decompose HERE, before capture: `When` resolves to the
+    /// branch the model actually selects and `Chain` dispatches each
+    /// member through this chokepoint in turn — the recording holds only
+    /// serializable leaf steps. (`Chain`/`When` have no macros-file
+    /// syntax; captured verbatim they would be silently dropped by the
+    /// write-through save, truncating the macro on the next startup.)
     ///
     /// Never captured: `RecordMacro` (the toggle is not part of a macro),
     /// the prompt-session openers (`OpenPalette` / `OpenFilePicker` /
     /// `OpenSearch` — macros record prompt OUTCOMES as `RunCommand` /
-    /// `SearchFor` steps at accept time, never session navigation), and a
+    /// `SearchFor` steps at accept time, never session navigation), a
     /// `ReplayMacro` of the register being recorded (refused live, so it
-    /// must not become a self-cycle step either).
+    /// must not become a self-cycle step either), and the buffer verbs
+    /// `isPromptInert` makes no-ops in prompt focus (a live no-op has no
+    /// outcome to replay). `RepeatLastMacro` captures as the resolved
+    /// `ReplayMacro` — recorded verbatim, the step would re-resolve
+    /// against the register being replayed and cancel its own replay.
     and runCapturedAction (action: Fedit.Action) (model: Model) : Model * Effect list =
-        let model =
-            match action with
-            | RecordMacro _
-            | OpenPalette
-            | OpenFilePicker
-            | OpenSearch -> model
-            | ReplayMacro(register, _) when model.Recording = Some register -> model
-            | captured -> recordStep (RunAction captured) model
+        match action with
+        | Chain actions ->
+            actions
+            |> List.fold
+                (fun (currentModel, effects) chainedAction ->
+                    let nextModel, chainedEffects = runCapturedAction chainedAction currentModel
+                    nextModel, effects @ chainedEffects)
+                (model, [])
+        | When(cond, thenDo, elseDo) -> runCapturedAction (if evalCond cond model then thenDo else elseDo) model
+        | _ ->
+            let model =
+                match action with
+                | RecordMacro _
+                | OpenPalette
+                | OpenFilePicker
+                | OpenSearch -> model
+                | ReplayMacro(register, _) when model.Recording = Some register -> model
+                | guarded when model.Focus = Prompt && isPromptInert guarded -> model
+                | RepeatLastMacro ->
+                    match model.LastMacro with
+                    | Some register when model.Recording <> Some register ->
+                        recordStep (RunAction(ReplayMacro(register, 1))) model
+                    | _ -> model
+                | captured -> recordStep (RunAction captured) model
 
-        runAction action model
+            runAction action model
 
     /// Execute one replay step. `RunAction` runs through the action
     /// dispatcher (nested `replay-macro` steps splice there); `RunCommand`
@@ -1870,7 +1917,7 @@ module Editor =
     let private advanceReplay (model: Model) : Model * Effect list =
         match model.Replay with
         | None -> model, [] // replay cancelled or finished; stale pump
-        | Some state when not (Set.isEmpty state.PendingFences) -> model, [] // fenced; the completion pumps
+        | Some state when not (Map.isEmpty state.PendingFences) -> model, [] // fenced; the completion pumps
         | Some state ->
             match state.Queue with
             | [] ->
@@ -1903,9 +1950,11 @@ module Editor =
                 match next.Replay with
                 | None -> next, effects // the step cancelled the replay
                 | Some nextState ->
-                    let fences = effects |> List.choose fenceOfEffect |> Set.ofList
+                    // Counted per kind: two same-kind fenced effects from
+                    // one step must both complete before the queue pumps.
+                    let fences = effects |> List.choose fenceOfEffect |> List.countBy id |> Map.ofList
 
-                    if Set.isEmpty fences then
+                    if Map.isEmpty fences then
                         next, effects @ [ ReplayPump ]
                     else
                         { next with
@@ -2706,7 +2755,23 @@ module Editor =
             | Result.Ok pastedText when pastedText.Length > 0 -> routePastedText pastedText model
             | Result.Ok _ -> model, []
             | Result.Error message -> notify (Some(Notification.warning $"Paste failed: {message}")) model, []
-        | PastedText text when text.Length > 0 -> routePastedText text model
+        | PastedText text when text.Length > 0 ->
+            // Terminal bracketed paste (DECSET 2004). The Ctrl+V route
+            // records its `Paste` action at the keymap chokepoint; this
+            // route never sees an action, so capture the editor-focus
+            // insertion itself — the outcome — before routing, or a macro
+            // recorded around a native paste would replay without the
+            // pasted text. `ClipboardPasted` stays uncaptured: its
+            // originating `Paste` step already represents it. Prompt and
+            // sidebar pastes are not steps — prompt capture happens at
+            // accept time, like typed prompt keys.
+            let model =
+                if model.Focus = Editor then
+                    recordStep (RunAction(InsertText(fst (normalizeNewlines text)))) model
+                else
+                    model
+
+            routePastedText text model
         | PastedText _ -> model, []
         | PluginsScanned(Result.Ok registry) ->
             // Conflict warnings surface as a notification; absent conflicts
@@ -2764,7 +2829,7 @@ module Editor =
         | ReplayStepReady -> advanceReplay model
         | ReplayFenceTimeout ->
             match model.Replay with
-            | Some state when not (Set.isEmpty state.PendingFences) ->
+            | Some state when not (Map.isEmpty state.PendingFences) ->
                 let stepLabel =
                     state.WaitingStep |> Option.map MacroStep.label |> Option.defaultValue "?"
 
@@ -2935,6 +3000,18 @@ module Editor =
 
             match recordToggle with
             | Some register -> runAction (RecordMacro register) model
+            | None when model.Replay.IsSome && chord = kEscape ->
+                // Escape aborts an in-flight replay from any focus — the
+                // only brake for a runaway `replay-macro:<r>:<count>`.
+                // Ahead of the keymap (prefix-cancel precedent) so no
+                // binding can shadow it; the Runtime bounds its per-tick
+                // replay dispatches so this key is actually read mid-run.
+                match model.Replay with
+                | Some state ->
+                    { model with Replay = None }
+                    |> notify (Some(Notification.info $"Macro @{state.Register} cancelled")),
+                    []
+                | None -> model, []
             | None when model.Focus = Prompt && isPromptListSession model.Prompt.Session -> runPrompt chord model
             | None ->
                 // Armed quit/close confirmations are disarmed by the
@@ -3082,19 +3159,34 @@ module Editor =
     /// no completion handler needs to know about replay at all.
     let private settleReplayFences (msg: Msg) (model: Model) (effects: Effect list) : Model * Effect list =
         match model.Replay with
-        | Some state when not (Set.isEmpty state.PendingFences) ->
+        | Some state when not (Map.isEmpty state.PendingFences) ->
             match fenceClearedBy msg with
             | None -> model, effects
             | Some fence ->
-                let reopened = effects |> List.choose fenceOfEffect |> Set.ofList
-                let pending = Set.union (Set.remove fence state.PendingFences) reopened
+                // Fences are counted per kind: one completion closes one
+                // opening, so two same-kind fenced effects from a single
+                // step both have to finish before the queue pumps.
+                let cleared =
+                    match state.PendingFences |> Map.tryFind fence with
+                    | Some count when count > 1 -> state.PendingFences |> Map.add fence (count - 1)
+                    | Some _ -> state.PendingFences |> Map.remove fence
+                    | None -> state.PendingFences
 
-                if Set.isEmpty pending then
+                let pending =
+                    effects
+                    |> List.choose fenceOfEffect
+                    |> List.fold
+                        (fun fences reopenedFence ->
+                            let count = fences |> Map.tryFind reopenedFence |> Option.defaultValue 0
+                            fences |> Map.add reopenedFence (count + 1))
+                        cleared
+
+                if Map.isEmpty pending then
                     { model with
                         Replay =
                             Some
                                 { state with
-                                    PendingFences = Set.empty
+                                    PendingFences = Map.empty
                                     WaitingStep = None } },
                     effects @ [ ReplayPump ]
                 else

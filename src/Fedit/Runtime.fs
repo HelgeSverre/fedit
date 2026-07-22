@@ -651,6 +651,16 @@ module Runtime =
         // step instead of leaving it parked forever.
         let mutable replayFenceDeadline: DateTime voption = ValueNone
 
+        // Replay fairness/cancellability bound: ReplayPump enqueues
+        // ReplayStepReady synchronously, so an unbounded queue drain would
+        // run a whole replay (every step of every iteration) inside one
+        // tick — no render, no terminal read, and no way to cancel a
+        // runaway `replay-macro:<r>:<count>`. The drain below dispatches at
+        // most this many replay steps per tick, then paints and reads input
+        // (the Escape cancel path); the idle sleep is skipped while the
+        // queue holds work, so a bounded replay still runs at full speed.
+        let maxReplayStepsPerTick = 100
+
         // Multi-click synthesis also lives here, not in `update`: the
         // double-click window is a wall-clock decision, like prefixDeadline.
         // A left press on the same cell within the window bumps the count
@@ -701,10 +711,21 @@ module Runtime =
 
             replayFenceDeadline <-
                 match nextModel.Replay with
-                | Some state when not (Set.isEmpty state.PendingFences) ->
-                    match replayFenceDeadline with
-                    | ValueSome _ -> replayFenceDeadline
-                    | ValueNone -> ValueSome(DateTime.UtcNow.AddSeconds 5.0)
+                | Some state when not (Map.isEmpty state.PendingFences) ->
+                    // Re-arm whenever the pending fence set CHANGES — a
+                    // completion that chains into a fresh fenced effect
+                    // (ConfigFileReady → LoadFile) gets its own full
+                    // window instead of inheriting the remainder of the
+                    // previous fence's deadline.
+                    let previousFences =
+                        match model.Replay with
+                        | Some previousState -> previousState.PendingFences
+                        | None -> Map.empty
+
+                    if state.PendingFences <> previousFences then
+                        ValueSome(DateTime.UtcNow.AddSeconds 5.0)
+                    else
+                        replayFenceDeadline
                 | _ -> ValueNone
 
             nextModel
@@ -807,12 +828,24 @@ module Runtime =
                     model <- dispatch model (Resize size)
                     needsRender <- true
 
-                // Drain async effect results.
+                // Drain async effect results, budgeting replay steps (see
+                // maxReplayStepsPerTick above) so a long replay stays
+                // interruptible and visibly paints progress.
                 let mutable next = Unchecked.defaultof<Msg>
+                let mutable replayStepBudget = maxReplayStepsPerTick
+                let mutable draining = true
 
-                while queue.TryDequeue(&next) do
+                while draining && queue.TryDequeue(&next) do
                     model <- dispatch model next
                     needsRender <- true
+
+                    match next with
+                    | ReplayStepReady ->
+                        replayStepBudget <- replayStepBudget - 1
+
+                        if replayStepBudget <= 0 then
+                            draining <- false
+                    | _ -> ()
 
                 match lastFsChange with
                 | Some t when (DateTime.UtcNow - t).TotalMilliseconds > 300.0 ->
@@ -868,7 +901,13 @@ module Runtime =
                 | Some(TerminalEvent.Paste text) ->
                     model <- dispatch model (PastedText text)
                     needsRender <- true
-                | None -> Thread.Sleep 16
+                | None ->
+                    // Idle nap only when the queue is empty: a
+                    // budget-paused replay (or an effect completion that
+                    // landed mid-tick) must be drained on the next
+                    // iteration, not 16 ms later.
+                    if queue.IsEmpty then
+                        Thread.Sleep 16
         finally
             // Wait briefly for in-flight disk writes: ShouldQuit can flip
             // while a save chain is still running on the pool (Ctrl+S then

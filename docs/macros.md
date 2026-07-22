@@ -36,20 +36,32 @@ you pressed.
 - Actions dispatched through keybindings or typing (consecutive typed
   characters coalesce into one `insert-text` step — one undo entry on
   replay).
+- Composite bindings (`when` / `chain`, like the default `Ctrl+B` sidebar
+  toggle) record the leaf actions that actually ran — the taken branch,
+  each chain member — never the composite form, so every recorded step
+  round-trips through the macros file.
+- Pasting: `Ctrl+V` as a `paste` step, and a terminal-native (bracketed)
+  paste as an `insert-text` step carrying the pasted text.
 - Palette accepts, as `command:` steps carrying the command line. The
   prompt itself is never part of a macro: opening it, typing in it, and
   cycling completions are not steps, so replay re-executes the outcome
   with the prompt closed.
 - An accepted search, as a `search-for:` step that replays synchronously.
 - Picker-invoked replays and plugin chords (as the plugin's command).
+- The repeat chord (`Ctrl+Shift+.`) as the `replay-macro:` step it
+  resolved to at record time — the register it repeated, not a
+  repeat-last marker that would re-resolve on replay.
 
 Replay runs one step at a time through the editor's queue, so live input
 stays interleaved. Steps that schedule async work (opening a file,
-searching, pasting, plugin commands) **fence** the queue: the next step
-waits for the result to land, with a 5 s timeout that cancels the replay
-naming the step. Replays can nest (a macro may `replay-macro:` another);
-a register that would splice itself while its own expansion is still open
-is refused, and nesting deeper than 8 cancels.
+searching, saving, copying, pasting, plugin commands) **fence** the
+queue: the next step waits for the result to land, with a 5 s timeout
+that cancels the replay naming the step — so a replayed save → close
+sees the buffer marked clean, and a replayed cut → paste never races the
+OS clipboard. `Escape` cancels an in-flight replay. Replays can nest (a
+macro may `replay-macro:` another); a register that would splice itself
+while its own expansion is still open is refused, and nesting deeper
+than 8 cancels.
 
 ## The macros file
 
@@ -103,4 +115,9 @@ A **step** is one whitespace-separated token:
 - The last-macro marker (`Ctrl+Shift+.`) is per-session — it is not
   persisted to the file.
 - Composed actions (`chain` / `when`) and `save-as` have no file syntax;
-  recorded macros never contain them.
+  recorded macros never contain them (composites record their leaf
+  actions, and `:writeas <path>` records as a `command:` step).
+- A replayed `search-for:` step always lands on the **first** match in
+  the buffer. Match cycling (Up/Down inside the search prompt) is not
+  recorded — follow the accept with `search-next` steps to reach a later
+  match.

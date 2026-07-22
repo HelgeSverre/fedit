@@ -1962,7 +1962,7 @@ let ``a fence timeout cancels the replay naming the step`` () =
     let fenced, _ = Editor.update ReplayStepReady started
 
     (match fenced.Replay with
-     | Some state -> Set.isEmpty state.PendingFences
+     | Some state -> Map.isEmpty state.PendingFences
      | None -> failwith "expected a fenced replay")
     |> should equal false
 
@@ -2003,6 +2003,219 @@ let ``RepeatLastMacro with no prior macro produces no effect`` () =
     let model = initModel ()
     let _, effects = Editor.runAction RepeatLastMacro model
     effects |> List.isEmpty |> should equal true
+
+// ── macros: capture resolution + fencing (review-finding regressions) ────
+
+[<Fact>]
+let ``the repeat-last-macro chord records the resolved replay step`` () =
+    // Captured verbatim, RepeatLastMacro would re-resolve LastMacro to
+    // the register being replayed and cancel its own replay — capture
+    // must record the ReplayMacro it resolved to at record time.
+    let seeded =
+        { initModel () with
+            Registers = Map.ofList [ 'b', [ RunAction(InsertText "x") ] ]
+            LastMacro = Some 'b' }
+
+    let recording, _ = Editor.runAction (RecordMacro 'a') seeded
+    let repeated, _ = Editor.update (KeyPressed(csk '.')) recording
+    let replayed = drainReplay repeated
+
+    replayed.RecordingSteps |> should equal [ RunAction(ReplayMacro('b', 1)) ]
+
+    // The committed macro replays cleanly instead of cancelling itself.
+    let committed, _ = Editor.runAction (RecordMacro 'a') replayed
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) committed
+    let finished = drainReplay started
+
+    Buffer.text (activeBuffer finished) |> should equal "xx"
+    finished.Replay |> should equal (None: ReplayState option)
+
+[<Fact>]
+let ``repeat-last-macro with nothing to repeat records no step`` () =
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+    let next, _ = Editor.update (KeyPressed(csk '.')) recording
+
+    next.RecordingSteps |> should equal ([]: MacroStep list)
+    notificationText next |> should equal "No macro to repeat"
+
+[<Fact>]
+let ``the sidebar toggle chord records its leaf actions, not the composite`` () =
+    // Ctrl+B is bound to When/Chain composites, which have no macros-file
+    // syntax — capture must decompose them into the steps that actually
+    // ran, or the write-through save would silently drop them and the
+    // macro would replay truncated after a restart.
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+
+    // Sidebar visible: the When resolves to its focus branch.
+    let focused = press (ck 'b') recording
+    focused.Focus |> should equal Sidebar
+    focused.RecordingSteps |> should equal [ RunAction FocusSidebar ]
+
+    // In the sidebar: Ctrl+B is a Chain — each member is captured.
+    let hidden = press (ck 'b') focused
+    hidden.Panels.SidebarVisible |> should equal false
+
+    hidden.RecordingSteps
+    |> should equal [ RunAction FocusSidebar; RunAction HideSidebar; RunAction Action.FocusEditor ]
+
+    // Sidebar hidden: the else branch is a Chain of reveal + focus.
+    let revealed = press (ck 'b') hidden
+
+    revealed.RecordingSteps
+    |> should
+        equal
+        [ RunAction FocusSidebar
+          RunAction HideSidebar
+          RunAction Action.FocusEditor
+          RunAction RevealSidebar
+          RunAction FocusSidebar ]
+
+    // Every captured step survives the macros-file round trip.
+    let committed, _ = Editor.runAction (RecordMacro 'a') revealed
+
+    let parsed, errors =
+        MacroFile.parse ((MacroFile.render committed.Registers).Split '\n')
+
+    errors |> should equal ([]: string list)
+    parsed |> should equal committed.Registers
+
+[<Fact>]
+let ``terminal bracketed paste while recording captures the insertion`` () =
+    // The Ctrl+V route records its Paste action at the keymap chokepoint;
+    // the terminal's own paste has no action, so the insertion itself is
+    // the recorded outcome (newlines normalized, like every insert).
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+    let pasted, _ = Editor.update (PastedText "hello\r\nworld") recording
+
+    Buffer.text (activeBuffer pasted) |> should equal "hello\nworld"
+    pasted.RecordingSteps |> should equal [ RunAction(InsertText "hello\nworld") ]
+
+[<Fact>]
+let ``a bracketed paste into the prompt is not captured as a step`` () =
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+    let prompted = press (ck 'p') recording
+    let pasted, _ = Editor.update (PastedText "theme blue") prompted
+
+    pasted.Prompt.Text |> should equal ":theme blue"
+    pasted.RecordingSteps |> should equal ([]: MacroStep list)
+
+[<Fact>]
+let ``a replayed save fences until BufferSaved lands`` () =
+    // Live recording always has the async save land between keystrokes;
+    // replay must wait for it, or a following close-buffer would see a
+    // still-dirty buffer and arm the discard confirmation instead.
+    let model =
+        { openBufferWith "content" with
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "!"); RunAction Save; RunAction CloseBuffer ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let inserted, _ = Editor.update ReplayStepReady started
+    let saved, saveEffects = Editor.update ReplayStepReady inserted
+
+    // The save step schedules the write and fences — no pump yet.
+    hasPump saveEffects |> should equal false
+
+    let saveEffect =
+        saveEffects
+        |> List.tryPick (function
+            | SaveBuffer(bufferId, path, revision, _) -> Some(bufferId, path, revision)
+            | _ -> None)
+
+    match saveEffect with
+    | None -> failwith "expected a SaveBuffer effect"
+    | Some(bufferId, path, revision) ->
+        // The write completion clears Dirty and pumps the close, which
+        // now closes cleanly instead of arming the discard confirmation.
+        let landed, landedEffects =
+            Editor.update (BufferSaved(bufferId, path, revision, Result.Ok())) saved
+
+        hasPump landedEffects |> should equal true
+
+        let finished = drainReplay landed
+        finished.CloseArmed |> should equal (None: int option)
+        finished.Replay |> should equal (None: ReplayState option)
+        finished.Editors.Buffers.ContainsKey bufferId |> should equal false
+
+[<Fact>]
+let ``a replayed copy fences until the clipboard write completes`` () =
+    // ClipboardCopy and ClipboardPaste run as independent tasks in the
+    // Runtime — an unfenced copy → paste replay could paste the previous
+    // clipboard contents.
+    let model =
+        { openBufferWith "abc" with
+            Registers = Map.ofList [ 'a', [ RunAction SelectAll; RunAction Copy; RunAction Action.Paste ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let selected, _ = Editor.update ReplayStepReady started
+    let copied, copyEffects = Editor.update ReplayStepReady selected
+
+    copyEffects |> List.contains (ClipboardCopy "abc") |> should equal true
+    hasPump copyEffects |> should equal false
+
+    // The copy completion pumps; the paste step then fences in turn.
+    let cleared, clearedEffects = Editor.update (ClipboardCopied(Result.Ok())) copied
+    hasPump clearedEffects |> should equal true
+
+    let _, pasteEffects = Editor.update ReplayStepReady cleared
+    pasteEffects |> List.contains ClipboardPaste |> should equal true
+    hasPump pasteEffects |> should equal false
+
+[<Fact>]
+let ``Escape cancels an in-flight replay`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunCommand "open /root/slow.txt"; RunAction(InsertText "x") ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let fenced, _ = Editor.update ReplayStepReady started
+    let cancelled, effects = Editor.update (KeyPressed(nk Escape)) fenced
+
+    cancelled.Replay |> should equal (None: ReplayState option)
+    effects |> should equal ([]: Effect list)
+    notificationText cancelled |> should equal "Macro @a cancelled"
+
+    // The stale completion no longer pumps anything.
+    let _, landedEffects =
+        Editor.update (FileOpened("/root/slow.txt", OpenPermanent, None, Result.Ok "late")) cancelled
+
+    hasPump landedEffects |> should equal false
+
+[<Fact>]
+let ``two same-kind fences need two completions before the pump`` () =
+    // A single dispatch can schedule two same-kind fenced effects (a
+    // plugin command opening two files); the first completion must not
+    // pump the queue while the second load is still in flight.
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "x") ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+
+    let fenced =
+        match started.Replay with
+        | Some state ->
+            { started with
+                Replay =
+                    Some
+                        { state with
+                            PendingFences = Map.ofList [ FileFence, 2 ]
+                            WaitingStep = Some(RunAction(InsertText "x")) } }
+        | None -> failwith "expected a replay state"
+
+    let first, firstEffects =
+        Editor.update (FileOpened("/root/one.txt", OpenPermanent, None, Result.Ok "one")) fenced
+
+    hasPump firstEffects |> should equal false
+
+    (match first.Replay with
+     | Some state -> state.PendingFences
+     | None -> failwith "replay vanished while fenced")
+    |> should equal (Map.ofList [ FileFence, 1 ])
+
+    let _, secondEffects =
+        Editor.update (FileOpened("/root/two.txt", OpenPermanent, None, Result.Ok "two")) first
+
+    hasPump secondEffects |> should equal true
 
 // --- Prompt Tab/Enter interaction ---
 
@@ -2801,6 +3014,18 @@ let ``undo after closing the prompt works again`` () =
 
     let undone, _ = Editor.update (KeyPressed(ck 'z')) closed
     Buffer.text (activeBuffer undone) |> should equal ""
+
+[<Fact>]
+let ``guarded chords in the prompt are not captured as macro steps`` () =
+    // While the prompt is up, Ctrl+Z is a live no-op (the focus guard) —
+    // capturing it anyway would make the replay do MORE than the
+    // recording did.
+    let recording, _ = Editor.runAction (RecordMacro 'a') (withText "ab")
+    let prompted = press (ck 'p') recording
+    let undone = press (ck 'z') prompted
+
+    Buffer.text (activeBuffer undone) |> should equal "ab"
+    undone.RecordingSteps |> should equal ([]: MacroStep list)
 
 // ─────────────────────────────────────────────────────────────────────
 // Escape in editor focus clears the selection (and keeps its keypress
