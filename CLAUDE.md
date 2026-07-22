@@ -22,7 +22,7 @@ KeyPressed / Resize → Msg → Editor.update (pure) → (Model', [Effect])
 - **Themes** own the full chrome surface — accent plus an explicit fg/bg per region (editor, gutter, prompt, dock, status, selection, active line). Bundled dark themes set `Default` backgrounds so they keep terminal-default chrome; a light theme supplies real backgrounds.
 
 Source file order (`<Compile>` in `src/Fedit/Fedit.fsproj` is canonical):
-`Primitives → Keys → Events → TerminalCapabilities → MouseProtocol → ImageProtocol → KittyImage → PieceTable → Buffer → Workspace → Screen → Color → Themes → Highlight → Commands → Actions → Keymap → Plugins → PluginWire → PluginProtocol → PluginHostClient → PickerTypes → PromptTypes → Model → Config → Pickers → KeymapIO → MacroIO → Prompt → Dock → Editor → Status → Renderer → Input → View → Terminal → Runtime → Cli → Cli/Commands/* → Program`.
+`Primitives → Keys → Events → TerminalCapabilities → MouseProtocol → ImageProtocol → KittyImage → PieceTable → Buffer → Workspace → Screen → Color → Themes → Highlight → Commands → Actions → Keymap → Plugins → PluginWire → PluginProtocol → PluginHostClient → LspTypes → LspWire → LspTransport → LspClient → PickerTypes → PromptTypes → Model → Config → Pickers → KeymapIO → MacroIO → Prompt → Dock → Editor → Status → Renderer → Input → View → Terminal → Runtime → Cli → Cli/Commands/* → Program`.
 
 `Primitives.fs` also holds `Paths` (`norm`/`parent`): fedit uses a **canonical
 forward-slash path model** — normalize any path crossing an OS boundary

@@ -392,6 +392,38 @@
     "bound": true
   },
   {
+    "stroke": "f12",
+    "action": "goto-definition",
+    "context": "editor",
+    "category": "lsp",
+    "description": "Jump to the symbol's definition",
+    "bound": true
+  },
+  {
+    "stroke": "shift+f12",
+    "action": "find-references",
+    "context": "editor",
+    "category": "lsp",
+    "description": "List references to the symbol",
+    "bound": true
+  },
+  {
+    "stroke": "alt+-",
+    "action": "jump-back",
+    "context": "editor",
+    "category": "lsp",
+    "description": "Return to where the last jump left from",
+    "bound": true
+  },
+  {
+    "stroke": "f1",
+    "action": "hover",
+    "context": "editor",
+    "category": "lsp",
+    "description": "Show hover info for the symbol",
+    "bound": true
+  },
+  {
     "stroke": "ctrl+shift+m",
     "action": "record-macro",
     "context": "editor",
