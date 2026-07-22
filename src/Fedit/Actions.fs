@@ -91,6 +91,12 @@ type Action =
     | OpenConfig
     | ReloadKeybinds
     | RunPlugin of source: string * name: string * arg: string
+    // language servers (interpreted via Lsp* effects in Editor.runAction)
+    | GotoDefinition
+    | FindReferences
+    | Hover
+    /// Pop the jump stack: return to where the last LSP jump left from.
+    | JumpBack
     // panel / focus primitives — each a COMPLETE, valid transition
     | RevealSidebar
     | HideSidebar
@@ -198,6 +204,10 @@ module Action =
         | OpenConfig -> "open-config"
         | ReloadKeybinds -> "reload-keybinds"
         | RunPlugin _ -> "run-plugin"
+        | GotoDefinition -> "goto-definition"
+        | FindReferences -> "find-references"
+        | Hover -> "hover"
+        | JumpBack -> "jump-back"
         | RevealSidebar -> "reveal-sidebar"
         | HideSidebar -> "hide-sidebar"
         | ToggleSidebar -> "toggle-sidebar"

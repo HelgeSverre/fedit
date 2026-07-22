@@ -124,6 +124,7 @@ let ``open completions match case-insensitive substrings like the file picker`` 
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     // Neither a prefix of the relative path nor exact case — must still hit,
@@ -143,6 +144,7 @@ let ``writeas completions use the same substring matcher`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx "writeas editor"
@@ -156,6 +158,7 @@ let ``recent completions match substrings of the file name or path`` () =
           Recent = [ "/home/user/notes.md"; "/home/user/todo.txt" ]
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx "recent otes"
@@ -176,6 +179,7 @@ let ``completionLimit caps file completions`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 2 }
 
     let comps = Commands.completions ctx "open "
@@ -194,6 +198,7 @@ let ``completions for theme prefix return matches`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx "theme g"
@@ -207,6 +212,7 @@ let ``completions for empty input list all command names`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx ""
@@ -226,6 +232,7 @@ let ``hidden commands stay parseable but never appear in completions`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx ""
@@ -284,6 +291,7 @@ let ``syntax completions suggest on/off/toggle`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx "syntax "
@@ -310,6 +318,7 @@ let ``plugins and macros appear in command completions`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 32 }
 
     let labels = Commands.completions ctx "" |> List.map _.Label
@@ -343,6 +352,7 @@ let ``quit completions suggest force`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     Commands.completions ctx "quit " |> List.map _.Label |> should equal [ "force" ]
@@ -355,6 +365,7 @@ let ``buffers completions mark dirty buffers`` () =
           Recent = []
           Buffers = [ 1, "a.fs", Some "/root/a.fs", true; 2, "b.fs", None, false ]
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     Commands.completions ctx "buffers "
@@ -369,6 +380,7 @@ let ``close completions list open buffers with the close verb`` () =
           Recent = []
           Buffers = [ 1, "a.fs", Some "/root/a.fs", true; 2, "b.fs", None, false ]
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx "close "

@@ -29,6 +29,8 @@ module Dock =
         | PromptSessionKind.MacrosSession -> Some PickerKind.MacroPicker
         | PromptSessionKind.KeybindingsSession -> Some PickerKind.KeyBindingPicker
         | PromptSessionKind.MessagesSession -> Some PickerKind.MessagePicker
+        | PromptSessionKind.LocationsSession -> Some PickerKind.LocationPicker
+        | PromptSessionKind.LanguageServersSession -> Some PickerKind.LanguageServerPicker
         | _ -> None
 
     let pickerPendingOfPrompt (pending: PromptPendingConfirmation option) : PickerPendingConfirmation option =
@@ -102,7 +104,22 @@ module Dock =
 
                 DockInfo("Find", [ line ])
         else
-            NoDock
+            // The transient LSP info panel (hover, `:lsp log`) uses the dock
+            // whenever the prompt doesn't. Dismissed on the next keypress
+            // (Editor's KeyPressed chokepoint); View truncates the lines to
+            // the dock height.
+            match model.Lsp.Panel with
+            | Some panel -> DockInfo(panel.Title, panel.Lines)
+            | None -> NoDock
+
+    /// Effective dock height cap: the configured height limited to a third
+    /// of the terminal (minimum 3 rows). The prose info dock (`DockInfo`)
+    /// always renders exactly this tall; list surfaces size to content
+    /// below it. Shared with `Editor`'s `:lsp log` tail so the kept lines
+    /// always fit the rows actually painted — this is layout arithmetic,
+    /// so it lives here, never in a single consumer.
+    let effectiveHeightCap (model: Model) : int =
+        min model.Panels.DockHeight (max 3 (max 1 model.Terminal.Height / 3))
 
     let metrics (model: Model) : DockMetrics =
         let width = max 1 model.Terminal.Width
@@ -123,12 +140,12 @@ module Dock =
             | None, None -> panel model
 
         // Menu-style list surfaces (the picker, the completion lists, and the
-        // which-key panel) size to their content, capped at the configured
+        // which-key panel) size to their content, capped at the effective
         // dock height, so a filter that leaves few rows yields a short dock
         // that grows back up to the cap. The dock is bottom-anchored, so a
         // smaller height hands the freed rows to the editor. The prose
-        // info/help dock keeps the full configured height.
-        let configuredMax = min model.Panels.DockHeight (max 3 (height / 3))
+        // info/help dock keeps the full effective height.
+        let configuredMax = effectiveHeightCap model
 
         let dockHeight =
             match pickerView, whichKey, activePanel with

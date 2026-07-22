@@ -32,14 +32,41 @@ module ConfigIO =
 
     let private clampInt low high value = max low (min high value)
 
-    /// Returns the loaded config and an optional error message. On parse
-    /// failure we still return defaults (so the editor boots) but surface
-    /// the error in the startup notification.
-    let load (userThemes: Theme list) : Config * string option =
+    /// The default `statusFormat` before the LSP phase added
+    /// `[DIAGNOSTICS]`. `save` persists `statusFormat` unconditionally, so
+    /// every pre-LSP config carries this exact string; loading migrates it
+    /// to the current default (an exact match can only be the old default,
+    /// never a hand-customized format) so upgrades surface the diagnostics
+    /// segment instead of silently hiding it forever.
+    let private preLspDefaultStatusFormat =
+        "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]"
+
+    /// A JSON string array as trimmed, non-empty entries. None when the
+    /// property is missing or not an array.
+    let private getStringListProp (root: System.Text.Json.JsonElement) (name: string) =
+        match root.TryGetProperty(name: string) with
+        | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.Array ->
+            elem.EnumerateArray()
+            |> Seq.choose (fun item ->
+                if item.ValueKind = System.Text.Json.JsonValueKind.String then
+                    Text.optStr (item.GetString())
+                else
+                    None)
+            |> Seq.map (fun value -> value.Trim())
+            |> Seq.filter (String.IsNullOrWhiteSpace >> not)
+            |> Seq.toList
+            |> Some
+        | _ -> None
+
+    /// `load` against an explicit file path — the testable core. Returns
+    /// the loaded config and an optional error message. On parse failure we
+    /// still return defaults (so the editor boots) but surface the error in
+    /// the startup notification.
+    let loadFrom (configPath: string) (userThemes: Theme list) : Config * string option =
         let defaults = Config.defaults Themes.defaultTheme
 
         try
-            let p = path ()
+            let p = configPath
 
             if File.Exists p then
                 let json = File.ReadAllText p
@@ -64,18 +91,47 @@ module ConfigIO =
                     | _ -> defaults.Recent
 
                 let disabledPlugins =
-                    match root.TryGetProperty "disabledPlugins" with
-                    | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.Array ->
-                        elem.EnumerateArray()
-                        |> Seq.choose (fun item ->
-                            if item.ValueKind = System.Text.Json.JsonValueKind.String then
-                                Text.optStr (item.GetString())
-                            else
-                                None)
-                        |> Seq.map (fun name -> name.Trim())
-                        |> Seq.filter (String.IsNullOrWhiteSpace >> not)
-                        |> Set.ofSeq
-                    | _ -> defaults.DisabledPlugins
+                    getStringListProp root "disabledPlugins"
+                    |> Option.map Set.ofList
+                    |> Option.defaultValue defaults.DisabledPlugins
+
+                // Optional `languageServers` object: each key is a server
+                // name, each value { command, args, fileTypes, roots }.
+                // Malformed entries (non-object value, missing command) are
+                // skipped; well-formed ones merge over the built-in defaults
+                // (same name replaces wholesale, new names extend).
+                let userLanguageServers =
+                    match root.TryGetProperty "languageServers" with
+                    | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.Object ->
+                        elem.EnumerateObject()
+                        |> Seq.choose (fun property ->
+                            let value = property.Value
+                            let name = property.Name.Trim()
+
+                            let command =
+                                if value.ValueKind = System.Text.Json.JsonValueKind.Object then
+                                    getStringProp value "command"
+                                    |> Option.map (fun c -> c.Trim())
+                                    |> Option.filter (String.IsNullOrWhiteSpace >> not)
+                                else
+                                    None
+
+                            match command with
+                            | Some command when not (String.IsNullOrWhiteSpace name) ->
+                                Some
+                                    { Name = name
+                                      Command = command
+                                      Args = getStringListProp value "args" |> Option.defaultValue []
+                                      FileTypes = getStringListProp value "fileTypes" |> Option.defaultValue []
+                                      RootMarkers = getStringListProp value "roots" |> Option.defaultValue [] }
+                            | _ -> None)
+                        |> Seq.toList
+                    | _ -> []
+
+                let disabledLanguageServers =
+                    getStringListProp root "disabledLanguageServers"
+                    |> Option.map Set.ofList
+                    |> Option.defaultValue defaults.DisabledLanguageServers
 
                 let completionLimit =
                     getIntProp root "completionLimit"
@@ -125,7 +181,10 @@ module ConfigIO =
                     | _ -> defaults.Icons
 
                 let statusFormat =
-                    getStringProp root "statusFormat" |> Option.defaultValue defaults.StatusFormat
+                    match getStringProp root "statusFormat" with
+                    | Some persisted when persisted = preLspDefaultStatusFormat -> defaults.StatusFormat
+                    | Some persisted -> persisted
+                    | None -> defaults.StatusFormat
 
                 let syntaxHighlightingEnabled =
                     match root.TryGetProperty "syntaxHighlighting" with
@@ -159,6 +218,8 @@ module ConfigIO =
                     { Theme = theme
                       Recent = recent
                       DisabledPlugins = disabledPlugins
+                      LanguageServers = LanguageServers.merge userLanguageServers
+                      DisabledLanguageServers = disabledLanguageServers
                       CompletionLimit = completionLimit
                       SidebarIndent = sidebarIndent
                       SidebarWidth = sidebarWidth
@@ -180,6 +241,8 @@ module ConfigIO =
                 defaults, None
         with ex ->
             defaults, Some $"config.json: {ex.Message}"
+
+    let load (userThemes: Theme list) : Config * string option = loadFrom (path ()) userThemes
 
     /// Read a color field as a hex string ("#RRGGBB" / "#RGB") or a
     /// named color ("deepSkyBlue"). Integer values are rejected — the
@@ -305,9 +368,15 @@ module ConfigIO =
         with ex ->
             [], [ $"themes dir: {ex.Message}" ]
 
-    let save (config: Config) =
-        Directory.CreateDirectory(directory ()) |> ignore
-        let p = path ()
+    /// `save` against an explicit file path — the testable core. Read-
+    /// modify-write: unknown keys in an existing file (including a user's
+    /// `languageServers` block, which the editor never writes) survive.
+    let saveTo (configPath: string) (config: Config) =
+        match Text.optStr (Path.GetDirectoryName configPath) with
+        | Some parentDirectory when parentDirectory <> "" -> Directory.CreateDirectory parentDirectory |> ignore
+        | _ -> ()
+
+        let p = configPath
 
         let root =
             if File.Exists p then
@@ -332,6 +401,11 @@ module ConfigIO =
         for item in config.DisabledPlugins |> Set.toList |> List.sort do
             disabledPluginsArray.Add(System.Text.Json.Nodes.JsonValue.Create item)
 
+        let disabledLanguageServersArray = System.Text.Json.Nodes.JsonArray()
+
+        for item in config.DisabledLanguageServers |> Set.toList |> List.sort do
+            disabledLanguageServersArray.Add(System.Text.Json.Nodes.JsonValue.Create item)
+
         let wordMotionStr =
             match config.WordMotion with
             | WordEnd -> "wordEnd"
@@ -350,6 +424,7 @@ module ConfigIO =
         root["theme"] <- System.Text.Json.Nodes.JsonValue.Create config.Theme.Name
         root["recent"] <- recentArray
         root["disabledPlugins"] <- disabledPluginsArray
+        root["disabledLanguageServers"] <- disabledLanguageServersArray
         root["completionLimit"] <- System.Text.Json.Nodes.JsonValue.Create config.CompletionLimit
         root["sidebarIndent"] <- System.Text.Json.Nodes.JsonValue.Create config.SidebarIndent
         root["sidebarWidth"] <- System.Text.Json.Nodes.JsonValue.Create config.SidebarWidth
@@ -369,3 +444,5 @@ module ConfigIO =
         let options = System.Text.Json.JsonSerializerOptions(WriteIndented = true)
         let json = root.ToJsonString options
         File.writeAllTextAtomic p (json + "\n")
+
+    let save (config: Config) = saveTo (path ()) config

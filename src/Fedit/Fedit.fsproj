@@ -220,6 +220,10 @@
     <Compile Include="PluginWire.fs" />
     <Compile Include="PluginProtocol.fs" />
     <Compile Include="PluginHostClient.fs" />
+    <Compile Include="LspTypes.fs" />
+    <Compile Include="LspWire.fs" />
+    <Compile Include="LspTransport.fs" />
+    <Compile Include="LspClient.fs" />
     <Compile Include="PickerTypes.fs" />
     <Compile Include="PromptTypes.fs" />
     <Compile Include="Model.fs" />

@@ -184,6 +184,30 @@ module Status =
             match model.PendingPrefix with
             | Some chords -> Chord.renderStroke chords + " …"
             | None -> ""
+        // Compact language-server diagnostic counts for the active buffer,
+        // e.g. "E2 W1". Like [DIRTY] it carries its own leading spaces so
+        // it vanishes cleanly when the buffer has no diagnostics.
+        | "diagnostics", _ ->
+            let diagnostics =
+                buffer.FilePath
+                |> Option.bind (fun path -> Map.tryFind path model.Lsp.Diagnostics)
+                |> Option.defaultValue []
+
+            let countOf severity =
+                diagnostics
+                |> List.filter (fun diagnostic -> diagnostic.Severity = severity)
+                |> List.length
+
+            let segments =
+                [ "E", countOf LspDiagnosticSeverity.Error
+                  "W", countOf LspDiagnosticSeverity.Warning
+                  "I", countOf LspDiagnosticSeverity.Information
+                  "H", countOf LspDiagnosticSeverity.Hint ]
+                |> List.choose (fun (label, count) -> if count > 0 then Some(label + string count) else None)
+
+            match segments with
+            | [] -> ""
+            | _ -> "  " + String.concat " " segments
         | _ ->
             // Surface typos by rendering the token literally.
             match modifier with

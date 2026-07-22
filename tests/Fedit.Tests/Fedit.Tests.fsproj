@@ -17,7 +17,9 @@
     <Compile Include="CommandsTests.fs" />
     <Compile Include="PromptTests.fs" />
     <Compile Include="WorkspaceTests.fs" />
+    <Compile Include="ConfigTests.fs" />
     <Compile Include="UpdateTests.fs" />
+    <Compile Include="LspUpdateTests.fs" />
     <Compile Include="PickersTests.fs" />
     <Compile Include="InputTests.fs" />
     <Compile Include="KeymapTests.fs" />
@@ -29,7 +31,10 @@
     <Compile Include="BinarySmokeTests.fs" />
     <Compile Include="PluginsTests.fs" />
     <Compile Include="PluginWireTests.fs" />
+    <Compile Include="LspWireTests.fs" />
+    <Compile Include="LspTransportTests.fs" />
     <Compile Include="PluginHostTests.fs" />
+    <Compile Include="LspClientTests.fs" />
     <Compile Include="CliTests.fs" />
     <Compile Include="CompletionsTests.fs" />
     <Compile Include="StatusTests.fs" />
