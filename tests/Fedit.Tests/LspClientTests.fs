@@ -11,15 +11,38 @@ open Xunit
 // (stdio, Content-Length framing, full-text sync, unsolicited
 // publishDiagnostics). Trivially passes when sema is not installed.
 
-let private semaOnPath () =
+let private commandOnPath (command: string) =
     match Environment.GetEnvironmentVariable "PATH" with
     | null -> false
     | searchPath ->
         searchPath.Split Path.PathSeparator
         |> Array.exists (fun dir ->
             dir <> ""
-            && (File.Exists(Path.Combine(dir, "sema"))
-                || File.Exists(Path.Combine(dir, "sema.exe"))))
+            && (File.Exists(Path.Combine(dir, command))
+                || File.Exists(Path.Combine(dir, command + ".exe"))))
+
+/// True when the command resolves on PATH and actually runs (`--version`
+/// exits 0). A rustup proxy shim without the underlying component resolves
+/// on PATH but fails at launch — that counts as absent.
+let private commandRuns (command: string) =
+    if not (commandOnPath command) then
+        false
+    else
+        try
+            let startInfo = Diagnostics.ProcessStartInfo command
+            startInfo.ArgumentList.Add "--version"
+            startInfo.RedirectStandardOutput <- true
+            startInfo.RedirectStandardError <- true
+            startInfo.UseShellExecute <- false
+            use versionProcess = Diagnostics.Process.Start startInfo
+
+            if versionProcess.WaitForExit 10000 then
+                versionProcess.ExitCode = 0
+            else
+                versionProcess.Kill true
+                false
+        with _ ->
+            false
 
 let private pollUntil (timeout: TimeSpan) (condition: unit -> bool) : bool =
     let deadline = DateTime.UtcNow + timeout
@@ -47,7 +70,7 @@ let private sourceText =
 
 [<Fact>]
 let ``sema lsp end to end: running, definition, hover, diagnostics, shutdown`` () =
-    if not (semaOnPath ()) then
+    if not (commandOnPath "sema") then
         Console.Error.WriteLine "skipping LspClient integration test: sema is not on PATH"
     else
         let root = Paths.norm (Path.Combine(Path.GetTempPath(), Path.GetRandomFileName()))
@@ -167,6 +190,232 @@ let ``sema lsp end to end: running, definition, hover, diagnostics, shutdown`` (
             client.Shutdown()
             Assert.Equal(LspServerStatus.Stopped, client.Status)
             Assert.True(client.ProcessHasExited, "server process is still alive after Shutdown")
+
+            let observed = List.ofSeq statuses
+            Assert.Contains(LspServerStatus.Starting, observed)
+            Assert.Contains(LspServerStatus.Running, observed)
+
+            Assert.DoesNotContain(
+                observed,
+                fun status ->
+                    match status with
+                    | LspServerStatus.Failed _ -> true
+                    | _ -> false
+            )
+        finally
+            try
+                Directory.Delete(root, true)
+            with _ ->
+                ()
+
+// `greet` lives in library.sema; main.sema calls it. sema indexes the
+// workspace just after `initialized`, so cross-file queries need a settle
+// retry. Note: sema 1.30.0's definition provider is same-file only —
+// verified against a raw LSP session, it answers null from a call site
+// whose definition lives in another file (every cursor position, plain
+// defn and module/export/import forms, both files open, scan settled).
+// Cross-file navigation rides on references, which the workspace index
+// does serve across files.
+let private libraryText = "(defn greet (name)\n  (str \"hello \" name))\n"
+let private mainText = "(greet \"world\")\n"
+
+let private pathEndsWith (suffix: string) (uri: string) : bool =
+    match LspUri.toPath uri with
+    | Some path -> path.EndsWith suffix
+    | None -> false
+
+[<Fact>]
+let ``sema lsp cross file: references across files, diagnostics clear on fix`` () =
+    if not (commandOnPath "sema") then
+        Console.Error.WriteLine "skipping LspClient cross-file test: sema is not on PATH"
+    else
+        let root = Paths.norm (Path.Combine(Path.GetTempPath(), Path.GetRandomFileName()))
+        Directory.CreateDirectory root |> ignore
+
+        try
+            File.WriteAllText(root + "/sema.toml", "[package]\nname = \"fedit-cross-file\"\n")
+            let libraryPath = root + "/library.sema"
+            let mainPath = root + "/main.sema"
+            File.WriteAllText(libraryPath, libraryText)
+            File.WriteAllText(mainPath, mainText)
+
+            let diagnosticsByPath = ConcurrentDictionary<string, LspDiagnostic list>()
+
+            let callbacks =
+                { OnDiagnostics = fun (path, diagnostics) -> diagnosticsByPath.[path] <- diagnostics
+                  OnStatusChanged = ignore
+                  OnLog = ignore }
+
+            let config =
+                { Name = "sema"
+                  Command = "sema"
+                  Args = [ "lsp" ]
+                  FileTypes = [ "sema" ]
+                  RootMarkers = [ "sema.toml" ] }
+
+            use client = LspClient.create config root callbacks
+
+            Assert.True(
+                pollUntil (TimeSpan.FromSeconds 10.0) (fun () -> client.Status = LspServerStatus.Running),
+                "server never reached Running; recent stderr: "
+                + String.concat " | " (client.RecentLog())
+            )
+
+            client.NotifyOpened(mainPath, "sema", 1, mainText)
+
+            // Usage `(greet "world")` on line 0 of main.sema. References
+            // from it must cover both sites — the definition in
+            // library.sema (via the workspace index) and the call in
+            // main.sema.
+            let usagePosition = { Line = 0; Column = 2 }
+
+            let queryReferences () =
+                match awaitRequest (fun reply -> client.SendReferences(mainPath, usagePosition, reply)) with
+                | Some(Result.Ok locations) -> locations
+                | _ -> []
+
+            let coversBothFiles (locations: LspLocation list) =
+                locations
+                |> List.exists (fun location -> pathEndsWith "/library.sema" location.Uri)
+                && locations
+                   |> List.exists (fun location -> pathEndsWith "/main.sema" location.Uri)
+
+            let mutable referenceLocations = queryReferences ()
+            let referencesDeadline = DateTime.UtcNow.AddSeconds 10.0
+
+            while not (coversBothFiles referenceLocations) && DateTime.UtcNow < referencesDeadline do
+                Thread.Sleep 200
+                referenceLocations <- queryReferences ()
+
+            Assert.True(
+                coversBothFiles referenceLocations,
+                "references never covered both files; got: "
+                + String.concat ", " (referenceLocations |> List.map (fun location -> location.Uri))
+            )
+
+            // The reference into library.sema points at the defn name on
+            // line 0 — the location the editor would jump to.
+            let libraryReference =
+                referenceLocations
+                |> List.find (fun location -> pathEndsWith "/library.sema" location.Uri)
+
+            Assert.Equal(0, libraryReference.Range.Start.Line)
+
+            // Definition from the same usage round-trips cleanly, but sema
+            // 1.30.0 cannot resolve it across files (see the module note);
+            // assert the request itself succeeds rather than its payload.
+            match awaitRequest (fun reply -> client.SendDefinition(mainPath, usagePosition, reply)) with
+            | Some(Result.Ok _) -> ()
+            | Some(Result.Error e) -> Assert.Fail("cross-file definition request failed: " + e)
+            | None -> Assert.Fail "cross-file definition request timed out"
+
+            // Break main.sema -> diagnostics arrive; restore the valid text
+            // -> an empty diagnostic set replaces them.
+            let diagnosticsForMain () =
+                diagnosticsByPath
+                |> Seq.tryPick (fun (KeyValue(path, diagnostics)) ->
+                    if path.EndsWith "/main.sema" then
+                        Some diagnostics
+                    else
+                        None)
+
+            client.NotifyChanged(mainPath, 2, "(defn broken (")
+
+            Assert.True(
+                pollUntil (TimeSpan.FromSeconds 10.0) (fun () ->
+                    match diagnosticsForMain () with
+                    | Some diagnostics -> not (List.isEmpty diagnostics)
+                    | None -> false),
+                "no diagnostics arrived after a broken didChange"
+            )
+
+            client.NotifyChanged(mainPath, 3, mainText)
+
+            Assert.True(
+                pollUntil (TimeSpan.FromSeconds 10.0) (fun () ->
+                    match diagnosticsForMain () with
+                    | Some [] -> true
+                    | _ -> false),
+                "diagnostics never cleared after the fixed didChange"
+            )
+
+            client.Shutdown()
+            Assert.Equal(LspServerStatus.Stopped, client.Status)
+            Assert.True(client.ProcessHasExited, "server process is still alive after Shutdown")
+        finally
+            try
+                Directory.Delete(root, true)
+            with _ ->
+                ()
+
+/// Minimal per-server scratch project rooted at the built-in default
+/// config's root marker; returns the document to open and its language id.
+let private writeScratchProject (serverName: string) (root: string) : string * string =
+    match serverName with
+    | "typescript" ->
+        File.WriteAllText(root + "/package.json", "{ \"name\": \"fedit-handshake\", \"version\": \"0.0.0\" }\n")
+        let documentPath = root + "/main.ts"
+        File.WriteAllText(documentPath, "export const greeting: string = \"hello\"\n")
+        documentPath, "typescript"
+    | "rust" ->
+        File.WriteAllText(
+            root + "/Cargo.toml",
+            "[package]\nname = \"fedit-handshake\"\nversion = \"0.0.0\"\nedition = \"2021\"\n"
+        )
+
+        Directory.CreateDirectory(root + "/src") |> ignore
+        let documentPath = root + "/src/main.rs"
+        File.WriteAllText(documentPath, "fn main() {\n    println!(\"hello\");\n}\n")
+        documentPath, "rust"
+    | other -> failwith ("no scratch project defined for server: " + other)
+
+// Handshake gate against the other built-in defaults: initialize ->
+// Running -> didOpen -> clean shutdown. Trivially passes when the server
+// binary is not installed.
+[<Theory>]
+[<InlineData "typescript">]
+[<InlineData "rust">]
+let ``built-in server handshake: initialize, didOpen, clean shutdown`` (serverName: string) =
+    let config =
+        LanguageServers.defaults |> List.find (fun server -> server.Name = serverName)
+
+    if not (commandRuns config.Command) then
+        Console.Error.WriteLine("skipping handshake test: " + config.Command + " is not installed")
+    else
+        let root = Paths.norm (Path.Combine(Path.GetTempPath(), Path.GetRandomFileName()))
+        Directory.CreateDirectory root |> ignore
+
+        try
+            let documentPath, languageId = writeScratchProject serverName root
+            let statuses = ConcurrentQueue<LspServerStatus>()
+
+            let callbacks =
+                { OnDiagnostics = ignore
+                  OnStatusChanged = fun status -> statuses.Enqueue status
+                  OnLog = ignore }
+
+            use client = LspClient.create config root callbacks
+
+            Assert.True(
+                pollUntil (TimeSpan.FromSeconds 15.0) (fun () -> client.Status = LspServerStatus.Running),
+                config.Command
+                + " never reached Running; recent stderr: "
+                + String.concat " | " (client.RecentLog())
+            )
+
+            Assert.True(client.Capabilities.DefinitionProvider, config.Command + " does not advertise definition")
+
+            client.NotifyOpened(documentPath, languageId, 1, File.ReadAllText documentPath)
+
+            // Give the server a beat to process the didOpen: a crash here
+            // must fail the test, not hide behind the shutdown.
+            Thread.Sleep 500
+            Assert.Equal(LspServerStatus.Running, client.Status)
+            Assert.False(client.ProcessHasExited, config.Command + " exited after didOpen")
+
+            client.Shutdown()
+            Assert.Equal(LspServerStatus.Stopped, client.Status)
+            Assert.True(client.ProcessHasExited, config.Command + " is still alive after Shutdown")
 
             let observed = List.ofSeq statuses
             Assert.Contains(LspServerStatus.Starting, observed)
