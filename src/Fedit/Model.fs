@@ -272,8 +272,10 @@ type Model =
         PendingPrefix: Chord list option
         /// Named macro registers: register char → recorded steps in
         /// execution order. Written only when a recording stops with at
-        /// least one captured step. In-memory only this phase — not
-        /// persisted to the keybinds file.
+        /// least one captured step. Persisted to `~/.config/fedit/macros`
+        /// (see `MacroIO`): loaded at startup like the keybinds file, and
+        /// written through whenever a recording commits or a register is
+        /// cleared. `LastMacro` is deliberately not persisted.
         Registers: Map<char, MacroStep list>
         /// `Some r` while recording into register `r`; `None` otherwise.
         /// The semantic-capture chokepoints key off this.
@@ -374,6 +376,18 @@ type Msg =
     /// The user keybinds file was (re)loaded: the effective keymap plus any
     /// parse/conflict errors to surface as a notification.
     | KeybindsLoaded of Keymap * string list
+    /// The macros file was (re)loaded: the registers plus any per-line
+    /// parse errors (each naming its line number). `announce` is true for
+    /// a reload after saving the file — that surfaces a "Macros reloaded"
+    /// notification; the silent startup load doesn't.
+    | MacrosLoaded of registers: Map<char, MacroStep list> * errors: string list * announce: bool
+    /// The write-through macro save finished: Ok is silent, Error surfaces
+    /// as a warning (the in-memory registers stay valid either way).
+    | MacrosSaved of Result<unit, string>
+    /// The macros file is on disk (written with the commented grammar
+    /// header if missing): Ok carries its path for the follow-up open;
+    /// Error carries the write failure. Mirrors `ConfigFileReady`.
+    | MacrosFileReady of Result<string, string>
 
 type Effect =
     | ScanWorkspace of string
@@ -405,6 +419,18 @@ type Effect =
     /// report as `PluginValidated`.
     | ValidatePlugin of path: string
     | LoadKeybinds
+    /// Read + parse the macros file, posting `MacrosLoaded` (with the
+    /// same `announce` flag). Mirrors `LoadKeybinds`.
+    | LoadMacros of announce: bool
+    /// Write the registers to the macros file in canonical form. Emitted
+    /// whenever a recording commits or a register is cleared; the
+    /// interpreter serializes these writes (config-save pattern) so quick
+    /// successive saves cannot interleave on disk.
+    | SaveMacros of registers: Map<char, MacroStep list>
+    /// Write the macros file if it doesn't exist yet (commented grammar
+    /// header + the current registers), posting `MacrosFileReady` with the
+    /// path so the editor can open it. Mirrors `EnsureConfigFile`.
+    | EnsureMacrosFile of registers: Map<char, MacroStep list>
     /// Post `ReplayStepReady` back through the runtime queue. Pure queue
     /// manipulation — no I/O — but routed as an effect so replay stepping
     /// interleaves with pending input instead of recursing inside `update`.

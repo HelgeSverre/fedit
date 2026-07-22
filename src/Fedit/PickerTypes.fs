@@ -55,6 +55,7 @@ type PickerActionId =
     | MacroRecord
     | MacroMarkLast
     | MacroClear
+    | MacroEdit
     | MessagesClear
     | PickerClose
 

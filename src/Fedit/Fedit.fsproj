@@ -226,6 +226,7 @@
     <Compile Include="Config.fs" />
     <Compile Include="Pickers.fs" />
     <Compile Include="KeymapIO.fs" />
+    <Compile Include="MacroIO.fs" />
     <Compile Include="Prompt.fs" />
     <Compile Include="Dock.fs" />
     <Compile Include="Editor.fs" />

@@ -306,7 +306,7 @@ Named commands (typed after `:`):
 - `syntax <on|off|toggle>`: Toggle syntax highlighting; persists to config under `syntaxHighlighting`.
 - `plugin <verb> [arg]`: In-editor plugin manager. See `docs/plugins.md` for the verbs.
 - `plugins`: Open the plugin manager picker.
-- `macros`: Open the macro manager picker.
+- `macros`: Open the macro manager picker (`Enter` replays, `r` records, `m` marks last, `c` clears, `e` opens the macros file in a buffer).
 - `messages`: Review the last 100 notifications, newest first, with severity badges and the full message text in the detail panel (the status bar truncates; this surface doesn't). `c` clears the log. Error notifications also persist on the status bar until dismissed with `Esc` — info/warning still clear on the next keypress.
 - `keybind [reload | <stroke>]`: List the effective keybindings, reload the keybinds file (`keybind reload`), or show what a stroke resolves to in each context (`keybind ctrl+s`).
 
@@ -346,11 +346,31 @@ lives at [`examples/keybinds`](examples/keybinds).
 
 ### Macros
 
-Record a run of keystrokes and replay it. `Ctrl+Shift+M` starts and stops
-recording into register `a` — the status bar shows `REC @a` while it captures.
+Record what you do and replay it. `Ctrl+Shift+M` starts and stops recording
+into register `a` — the status bar shows `REC @a` while it captures.
 `Ctrl+Shift+R` replays the register; `Ctrl+Shift+.` repeats the last macro.
-Triggers are modifier chords so bare keys stay text input. Macros live in
-memory for the session; they are not yet persisted to the keybinds file.
+Triggers are modifier chords so bare keys stay text input; reach other
+registers through the `:macros` picker or by binding `record-macro:<r>` /
+`replay-macro:<r>[:count]` in the keybinds file.
+
+Recording is semantic: a register holds action and command steps (what you
+did), never raw chords — replay re-executes outcomes, so prompt navigation
+can never end up inside a macro. Registers persist to
+`~/.config/fedit/macros`, a plain-text file written through on every
+recording. Open it with `e` in the `:macros` picker; saving it through
+fedit reloads the registers on the spot. One macro per line, in the same
+action syntax the keybinds file uses, plus `command:"…"` for palette
+command lines:
+
+```
+a = insert-text:"TODO: " move-home
+b = search-for:"let x" delete-forward command:"open README.md"
+```
+
+The full grammar — payload quoting, `command:` steps, replay fencing,
+nested replays — lives in [`docs/macros.md`](docs/macros.md). The
+last-macro marker is per-session; file comments are not preserved across
+the canonical rewrite.
 
 ## Configuration
 

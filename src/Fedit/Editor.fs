@@ -110,6 +110,7 @@ module Editor =
         match effect with
         | LoadFile _ -> Some FileFence
         | EnsureConfigFile _ -> Some FileFence
+        | EnsureMacrosFile _ -> Some FileFence
         | RunSearch _ -> Some SearchFence
         | ClipboardPaste -> Some PasteFence
         | RunPluginCommand _ -> Some PluginFence
@@ -124,6 +125,8 @@ module Editor =
         | BuildPlugin _
         | ValidatePlugin _
         | LoadKeybinds
+        | LoadMacros _
+        | SaveMacros _
         | ReplayPump -> None
 
     /// The completion message that clears each replay fence. `FileFence`
@@ -134,6 +137,7 @@ module Editor =
         match msg with
         | FileOpened _ -> Some FileFence
         | ConfigFileReady _ -> Some FileFence
+        | MacrosFileReady _ -> Some FileFence
         | SearchCompleted _ -> Some SearchFence
         | ClipboardPasted _ -> Some PasteFence
         | PluginActionsReady _ -> Some PluginFence
@@ -1126,6 +1130,12 @@ module Editor =
                 let next, effects = runAction (RecordMacro register) model
                 next, None, effects
             | None -> model, Some pickerState, []
+        | MacroPicker, PickerActionId.MacroEdit ->
+            // Close the picker and open the macros file in a buffer. The
+            // ensure runs as an effect (I/O): it writes the commented
+            // grammar header if the file is missing, then `MacrosFileReady`
+            // opens it — the exact `:config` / `ConfigFileReady` shape.
+            model, None, [ EnsureMacrosFile model.Registers ]
         | MacroPicker, PickerActionId.MacroMarkLast ->
             match trySelectedRegister model pickerState with
             | Some register ->
@@ -1215,7 +1225,10 @@ module Editor =
                 PendingConfirmation = None }
             |> Pickers.clampSelection cleared
 
-        cleared |> notify (Some(Notification.info $"Cleared macro @{register}")), Some nextPicker, []
+        // Write-through: the file mirrors the registers after every clear.
+        cleared |> notify (Some(Notification.info $"Cleared macro @{register}")),
+        Some nextPicker,
+        [ SaveMacros nextRegisters ]
 
     and private executeCommand command model =
         match command with
@@ -1741,15 +1754,20 @@ module Editor =
                     |> notify (Some(Notification.info $"Recording cancelled — @{register} unchanged")),
                     []
                 else
+                    // Write-through: every commit persists the registers to
+                    // the macros file (serialized in the Runtime so quick
+                    // saves cannot interleave on disk).
+                    let nextRegisters = model.Registers |> Map.add register model.RecordingSteps
+
                     { model with
                         Recording = None
                         RecordingSteps = []
-                        Registers = model.Registers |> Map.add register model.RecordingSteps
+                        Registers = nextRegisters
                         LastMacro = Some register }
                     |> notify (
                         Some(Notification.info $"Recorded macro @{register} ({model.RecordingSteps.Length} step(s))")
                     ),
-                    []
+                    [ SaveMacros nextRegisters ]
             | _ ->
                 // Start (or switch registers). Capture goes into
                 // RecordingSteps; the register is written only on a
@@ -2130,7 +2148,7 @@ module Editor =
             let actionKeys =
                 match kind with
                 | PickerKind.PluginPicker -> Set.ofList [ 'e'; 'd'; 'r'; 'u' ]
-                | PickerKind.MacroPicker -> Set.ofList [ 'r'; 'm'; 'c' ]
+                | PickerKind.MacroPicker -> Set.ofList [ 'r'; 'm'; 'c'; 'e' ]
                 | PickerKind.KeyBindingPicker -> Set.empty
                 | PickerKind.MessagePicker -> Set.ofList [ 'c' ]
 
@@ -2331,7 +2349,10 @@ module Editor =
 
     let initWithInitialFile rootPath initialFile size config userThemes =
         let startupEffects =
-            [ ScanWorkspace rootPath; ScanPlugins config.DisabledPlugins; LoadKeybinds ]
+            [ ScanWorkspace rootPath
+              ScanPlugins config.DisabledPlugins
+              LoadKeybinds
+              LoadMacros false ]
             @ (initialFile
                |> Option.map (fun path -> LoadFile(path, OpenPermanent, None))
                |> Option.toList)
@@ -2605,18 +2626,19 @@ module Editor =
                         else
                             $"Saved {Path.GetFileName path}"
 
-                    // Saving the keybinds file through fedit reloads it (the
-                    // implicit counterpart to `:keybind reload`).
+                    // Saving the keybinds or macros file through fedit
+                    // reloads it (the implicit counterpart to `:keybind
+                    // reload`). Compared canonically (`Paths.norm` over the
+                    // full path) so the buffer's forward-slash path matches
+                    // the OS-separator config path on every platform.
                     let reloadFx =
                         try
-                            if
-                                String.Equals(
-                                    Path.GetFullPath path,
-                                    Path.GetFullPath(KeymapIO.path ()),
-                                    StringComparison.Ordinal
-                                )
-                            then
+                            let savedPath = Path.GetFullPath path |> Paths.norm
+
+                            if savedPath = (Path.GetFullPath(KeymapIO.path ()) |> Paths.norm) then
                                 [ LoadKeybinds ]
+                            elif savedPath = (Path.GetFullPath(MacroIO.path ()) |> Paths.norm) then
+                                [ LoadMacros true ]
                             else
                                 []
                         with _ ->
@@ -2754,6 +2776,29 @@ module Editor =
             match errors with
             | [] -> model, []
             | _ -> notify (Some(Notification.warning (String.concat "; " errors))) model, []
+        | MacrosLoaded(registers, errors, announce) ->
+            // Registers are replaced wholesale; an in-flight recording (and
+            // its captured steps) is untouched — it commits over the fresh
+            // registers when it stops.
+            let model = { model with Registers = registers }
+
+            match errors with
+            | [] when announce ->
+                notify (Some(Notification.info $"Macros reloaded ({registers.Count} register(s))")) model, []
+            | [] -> model, []
+            | _ -> notify (Some(Notification.warning (String.concat "; " errors))) model, []
+        | MacrosSaved result ->
+            match result with
+            | Result.Ok() -> model, []
+            | Result.Error message ->
+                // The registers stay valid in memory; only the persistence
+                // write failed.
+                notify (Some(Notification.warning $"Macro file save failed: {message}")) model, []
+        | MacrosFileReady result ->
+            match result with
+            | Result.Ok path -> executeCommand (Open path) model
+            | Result.Error message ->
+                notify (Some(Notification.warning $"Could not create macros file: {message}")) model, []
         | MousePressed(event, clickCount) ->
             match event.Button with
             | LeftButton ->

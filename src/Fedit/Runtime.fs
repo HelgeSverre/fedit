@@ -157,6 +157,11 @@ module Runtime =
         | PluginValidated(Result.Ok report) -> $"PluginValidated(Ok(<len={report.Length}>))"
         | PluginValidated(Result.Error error) -> $"PluginValidated(Error({error}))"
         | KeybindsLoaded(_, errors) -> $"KeybindsLoaded(errors={errors.Length})"
+        | MacrosLoaded(registers, errors, announce) ->
+            $"MacrosLoaded(registers={registers.Count}, errors={errors.Length}, announce={announce})"
+        | MacrosSaved result -> $"MacrosSaved({renderUnitResult result})"
+        | MacrosFileReady(Result.Ok path) -> $"MacrosFileReady(Ok({path}))"
+        | MacrosFileReady(Result.Error error) -> $"MacrosFileReady(Error({error}))"
 
     let private renderEffect effect =
         match effect with
@@ -179,6 +184,9 @@ module Runtime =
         | BuildPlugin pluginPath -> $"BuildPlugin({pluginPath})"
         | ValidatePlugin path -> $"ValidatePlugin({path})"
         | LoadKeybinds -> "LoadKeybinds"
+        | LoadMacros announce -> $"LoadMacros(announce={announce})"
+        | SaveMacros registers -> $"SaveMacros(registers={registers.Count})"
+        | EnsureMacrosFile registers -> $"EnsureMacrosFile(registers={registers.Count})"
         | ReplayPump -> "ReplayPump"
 
     /// Build a FileNode, using the basename (or full path when the name is
@@ -280,6 +288,11 @@ module Runtime =
         // task, preserving dispatch order by construction.
         let configSaveLock = obj ()
         let mutable configSaveChain: Task = Task.CompletedTask
+        // Serialize macros-file writes the same way (write-through saves
+        // fire on every recording commit / register clear); `ensureFile`
+        // joins the chain so an edit-flow create can't race a save.
+        let macroSaveLock = obj ()
+        let mutable macroSaveChain: Task = Task.CompletedTask
         // Serialize buffer writes per canonical path so repeated saves cannot
         // land out of dispatch order on disk.
         let bufferSaveLock = obj ()
@@ -574,6 +587,49 @@ module Runtime =
                     let keymap, errors = KeymapIO.load ()
                     queue.Enqueue(KeybindsLoaded(keymap, errors)))
                 |> ignore
+            | LoadMacros announce ->
+                Task.Run(fun () ->
+                    let registers, errors = MacroIO.load ()
+                    queue.Enqueue(MacrosLoaded(registers, errors, announce)))
+                |> ignore
+            | SaveMacros registers ->
+                // Chain onto the previous macros-file write so write-through
+                // saves land in dispatch order (config-save pattern).
+                lock macroSaveLock (fun () ->
+                    macroSaveChain <-
+                        macroSaveChain.ContinueWith(
+                            (fun (_: Task) ->
+                                let msg =
+                                    try
+                                        MacroIO.save registers
+                                        MacrosSaved(Result.Ok())
+                                    with ex ->
+                                        MacrosSaved(Result.Error ex.Message)
+
+                                queue.Enqueue msg),
+                            TaskContinuationOptions.None
+                        ))
+            | EnsureMacrosFile registers ->
+                // Joins the macros-file write chain: a create for the edit
+                // flow must not interleave with an in-flight write-through
+                // save of the same file.
+                lock macroSaveLock (fun () ->
+                    macroSaveChain <-
+                        macroSaveChain.ContinueWith(
+                            (fun (_: Task) ->
+                                let msg =
+                                    try
+                                        MacroIO.ensureFile registers
+                                        // Normalized here — the OS boundary —
+                                        // so the buffer opened on it compares
+                                        // canonically on every platform.
+                                        MacrosFileReady(Result.Ok(Paths.norm (MacroIO.path ())))
+                                    with ex ->
+                                        MacrosFileReady(Result.Error ex.Message)
+
+                                queue.Enqueue msg),
+                            TaskContinuationOptions.None
+                        ))
             | ReplayPump ->
                 // Pure queue manipulation — runs synchronously on the
                 // dispatch thread. Round-tripping the step trigger through
@@ -823,7 +879,8 @@ module Runtime =
                     lock bufferSaveLock (fun () -> bufferSaveChains.Values |> Seq.toArray)
 
                 let configChain = lock configSaveLock (fun () -> configSaveChain)
-                Array.append bufferChains [| configChain |]
+                let macroChain = lock macroSaveLock (fun () -> macroSaveChain)
+                Array.append bufferChains [| configChain; macroChain |]
 
             try
                 Task.WaitAll(pendingWrites, TimeSpan.FromSeconds 5.0) |> ignore

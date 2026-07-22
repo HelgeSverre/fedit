@@ -501,7 +501,8 @@ let private payloadFreeActions =
 /// from each verb's accepted domain. `InsertText` payloads deliberately mix
 /// quotes, backslashes, the escape letters, the ':'/'='/'#' syntax
 /// characters, whitespace, combining marks, and an astral-plane emoji.
-let private serializableActionGen: Gen<Action> =
+/// Public: `MacroIOTests` reuses it for the macros-file round-trip.
+let serializableActionGen: Gen<Action> =
     let registerGen = Gen.elements ([ 'a' .. 'z' ] @ [ '0' .. '9' ])
 
     let wordGen =

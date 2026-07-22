@@ -223,8 +223,9 @@ module Action =
     /// Quote a free-text payload (`insert-text` / `search-for`) for
     /// `toSyntax`: always the double-quoted form, with the same backslash
     /// escapes `Keymap.parseAction` decodes (\" \\ \n \t \r), so any
-    /// payload survives a line-based file.
-    let private quoteTextPayload (payload: string) =
+    /// payload survives a line-based file. Public because the macros file
+    /// reuses it for `command:"…"` steps and whole-step quoting.
+    let quoteTextPayload (payload: string) =
         let sb = System.Text.StringBuilder(payload.Length + 2)
         sb.Append '"' |> ignore
 

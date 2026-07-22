@@ -3195,3 +3195,155 @@ let ``text-editing actions are inert while the prompt is focused`` () =
         let next, effects = Editor.runAction action prompted
         PieceTable.toString (activeBuffer next).Document |> should equal "ab"
         effects |> List.isEmpty |> should equal true
+
+// ── macros: plain-text persistence + editability (stage M3) ──────────────
+
+[<Fact>]
+let ``init loads the macros file beside the keybinds file`` () =
+    let _, effects =
+        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) []
+
+    effects |> List.contains (LoadMacros false) |> should equal true
+
+[<Fact>]
+let ``stopping a recording writes the registers through to disk`` () =
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+    let typed = recording |> press (chr 'x')
+    let committed, effects = Editor.runAction (RecordMacro 'a') typed
+
+    effects |> should equal [ SaveMacros committed.Registers ]
+
+[<Fact>]
+let ``an empty stop saves nothing`` () =
+    let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
+    let _, effects = Editor.runAction (RecordMacro 'a') recording
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``MacrosLoaded replaces the registers and announces a reload`` () =
+    let registers = Map.ofList [ 'a', [ RunAction Undo ]; 'b', [ RunAction Redo ] ]
+
+    let loaded, effects =
+        Editor.update (MacrosLoaded(registers, [], true)) (initModel ())
+
+    loaded.Registers |> should equal registers
+    effects |> should equal ([]: Effect list)
+    notificationText loaded |> should equal "Macros reloaded (2 register(s))"
+
+[<Fact>]
+let ``the startup macros load is silent`` () =
+    let model = initModel ()
+
+    let loaded, _ =
+        Editor.update (MacrosLoaded(Map.ofList [ 'a', [ RunAction Undo ] ], [], false)) model
+
+    loaded.Registers |> Map.containsKey 'a' |> should equal true
+    // The seeded welcome hint stays; no reload chatter on boot.
+    loaded.Notification |> should equal model.Notification
+
+[<Fact>]
+let ``MacrosLoaded surfaces parse errors naming their lines`` () =
+    let loaded, _ =
+        Editor.update (MacrosLoaded(Map.empty, [ "macros:4: unknown action 'wat'" ], true)) (initModel ())
+
+    notificationText loaded |> should equal "macros:4: unknown action 'wat'"
+
+    match loaded.Notification with
+    | Some { Severity = Severity.Warning } -> ()
+    | other -> failwith $"expected a warning, got {other}"
+
+[<Fact>]
+let ``MacrosLoaded keeps an in-flight recording untouched`` () =
+    let model =
+        { initModel () with
+            Recording = Some 'q'
+            RecordingSteps = [ RunAction Undo ] }
+
+    let loaded, _ =
+        Editor.update (MacrosLoaded(Map.ofList [ 'a', [ RunAction Redo ] ], [], true)) model
+
+    loaded.Recording |> should equal (Some 'q')
+    loaded.RecordingSteps |> should equal [ RunAction Undo ]
+
+[<Fact>]
+let ``saving the macros file through fedit schedules a reload`` () =
+    let saved, effects =
+        Editor.update (BufferSaved(1, MacroIO.path (), 0, Result.Ok())) (initModel ())
+
+    effects |> List.contains (LoadMacros true) |> should equal true
+    saved.Registers |> should equal (Map.empty: Map<char, MacroStep list>)
+
+[<Fact>]
+let ``saving an unrelated file does not reload macros`` () =
+    let _, effects =
+        Editor.update (BufferSaved(1, "/root/notes.txt", 0, Result.Ok())) (initModel ())
+
+    effects
+    |> List.exists (function
+        | LoadMacros _ -> true
+        | _ -> false)
+    |> should equal false
+
+[<Fact>]
+let ``the macro picker's edit action closes the picker and ensures the file`` () =
+    let registers = Map.ofList [ 'a', [ RunAction Undo ] ]
+
+    let model =
+        { initModel () with
+            Registers = registers
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.MacrosSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "a"
+                    PendingConfirmation = None } }
+
+    let next, effects = Editor.update (KeyPressed(chr 'e')) model
+
+    next.Prompt.Active |> should equal false
+    effects |> should equal [ EnsureMacrosFile registers ]
+
+[<Fact>]
+let ``MacrosFileReady opens the macros file in a buffer`` () =
+    let next, effects =
+        Editor.update (MacrosFileReady(Result.Ok "/tmp/fedit-macros")) (initModel ())
+
+    next.Focus |> should equal Editor
+
+    effects
+    |> List.contains (LoadFile("/tmp/fedit-macros", OpenPermanent, None))
+    |> should equal true
+
+[<Fact>]
+let ``clearing a register from the picker writes the registers through`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'd', [ RunAction Undo ] ]
+            Focus = Prompt
+            Prompt =
+                { (initModel ()).Prompt with
+                    Active = true
+                    Session = PromptSessionKind.MacrosSession
+                    Text = ""
+                    Cursor = 0
+                    SelectedItemId = Some "d"
+                    PendingConfirmation = None } }
+
+    // 'c' is a confirmed destructive action: the first press arms it,
+    // the second executes the clear and the write-through save.
+    let armed, armedEffects = Editor.update (KeyPressed(chr 'c')) model
+    armedEffects |> should equal ([]: Effect list)
+
+    let cleared, effects = Editor.update (KeyPressed(chr 'c')) armed
+
+    cleared.Registers |> should equal (Map.empty: Map<char, MacroStep list>)
+    effects |> should equal [ SaveMacros Map.empty ]
+
+[<Fact>]
+let ``a failed macro save surfaces as a warning`` () =
+    let next, _ = Editor.update (MacrosSaved(Result.Error "disk full")) (initModel ())
+
+    notificationText next |> should equal "Macro file save failed: disk full"

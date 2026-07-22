@@ -300,12 +300,13 @@ module Keymap =
         | true, n -> Some n
         | _ -> None
 
-    /// Decode a free-text payload (`insert-text` / `search-for`; `verb`
-    /// only labels the error messages). Two forms:
+    /// Decode a free-text payload (`insert-text` / `search-for` here; the
+    /// macros file reuses it for `command:` steps — `verb` only labels the
+    /// error messages). Two forms:
     ///   - double-quoted: `"…"` with backslash escapes \" \\ \n \t \r —
     ///     the only way to carry whitespace, and what `Action.toSyntax` emits
     ///   - bare: a single whitespace-free token taken literally (convenience)
-    let private parseTextPayload (verb: string) (raw: string) : Result<string, string> =
+    let parseTextPayload (verb: string) (raw: string) : Result<string, string> =
         let trimmed = raw.Trim()
 
         if trimmed = "" then
@@ -334,6 +335,44 @@ module Keymap =
             Result.Error $"{verb}: quote a payload containing whitespace, e.g. {verb}:\"a b\""
         else
             Ok trimmed
+
+    /// Split a line into whitespace-separated tokens under the shared
+    /// quoted-payload grammar: inside a double-quoted span — which may
+    /// start mid-token, e.g. `insert-text:"a b"` — whitespace is literal
+    /// and `\` protects the next character from closing the quote. Pure
+    /// lexing: escapes are NOT decoded here (that is `parseTextPayload`'s
+    /// job), so an unterminated quote simply consumes the rest of the line
+    /// as one token and the payload decoder reports it. Shared by the
+    /// macros-file step grammar; keybind lines stay one-action-per-line.
+    let tokenize (line: string) : string list =
+        let tokens = ResizeArray<string>()
+        let current = System.Text.StringBuilder()
+        let mutable inQuotes = false
+        let mutable index = 0
+
+        while index < line.Length do
+            let c = line[index]
+
+            if inQuotes && c = '\\' && index + 1 < line.Length then
+                current.Append(c).Append(line[index + 1]) |> ignore
+                index <- index + 2
+            elif not inQuotes && System.Char.IsWhiteSpace c then
+                if current.Length > 0 then
+                    tokens.Add(current.ToString())
+                    current.Clear() |> ignore
+
+                index <- index + 1
+            else
+                if c = '"' then
+                    inQuotes <- not inQuotes
+
+                current.Append c |> ignore
+                index <- index + 1
+
+        if current.Length > 0 then
+            tokens.Add(current.ToString())
+
+        List.ofSeq tokens
 
     /// Parse the action side of a binding line (the text right of '='), the
     /// exact inverse of `Action.toSyntax`. Grammar:
