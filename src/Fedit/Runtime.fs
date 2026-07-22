@@ -420,23 +420,13 @@ module Runtime =
 
                 Task.Run(fun () ->
                     // Materialize the haystack here, off the UI thread; the
-                    // effect carries only the shared piece table.
+                    // effect carries only the shared piece table. The scan
+                    // itself is `Buffer.findAllMatches` — the same core the
+                    // search-next/search-previous repeat actions use, so the
+                    // two paths can never disagree on match semantics.
                     let haystack = PieceTable.toString document
-                    // Plain IndexOf loop — same logic as the old in-update
-                    // `Buffer.findAll`, just off the UI thread.
-                    let mutable matches: int list = []
-
-                    let mutable index =
-                        if String.IsNullOrEmpty query then
-                            -1
-                        else
-                            haystack.IndexOf(query, StringComparison.OrdinalIgnoreCase)
-
-                    while index >= 0 do
-                        matches <- index :: matches
-                        index <- haystack.IndexOf(query, index + 1, StringComparison.OrdinalIgnoreCase)
-
-                    enqueueUnlessCancelled token (SearchCompleted(bufferId, query, List.rev matches)))
+                    let matches = Buffer.findAllMatches query haystack
+                    enqueueUnlessCancelled token (SearchCompleted(bufferId, query, matches)))
                 |> ignore
             | ClipboardPaste ->
                 Task.Run(fun () ->

@@ -111,6 +111,10 @@ module Keymap =
           // keymap, and notification/QuitArmed clearing are keypress preamble.
           single (chord [] (Named Escape)) ClearSelection
 
+          // ── repeat the last accepted search without reopening the prompt ──
+          single (chord [] (Fn 3)) SearchNext
+          single (chord [ Shift ] (Fn 3)) SearchPrevious
+
           // ── macros: modifier chords only (bare Char is reserved for text) ──
           single (chord [ Ctrl; Shift ] (Key.Char 'm')) (RecordMacro 'a')
           single (chord [ Ctrl; Shift ] (Key.Char 'r')) (ReplayMacro('a', 1))
@@ -278,6 +282,8 @@ module Keymap =
         | "open-palette" -> Ok OpenPalette
         | "open-file" -> Ok OpenFilePicker
         | "search" -> Ok OpenSearch
+        | "search-next" -> Ok SearchNext
+        | "search-previous" -> Ok SearchPrevious
         | "undo" -> Ok Undo
         | "redo" -> Ok Redo
         | "copy" -> Ok Copy

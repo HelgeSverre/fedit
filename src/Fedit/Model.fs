@@ -39,6 +39,16 @@ type PromptMode =
 
 type SearchPreview = { Matches: int list; Current: int }
 
+/// Where the cursor and viewport were when the search session began.
+/// Captured once when the prompt enters Search mode; Escape (cancel)
+/// restores it, Enter (accept) discards it. Cleared whenever the prompt
+/// leaves Search mode.
+type SearchOrigin =
+    { BufferId: int
+      Cursor: Position
+      ViewportTop: int
+      ViewportLeft: int }
+
 type PromptState =
     { Active: bool
       Session: PromptSessionKind
@@ -52,7 +62,8 @@ type PromptState =
       History: string list
       HistoryIndex: int option
       PendingConfirmation: PromptPendingConfirmation option
-      SearchPreview: SearchPreview option }
+      SearchPreview: SearchPreview option
+      SearchOrigin: SearchOrigin option }
 
 type PanelsState =
     { SidebarVisible: bool
@@ -200,6 +211,10 @@ type Model =
         /// In-progress mouse drag anchor. `None` when no drag is active.
         /// Set on left-button press in the editor, cleared on release.
         MouseDrag: MouseDragState option
+        /// The last search query accepted with Enter in the search prompt.
+        /// `search-next` / `search-previous` (F3 / Shift+F3) repeat it from
+        /// the cursor without reopening the prompt.
+        LastSearchQuery: string option
     }
 
 /// Why a file is being loaded: a normal open, or a preview into the

@@ -239,6 +239,7 @@ Editor keys:
 
 - Arrow keys, `Home`, `End`, `PageUp`, and `PageDown` move the cursor.
 - `Alt+Left` / `Alt+Right` (or `Ctrl+Left` / `Ctrl+Right`) move the cursor by word.
+- `F3` / `Shift+F3` jump to the next / previous occurrence of the last accepted search, wrapping at the buffer edges (see Find keys).
 - `Alt+Up` / `Alt+Down` move the current line or selected lines. The move clamps at the buffer boundary and is one undo step.
 - `Ctrl+Backspace` / `Ctrl+Delete` delete the previous / next word.
 - `Shift+Arrow`, `Shift+Home`, `Shift+End` extend the text selection.
@@ -254,9 +255,11 @@ Editor keys:
 Find keys (after `Ctrl+F`):
 
 - Type to extend the query; matches highlight live and the cursor jumps to the first hit.
-- `Enter` or `Down` advances to the next match; `Up` goes to the previous.
+- `Down` / `Up` cycle to the next / previous match, wrapping.
 - `Backspace` shortens the query (no-op once empty).
-- `Escape` closes the prompt and clears the highlights.
+- `Enter` accepts the search: the prompt closes with the cursor at the current match, and the query is remembered.
+- `Escape` cancels: the prompt closes, highlights clear, and the cursor and viewport return to where the search began.
+- `F3` / `Shift+F3` (in the editor, actions `search-next` / `search-previous`) repeat the accepted query from the cursor — forward or backward, wrapping — without reopening the prompt. Handy after edits: no retyping the query. A search with no matches left in the buffer reports `No matches`.
 
 File tree keys:
 
@@ -274,9 +277,9 @@ Prompt keys (any mode):
 - `Up` / `Down` (and `Shift+Tab`) move the highlight through the completion list. The viewport scrolls so the selected item stays visible. In Search mode `Up` / `Down` cycle through matches instead.
 - `Tab` autofills the prompt with the highlighted completion's text — `:o<Tab>` becomes `:open`, ready for arguments. No-op when the completion list is empty.
 - `Alt+Up` / `Alt+Down` walk through recent prompt history (up to 20 entries).
-- `Enter` runs the parsed command, applies the highlighted completion, opens the selected file/buffer, or advances to the next search match — depending on the mode.
+- `Enter` runs the parsed command, applies the highlighted completion, opens the selected file/buffer, or accepts the search at the current match — depending on the mode.
 - `Left`, `Right`, `Home`, `End`, `Backspace`, and `Delete` edit the input. Backspace through the prefix character flips the mode (e.g. `/foo` → backspace → empty FilePicker); backspace at the start of an empty prompt is a no-op (use `Escape` to close).
-- `Escape` is the sole way to close the prompt; in Search mode it also clears the match highlights.
+- `Escape` is the sole way to close the prompt; in Search mode it also clears the match highlights and restores the cursor and viewport to where the search began.
 
 Prompt modes — type the prefix to switch modes inside the prompt, or use the dedicated chord to open in that mode directly:
 
@@ -284,7 +287,7 @@ Prompt modes — type the prefix to switch modes inside the prompt, or use the d
 | :----: | ---------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 |  `:`   | Command    | `Ctrl+P`  | Named commands and `:LINE[:COL]` cursor jumps. Argument starting with a digit is parsed as goto (`:42` or `:100:6`); otherwise as a command name. |
 | (none) | FilePicker | `Ctrl+O`  | Recent files first, then workspace files; type to filter; Enter opens.                                                                            |
-|  `/`   | Search     | `Ctrl+F`  | Incremental search in the active buffer. Cursor jumps live to the first match.                                                                    |
+|  `/`   | Search     | `Ctrl+F`  | Incremental search in the active buffer. Cursor jumps live to the first match; Enter accepts, Escape cancels back to the origin.                  |
 |  `@`   | Buffers    | —         | Switch to an open buffer by numeric id or name.                                                                                                   |
 
 Named commands (typed after `:`):

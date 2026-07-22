@@ -557,11 +557,15 @@ module Buffer =
 
     let moveLinesDown count buffer = moveLines false count buffer
 
-    let findAll (needle: string) buffer =
-        if String.IsNullOrEmpty needle then
+    /// Every match offset of `needle` in `haystack`, in document order.
+    /// Literal, case-insensitive ordinal match — the single definition of
+    /// fedit's search semantics, shared by the prompt's `RunSearch` effect
+    /// and the `search-next` / `search-previous` repeat actions. Takes the
+    /// text (not a buffer) so both callers use the same pure core.
+    let findAllMatches (needle: string) (haystack: string) : int list =
+        if String.IsNullOrEmpty needle || String.IsNullOrEmpty haystack then
             []
         else
-            let haystack = text buffer
             let mutable matches = []
             let mutable index = haystack.IndexOf(needle, StringComparison.OrdinalIgnoreCase)
 
@@ -570,6 +574,31 @@ module Buffer =
                 index <- haystack.IndexOf(needle, index + 1, StringComparison.OrdinalIgnoreCase)
 
             List.rev matches
+
+    let findAll (needle: string) buffer = findAllMatches needle (text buffer)
+
+    /// Offset of the first match at or after `fromIndex`, wrapping to the
+    /// start of the text when nothing follows — the same cyclic semantics
+    /// as the search prompt's Up/Down match cycling. `None` when the needle
+    /// is empty or absent entirely.
+    let findNextMatch (needle: string) (fromIndex: int) (haystack: string) : int option =
+        match findAllMatches needle haystack with
+        | [] -> None
+        | matches ->
+            matches
+            |> List.tryFind (fun offset -> offset >= fromIndex)
+            |> Option.orElse (Some(List.head matches))
+
+    /// Offset of the last match at or before `fromIndex`, wrapping to the
+    /// end of the text when nothing precedes. Mirror of `findNextMatch`.
+    let findPreviousMatch (needle: string) (fromIndex: int) (haystack: string) : int option =
+        match findAllMatches needle haystack with
+        | [] -> None
+        | matches ->
+            matches
+            |> List.filter (fun offset -> offset <= fromIndex)
+            |> List.tryLast
+            |> Option.orElse (List.tryLast matches)
 
     let deleteForwardWord (landing: WordMotionLanding) buffer =
         let txt = text buffer

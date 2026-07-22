@@ -64,6 +64,8 @@ let actionMeta (action: Action) : string * string =
     | OpenPalette -> "prompt", "Open the command palette"
     | OpenFilePicker -> "prompt", "Open the file picker"
     | OpenSearch -> "prompt", "Open in-buffer search"
+    | SearchNext -> "motion", "Jump to the next match of the last search"
+    | SearchPrevious -> "motion", "Jump to the previous match of the last search"
     | NextBuffer -> "buffer", "Switch to the next buffer"
     | PrevBuffer -> "buffer", "Switch to the previous buffer"
     | JumpToBuffer _ -> "buffer", "Jump to a buffer by number"
@@ -138,6 +140,8 @@ let allActions: Action list =
       OpenPalette
       OpenFilePicker
       OpenSearch
+      SearchNext
+      SearchPrevious
       NextBuffer
       PrevBuffer
       JumpToBuffer 0

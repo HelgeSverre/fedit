@@ -99,6 +99,132 @@ let ``typing in the search prompt emits RunSearch carrying the document`` () =
         | _ -> false)
     |> should equal true
 
+// ── search accept / cancel / repeat (stage U4) ──────────────────────────
+
+let private fnk n : Chord = { Mods = Set.empty; Key = Fn n } // bare function key
+
+let private sfnk n : Chord =
+    { Mods = Set.ofList [ Shift ]
+      Key = Fn n } // shift+<function key>
+
+let private press chord m =
+    fst (Editor.update (KeyPressed chord) m)
+
+let private openBufferWith content =
+    let opened, _ =
+        Editor.update (FileOpened("/root/notes.txt", OpenPermanent, None, Result.Ok content)) (initModel ())
+
+    opened
+
+let private activeBuffer (m: Model) =
+    m.Editors.Buffers[m.Editors.ActiveBufferId]
+
+let private cursorIndex (m: Model) =
+    let buffer = activeBuffer m
+    Buffer.positionToIndex buffer.Cursor buffer
+
+/// Drive a full incremental search: open the prompt, type the query, and
+/// feed the RunSearch result back in as SearchCompleted (the pure update
+/// never runs the effect itself).
+let private searchFor (query: string) model =
+    let typed = query |> Seq.fold (fun m c -> press (chr c) m) (press (ck 'f') model)
+    let matches = Buffer.findAll query (activeBuffer typed)
+
+    fst (Editor.update (SearchCompleted(typed.Editors.ActiveBufferId, query, matches)) typed)
+
+[<Fact>]
+let ``search Escape restores the origin cursor and viewport`` () =
+    let content = String.replicate 50 "filler\n" + "needle here"
+    let start = openBufferWith content |> press (nk Down) |> press (nk Down)
+    let landed = searchFor "needle" start
+
+    // Incremental search dragged the cursor (and viewport) to the match.
+    (activeBuffer landed).Cursor.Line |> should equal 50
+    (activeBuffer landed).ViewportTop |> should be (greaterThan 0)
+
+    let cancelled = landed |> press (nk Escape)
+    cancelled.Prompt.Active |> should equal false
+    (activeBuffer cancelled).Cursor |> should equal { Line = 2; Column = 0 }
+    (activeBuffer cancelled).ViewportTop |> should equal 0
+
+[<Fact>]
+let ``search Enter accepts at the current match and remembers the query`` () =
+    let accepted =
+        openBufferWith "alpha beta alpha" |> searchFor "beta" |> press (nk Enter)
+
+    accepted.Prompt.Active |> should equal false
+    accepted.Focus |> should equal Editor
+    cursorIndex accepted |> should equal 6
+    accepted.LastSearchQuery |> should equal (Some "beta")
+
+[<Fact>]
+let ``last query survives closing and reopening the search prompt`` () =
+    let accepted =
+        openBufferWith "alpha beta alpha" |> searchFor "beta" |> press (nk Enter)
+
+    let reopened = accepted |> press (ck 'f')
+
+    reopened.Prompt.Text |> should equal "/"
+    reopened.LastSearchQuery |> should equal (Some "beta")
+
+[<Fact>]
+let ``search-next jumps forward from the cursor and wraps at the end`` () =
+    // matches of "alpha" at offsets 0 and 11; cursor starts at 0
+    let seeded =
+        { openBufferWith "alpha beta alpha" with
+            LastSearchQuery = Some "alpha" }
+
+    let next = seeded |> press (fnk 3)
+    cursorIndex next |> should equal 11
+
+    let wrapped = next |> press (fnk 3)
+    cursorIndex wrapped |> should equal 0
+
+[<Fact>]
+let ``search-previous jumps backward and wraps at the start`` () =
+    let seeded =
+        { openBufferWith "alpha beta alpha" with
+            LastSearchQuery = Some "alpha" }
+
+    let wrapped = seeded |> press (sfnk 3)
+    cursorIndex wrapped |> should equal 11
+
+    let previous = wrapped |> press (sfnk 3)
+    cursorIndex previous |> should equal 0
+
+[<Fact>]
+let ``search-next with no match in the buffer notifies`` () =
+    let seeded =
+        { openBufferWith "alpha beta" with
+            LastSearchQuery = Some "zzz" }
+
+    let next = seeded |> press (fnk 3)
+    cursorIndex next |> should equal 0
+
+    next.Notification
+    |> Option.map (fun n -> n.Message)
+    |> should equal (Some "No matches for 'zzz'")
+
+[<Fact>]
+let ``search-next without a previous search notifies`` () =
+    let next = openBufferWith "alpha" |> press (fnk 3)
+
+    next.Notification
+    |> Option.map (fun n -> n.Message)
+    |> should equal (Some "No search to repeat")
+
+[<Fact>]
+let ``search-next finds occurrences added by edits after the accept`` () =
+    // Accept a search for "x" (single match at 4), then edit in another
+    // occurrence ahead of the cursor and repeat without the prompt.
+    let accepted = openBufferWith "one x two" |> searchFor "x" |> press (nk Enter)
+    cursorIndex accepted |> should equal 4
+
+    let edited = accepted |> press (nk Home) |> press (chr 'x') |> press (nk Space) // "x one x two", cursor at 2
+
+    let repeated = edited |> press (fnk 3)
+    cursorIndex repeated |> should equal 6
+
 [<Fact>]
 let ``FileOpened schedules a highlight parse for the new buffer`` () =
     let _, effects =
@@ -279,9 +405,6 @@ let private modelWithLines n =
         Editors =
             { model.Editors with
                 Buffers = Map.ofList [ 1, buf ] } }
-
-let private activeBuffer (model: Model) =
-    model.Editors.Buffers[model.Editors.ActiveBufferId]
 
 let private commandModel text =
     let press chord m =

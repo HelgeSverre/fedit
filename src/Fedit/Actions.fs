@@ -63,6 +63,11 @@ type Action =
     | OpenPalette
     | OpenFilePicker
     | OpenSearch
+    /// Jump to the next occurrence of the last accepted search query,
+    /// wrapping at the end of the buffer. Pure and synchronous — no prompt.
+    | SearchNext
+    /// Jump to the previous occurrence, wrapping at the start.
+    | SearchPrevious
     | NextBuffer
     | PrevBuffer
     | JumpToBuffer of int
@@ -164,6 +169,8 @@ module Action =
         | OpenPalette -> "command-palette"
         | OpenFilePicker -> "open-file"
         | OpenSearch -> "search"
+        | SearchNext -> "search-next"
+        | SearchPrevious -> "search-previous"
         | NextBuffer -> "next-buffer"
         | PrevBuffer -> "prev-buffer"
         | JumpToBuffer _ -> "jump-to-buffer"

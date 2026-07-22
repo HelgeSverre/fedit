@@ -38,7 +38,8 @@ module Editor =
           History = []
           HistoryIndex = None
           PendingConfirmation = None
-          SearchPreview = None }
+          SearchPreview = None
+          SearchOrigin = None }
 
     let private initialPanels (config: Config) =
         { SidebarVisible = true
@@ -309,6 +310,25 @@ module Editor =
                 | Search -> prompt.SearchPreview
                 | _ -> None
 
+            // Capture the origin (cursor + viewport) once when the prompt
+            // enters Search mode, so Escape can cancel back to it after
+            // incremental search dragged the cursor away. It survives while
+            // the mode stays Search and drops when the mode changes.
+            let nextSearchOrigin =
+                match mode with
+                | Search ->
+                    match prompt.SearchOrigin with
+                    | Some existing -> Some existing
+                    | None ->
+                        let buffer = activeBufferState model
+
+                        Some
+                            { BufferId = buffer.Id
+                              Cursor = buffer.Cursor
+                              ViewportTop = buffer.ViewportTop
+                              ViewportLeft = buffer.ViewportLeft }
+                | _ -> None
+
             let nextModel =
                 { model with
                     Prompt =
@@ -320,7 +340,8 @@ module Editor =
                             SelectedCompletion = selectedIndex
                             SelectedItemId = None
                             PendingConfirmation = None
-                            SearchPreview = nextSearchPreview } }
+                            SearchPreview = nextSearchPreview
+                            SearchOrigin = nextSearchOrigin } }
 
             let effects =
                 match mode with
@@ -350,7 +371,8 @@ module Editor =
                     SelectedCompletion = 0
                     SelectedItemId = None
                     PendingConfirmation = None
-                    SearchPreview = None } }
+                    SearchPreview = None
+                    SearchOrigin = None } }
         |> refreshPrompt
 
     /// Open a picker/list session (plugins, macros, keybindings) with
@@ -375,7 +397,8 @@ module Editor =
                     SelectedItemId = selected
                     HistoryIndex = None
                     PendingConfirmation = None
-                    SearchPreview = None } }
+                    SearchPreview = None
+                    SearchOrigin = None } }
         |> clearTransientNotification,
         []
 
@@ -396,7 +419,8 @@ module Editor =
                     SelectedItemId = None
                     HistoryIndex = None
                     PendingConfirmation = None
-                    SearchPreview = None } }
+                    SearchPreview = None
+                    SearchOrigin = None } }
 
     /// Resolve a user-supplied path against the workspace root, returning a
     /// canonical `/` path. Avoids Path.GetFullPath — its OS separator and
@@ -500,6 +524,29 @@ module Editor =
                         History =
                             trimmed :: (model.Prompt.History |> List.filter ((<>) trimmed))
                             |> List.truncate 20 } }
+
+    /// Jump from the cursor to the next (`delta` positive) or previous
+    /// occurrence of the last accepted search query, without opening the
+    /// prompt. Wraps cyclically, mirroring the search prompt's Up/Down
+    /// match cycling. Synchronous and pure — unlike the prompt's
+    /// `RunSearch` effect — so it stays deterministic under macro replay.
+    let private repeatSearch (delta: int) model =
+        match model.LastSearchQuery with
+        | None -> notify (Some(Notification.info "No search to repeat")) model, []
+        | Some query ->
+            let buffer = activeBufferState model
+            let haystack = Buffer.text buffer
+            let cursorIndex = Buffer.positionToIndex buffer.Cursor buffer
+
+            let target =
+                if delta > 0 then
+                    Buffer.findNextMatch query (cursorIndex + 1) haystack
+                else
+                    Buffer.findPreviousMatch query (cursorIndex - 1) haystack
+
+            match target with
+            | Some offset -> updateActiveBuffer (Buffer.moveToOffset offset) model, []
+            | None -> notify (Some(Notification.info $"No matches for '{query}'")) model, []
 
     /// Cycle to the next/previous buffer by offset.
     let private switchBuffer offset model =
@@ -1436,6 +1483,8 @@ module Editor =
                 "/"
                 { model with
                     Workspace = Workspace.clearSearch model.Workspace }
+        | SearchNext -> repeatSearch 1 model
+        | SearchPrevious -> repeatSearch -1 model
         | NextBuffer -> switchBuffer 1 model, []
         | PrevBuffer -> switchBuffer -1 model, []
         | JumpToBuffer n -> jumpToBuffer n model, []
@@ -1789,7 +1838,8 @@ module Editor =
             SelectedItemId = pickerState.SelectedItemId
             HistoryIndex = None
             PendingConfirmation = promptPendingOfPicker pickerState.PendingConfirmation
-            SearchPreview = None }
+            SearchPreview = None
+            SearchOrigin = None }
 
     let private applyPromptPickerState session pickerState model =
         { model with
@@ -1872,7 +1922,28 @@ module Editor =
             runPromptListSession chord model
         else
             match chord with
-            | c when c = kEscape -> closePrompt model, []
+            | c when c = kEscape ->
+                // Search cancel: restore the cursor + viewport recorded when
+                // the session entered Search mode — Escape must undo wherever
+                // incremental search or match cycling dragged the cursor.
+                // Other modes just close. The origin cursor round-trips
+                // through positionToIndex so it stays clamped even if a
+                // plugin edited the buffer while the prompt was open.
+                let restored =
+                    match prompt.Mode, prompt.SearchOrigin with
+                    | Search, Some origin when origin.BufferId = model.Editors.ActiveBufferId ->
+                        updateActiveBuffer
+                            (fun buffer ->
+                                let clamped =
+                                    Buffer.moveToOffset (Buffer.positionToIndex origin.Cursor buffer) buffer
+
+                                { clamped with
+                                    ViewportTop = origin.ViewportTop
+                                    ViewportLeft = origin.ViewportLeft })
+                            model
+                    | _ -> model
+
+                closePrompt restored, []
             | c when c = kLeft ->
                 { model with
                     Prompt =
@@ -1923,7 +1994,22 @@ module Editor =
             | c when c = kAltDown -> applyHistory 1 model
             | c when c = kEnter ->
                 match prompt.Mode with
-                | Search -> moveSearchMatch 1 model, []
+                | Search ->
+                    // Accept: close the prompt leaving the cursor at the
+                    // current match and remember the query so search-next /
+                    // search-previous can repeat it. Up/Down cycle matches
+                    // while the session is open.
+                    let query = Prompt.argumentOf prompt.Text
+                    let remembered = pushHistory prompt.Text model
+
+                    let accepted =
+                        if String.IsNullOrEmpty query then
+                            remembered
+                        else
+                            { remembered with
+                                LastSearchQuery = Some query }
+
+                    closePrompt accepted, []
                 | FilePicker ->
                     match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
                     | Some item ->
@@ -1998,7 +2084,8 @@ module Editor =
           Recording = None
           Replaying = false
           LastMacro = None
-          MouseDrag = None },
+          MouseDrag = None
+          LastSearchQuery = None },
         startupEffects
 
     let init rootPath size config userThemes =
