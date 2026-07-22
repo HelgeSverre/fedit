@@ -3016,6 +3016,19 @@ let ``undo after closing the prompt works again`` () =
     Buffer.text (activeBuffer undone) |> should equal ""
 
 [<Fact>]
+let ``Ctrl+W in a prompt session leaves the buffer open`` () =
+    // Ctrl+W is a common readline delete-word habit inside text prompts;
+    // the Global close-buffer chord must be inert behind the modal, like
+    // the other buffer-mutating verbs.
+    let inSearch = press (ck 'f') (withText "x")
+    let next, effects = Editor.update (KeyPressed(ck 'w')) inSearch
+
+    next.Editors.Buffers |> should equal inSearch.Editors.Buffers
+    next.CloseArmed |> should equal (None: int option)
+    next.Prompt.Active |> should equal true
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
 let ``guarded chords in the prompt are not captured as macro steps`` () =
     // While the prompt is up, Ctrl+Z is a live no-op (the focus guard) —
     // capturing it anyway would make the replay do MORE than the
@@ -3111,6 +3124,23 @@ let ``a non-quit key disarms the quit warning`` () =
     let rewarned = pressKey (ck 'q') moved
     rewarned.ShouldQuit |> should equal false
     rewarned.QuitArmed |> should equal true
+
+[<Fact>]
+let ``a chord-armed quit survives prompt keystrokes and disarms on leaving`` () =
+    // Pins the two-step-confirm semantics around prompt sessions: keys
+    // that keep the prompt focused are exempt from the disarm chokepoint
+    // (the `:quit` → `:quit` palette round trip depends on it), and the
+    // keypress that returns focus to the editor disarms as usual.
+    let armed = pressKey (ck 'q') (withText "x")
+    armed.QuitArmed |> should equal true
+
+    let prompted = pressKey (ck 'p') armed
+    let typed = pressKey (chr 'z') prompted
+    typed.QuitArmed |> should equal true
+
+    let closed = pressKey (nk Escape) typed
+    closed.Focus |> should equal Editor
+    closed.QuitArmed |> should equal false
 
 [<Fact>]
 let ``quit warning names up to three dirty buffers then counts the rest`` () =

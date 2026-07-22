@@ -1486,17 +1486,12 @@ module Editor =
         | When(cond, thenDo, elseDo) -> runAction (if evalCond cond model then thenDo else elseDo) model
 
         // Focus guard: buffer-editing verbs are inert while the prompt is up
-        // — a Global chord (Ctrl+Z/Y/A/X) must never mutate the buffer hidden
-        // behind a modal surface. Picker sessions bypass the keymap entirely,
-        // and Enter closes the prompt before executeCommand runs, so only
-        // live prompt keystrokes reach this guard.
-        | Undo
-        | Redo
-        | SelectAll
-        | Cut
-        | InsertText _
-        | DeleteBackward
-        | DeleteForward when model.Focus = Prompt -> model, []
+        // — a Global chord (Ctrl+Z/Y/A/X/W) must never mutate the buffer
+        // hidden behind a modal surface. Picker sessions bypass the keymap
+        // entirely, and Enter closes the prompt before executeCommand runs,
+        // so only live prompt keystrokes reach this guard. Membership lives
+        // in `isPromptInert`, shared with macro capture.
+        | guarded when model.Focus = Prompt && isPromptInert guarded -> model, []
 
         // motion / selection
         | MoveLeft -> moveCursor Buffer.moveLeft model
