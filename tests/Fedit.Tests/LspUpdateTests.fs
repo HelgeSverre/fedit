@@ -1,6 +1,7 @@
 module Fedit.Tests.LspUpdateTests
 
 open Fedit
+open Fedit.PromptTypes
 open Xunit
 open FsUnit.Xunit
 
@@ -206,3 +207,331 @@ let ``the diagnostics segment is empty for a buffer without diagnostics`` () =
                     StatusFormat = "x[DIAGNOSTICS]y" } }
 
     Status.render 10 withFormat |> should haveSubstring "xy"
+
+// ── stage 5: navigation, jump stack, pickers, :lsp ───────────────────────
+
+let private f12: Chord = { Mods = Set.empty; Key = Fn 12 }
+
+let private altMinus: Chord =
+    { Mods = Set.ofList [ Alt ]
+      Key = Key.Char '-' }
+
+let private enterKey: Chord = { Mods = Set.empty; Key = Named Enter }
+let private escapeKey: Chord = { Mods = Set.empty; Key = Named Escape }
+
+/// A .sema buffer opened at /root/main.sema with three known lines.
+let private openedModel () =
+    let model, _ =
+        Editor.update
+            (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)\n(def y 2)\n(use x)"))
+            (initModel ())
+
+    model
+
+/// Open the palette, type `text`, press Enter — the full prompt route.
+let private typeAndRun (text: string) model =
+    let ctrlP: Chord =
+        { Mods = Set.ofList [ Ctrl ]
+          Key = Key.Char 'p' }
+
+    let opened, _ = Editor.update (KeyPressed ctrlP) model
+
+    let typed =
+        text
+        |> Seq.fold (fun state c -> fst (Editor.update (KeyPressed(chr c)) state)) opened
+
+    Editor.update (KeyPressed enterKey) typed
+
+let private location path line column : LspResolvedLocation =
+    { Path = path
+      Position = { Line = line; Column = column }
+      Preview = "" }
+
+[<Fact>]
+let ``goto-definition emits a position request for the active buffer`` () =
+    let model = openedModel ()
+    let _, effects = Editor.update (KeyPressed f12) model
+
+    match
+        effects
+        |> List.tryPick (fun effect ->
+            match effect with
+            | LspRequestDefinition request -> Some request
+            | _ -> None)
+    with
+    | Some request ->
+        request.Path |> should equal "/root/main.sema"
+        request.Server.Name |> should equal "sema"
+        request.BufferId |> should equal model.Editors.ActiveBufferId
+        request.EditTick |> should equal 0
+        request.WorkspaceRoot |> should equal "/root"
+    | None -> failwith "expected an LspRequestDefinition effect"
+
+[<Fact>]
+let ``goto-definition on a scratch buffer warns instead of requesting`` () =
+    let next, effects = Editor.update (KeyPressed f12) (initModel ())
+
+    effects
+    |> List.exists (fun effect ->
+        match effect with
+        | LspRequestDefinition _ -> true
+        | _ -> false)
+    |> should equal false
+
+    next.Notification.IsSome |> should equal true
+
+[<Fact>]
+let ``a stale definition result is dropped`` () =
+    let model = openedModel ()
+    let bufferId = model.Editors.ActiveBufferId
+    let edited, _ = Editor.update (KeyPressed(chr 'z')) model // EditTick -> 1
+
+    let next, effects =
+        Editor.update (LspDefinitionResolved(Result.Ok [ location "/root/main.sema" 1 0 ], 0, bufferId)) edited
+
+    next.Editors.Buffers[bufferId].Cursor
+    |> should equal edited.Editors.Buffers[bufferId].Cursor
+
+    next.Prompt.Active |> should equal false
+    next.JumpStack |> should equal ([]: (string * Position) list)
+    effects |> List.isEmpty |> should equal true
+
+[<Fact>]
+let ``a single definition in the same file moves the cursor and pushes the jump origin`` () =
+    let model = openedModel ()
+    let bufferId = model.Editors.ActiveBufferId
+
+    let next, _ =
+        Editor.update (LspDefinitionResolved(Result.Ok [ location "/root/main.sema" 1 1 ], 0, bufferId)) model
+
+    next.Editors.Buffers[bufferId].Cursor |> should equal { Line = 1; Column = 1 }
+    next.JumpStack |> should equal [ "/root/main.sema", { Line = 0; Column = 0 } ]
+
+[<Fact>]
+let ``jump-back returns to the recorded origin and pops the stack`` () =
+    let model = openedModel ()
+    let bufferId = model.Editors.ActiveBufferId
+
+    let jumped, _ =
+        Editor.update (LspDefinitionResolved(Result.Ok [ location "/root/main.sema" 2 3 ], 0, bufferId)) model
+
+    let back, _ = Editor.update (KeyPressed altMinus) jumped
+    back.Editors.Buffers[bufferId].Cursor |> should equal { Line = 0; Column = 0 }
+    back.JumpStack |> should equal ([]: (string * Position) list)
+
+[<Fact>]
+let ``a definition in another file loads it with the target position`` () =
+    let model = openedModel ()
+
+    let next, effects =
+        Editor.update
+            (LspDefinitionResolved(Result.Ok [ location "/root/lib.sema" 4 2 ], 0, model.Editors.ActiveBufferId))
+            model
+
+    effects
+    |> List.exists (fun effect ->
+        match effect with
+        | LoadFile("/root/lib.sema", OpenPermanent, Some { Line = 4; Column = 2 }) -> true
+        | _ -> false)
+    |> should equal true
+
+    next.JumpStack |> should equal [ "/root/main.sema", { Line = 0; Column = 0 } ]
+
+[<Fact>]
+let ``multiple definitions open the location picker with previews from open buffers`` () =
+    let model = openedModel ()
+
+    let next, _ =
+        Editor.update
+            (LspDefinitionResolved(
+                Result.Ok [ location "/root/main.sema" 0 5; location "/root/main.sema" 1 5 ],
+                0,
+                model.Editors.ActiveBufferId
+            ))
+            model
+
+    next.Prompt.Active |> should equal true
+    next.Prompt.Session |> should equal PromptSessionKind.LocationsSession
+
+    match next.Lsp.Locations with
+    | Some set ->
+        set.Title |> should equal "Definitions"
+
+        set.Entries
+        |> List.map (fun entry -> entry.Preview)
+        |> should equal [ "(def x 1)"; "(def y 2)" ]
+    | None -> failwith "expected a location set"
+
+[<Fact>]
+let ``Enter in the location picker jumps to the selected entry and closes it`` () =
+    let model = openedModel ()
+    let bufferId = model.Editors.ActiveBufferId
+
+    let picker, _ =
+        Editor.update
+            (LspReferencesResolved(
+                Result.Ok [ location "/root/main.sema" 2 1; location "/root/main.sema" 0 0 ],
+                0,
+                bufferId
+            ))
+            model
+
+    picker.Lsp.Locations
+    |> Option.map (fun set -> set.Title)
+    |> should equal (Some "References")
+
+    let after, _ = Editor.update (KeyPressed enterKey) picker
+    after.Prompt.Active |> should equal false
+    after.Editors.Buffers[bufferId].Cursor |> should equal { Line = 2; Column = 1 }
+    after.JumpStack |> should equal [ "/root/main.sema", { Line = 0; Column = 0 } ]
+
+[<Fact>]
+let ``an empty definition result only notifies`` () =
+    let model = openedModel ()
+
+    let next, effects =
+        Editor.update (LspDefinitionResolved(Result.Ok [], 0, model.Editors.ActiveBufferId)) model
+
+    next.Prompt.Active |> should equal false
+    next.Notification.IsSome |> should equal true
+    effects |> List.isEmpty |> should equal true
+
+[<Fact>]
+let ``hover text lands in the dock panel and the next keypress dismisses it`` () =
+    let model = openedModel ()
+
+    let hovered, _ =
+        Editor.update (LspHoverResolved(Result.Ok [ "(def x 1)"; "a binding" ], 0, model.Editors.ActiveBufferId)) model
+
+    hovered.Lsp.Panel
+    |> Option.map (fun panel -> panel.Title)
+    |> should equal (Some "Hover")
+
+    let after, _ = Editor.update (KeyPressed(chr 'j')) hovered
+    after.Lsp.Panel |> should equal (None: LspInfoPanel option)
+    // the keypress still performed its normal action (an edit)
+    after.Editors.Buffers[model.Editors.ActiveBufferId].EditTick |> should equal 1
+
+[<Fact>]
+let ``escape only dismisses the hover panel`` () =
+    let model = openedModel ()
+
+    let hovered, _ =
+        Editor.update (LspHoverResolved(Result.Ok [ "(def x 1)" ], 0, model.Editors.ActiveBufferId)) model
+
+    let after, _ = Editor.update (KeyPressed escapeKey) hovered
+    after.Lsp.Panel |> should equal (None: LspInfoPanel option)
+    after.Editors.Buffers[model.Editors.ActiveBufferId].EditTick |> should equal 0
+
+[<Fact>]
+let ``a stale hover result is dropped`` () =
+    let model = openedModel ()
+    let edited, _ = Editor.update (KeyPressed(chr 'z')) model
+
+    let next, _ =
+        Editor.update (LspHoverResolved(Result.Ok [ "stale" ], 0, model.Editors.ActiveBufferId)) edited
+
+    next.Lsp.Panel |> should equal (None: LspInfoPanel option)
+
+[<Fact>]
+let ``a fetched log shows its tail in the dock panel`` () =
+    let model = initModel ()
+    let lines = [ for i in 1..20 -> $"line {i}" ]
+    let next, _ = Editor.update (LspLogFetched("LSP log", lines)) model
+
+    match next.Lsp.Panel with
+    | Some panel ->
+        panel.Title |> should equal "LSP log"
+        panel.Lines |> List.last |> should equal "line 20"
+        panel.Lines.Length |> should equal (model.Panels.DockHeight - 1)
+    | None -> failwith "expected a dock panel"
+
+[<Fact>]
+let ``lsp command parses bare, verb, pending, and unknown forms`` () =
+    match Commands.parse "lsp" with
+    | Ready(Command.Lsp("", "")) -> ()
+    | other -> failwith $"expected Ready (Lsp('', '')), got %A{other}"
+
+    match Commands.parse "lsp enable sema" with
+    | Ready(Command.Lsp("enable", "sema")) -> ()
+    | other -> failwith $"expected Ready (Lsp(enable, sema)), got %A{other}"
+
+    match Commands.parse "lsp enable" with
+    | Pending _ -> ()
+    | other -> failwith $"expected Pending, got %A{other}"
+
+    match Commands.parse "lsp bogus" with
+    | Invalid _ -> ()
+    | other -> failwith $"expected Invalid, got %A{other}"
+
+    match Commands.parse "diagnostics" with
+    | Ready Command.Diagnostics -> ()
+    | other -> failwith $"expected Ready Diagnostics, got %A{other}"
+
+[<Fact>]
+let ``:diagnostics opens the location picker over the active buffer's diagnostics`` () =
+    let model = openedModel ()
+
+    let published, _ =
+        Editor.update
+            (LspDiagnosticsPublished("/root/main.sema", [ diagnostic LspDiagnosticSeverity.Error "boom" ]))
+            model
+
+    let next, _ = typeAndRun "diagnostics" published
+    next.Prompt.Session |> should equal PromptSessionKind.LocationsSession
+
+    match next.Lsp.Locations with
+    | Some set ->
+        set.Title |> should equal "Diagnostics"
+
+        set.Entries
+        |> List.map (fun entry -> entry.Preview)
+        |> should equal [ "error: boom" ]
+    | None -> failwith "expected a location set"
+
+[<Fact>]
+let ``bare :lsp opens the manager and 'e' disables the selected server`` () =
+    let manager, _ = typeAndRun "lsp" (initModel ())
+    manager.Prompt.Active |> should equal true
+    manager.Prompt.Session |> should equal PromptSessionKind.LanguageServersSession
+    manager.Prompt.SelectedItemId |> should equal (Some "sema")
+
+    let after, effects = Editor.update (KeyPressed(chr 'e')) manager
+    after.Config.DisabledLanguageServers |> Set.contains "sema" |> should equal true
+
+    effects
+    |> List.exists (fun effect ->
+        match effect with
+        | SaveConfig _ -> true
+        | _ -> false)
+    |> should equal true
+
+    effects
+    |> List.exists (fun effect ->
+        match effect with
+        | LspRestart(Some "sema") -> true
+        | _ -> false)
+    |> should equal true
+
+[<Fact>]
+let ``:lsp restart tears the server down before re-opening its documents`` () =
+    let model = openedModel ()
+    let _, effects = typeAndRun "lsp restart sema" model
+
+    let restartIndex =
+        effects
+        |> List.tryFindIndex (fun effect ->
+            match effect with
+            | LspRestart(Some "sema") -> true
+            | _ -> false)
+
+    let reopenIndex =
+        effects
+        |> List.tryFindIndex (fun effect ->
+            match effect with
+            | LspSyncDocuments(_, [ document ]) -> document.Path = "/root/main.sema"
+            | _ -> false)
+
+    match restartIndex, reopenIndex with
+    | Some restart, Some reopen -> restart |> should be (lessThan reopen)
+    | other -> failwith $"expected both a restart and a re-opening sync, got %A{other}"

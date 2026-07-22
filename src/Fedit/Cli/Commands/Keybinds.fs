@@ -70,6 +70,10 @@ let actionMeta (action: Action) : string * string =
     | OpenConfig -> "config", "Open the config directory"
     | ReloadKeybinds -> "config", "Reload the user keybinds file"
     | RunPlugin _ -> "plugin", "Run a plugin command"
+    | GotoDefinition -> "lsp", "Jump to the symbol's definition"
+    | FindReferences -> "lsp", "List references to the symbol"
+    | Hover -> "lsp", "Show hover info for the symbol"
+    | JumpBack -> "lsp", "Return to where the last jump left from"
     | RevealSidebar -> "panel", "Reveal the sidebar"
     | HideSidebar -> "panel", "Hide the sidebar"
     | ToggleSidebar -> "panel", "Toggle the sidebar"
@@ -141,6 +145,10 @@ let allActions: Action list =
       OpenConfig
       ReloadKeybinds
       RunPlugin("", "", "")
+      GotoDefinition
+      FindReferences
+      Hover
+      JumpBack
       RevealSidebar
       HideSidebar
       ToggleSidebar

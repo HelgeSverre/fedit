@@ -16,12 +16,14 @@ module Editor =
         | Buffers -> PromptSessionKind.BufferSwitchSession
 
     /// True for picker sessions that display a scrollable list
-    /// (plugins, macros, keybindings).
+    /// (plugins, macros, keybindings, LSP locations/servers).
     let private isPromptListSession =
         function
         | PromptSessionKind.PluginsSession
         | PromptSessionKind.MacrosSession
-        | PromptSessionKind.KeybindingsSession -> true
+        | PromptSessionKind.KeybindingsSession
+        | PromptSessionKind.LocationsSession
+        | PromptSessionKind.LanguageServersSession -> true
         | _ -> false
 
     let private emptyPrompt =
@@ -134,6 +136,19 @@ module Editor =
     /// the effect interpreter owns the actual tree-sitter work.
     let private languageFor (buffer: BufferState) =
         Highlight.detectLanguage buffer.FilePath (Buffer.line 0 buffer)
+
+    /// The enabled language server owning `path`, if any: extension match
+    /// over the configured servers minus the disabled set. Shared by the
+    /// document-sync chokepoint and every position request.
+    let private enabledLanguageServerFor (config: Config) (path: string) =
+        LanguageServers.serverForFile config.LanguageServers path
+        |> Option.filter (fun server -> not (Set.contains server.Name config.DisabledLanguageServers))
+
+    /// v1 languageId decision: the server config's first FileType extension
+    /// (fallback: the server name). Documented on
+    /// `LspDocumentSync.LanguageId`.
+    let private languageIdFor (server: LanguageServerConfig) =
+        server.FileTypes |> List.tryHead |> Option.defaultValue server.Name
 
     let private updateActiveBuffer transform model =
         let transformed = activeBufferState model |> transform
@@ -256,6 +271,7 @@ module Editor =
               Recent = model.Config.Recent
               Buffers = buffersForCompletion
               Themes = Themes.merge model.UserThemes
+              LanguageServers = model.Config.LanguageServers |> List.map (fun server -> server.Name)
               CompletionLimit = model.Config.CompletionLimit }
             query
 
@@ -598,6 +614,183 @@ module Editor =
 
     let private openPreview (path: string) (model: Model) : Model * Effect list = openPreviewAt None path model
 
+    // ── LSP navigation: jump stack, location picker, server management ──
+
+    /// Remember the current location (path + cursor) on the jump stack,
+    /// newest first, capped at 50. Scratch buffers are not recorded — there
+    /// is no path to return to.
+    let private pushJump (model: Model) : Model =
+        let buffer = activeBufferState model
+
+        match buffer.FilePath with
+        | Some path ->
+            { model with
+                JumpStack = (path, buffer.Cursor) :: model.JumpStack |> List.truncate 50 }
+        | None -> model
+
+    /// Land on `path` at `position`: move in place when the active buffer
+    /// already holds the path, activate an already-open buffer, or load the
+    /// file with the target threaded through (the `OpenFileAt` primitive).
+    /// Does NOT push the jump stack — callers decide (`jump-back` must not
+    /// re-push what it just popped).
+    let private jumpToLocation (path: string) (position: Position) (model: Model) : Model * Effect list =
+        if (activeBufferState model).FilePath = Some path then
+            { applyTarget (Some position) model with
+                Focus = Editor },
+            []
+        else
+            match tryActivateExisting path model with
+            | Some activated -> applyTarget (Some position) activated, []
+            | None -> { model with Focus = Editor }, [ LoadFile(path, OpenPermanent, Some position) ]
+
+    let private severityLabel (severity: LspDiagnosticSeverity) =
+        match severity with
+        | LspDiagnosticSeverity.Error -> "error"
+        | LspDiagnosticSeverity.Warning -> "warning"
+        | LspDiagnosticSeverity.Information -> "info"
+        | LspDiagnosticSeverity.Hint -> "hint"
+
+    /// Swap each entry's disk-read preview for the open buffer's line where
+    /// the document is open — buffer text is newer than the file mid-edit.
+    let private refreshPreviewsFromBuffers (model: Model) (entries: LspResolvedLocation list) =
+        let buffersByPath =
+            model.Editors.Buffers
+            |> Map.toList
+            |> List.choose (fun (_, buffer) -> buffer.FilePath |> Option.map (fun path -> path, buffer))
+            |> Map.ofList
+
+        entries
+        |> List.map (fun entry ->
+            match Map.tryFind entry.Path buffersByPath with
+            | Some buffer when entry.Position.Line >= 0 && entry.Position.Line < Buffer.lineCount buffer ->
+                { entry with
+                    Preview = (Buffer.line entry.Position.Line buffer).Trim() }
+            | _ -> entry)
+
+    /// Build the position-request payload for the active buffer, or explain
+    /// why one can't be made (scratch buffer, no configured server).
+    let private lspRequestForActiveBuffer (model: Model) : Result<LspPositionRequest, string> =
+        let buffer = activeBufferState model
+
+        match buffer.FilePath with
+        | None -> Result.Error "Scratch buffers have no language server."
+        | Some path ->
+            match enabledLanguageServerFor model.Config path with
+            | None -> Result.Error "No language server configured for this file type."
+            | Some server ->
+                Result.Ok
+                    { Path = path
+                      Position = buffer.Cursor
+                      EditTick = buffer.EditTick
+                      BufferId = buffer.Id
+                      Server = server
+                      WorkspaceRoot = model.Workspace.RootPath }
+
+    let private isKnownLanguageServer (name: string) (model: Model) =
+        model.Config.LanguageServers |> List.exists (fun server -> server.Name = name)
+
+    /// `LspSyncDocuments` re-opening every open document the server owns —
+    /// the resync story for `:lsp enable` / `:lsp restart` (a bare
+    /// `LspRestart` only tears clients down; respawn is lazy on the next
+    /// sync). `serverName = None` re-opens for every enabled server.
+    let private lspReopenEffects (serverName: string option) (model: Model) : Effect list =
+        let documents =
+            model.Editors.Buffers
+            |> Map.toList
+            |> List.choose (fun (_, buffer) ->
+                buffer.FilePath
+                |> Option.bind (fun path ->
+                    enabledLanguageServerFor model.Config path
+                    |> Option.filter (fun server ->
+                        match serverName with
+                        | None -> true
+                        | Some name -> server.Name = name)
+                    |> Option.map (fun server ->
+                        { Path = path
+                          Server = server
+                          LanguageId = languageIdFor server
+                          Version = buffer.EditTick
+                          Kind = LspDocumentSyncKind.Opened buffer.Document })))
+
+        match documents with
+        | [] -> []
+        | documents -> [ LspSyncDocuments(model.Workspace.RootPath, documents) ]
+
+    /// Tear down one server's clients (or all) and re-open their documents.
+    /// Order matters: the effects chain in dispatch order on the Runtime's
+    /// LSP task, so the shutdown always lands before the re-opening sync.
+    let private restartLanguageServers (serverName: string option) (model: Model) : Model * Effect list =
+        let label = serverName |> Option.defaultValue "all language servers"
+
+        notify (Some(Notification.info $"Restarting {label}…")) model,
+        LspRestart serverName :: lspReopenEffects serverName model
+
+    /// Toggle a server's enabled state in config, persist, and reconnect or
+    /// tear down. Shared by `:lsp enable/disable` and the manager picker
+    /// (the `setPluginDisabled` pattern).
+    let private setLanguageServerDisabled (disabled: bool) (name: string) (model: Model) : Model * Effect list =
+        if not (isKnownLanguageServer name model) then
+            notify (Some(Notification.error $"Unknown language server '{name}'.")) model, []
+        else
+            let nextDisabledSet =
+                if disabled then
+                    Set.add name model.Config.DisabledLanguageServers
+                else
+                    Set.remove name model.Config.DisabledLanguageServers
+
+            let nextConfig =
+                { model.Config with
+                    DisabledLanguageServers = nextDisabledSet }
+
+            // Disabling also drops the server's published diagnostics so the
+            // status segment doesn't keep counting a server that is gone.
+            let nextDiagnostics =
+                if disabled then
+                    model.Lsp.Diagnostics
+                    |> Map.filter (fun path _ ->
+                        match LanguageServers.serverForFile nextConfig.LanguageServers path with
+                        | Some server -> server.Name <> name
+                        | None -> true)
+                else
+                    model.Lsp.Diagnostics
+
+            let next =
+                { model with
+                    Config = nextConfig
+                    Lsp =
+                        { model.Lsp with
+                            Diagnostics = nextDiagnostics } }
+                |> notify (
+                    Some(
+                        Notification.info (
+                            if disabled then
+                                $"Disabled '{name}'."
+                            else
+                                $"Enabled '{name}'."
+                        )
+                    )
+                )
+
+            let connectionEffects =
+                if disabled then
+                    [ LspRestart(Some name) ]
+                else
+                    lspReopenEffects (Some name) next
+
+            next, SaveConfig nextConfig :: connectionEffects
+
+    /// Open the location picker (definitions / references / diagnostics)
+    /// over `entries`, as given: definition/references callers refresh
+    /// previews from open buffers first; diagnostics carry their own
+    /// severity + message preview which must not be overwritten.
+    let private openLocationPicker (title: string) (entries: LspResolvedLocation list) (model: Model) =
+        openPromptSession
+            PromptSessionKind.LocationsSession
+            { model with
+                Lsp =
+                    { model.Lsp with
+                        Locations = Some { Title = title; Entries = entries } } }
+
     /// Build a read-only snapshot of the world for a plugin command. The
     /// plugin sees text, cursor, file path, all open buffers, and the
     /// workspace root — never any mutable handle into the host's model.
@@ -911,6 +1104,51 @@ module Editor =
             match trySelectedRegister model pickerState with
             | Some register -> clearPickerMacro register model pickerState
             | None -> model, Some pickerState, []
+        | LocationPicker, PickerActionId.LocationJump ->
+            // The item Id is the entry's index into the model's location
+            // set; resolve it back to a path + position and jump, pushing
+            // the origin onto the jump stack.
+            let entry =
+                trySelectedItem model pickerState
+                |> Option.bind (fun item ->
+                    match Int32.TryParse item.Id with
+                    | true, index -> model.Lsp.Locations |> Option.bind (fun set -> List.tryItem index set.Entries)
+                    | _ -> None)
+
+            match entry with
+            | Some entry ->
+                let next, effects = jumpToLocation entry.Path entry.Position (pushJump model)
+                next, None, effects
+            | None -> model, Some pickerState, []
+        | LanguageServerPicker, PickerActionId.LanguageServerRestart ->
+            match trySelectedItem model pickerState with
+            | Some item ->
+                let next, effects = restartLanguageServers (Some item.Id) model
+
+                next,
+                Some
+                    { pickerState with
+                        PendingConfirmation = None },
+                effects
+            | None -> model, Some pickerState, []
+        | LanguageServerPicker, PickerActionId.LanguageServerToggle ->
+            match trySelectedItem model pickerState with
+            | Some item ->
+                let currentlyDisabled = Set.contains item.Id model.Config.DisabledLanguageServers
+                let next, effects = setLanguageServerDisabled (not currentlyDisabled) item.Id model
+
+                let nextPicker =
+                    { pickerState with
+                        PendingConfirmation = None }
+                    |> Pickers.clampSelection next
+
+                next, Some nextPicker, effects
+            | None -> model, Some pickerState, []
+        | LanguageServerPicker, PickerActionId.LanguageServerLog ->
+            // Close the picker so the fetched log's dock panel is visible.
+            match trySelectedItem model pickerState with
+            | Some item -> model, None, [ LspFetchLog(Some item.Id) ]
+            | None -> model, Some pickerState, []
         | _ -> model, Some pickerState, []
 
     /// Toggle a plugin's enabled state in config, persist, and rescan. Used by
@@ -1180,6 +1418,57 @@ module Editor =
                     let body = Chord.renderStroke stroke + "  " + String.concat "  " parts
                     notify (Some(Notification.info body)) model, []
 
+        | Command.Lsp(verb, argument) ->
+            match verb with
+            | "" -> openPromptSession PromptSessionKind.LanguageServersSession model
+            | "status" ->
+                let summary =
+                    model.Config.LanguageServers
+                    |> List.map (fun server ->
+                        let label =
+                            LspState.statusLabel model.Config.DisabledLanguageServers model.Lsp server.Name
+
+                        $"{server.Name}: {label}")
+                    |> String.concat "  "
+
+                notify (Some(Notification.info summary)) model, []
+            | "restart" ->
+                if argument = "" then
+                    restartLanguageServers None model
+                elif isKnownLanguageServer argument model then
+                    restartLanguageServers (Some argument) model
+                else
+                    notify (Some(Notification.error $"Unknown language server '{argument}'.")) model, []
+            | "enable" -> setLanguageServerDisabled false argument model
+            | "disable" -> setLanguageServerDisabled true argument model
+            | "log" ->
+                if argument = "" then
+                    model, [ LspFetchLog None ]
+                elif isKnownLanguageServer argument model then
+                    model, [ LspFetchLog(Some argument) ]
+                else
+                    notify (Some(Notification.error $"Unknown language server '{argument}'.")) model, []
+            | other -> notify (Some(Notification.error $"Unknown lsp verb '{other}'.")) model, []
+
+        | Command.Diagnostics ->
+            let buffer = activeBufferState model
+
+            match buffer.FilePath with
+            | None -> notify (Some(Notification.info "Scratch buffers have no diagnostics.")) model, []
+            | Some path ->
+                match Map.tryFind path model.Lsp.Diagnostics |> Option.defaultValue [] with
+                | [] -> notify (Some(Notification.info "No diagnostics for this file.")) model, []
+                | diagnostics ->
+                    let entries =
+                        diagnostics
+                        |> List.sortBy (fun diagnostic -> diagnostic.Range.Start.Line, diagnostic.Range.Start.Character)
+                        |> List.map (fun diagnostic ->
+                            { Path = path
+                              Position = LspPosition.toPosition diagnostic.Range.Start
+                              Preview = $"{severityLabel diagnostic.Severity}: {diagnostic.Message}" })
+
+                    openLocationPicker "Diagnostics" entries model
+
         | PluginInvoke(source, name, _argument) ->
             match model.Plugins.Commands.TryFind name with
             | Some binding when binding.Source = source ->
@@ -1412,6 +1701,24 @@ module Editor =
         | RunPlugin(source, name, arg) -> executeCommand (Command.PluginInvoke(source, name, arg)) model
 
         | ReloadKeybinds -> model, [ LoadKeybinds ]
+
+        // ── LSP navigation ──
+        | GotoDefinition ->
+            match lspRequestForActiveBuffer model with
+            | Result.Ok request -> model, [ LspRequestDefinition request ]
+            | Result.Error reason -> notify (Some(Notification.warning reason)) model, []
+        | FindReferences ->
+            match lspRequestForActiveBuffer model with
+            | Result.Ok request -> model, [ LspRequestReferences request ]
+            | Result.Error reason -> notify (Some(Notification.warning reason)) model, []
+        | Hover ->
+            match lspRequestForActiveBuffer model with
+            | Result.Ok request -> model, [ LspRequestHover request ]
+            | Result.Error reason -> notify (Some(Notification.warning reason)) model, []
+        | JumpBack ->
+            match model.JumpStack with
+            | [] -> notify (Some(Notification.info "Jump list is empty.")) model, []
+            | (path, position) :: rest -> jumpToLocation path position { model with JumpStack = rest }
 
         // ── macros ──
         | RecordMacro register ->
@@ -1699,6 +2006,9 @@ module Editor =
                 | PickerKind.PluginPicker -> Set.ofList [ 'e'; 'd'; 'r'; 'u' ]
                 | PickerKind.MacroPicker -> Set.ofList [ 'r'; 'm'; 'c' ]
                 | PickerKind.KeyBindingPicker -> Set.empty
+                // Enter-only: typed characters stay filter input.
+                | PickerKind.LocationPicker -> Set.empty
+                | PickerKind.LanguageServerPicker -> Set.ofList [ 'r'; 'e'; 'l' ]
 
             let hasActions =
                 match kind with
@@ -1869,7 +2179,8 @@ module Editor =
           Replaying = false
           LastMacro = None
           MouseDrag = None
-          Lsp = LspState.empty },
+          Lsp = LspState.empty
+          JumpStack = [] },
         startupEffects
 
     let init rootPath size config userThemes =
@@ -2124,6 +2435,64 @@ module Editor =
                     { model.Lsp with
                         Diagnostics = nextDiagnostics } },
             []
+        | LspDefinitionResolved(outcome, requestedEditTick, bufferId) ->
+            // Positions were computed against the request-time revision; a
+            // moved-on buffer (or a vanished one) invalidates them — the
+            // HighlightParsed stale guard.
+            match Map.tryFind bufferId model.Editors.Buffers with
+            | Some buffer when buffer.EditTick = requestedEditTick ->
+                match outcome with
+                | Result.Error message -> notify (Some(Notification.error $"Definition failed: {message}")) model, []
+                | Result.Ok [] -> notify (Some(Notification.info "No definition found.")) model, []
+                | Result.Ok [ location ] -> jumpToLocation location.Path location.Position (pushJump model)
+                | Result.Ok locations ->
+                    openLocationPicker "Definitions" (refreshPreviewsFromBuffers model locations) model
+            | _ -> model, []
+        | LspReferencesResolved(outcome, requestedEditTick, bufferId) ->
+            match Map.tryFind bufferId model.Editors.Buffers with
+            | Some buffer when buffer.EditTick = requestedEditTick ->
+                match outcome with
+                | Result.Error message -> notify (Some(Notification.error $"References failed: {message}")) model, []
+                | Result.Ok [] -> notify (Some(Notification.info "No references found.")) model, []
+                | Result.Ok locations ->
+                    openLocationPicker "References" (refreshPreviewsFromBuffers model locations) model
+            | _ -> model, []
+        | LspHoverResolved(outcome, requestedEditTick, bufferId) ->
+            match Map.tryFind bufferId model.Editors.Buffers with
+            | Some buffer when buffer.EditTick = requestedEditTick ->
+                match outcome with
+                | Result.Error message -> notify (Some(Notification.error $"Hover failed: {message}")) model, []
+                | Result.Ok [] -> notify (Some(Notification.info "No hover info.")) model, []
+                | Result.Ok lines ->
+                    // View truncates to the dock height; the next keypress
+                    // dismisses (KeyPressed chokepoint).
+                    { model with
+                        Lsp =
+                            { model.Lsp with
+                                Panel = Some { Title = "Hover"; Lines = lines } } },
+                    []
+            | _ -> model, []
+        | LspLogFetched(title, lines) ->
+            // Keep the tail: DockInfo paints top-down, and the newest log
+            // lines are the ones worth reading.
+            let visible = max 1 (model.Panels.DockHeight - 1)
+
+            let tail =
+                if lines.Length > visible then
+                    List.skip (lines.Length - visible) lines
+                else
+                    lines
+
+            let panelLines =
+                match tail with
+                | [] -> [ "(log is empty)" ]
+                | _ -> tail
+
+            { model with
+                Lsp =
+                    { model.Lsp with
+                        Panel = Some { Title = title; Lines = panelLines } } },
+            []
         | SearchCompleted(bufferId, query, matches) ->
             // Drop stale results: prompt may have closed, mode changed, query
             // moved on, or the active buffer switched while the effect ran.
@@ -2330,7 +2699,22 @@ module Editor =
         | MouseReleased _event -> { model with MouseDrag = None }, []
         | FocusGained -> model, []
         | FocusLost -> model, []
+        | KeyPressed chord when model.Lsp.Panel.IsSome && chord = kEscape ->
+            // Escape only dismisses the transient LSP info panel (hover,
+            // `:lsp log`) — consumed, no fallthrough.
+            { model with
+                Lsp = { model.Lsp with Panel = None } },
+            []
         | KeyPressed chord ->
+            // Any other keypress dismisses the transient panel AND performs
+            // its normal action (the notification-clearing convention).
+            let model =
+                match model.Lsp.Panel with
+                | Some _ ->
+                    { model with
+                        Lsp = { model.Lsp with Panel = None } }
+                | None -> model
+
             if model.Focus = Prompt && isPromptListSession model.Prompt.Session then
                 runPrompt chord model
             else
@@ -2499,14 +2883,7 @@ module Editor =
     /// (`LspRestart`, `:lsp`) is the resync story.
     let private lspSyncEffects (before: Model) (after: Model) : Effect list =
         let enabledServerFor (path: string) =
-            LanguageServers.serverForFile after.Config.LanguageServers path
-            |> Option.filter (fun server -> not (Set.contains server.Name after.Config.DisabledLanguageServers))
-
-        // v1 languageId decision: the server config's first FileType
-        // extension (fallback: the server name). Documented on
-        // `LspDocumentSync.LanguageId`.
-        let languageIdFor (server: LanguageServerConfig) =
-            server.FileTypes |> List.tryHead |> Option.defaultValue server.Name
+            enabledLanguageServerFor after.Config path
 
         let documentsOf (model: Model) =
             model.Editors.Buffers

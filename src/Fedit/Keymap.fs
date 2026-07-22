@@ -105,6 +105,17 @@ module Keymap =
           single (chord [ Alt ] (Named Up)) (MoveLinesUp 1)
           single (chord [ Alt ] (Named Down)) (MoveLinesDown 1)
 
+          // ── LSP navigation (Context.Editor) ──
+          // F12 / Shift+F12 match the VSCode convention and were unbound.
+          // Hover is F1: VSCode's ctrl+k ctrl+i would make bare ctrl+k a
+          // sequence prefix and silently shadow plugin/user ctrl+k chords.
+          // Jump-back is alt+minus: ctrl+o (helix's choice) is taken by
+          // the file picker.
+          single (chord [] (Fn 12)) GotoDefinition
+          single (chord [ Shift ] (Fn 12)) FindReferences
+          single (chord [ Alt ] (Key.Char '-')) JumpBack
+          single (chord [] (Fn 1)) Hover
+
           // ── macros: modifier chords only (bare Char is reserved for text) ──
           single (chord [ Ctrl; Shift ] (Key.Char 'm')) (RecordMacro 'a')
           single (chord [ Ctrl; Shift ] (Key.Char 'r')) (ReplayMacro('a', 1))
@@ -326,6 +337,10 @@ module Keymap =
                 | Some line, Some col -> Ok(Goto(line, Some col))
                 | _ -> Result.Error "goto needs LINE or LINE:COL numbers"
             | _ -> Result.Error "goto: bad argument"
+        | "goto-definition" -> Ok GotoDefinition
+        | "find-references" -> Ok FindReferences
+        | "hover" -> Ok Hover
+        | "jump-back" -> Ok JumpBack
         | "reload-workspace" -> Ok ReloadWorkspace
         | "reload-keybinds" -> Ok ReloadKeybinds
         | "open-config" -> Ok OpenConfig

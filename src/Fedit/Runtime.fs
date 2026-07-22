@@ -98,6 +98,19 @@ module Runtime =
         | LspServerStatus.Failed reason -> $"Failed({reason})"
         | LspServerStatus.Stopped -> "Stopped"
 
+    let private renderLocationsResult (result: Result<LspResolvedLocation list, string>) =
+        match result with
+        | Result.Ok locations -> $"Ok(count={locations.Length})"
+        | Result.Error error -> $"Error({error})"
+
+    let private renderHoverResult (result: Result<string list, string>) =
+        match result with
+        | Result.Ok lines -> $"Ok(lines={lines.Length})"
+        | Result.Error error -> $"Error({error})"
+
+    let private renderLspPositionRequest (request: LspPositionRequest) =
+        $"{request.Path}:{request.Position.Line}:{request.Position.Column}, tick={request.EditTick}, buffer={request.BufferId}"
+
     // NOTE: every case is rendered explicitly — there is deliberately NO `_`
     // catch-all. A wildcard would have to interpolate the bare DU (`$"{msg}"`),
     // which F# lowers to reflective structured printing — fine under JIT but a
@@ -148,6 +161,13 @@ module Runtime =
         | KeybindsLoaded(_, errors) -> $"KeybindsLoaded(errors={errors.Length})"
         | LspServerStatusChanged(name, status) -> $"LspServerStatusChanged({name}, {renderLspServerStatus status})"
         | LspDiagnosticsPublished(path, diagnostics) -> $"LspDiagnosticsPublished({path}, count={diagnostics.Length})"
+        | LspDefinitionResolved(outcome, requestedEditTick, bufferId) ->
+            $"LspDefinitionResolved(buffer={bufferId}, tick={requestedEditTick}, {renderLocationsResult outcome})"
+        | LspReferencesResolved(outcome, requestedEditTick, bufferId) ->
+            $"LspReferencesResolved(buffer={bufferId}, tick={requestedEditTick}, {renderLocationsResult outcome})"
+        | LspHoverResolved(outcome, requestedEditTick, bufferId) ->
+            $"LspHoverResolved(buffer={bufferId}, tick={requestedEditTick}, {renderHoverResult outcome})"
+        | LspLogFetched(title, lines) -> $"LspLogFetched({title}, lines={lines.Length})"
 
     let private renderEffect effect =
         match effect with
@@ -180,6 +200,16 @@ module Runtime =
                 | None -> "all"
 
             $"LspRestart({target})"
+        | LspRequestDefinition request -> $"LspRequestDefinition({renderLspPositionRequest request})"
+        | LspRequestHover request -> $"LspRequestHover({renderLspPositionRequest request})"
+        | LspRequestReferences request -> $"LspRequestReferences({renderLspPositionRequest request})"
+        | LspFetchLog name ->
+            let target =
+                match name with
+                | Some serverName -> serverName
+                | None -> "all"
+
+            $"LspFetchLog({target})"
 
     /// Build a FileNode, using the basename (or full path when the name is
     /// empty). Paths are canonicalized to `/` here — this is the OS boundary
@@ -338,6 +368,50 @@ module Runtime =
                     let client = LspClient.create server rootPath callbacks
                     lspClients[key] <- client
                     client)
+
+        /// Resolve the client owning a position request (get-or-spawn, same
+        /// root resolution as document sync).
+        let lspClientForRequest (request: LspPositionRequest) : LspClient =
+            let rootPath =
+                LanguageServers.findWorkspaceRoot
+                    lspMarkerExists
+                    request.Server.RootMarkers
+                    request.Path
+                    request.WorkspaceRoot
+
+            lspClientFor request.Server rootPath
+
+        /// One preview line off disk for the location picker. The update
+        /// layer swaps in the open buffer's line where the document is open;
+        /// this covers everything else (unopened files, indexed workspace).
+        let lspPreviewLine (path: string) (lineIndex: int) : string =
+            try
+                use reader = new StreamReader(path)
+                let mutable current = reader.ReadLine()
+                let mutable index = 0
+
+                while index < lineIndex && current <> null do
+                    current <- reader.ReadLine()
+                    index <- index + 1
+
+                match current with
+                | null -> ""
+                | line -> line.Trim()
+            with _ ->
+                ""
+
+        /// URI -> canonical path + preview line, dropping non-file URIs.
+        /// Involves disk reads, so callers run it off the reader thread.
+        let lspResolveLocations (locations: LspLocation list) : LspResolvedLocation list =
+            locations
+            |> List.choose (fun location ->
+                LspUri.toPath location.Uri
+                |> Option.map (fun path ->
+                    let position = LspPosition.toPosition location.Range.Start
+
+                    { Path = path
+                      Position = position
+                      Preview = lspPreviewLine path position.Line }))
 
         let cancelAndReplace (existing: CancellationTokenSource option) =
             existing
@@ -699,6 +773,81 @@ module Runtime =
                             client.Shutdown()
                         with ex ->
                             log $"lsp: shutdown failed for {client.Config.Name}: {ex.Message}")
+            | LspRequestDefinition request ->
+                // Chained after any pending document sync so the server sees
+                // the request-time text. The reply callback runs on the
+                // client's reader thread; the URI->path + preview-line
+                // enrichment does disk reads, so it hops to the pool first.
+                lspContinueWith (fun () ->
+                    let client = lspClientForRequest request
+
+                    client.SendDefinition(
+                        request.Path,
+                        request.Position,
+                        fun outcome ->
+                            Task.Run(fun () ->
+                                queue.Enqueue(
+                                    LspDefinitionResolved(
+                                        Result.map lspResolveLocations outcome,
+                                        request.EditTick,
+                                        request.BufferId
+                                    )
+                                ))
+                            |> ignore
+                    ))
+            | LspRequestReferences request ->
+                lspContinueWith (fun () ->
+                    let client = lspClientForRequest request
+
+                    client.SendReferences(
+                        request.Path,
+                        request.Position,
+                        fun outcome ->
+                            Task.Run(fun () ->
+                                queue.Enqueue(
+                                    LspReferencesResolved(
+                                        Result.map lspResolveLocations outcome,
+                                        request.EditTick,
+                                        request.BufferId
+                                    )
+                                ))
+                            |> ignore
+                    ))
+            | LspRequestHover request ->
+                lspContinueWith (fun () ->
+                    let client = lspClientForRequest request
+
+                    client.SendHover(
+                        request.Path,
+                        request.Position,
+                        fun outcome -> queue.Enqueue(LspHoverResolved(outcome, request.EditTick, request.BufferId))
+                    ))
+            | LspFetchLog name ->
+                Task.Run(fun () ->
+                    let clients =
+                        lock lspLock (fun () ->
+                            [ for KeyValue(_, client) in lspClients do
+                                  match name with
+                                  | None -> yield client
+                                  | Some serverName when client.Config.Name = serverName -> yield client
+                                  | Some _ -> () ])
+
+                    let title =
+                        match name with
+                        | Some serverName -> $"LSP log — {serverName}"
+                        | None -> "LSP log"
+
+                    let lines =
+                        match clients with
+                        | [] -> [ "No running language-server client." ]
+                        | [ client ] -> client.RecentLog()
+                        | many ->
+                            many
+                            |> List.collect (fun client ->
+                                client.RecentLog() |> List.map (fun line -> $"[{client.Config.Name}] {line}"))
+
+                    queue.Enqueue(LspLogFetched(title, lines)))
+                |> ignore
 
         // The pure update layer records only the pending chords; the
         // wall-clock deadline lives here so `update` stays deterministic.

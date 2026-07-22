@@ -95,6 +95,8 @@ module Layout =
         | PromptSessionKind.PluginsSession -> "Plugins: "
         | PromptSessionKind.MacrosSession -> "Macros: "
         | PromptSessionKind.KeybindingsSession -> "Keybindings: "
+        | PromptSessionKind.LocationsSession -> "Locations: "
+        | PromptSessionKind.LanguageServersSession -> "Language servers: "
         | _ -> ""
 
     let private pad width (text: string) =

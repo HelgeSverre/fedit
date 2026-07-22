@@ -199,6 +199,58 @@ RID or `just build-grammars-all` for all five. The compiled `.dylib` /
 `.so` / `.dll` files are not tracked — CI builds the matching RID on
 each matrix leg.
 
+## Language servers
+
+`fedit` speaks the Language Server Protocol over stdio. Three servers are
+configured out of the box — `sema` (`sema lsp`), `typescript`
+(`typescript-language-server --stdio`), and `rust` (`rust-analyzer`) — and
+start on demand when a matching file opens. Diagnostics render as compact
+severity counts in the status bar (`E2 W1`); `:diagnostics` opens them in
+a picker whose `Enter` jumps to the offending line.
+
+Navigate from the editor:
+
+- `F12` jumps to the symbol's definition; multiple candidates open a picker.
+- `Shift+F12` lists references in a picker — `Enter` jumps, `Esc` closes.
+- `F1` shows hover info in the dock panel; the next keypress dismisses it.
+- `Alt+-` jumps back to where the last jump left from (a 50-entry stack).
+
+The chords map to the `goto-definition`, `find-references`, `hover`, and
+`jump-back` actions — rebindable in `~/.config/fedit/keybinds` like
+everything else.
+
+Manage servers with `:lsp`:
+
+- `:lsp` opens the manager picker — a status badge per server; `r`
+  restarts, `e` enables/disables, `l` shows the server's recent log.
+- `:lsp status` prints one status word per configured server.
+- `:lsp restart [server]` restarts one server (or all) and re-opens its
+  documents.
+- `:lsp enable <server>` / `:lsp disable <server>` toggle a server and
+  persist the choice to config under `disabledLanguageServers`.
+- `:lsp log [server]` shows the recent stderr ring in the dock.
+
+Add or override servers with a `languageServers` block in
+`~/.config/fedit/config.json` — a user entry with a default's name
+replaces it entirely:
+
+```json
+{
+    "languageServers": {
+        "gopls": {
+            "command": "gopls",
+            "args": [],
+            "fileTypes": ["go"],
+            "roots": ["go.mod"]
+        }
+    },
+    "disabledLanguageServers": ["typescript"]
+}
+```
+
+Full guide — config schema, architecture, troubleshooting — in
+[docs/lsp.md](docs/lsp.md).
+
 ## Plugins
 
 `fedit` supports third-party plugins written in F#. Plugins register
@@ -246,6 +298,8 @@ Editor keys:
 - `Ctrl+V` pastes from the system clipboard.
 - `Tab` indents the current line.
 - `Shift+Tab` unindents the current line.
+- `F12` / `Shift+F12` jump to the symbol's definition / list its references (needs a language server — see [Language servers](#language-servers)).
+- `F1` shows hover info in the dock; `Alt+-` jumps back to where the last jump left from.
 - `Enter`, `Backspace`, and `Delete` edit text normally; with a selection, they replace it.
 - The mouse wheel scrolls the viewport; the cursor follows only when it would cross the `scrollOff` margin. Set `scrollMode` to `line` to make the wheel move the cursor instead. While fedit runs it captures the mouse — hold `Shift` (or `Option` on macOS) for the terminal's own selection and scrollback.
 - **Click** in the editor to place the cursor. **Drag** to select text. Clicking also restores focus to the editor when the sidebar or prompt had it.
@@ -303,6 +357,8 @@ Named commands (typed after `:`):
 - `plugins`: Open the plugin manager picker.
 - `macros`: Open the macro manager picker.
 - `keybind [reload | <stroke>]`: List the effective keybindings, reload the keybinds file (`keybind reload`), or show what a stroke resolves to in each context (`keybind ctrl+s`).
+- `lsp [status|restart|enable|disable|log] [server]`: Manage language servers; bare `lsp` opens the manager picker. See [Language servers](#language-servers).
+- `diagnostics`: List the active buffer's language-server diagnostics in a picker; `Enter` jumps to the line.
 
 A few keyboard-first verbs (`sidebar`, `tree`, `editor`) still parse if typed, but are hidden from the completion menu since `Ctrl+B` / `Ctrl+E` cover the same ground more richly.
 

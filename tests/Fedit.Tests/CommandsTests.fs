@@ -124,6 +124,7 @@ let ``completionLimit caps file completions`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 2 }
 
     let comps = Commands.completions ctx "open "
@@ -142,6 +143,7 @@ let ``completions for theme prefix return matches`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx "theme g"
@@ -155,6 +157,7 @@ let ``completions for empty input list all command names`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx ""
@@ -174,6 +177,7 @@ let ``hidden commands stay parseable but never appear in completions`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx ""
@@ -232,6 +236,7 @@ let ``syntax completions suggest on/off/toggle`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 8 }
 
     let comps = Commands.completions ctx "syntax "
@@ -258,6 +263,7 @@ let ``plugins and macros appear in command completions`` () =
           Recent = []
           Buffers = []
           Themes = Themes.all
+          LanguageServers = []
           CompletionLimit = 32 }
 
     let labels = Commands.completions ctx "" |> List.map _.Label

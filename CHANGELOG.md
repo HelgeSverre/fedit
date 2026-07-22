@@ -3,6 +3,12 @@
 Historical record of work shipped to date. Active work and future ideas
 live in [`TODO.md`](TODO.md).
 
+## Unreleased
+
+| Phase | What landed |
+| ----: | ----------- |
+| LSP | Language Server Protocol client over stdio. Hand-rolled JSON-RPC wire (`LspWire`, Utf8JsonWriter/JsonDocument — NativeAOT-safe) under Content-Length framing; one out-of-process client per server + workspace root; full-text document sync driven by a per-dispatch diff chokepoint (`lspSyncEffects`, the `highlightEffects` sibling). Built-in server registry (`sema`, `typescript`, `rust`) merged with a user `languageServers` config block; `disabledLanguageServers` persists toggles. Diagnostics land in the status bar as severity counts (`[DIAGNOSTICS]`, e.g. `E2 W1`) and in a `:diagnostics` picker. Navigation: goto-definition (`F12`), find-references (`Shift+F12`), hover in the dock (`F1`), and jump-back (`Alt+-`) over a 50-entry jump stack; multi-result definitions and references open a location picker (`relativePath:line:` + preview rows, `Enter` jumps). `:lsp` manages servers — `status`, `restart`, `enable`, `disable`, `log` verbs plus a manager picker with per-server status badges. Every position-carrying response is stale-guarded by `EditTick` (the `HighlightParsed` precedent). fedit and LSP both index by 0-based line + UTF-16 code unit, so positions cross the wire unconverted. Covered by pure update tests and an end-to-end `sema lsp` round-trip (definition, hover, references, diagnostics, shutdown). |
+
 ## Shipped
 
 | Phase | What landed                                                                                                                                                                           |

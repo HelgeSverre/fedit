@@ -83,6 +83,7 @@ let ``sema lsp end to end: running, definition, hover, diagnostics, shutdown`` (
 
             Assert.True client.Capabilities.DefinitionProvider
             Assert.True client.Capabilities.HoverProvider
+            Assert.True client.Capabilities.ReferencesProvider
 
             client.NotifyOpened(documentPath, "sema", 1, sourceText)
 
@@ -122,6 +123,33 @@ let ``sema lsp end to end: running, definition, hover, diagnostics, shutdown`` (
                 hoverLines <- queryHover ()
 
             Assert.False(List.isEmpty hoverLines, "hover at the usage position returned no content")
+
+            // References from the same usage position (declaration included)
+            // must resolve to at least one location in the document.
+            let queryReferences () =
+                match awaitRequest (fun reply -> client.SendReferences(documentPath, usagePosition, reply)) with
+                | Some(Result.Ok locations) -> locations
+                | _ -> []
+
+            let mutable referenceLocations = queryReferences ()
+            let referencesDeadline = DateTime.UtcNow.AddSeconds 10.0
+
+            while List.isEmpty referenceLocations && DateTime.UtcNow < referencesDeadline do
+                Thread.Sleep 200
+                referenceLocations <- queryReferences ()
+
+            match referenceLocations with
+            | [] -> Assert.Fail "references from the usage position returned no locations"
+            | locations ->
+                // Suffix match: sema canonicalizes symlinked temp paths on
+                // macOS (/var -> /private/var), so exact equality is fragile.
+                Assert.All(
+                    locations,
+                    fun location ->
+                        match LspUri.toPath location.Uri with
+                        | Some path -> Assert.EndsWith("/main.sema", path)
+                        | None -> Assert.Fail $"non-file reference URI: {location.Uri}"
+                )
 
             // A syntactically broken change must publish >= 1 diagnostic.
             client.NotifyChanged(documentPath, 2, "(defn broken (")

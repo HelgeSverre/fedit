@@ -28,6 +28,8 @@ module Dock =
         | PromptSessionKind.PluginsSession -> Some PickerKind.PluginPicker
         | PromptSessionKind.MacrosSession -> Some PickerKind.MacroPicker
         | PromptSessionKind.KeybindingsSession -> Some PickerKind.KeyBindingPicker
+        | PromptSessionKind.LocationsSession -> Some PickerKind.LocationPicker
+        | PromptSessionKind.LanguageServersSession -> Some PickerKind.LanguageServerPicker
         | _ -> None
 
     let pickerPendingOfPrompt (pending: PromptPendingConfirmation option) : PickerPendingConfirmation option =
@@ -81,7 +83,13 @@ module Dock =
 
                 DockInfo("Find", [ line ])
         else
-            NoDock
+            // The transient LSP info panel (hover, `:lsp log`) uses the dock
+            // whenever the prompt doesn't. Dismissed on the next keypress
+            // (Editor's KeyPressed chokepoint); View truncates the lines to
+            // the dock height.
+            match model.Lsp.Panel with
+            | Some panel -> DockInfo(panel.Title, panel.Lines)
+            | None -> NoDock
 
     let metrics (model: Model) : DockMetrics =
         let width = max 1 model.Terminal.Width

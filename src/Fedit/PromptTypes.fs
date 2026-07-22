@@ -11,6 +11,8 @@ type PromptSessionKind =
     | PluginsSession
     | MacrosSession
     | KeybindingsSession
+    | LocationsSession
+    | LanguageServersSession
 
 type PromptPendingConfirmation =
     { ItemId: string option

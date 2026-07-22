@@ -148,20 +148,61 @@ type MouseDragState =
     { AnchorBufferId: int
       AnchorPosition: Position }
 
+/// One landing spot produced by a definition/references response (or a
+/// diagnostic): a canonical path, a 0-based position, and a one-line
+/// preview. The interpreter reads the preview off disk; the update layer
+/// swaps in the open buffer's line where the document is open (buffer text
+/// is newer than the file mid-edit).
+type LspResolvedLocation =
+    { Path: string
+      Position: Position
+      Preview: string }
+
+/// The rows behind an open `LocationPicker` session — definitions,
+/// references, or diagnostics, distinguished only by `Title`.
+type LspLocationSet =
+    { Title: string
+      Entries: LspResolvedLocation list }
+
+/// A transient dock panel (hover text, `:lsp log`). Dismissed by the next
+/// keypress; Escape only dismisses.
+type LspInfoPanel = { Title: string; Lines: string list }
+
 /// Language-server state surfaced to the UI. Minimal by design: per-server
 /// status (keyed by server name) for the status line and the `:lsp` manager,
-/// and the latest published diagnostics per canonical file path (each
+/// the latest published diagnostics per canonical file path (each
 /// publish replaces the previous set for that path; an empty set removes
-/// the entry).
+/// the entry), the rows behind an open location picker, and the transient
+/// info panel.
 type LspState =
     { Servers: Map<string, LspServerStatus>
-      Diagnostics: Map<string, LspDiagnostic list> }
+      Diagnostics: Map<string, LspDiagnostic list>
+      Locations: LspLocationSet option
+      Panel: LspInfoPanel option }
 
 [<RequireQualifiedAccess>]
 module LspState =
     let empty: LspState =
         { Servers = Map.empty
-          Diagnostics = Map.empty }
+          Diagnostics = Map.empty
+          Locations = None
+          Panel = None }
+
+    /// Presentation label for one configured server — the user-facing status
+    /// word shared by `:lsp status` and the manager picker. The one-accent
+    /// rule keeps the status bar's diagnostics segment uniform; this label is
+    /// where severity/status color lives instead (picker badges).
+    let statusLabel (disabledServers: Set<string>) (state: LspState) (serverName: string) : string =
+        if Set.contains serverName disabledServers then
+            "disabled"
+        else
+            match Map.tryFind serverName state.Servers with
+            | Some LspServerStatus.Running -> "running"
+            | Some LspServerStatus.Starting -> "starting"
+            | Some(LspServerStatus.Failed _) -> "failed"
+            | Some LspServerStatus.Stopped -> "stopped"
+            | Some LspServerStatus.NotStarted
+            | None -> "idle"
 
 type Model =
     {
@@ -214,6 +255,9 @@ type Model =
         /// `LspSyncDocuments` interpreter's client callbacks via
         /// `LspServerStatusChanged` / `LspDiagnosticsPublished`.
         Lsp: LspState
+        /// Where each LSP jump (goto-definition, picker Enter) left from,
+        /// newest first, capped at 50. `jump-back` (alt+minus) pops.
+        JumpStack: (string * Position) list
     }
 
 /// Why a file is being loaded: a normal open, or a preview into the
@@ -250,6 +294,19 @@ type LspDocumentSync =
         Version: int
         Kind: LspDocumentSyncKind
     }
+
+/// Payload for the position-carrying LSP request effects (definition,
+/// hover, references). Carries the resolved server config and the
+/// workspace-root fallback — the `LspSyncDocuments` pattern — so the
+/// interpreter never reaches into the Model. `EditTick` and `BufferId`
+/// round-trip through the response Msg for the stale-result guard.
+type LspPositionRequest =
+    { Path: string
+      Position: Position
+      EditTick: int
+      BufferId: int
+      Server: LanguageServerConfig
+      WorkspaceRoot: string }
 
 type Msg =
     | KeyPressed of Chord
@@ -311,6 +368,23 @@ type Msg =
     /// A server pushed textDocument/publishDiagnostics: the full set for
     /// one canonical file path, replacing any previous set for that path.
     | LspDiagnosticsPublished of path: string * diagnostics: LspDiagnostic list
+    /// A definition request resolved. `requestedEditTick`/`bufferId` echo the
+    /// request; the handler drops the result when the buffer has moved on
+    /// (the `HighlightParsed` stale guard) — a position may no longer exist.
+    | LspDefinitionResolved of
+        outcome: Result<LspResolvedLocation list, string> *
+        requestedEditTick: int *
+        bufferId: int
+    /// A references request resolved (same stale guard as definition).
+    | LspReferencesResolved of
+        outcome: Result<LspResolvedLocation list, string> *
+        requestedEditTick: int *
+        bufferId: int
+    /// A hover request resolved to plain-text lines (same stale guard).
+    | LspHoverResolved of outcome: Result<string list, string> * requestedEditTick: int * bufferId: int
+    /// The recent stderr/log ring fetched from the Runtime's client
+    /// registry for `:lsp log` — shown as a transient dock panel.
+    | LspLogFetched of title: string * lines: string list
 
 type Effect =
     | ScanWorkspace of string
@@ -355,5 +429,17 @@ type Effect =
     | LspSyncDocuments of workspaceRoot: string * documents: LspDocumentSync list
     /// Shut down one server's clients (by name) or all of them (`None`).
     /// Clients respawn lazily on the next `LspSyncDocuments` that needs
-    /// them. Wired for the `:lsp` manager verbs landing in a later stage.
+    /// them; `:lsp restart/enable` pair this with a re-opening sync.
     | LspRestart of name: string option
+    /// textDocument/definition at a position. Resolves to
+    /// `LspDefinitionResolved`; the interpreter converts URIs to canonical
+    /// paths and reads one preview line per location off disk.
+    | LspRequestDefinition of LspPositionRequest
+    /// textDocument/hover at a position. Resolves to `LspHoverResolved`.
+    | LspRequestHover of LspPositionRequest
+    /// textDocument/references at a position. Resolves to
+    /// `LspReferencesResolved` (same shape as definition).
+    | LspRequestReferences of LspPositionRequest
+    /// Fetch the recent stderr/log ring from the Runtime's client registry
+    /// (one server by name, or all). Resolves to `LspLogFetched`.
+    | LspFetchLog of name: string option

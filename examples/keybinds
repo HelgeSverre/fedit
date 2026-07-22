@@ -24,6 +24,12 @@ editor  ctrl+k ctrl+s = save
 # Actions that take an argument use a trailing ":arg".
 editor  f6        = set-theme:gruvbox
 
+# LSP navigation actions (defaults: f12, shift+f12, f1, alt+-).
+# editor  f9        = goto-definition
+# editor  shift+f9  = find-references
+# editor  ctrl+k ctrl+i = hover
+# editor  alt+o     = jump-back
+
 # Bind a plugin command: run-plugin:<source>/<name> [plugin-arg].
 # The user keymap takes precedence over a plugin's own RegisterKeybinding.
 editor  ctrl+k ctrl+w = run-plugin:wordcount/wc selection
