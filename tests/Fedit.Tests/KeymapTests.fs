@@ -291,6 +291,42 @@ let ``terminal-reported Command+Left resolves to line home`` () =
     Keymap.resolve Context.Editor cmdLeft Keymap.defaults
     |> should equal (Bound MoveHome)
 
+// ── LSP navigation defaults: JetBrains primaries + F-key secondaries ──
+// Two strokes per action on purpose — both must keep resolving.
+
+[<Theory>]
+[<InlineData("ctrl+b", "GotoDefinition")>]
+[<InlineData("ctrl+shift+b", "FindReferences")>]
+[<InlineData("ctrl+k", "Hover")>]
+[<InlineData("ctrl+alt+left", "JumpBack")>]
+[<InlineData("f12", "GotoDefinition")>]
+[<InlineData("shift+f12", "FindReferences")>]
+[<InlineData("f1", "Hover")>]
+[<InlineData("alt+-", "JumpBack")>]
+let ``LSP navigation defaults resolve in the editor context`` (strokeText: string) (actionName: string) =
+    let stroke = [ (Chord.parse strokeText).Value ]
+
+    match Keymap.resolve Context.Editor stroke Keymap.defaults with
+    | Bound a -> (sprintf "%A" a) |> should equal actionName
+    | other -> failwithf "expected Bound %s, got %A" actionName other
+
+[<Fact>]
+let ``ctrl+t is the sidebar tri-state globally and hide-and-return in the sidebar`` () =
+    let ct = [ Keymap.chord [ Ctrl ] (Key.Char 't') ]
+
+    Keymap.resolve Context.Editor ct Keymap.defaults
+    |> should equal (Bound(When(SidebarVisible, FocusSidebar, Chain [ RevealSidebar; FocusSidebar ])))
+
+    Keymap.resolve Context.Sidebar ct Keymap.defaults
+    |> should equal (Bound(Chain [ HideSidebar; Action.FocusEditor ]))
+
+[<Fact>]
+let ``ctrl+b no longer reaches the sidebar toggle`` () =
+    // The toggle moved to ctrl+t; ctrl+b is editor-context goto-definition
+    // only, so in sidebar focus the stroke is free.
+    Keymap.resolve Context.Sidebar [ Keymap.chord [ Ctrl ] (Key.Char 'b') ] Keymap.defaults
+    |> should equal NotBound
+
 // ── plugin precedence flip (spec §6.7.4, §11.2) ───────────────────────
 
 [<Fact>]

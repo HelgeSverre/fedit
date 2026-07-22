@@ -279,6 +279,16 @@ let ``the diagnostics segment is empty for a buffer without diagnostics`` () =
 
 // ── stage 5: navigation, jump stack, pickers, :lsp ───────────────────────
 
+// Primaries (JetBrains-style) plus the F-key/alt secondaries kept for
+// full-size keyboards — both strokes must keep resolving.
+let private ctrlB: Chord =
+    { Mods = Set.ofList [ Ctrl ]
+      Key = Key.Char 'b' }
+
+let private ctrlAltLeft: Chord =
+    { Mods = Set.ofList [ Ctrl; Alt ]
+      Key = Named Left }
+
 let private f12: Chord = { Mods = Set.empty; Key = Fn 12 }
 
 let private altMinus: Chord =
@@ -319,7 +329,7 @@ let private location path line column : LspResolvedLocation =
 [<Fact>]
 let ``goto-definition emits a position request for the active buffer`` () =
     let model = openedModel ()
-    let _, effects = Editor.update (KeyPressed f12) model
+    let _, effects = Editor.update (KeyPressed ctrlB) model
 
     match
         effects
@@ -337,8 +347,20 @@ let ``goto-definition emits a position request for the active buffer`` () =
     | None -> failwith "expected an LspRequestDefinition effect"
 
 [<Fact>]
+let ``the f12 secondary still requests goto-definition`` () =
+    let model = openedModel ()
+    let _, effects = Editor.update (KeyPressed f12) model
+
+    effects
+    |> List.exists (fun effect ->
+        match effect with
+        | LspRequestDefinition _ -> true
+        | _ -> false)
+    |> should equal true
+
+[<Fact>]
 let ``goto-definition on a scratch buffer warns instead of requesting`` () =
-    let next, effects = Editor.update (KeyPressed f12) (initModel ())
+    let next, effects = Editor.update (KeyPressed ctrlB) (initModel ())
 
     effects
     |> List.exists (fun effect ->
@@ -424,9 +446,78 @@ let ``jump-back returns to the recorded origin and pops the stack`` () =
     let jumped, _ =
         Editor.update (LspDefinitionResolved(Result.Ok [ location "/root/main.sema" 2 3 ], 0, bufferId)) model
 
+    let back, _ = Editor.update (KeyPressed ctrlAltLeft) jumped
+    back.Editors.Buffers[bufferId].Cursor |> should equal { Line = 0; Column = 0 }
+    back.JumpStack |> should equal ([]: (string * Position) list)
+
+[<Fact>]
+let ``the alt+minus secondary still jumps back`` () =
+    let model = openedModel ()
+    let bufferId = model.Editors.ActiveBufferId
+
+    let jumped, _ =
+        Editor.update (LspDefinitionResolved(Result.Ok [ location "/root/main.sema" 2 3 ], 0, bufferId)) model
+
     let back, _ = Editor.update (KeyPressed altMinus) jumped
     back.Editors.Buffers[bufferId].Cursor |> should equal { Line = 0; Column = 0 }
     back.JumpStack |> should equal ([]: (string * Position) list)
+
+// ── Ctrl+Click goto-definition (the JetBrains/VSCode mouse gesture) ──────
+
+let private activeBuffer (model: Model) =
+    model.Editors.Buffers[model.Editors.ActiveBufferId]
+
+/// A left-press with Ctrl held, `column` cells into the text area (screen
+/// coordinates derive from Dock.metrics + the gutter, the same arithmetic
+/// the layout paints with).
+let private ctrlClick line column (model: Model) : MouseEvent =
+    let contentX =
+        (Dock.metrics model).EditorX + Buffer.gutterWidth (activeBuffer model)
+
+    { Button = LeftButton
+      Action = Press
+      Position =
+        { Line = line
+          Column = contentX + column }
+      Modifiers = Set.ofList [ Ctrl ] }
+
+[<Fact>]
+let ``ctrl+click requests the definition at the clicked position`` () =
+    let model = openedModel ()
+    let next, effects = Editor.update (MousePressed(ctrlClick 2 5 model, 1)) model
+
+    // The cursor lands on the clicked cell first, so the request carries
+    // the clicked position — not wherever the cursor was before.
+    (activeBuffer next).Cursor |> should equal { Line = 2; Column = 5 }
+
+    match
+        effects
+        |> List.tryPick (fun effect ->
+            match effect with
+            | LspRequestDefinition request -> Some request
+            | _ -> None)
+    with
+    | Some request ->
+        request.Path |> should equal "/root/main.sema"
+        request.Position |> should equal { Line = 2; Column = 5 }
+    | None -> failwith "expected an LspRequestDefinition effect"
+
+[<Fact>]
+let ``ctrl+click does not start a selection drag`` () =
+    let model = openedModel ()
+    let pressed, _ = Editor.update (MousePressed(ctrlClick 0 2 model, 1)) model
+    pressed.MouseDrag |> should equal (None: MouseDragState option)
+
+    // A drag straight after the press must leave the selection where the
+    // click put it instead of sweeping out a range.
+    let dragEvent =
+        { ctrlClick 1 4 model with
+            Action = Drag }
+
+    let dragged, _ = Editor.update (MouseDragged dragEvent) pressed
+
+    Buffer.selectionRange (activeBuffer dragged)
+    |> should equal (Buffer.selectionRange (activeBuffer pressed))
 
 [<Fact>]
 let ``a definition in another file loads it with the target position`` () =

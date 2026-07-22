@@ -808,30 +808,30 @@ let ``Escape closes the prompt and returns focus to the editor`` () =
     closed.Focus |> should equal Editor
 
 [<Fact>]
-let ``Ctrl+B with hidden sidebar shows and focuses it`` () =
+let ``Ctrl+T with hidden sidebar shows and focuses it`` () =
     let model =
         { initModel () with
             Panels =
                 { (initModel ()).Panels with
                     SidebarVisible = false } }
 
-    let next, _ = Editor.update (KeyPressed(ck 'b')) model
+    let next, _ = Editor.update (KeyPressed(ck 't')) model
     next.Panels.SidebarVisible |> should equal true
     next.Focus |> should equal Sidebar
 
 [<Fact>]
-let ``Ctrl+B in editor focuses the visible sidebar`` () =
+let ``Ctrl+T in editor focuses the visible sidebar`` () =
     let model = initModel ()
-    let next, _ = Editor.update (KeyPressed(ck 'b')) model
+    let next, _ = Editor.update (KeyPressed(ck 't')) model
     next.Panels.SidebarVisible |> should equal true
     next.Focus |> should equal Sidebar
 
 [<Fact>]
-let ``Ctrl+B again while focused on sidebar hides it and returns to editor`` () =
+let ``Ctrl+T again while focused on sidebar hides it and returns to editor`` () =
     let model = initModel ()
-    let inSidebar, _ = Editor.update (KeyPressed(ck 'b')) model
+    let inSidebar, _ = Editor.update (KeyPressed(ck 't')) model
     inSidebar.Focus |> should equal Sidebar
-    let hidden, _ = Editor.update (KeyPressed(ck 'b')) inSidebar
+    let hidden, _ = Editor.update (KeyPressed(ck 't')) inSidebar
     hidden.Panels.SidebarVisible |> should equal false
     hidden.Focus |> should equal Editor
 
@@ -1170,7 +1170,7 @@ let ``Down in the focused sidebar moves the tree selection`` () =
         { model with
             Workspace = Workspace.setTree tree model.Workspace }
 
-    let inSidebar, _ = Editor.update (KeyPressed(ck 'b')) withTree
+    let inSidebar, _ = Editor.update (KeyPressed(ck 't')) withTree
     inSidebar.Focus |> should equal Sidebar
     // setTree selects the root; Down moves to the first child.
     inSidebar.Workspace.SelectedPath |> should equal (Some "/root")
@@ -1184,7 +1184,7 @@ let ``typing in the focused sidebar is consumed, not inserted into the editor bu
     // but the keystroke must still be consumed by the sidebar — never routed
     // to the editor buffer. That routing is what the refactor must preserve.
     let model = initModel ()
-    let inSidebar, _ = Editor.update (KeyPressed(ck 'b')) model
+    let inSidebar, _ = Editor.update (KeyPressed(ck 't')) model
     let before = Buffer.text (Editor.activeBufferState inSidebar)
     let after, _ = Editor.update (KeyPressed(chr 's')) inSidebar
     Buffer.text (Editor.activeBufferState after) |> should equal before
@@ -1256,7 +1256,7 @@ let ``Action.ofCommand maps write to Save and leaves theme unmapped`` () =
 [<Fact>]
 let ``Ctrl+E focuses the editor (FocusEditor action)`` () =
     let model = initModel ()
-    let inSidebar, _ = Editor.update (KeyPressed(ck 'b')) model
+    let inSidebar, _ = Editor.update (KeyPressed(ck 't')) model
     inSidebar.Focus |> should equal Sidebar
     let focused, _ = Editor.update (KeyPressed(ck 'e')) inSidebar
     focused.Focus |> should equal Editor
@@ -1536,9 +1536,10 @@ let ``Chord.toKeyChord maps the expressible subset and rejects the rest`` () =
 
 [<Fact>]
 let ``a plugin keybinding on a non-global Ctrl chord still fires through the editor`` () =
-    // Bind Ctrl+K (not a built-in global chord) to the built-in `write`
-    // command via the plugin registry, give the active buffer a path so Save
-    // emits a SaveBuffer effect, and assert the chord routes through.
+    // Bind Ctrl+G (not a built-in chord in any context — Ctrl+K is hover
+    // now) to the built-in `write` command via the plugin registry, give
+    // the active buffer a path so Save emits a SaveBuffer effect, and
+    // assert the chord routes through.
     let model = initModel ()
 
     let pathed = Buffer.fromText 1 (Some "/root/file.txt") "file.txt" "content" "\n"
@@ -1550,9 +1551,9 @@ let ``a plugin keybinding on a non-global Ctrl chord still fires through the edi
                     Buffers = Map.ofList [ 1, pathed ] }
             Plugins =
                 { model.Plugins with
-                    Keybindings = [ (Fedit.PluginApi.KeyChord.Ctrl 'k', "write") ] } }
+                    Keybindings = [ (Fedit.PluginApi.KeyChord.Ctrl 'g', "write") ] } }
 
-    let _, effects = Editor.update (KeyPressed(ck 'k')) model
+    let _, effects = Editor.update (KeyPressed(ck 'g')) model
 
     effects
     |> List.exists (function
@@ -2040,26 +2041,26 @@ let ``repeat-last-macro with nothing to repeat records no step`` () =
 
 [<Fact>]
 let ``the sidebar toggle chord records its leaf actions, not the composite`` () =
-    // Ctrl+B is bound to When/Chain composites, which have no macros-file
+    // Ctrl+T is bound to When/Chain composites, which have no macros-file
     // syntax — capture must decompose them into the steps that actually
     // ran, or the write-through save would silently drop them and the
     // macro would replay truncated after a restart.
     let recording, _ = Editor.runAction (RecordMacro 'a') (initModel ())
 
     // Sidebar visible: the When resolves to its focus branch.
-    let focused = press (ck 'b') recording
+    let focused = press (ck 't') recording
     focused.Focus |> should equal Sidebar
     focused.RecordingSteps |> should equal [ RunAction FocusSidebar ]
 
-    // In the sidebar: Ctrl+B is a Chain — each member is captured.
-    let hidden = press (ck 'b') focused
+    // In the sidebar: Ctrl+T is a Chain — each member is captured.
+    let hidden = press (ck 't') focused
     hidden.Panels.SidebarVisible |> should equal false
 
     hidden.RecordingSteps
     |> should equal [ RunAction FocusSidebar; RunAction HideSidebar; RunAction Action.FocusEditor ]
 
     // Sidebar hidden: the else branch is a Chain of reveal + focus.
-    let revealed = press (ck 'b') hidden
+    let revealed = press (ck 't') hidden
 
     revealed.RecordingSteps
     |> should

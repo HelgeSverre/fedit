@@ -59,21 +59,29 @@ it.
 
 ## Navigation
 
-| Chord       | Action            | What it does                                                 |
-| ----------- | ----------------- | ------------------------------------------------------------ |
-| `F12`       | `goto-definition` | Jump to the definition; multiple candidates open a picker.   |
-| `Shift+F12` | `find-references` | List references in a picker; `Enter` jumps, `Esc` closes.    |
-| `F1`        | `hover`           | Show hover text in the dock; the next keypress dismisses it. |
-| `Alt+-`     | `jump-back`       | Return to where the last jump left from (a 50-entry stack).  |
+| Chord           | Secondary   | Action            | What it does                                                 |
+| --------------- | ----------- | ----------------- | ------------------------------------------------------------ |
+| `Ctrl+B`        | `F12`       | `goto-definition` | Jump to the definition; multiple candidates open a picker.   |
+| `Ctrl+Shift+B`  | `Shift+F12` | `find-references` | List references in a picker; `Enter` jumps, `Esc` closes.    |
+| `Ctrl+K`        | `F1`        | `hover`           | Show hover text in the dock; the next keypress dismisses it. |
+| `Ctrl+Alt+Left` | `Alt+-`     | `jump-back`       | Return to where the last jump left from (a 50-entry stack).  |
 
-Rebind any of these in `~/.config/fedit/keybinds`, e.g.
-`editor f9 = goto-definition`. Hover deliberately avoids VSCode's
-`ctrl+k ctrl+i`: binding it by default would make bare `ctrl+k` a
-sequence prefix and shadow plugin or user `ctrl+k` chords. On macOS
-Terminal.app and iTerm2 default profiles, `Alt+-` needs "Use Option as
-Meta key" (Terminal) / "Esc+" (iTerm2) enabled — otherwise Option+minus
-types an en dash (`–`) instead of sending the chord; rebind `jump-back`
-if you'd rather keep Option as-is.
+`Ctrl+Click` on a symbol also jumps to its definition, cursor placed at
+the clicked cell first.
+
+The primaries follow JetBrains (`Ctrl+B` go-to-declaration; the sidebar
+toggle moved to `Ctrl+T` to free it) and were picked to survive terminal
+key encoding on a stock macOS setup: the F-keys need `Fn`, `F1` is the
+system help key, and `Alt+-` types an en dash (`–`) unless "Use Option
+as Meta key" (Terminal) / "Esc+" (iTerm2) is enabled. The secondaries
+stay bound for full-size keyboards and option-as-meta users.
+`Ctrl+Shift+B` needs the enhanced keyboard protocol (kitty, ghostty,
+WezTerm, iTerm2 — same requirement as the macro chords); a legacy
+terminal sends plain `Ctrl+B`, degrading to the definition jump. Hover's
+`Ctrl+K` is a single binding, not a sequence prefix — your keybinds file
+can still override it or define `ctrl+k …` sequences (a user sequence
+wins over the standalone default). Rebind any of these in
+`~/.config/fedit/keybinds`, e.g. `editor f9 = goto-definition`.
 
 Location pickers show one row per location — `relativePath:line:` plus a
 preview. For definitions and references the preview is that line, read
@@ -139,7 +147,7 @@ exit code in the log.
 
 ## Troubleshooting
 
-- **Nothing happens on F12** — check `:lsp status`. `idle` means no
+- **Nothing happens on Ctrl+B / F12** — check `:lsp status`. `idle` means no
   matching file has opened yet; `failed` means the spawn or handshake
   broke, including a binary missing from `PATH` — `:lsp log <server>`
   has the stderr.

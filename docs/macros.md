@@ -36,7 +36,7 @@ you pressed.
 - Actions dispatched through keybindings or typing (consecutive typed
   characters coalesce into one `insert-text` step — one undo entry on
   replay).
-- Composite bindings (`when` / `chain`, like the default `Ctrl+B` sidebar
+- Composite bindings (`when` / `chain`, like the default `Ctrl+T` sidebar
   toggle) record the leaf actions that actually ran — the taken branch,
   each chain member — never the composite form, so every recorded step
   round-trips through the macros file.

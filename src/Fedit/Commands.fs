@@ -147,7 +147,7 @@ module Commands =
             Summary = "Open the fedit config file (~/.config/fedit/config.json) in a buffer."
             Hidden = false
             Constructor = simple OpenConfig }
-          // Focus / panel toggles are keyboard-first (Ctrl+B, Ctrl+E):
+          // Focus / panel toggles are keyboard-first (Ctrl+T, Ctrl+E):
           // hidden from completion so the palette isn't cluttered with
           // verbs nobody types. Still parseable for muscle-memory and
           // any future scripting layer.

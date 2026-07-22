@@ -166,7 +166,7 @@ let ``Ctrl+F opens prompt with / prefix and FIND label`` () =
     Assert.Contains("/", actual)
 
 [<Fact>]
-let ``Ctrl+B with hidden sidebar shows and focuses it`` () =
+let ``Ctrl+T with hidden sidebar shows and focuses it`` () =
     let base' = baseModel (size 40 8)
 
     let hidden =
@@ -179,7 +179,7 @@ let ``Ctrl+B with hidden sidebar shows and focuses it`` () =
         Editor.update
             (KeyPressed
                 { Mods = Set.ofList [ Ctrl ]
-                  Key = Key.Char 'b' })
+                  Key = Key.Char 't' })
             hidden
 
     let actual = renderOf next

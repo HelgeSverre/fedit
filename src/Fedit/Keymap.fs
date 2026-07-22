@@ -76,14 +76,16 @@ module Keymap =
           single (chord [ Ctrl ] (Named PageUp)) PrevBuffer |> inCtx Context.Global
           single (chord [ Ctrl ] (Key.Char 'w')) CloseBuffer |> inCtx Context.Global
 
-          // ── tri-state sidebar Ctrl+B, split per spec §6.5/§11.1 ──
+          // ── tri-state sidebar Ctrl+T (T = tree), split per spec §6.5/§11.1 ──
+          //   (moved off Ctrl+B, which now follows JetBrains as goto-definition;
+          //   0x14 keeps Ctrl+T deliverable on legacy-ASCII terminals)
           //   editor/global/prompt view: reveal+focus when hidden, focus when visible
           single
-              (chord [ Ctrl ] (Key.Char 'b'))
+              (chord [ Ctrl ] (Key.Char 't'))
               (When(SidebarVisible, FocusSidebar, Chain [ RevealSidebar; FocusSidebar ]))
           |> inCtx Context.Global
           //   already in the sidebar: hide and return to the editor
-          single (chord [ Ctrl ] (Key.Char 'b')) (Chain [ HideSidebar; FocusEditor ])
+          single (chord [ Ctrl ] (Key.Char 't')) (Chain [ HideSidebar; FocusEditor ])
           |> inCtx Context.Sidebar
 
           // ── editor motions / edits (Context.Editor) ──
@@ -124,11 +126,32 @@ module Keymap =
           single (chord [ Shift ] (Fn 3)) SearchPrevious
 
           // ── LSP navigation (Context.Editor) ──
-          // F12 / Shift+F12 match the VSCode convention and were unbound.
-          // Hover is F1: VSCode's ctrl+k ctrl+i would make bare ctrl+k a
-          // sequence prefix and silently shadow plugin/user ctrl+k chords.
-          // Jump-back is alt+minus: ctrl+o (helix's choice) is taken by
-          // the file picker.
+          // JetBrains-style primaries, chosen to survive terminal key
+          // encoding on a stock macOS setup (F-keys need Fn, F1 is the
+          // system help key, and Option+minus types an en dash unless the
+          // terminal treats Option as Meta):
+          //   ctrl+b         goto-definition (JetBrains go-to-declaration;
+          //                  the sidebar toggle moved to ctrl+t)
+          //   ctrl+shift+b   find-references — mnemonic pair with ctrl+b.
+          //                  Needs the enhanced keyboard protocol (like the
+          //                  ctrl+shift macro chords); a legacy terminal
+          //                  sends plain 0x02 = ctrl+b, degrading to
+          //                  definition, which is acceptable
+          //   ctrl+k         hover (vim's K-for-docs). A single binding is
+          //                  NOT a sequence prefix — user keybinds can
+          //                  still override ctrl+k (later wins in resolve)
+          //                  or define ctrl+k sequences (prefixConflicts
+          //                  drops this standalone default and keeps the
+          //                  sequence)
+          //   ctrl+alt+left  jump-back (CSI 1;7D — not intercepted by
+          //                  macOS, unlike ctrl+left = Mission Control;
+          //                  ctrl+o, helix's choice, is the file picker)
+          // The original chords stay as secondaries — free compat for
+          // full-size keyboards and option-as-meta users.
+          single (chord [ Ctrl ] (Key.Char 'b')) GotoDefinition
+          single (chord [ Ctrl; Shift ] (Key.Char 'b')) FindReferences
+          single (chord [ Ctrl ] (Key.Char 'k')) Hover
+          single (chord [ Ctrl; Alt ] (Named Left)) JumpBack
           single (chord [] (Fn 12)) GotoDefinition
           single (chord [ Shift ] (Fn 12)) FindReferences
           single (chord [ Alt ] (Key.Char '-')) JumpBack

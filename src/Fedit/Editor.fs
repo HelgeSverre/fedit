@@ -2737,7 +2737,7 @@ module Editor =
                |> Option.toList)
 
         let startupHint =
-            Notification.info "Ctrl+P prompt  Ctrl+B tree  Ctrl+S save  Ctrl+Q quit"
+            Notification.info "Ctrl+P prompt  Ctrl+T tree  Ctrl+S save  Ctrl+Q quit"
 
         { Workspace = Workspace.create rootPath
           Editors = initialEditors
@@ -3335,6 +3335,23 @@ module Editor =
                                 { model with Focus = Editor } |> updateActiveBuffer (Buffer.selectRange idx idx)
 
                             executeCommand (PluginInvoke(source, commandName, "")) { nextModel with MouseDrag = None }
+                        | None when event.Modifiers.Contains Ctrl ->
+                            // Ctrl+Click: goto-definition at the clicked
+                            // position (the JetBrains/VSCode mouse gesture).
+                            // Place the cursor exactly like a plain click so
+                            // the LSP request carries the clicked position,
+                            // then dispatch through the capture chokepoint so
+                            // macro recording sees the action. No drag anchor
+                            // — a definition jump must not start a selection
+                            // drag. Click count is ignored: a rapid second
+                            // Ctrl+Click just re-requests.
+                            let nextModel =
+                                { model with
+                                    Focus = Editor
+                                    MouseDrag = None }
+                                |> updateActiveBuffer (Buffer.selectRange idx idx)
+
+                            runCapturedAction GotoDefinition nextModel
                         | None ->
                             match clickCount with
                             | 2 ->

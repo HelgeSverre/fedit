@@ -128,7 +128,7 @@
     "bound": true
   },
   {
-    "stroke": "ctrl+b",
+    "stroke": "ctrl+t",
     "action": "when",
     "context": "global",
     "category": "other",
@@ -136,7 +136,7 @@
     "bound": true
   },
   {
-    "stroke": "ctrl+b",
+    "stroke": "ctrl+t",
     "action": "chain",
     "context": "sidebar",
     "category": "other",
@@ -389,6 +389,38 @@
     "context": "editor",
     "category": "motion",
     "description": "Jump to the previous match of the last search",
+    "bound": true
+  },
+  {
+    "stroke": "ctrl+b",
+    "action": "goto-definition",
+    "context": "editor",
+    "category": "lsp",
+    "description": "Jump to the symbol's definition",
+    "bound": true
+  },
+  {
+    "stroke": "ctrl+shift+b",
+    "action": "find-references",
+    "context": "editor",
+    "category": "lsp",
+    "description": "List references to the symbol",
+    "bound": true
+  },
+  {
+    "stroke": "ctrl+k",
+    "action": "hover",
+    "context": "editor",
+    "category": "lsp",
+    "description": "Show hover info for the symbol",
+    "bound": true
+  },
+  {
+    "stroke": "ctrl+alt+left",
+    "action": "jump-back",
+    "context": "editor",
+    "category": "lsp",
+    "description": "Return to where the last jump left from",
     "bound": true
   },
   {

@@ -208,20 +208,22 @@ start on demand when a matching file opens. Diagnostics render as compact
 severity counts in the status bar (`E2 W1`); `:diagnostics` opens them in
 a picker whose `Enter` jumps to the offending line.
 
-Navigate from the editor:
+Navigate from the editor (JetBrains-style chords):
 
-- `F12` jumps to the symbol's definition; multiple candidates open a picker.
-- `Shift+F12` lists references in a picker — `Enter` jumps, `Esc` closes.
-- `F1` shows hover info in the dock panel; the next keypress dismisses it.
-- `Alt+-` jumps back to where the last jump left from (a 50-entry stack).
+- `Ctrl+B` (or `F12`) jumps to the symbol's definition; multiple candidates open a picker. `Ctrl+Click` does the same at the clicked position.
+- `Ctrl+Shift+B` (or `Shift+F12`) lists references in a picker — `Enter` jumps, `Esc` closes.
+- `Ctrl+K` (or `F1`) shows hover info in the dock panel; the next keypress dismisses it.
+- `Ctrl+Alt+Left` (or `Alt+-`) jumps back to where the last jump left from (a 50-entry stack).
 
 The chords map to the `goto-definition`, `find-references`, `hover`, and
 `jump-back` actions — rebindable in `~/.config/fedit/keybinds` like
-everything else. On macOS Terminal.app and iTerm2 default profiles,
-`Alt+-` needs "Use Option as Meta key" (Terminal) / "Esc+" (iTerm2)
-enabled — otherwise Option+minus types an en dash (`–`) instead of
-sending the chord. Alternatively rebind `jump-back` to a chord your
-terminal delivers.
+everything else. The `Ctrl` primaries survive terminal key encoding on a
+stock macOS setup, where the F-keys need `Fn` and `Alt+-` types an en
+dash (`–`) unless "Use Option as Meta key" (Terminal) / "Esc+" (iTerm2)
+is enabled — the F-key/`Alt` secondaries stay bound for full-size
+keyboards and option-as-meta users. `Ctrl+Shift+B` needs a terminal with
+the enhanced keyboard protocol (like the macro chords); a legacy
+terminal sends plain `Ctrl+B` and you get the definition instead.
 
 Manage servers with `:lsp`:
 
@@ -280,7 +282,7 @@ Global shortcuts:
 - `Ctrl+P`: Open the prompt in command mode (`:` prefix).
 - `Ctrl+O`: Open the prompt in file-picker mode (recent + workspace files).
 - `Ctrl+F`: Open the prompt in search mode (`/` prefix) for the active buffer.
-- `Ctrl+B`: Toggle the file tree — hidden → show + focus; visible elsewhere → focus; visible + focused → hide and return to editor.
+- `Ctrl+T`: Toggle the file tree — hidden → show + focus; visible elsewhere → focus; visible + focused → hide and return to editor.
 - `Ctrl+E`: Focus the editor.
 - `Ctrl+S`: Save the active buffer.
 - `Ctrl+R`: Reload the workspace tree.
@@ -304,11 +306,11 @@ Editor keys:
 - `Ctrl+V` pastes from the system clipboard.
 - `Tab` indents the current line.
 - `Shift+Tab` unindents the current line.
-- `F12` / `Shift+F12` jump to the symbol's definition / list its references (needs a language server — see [Language servers](#language-servers)).
-- `F1` shows hover info in the dock; `Alt+-` jumps back to where the last jump left from.
+- `Ctrl+B` / `Ctrl+Shift+B` (or `F12` / `Shift+F12`) jump to the symbol's definition / list its references (needs a language server — see [Language servers](#language-servers)).
+- `Ctrl+K` (or `F1`) shows hover info in the dock; `Ctrl+Alt+Left` (or `Alt+-`) jumps back to where the last jump left from.
 - `Enter`, `Backspace`, and `Delete` edit text normally; with a selection, they replace it.
 - The mouse wheel scrolls the viewport; the cursor follows only when it would cross the `scrollOff` margin. Set `scrollMode` to `line` to make the wheel move the cursor instead. While fedit runs it captures the mouse — hold `Shift` (or `Option` on macOS) for the terminal's own selection and scrollback.
-- **Click** in the editor to place the cursor. **Double-click** selects the word under the cursor, **triple-click** the whole line. **Drag** to select text. Clicking also restores focus to the editor when the sidebar or prompt had it.
+- **Click** in the editor to place the cursor. **Double-click** selects the word under the cursor, **triple-click** the whole line. **Drag** to select text. **Ctrl+Click** jumps to the definition of the symbol under the pointer. Clicking also restores focus to the editor when the sidebar or prompt had it.
 
 Find keys (after `Ctrl+F`):
 
@@ -370,7 +372,7 @@ Named commands (typed after `:`):
 - `lsp [status|restart|enable|disable|log] [server]`: Manage language servers; bare `lsp` opens the manager picker. See [Language servers](#language-servers).
 - `diagnostics`: List the active buffer's language-server diagnostics in a picker; `Enter` jumps to the line.
 
-A few keyboard-first verbs (`sidebar`, `tree`, `editor`) still parse if typed, but are hidden from the completion menu since `Ctrl+B` / `Ctrl+E` cover the same ground more richly.
+A few keyboard-first verbs (`sidebar`, `tree`, `editor`) still parse if typed, but are hidden from the completion menu since `Ctrl+T` / `Ctrl+E` cover the same ground more richly.
 
 ## Keybindings
 
