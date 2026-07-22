@@ -484,3 +484,55 @@ let ``canonicalizePath resolves a symlinked directory component`` () =
             Directory.Delete(scratch, true)
         with _ ->
             ()
+
+[<Fact>]
+let ``shutdown completes quickly even when the server dawdles on exit`` () =
+    if not (commandOnPath "sema") then
+        Console.Error.WriteLine "skipping LspClient shutdown-timing test: sema is not on PATH"
+    else
+        let root = Paths.norm (Path.Combine(Path.GetTempPath(), Path.GetRandomFileName()))
+        Directory.CreateDirectory root |> ignore
+
+        try
+            File.WriteAllText(root + "/sema.toml", "[package]\nname = \"fedit-test\"\n")
+
+            let callbacks =
+                { OnDiagnostics = ignore
+                  OnStatusChanged = ignore
+                  OnLog = ignore }
+
+            let config =
+                { Name = "sema"
+                  Command = "sema"
+                  Args = [ "lsp" ]
+                  FileTypes = [ "sema" ]
+                  RootMarkers = [ "sema.toml" ] }
+
+            let client = LspClient.create config root callbacks
+
+            Assert.True(
+                pollUntil (TimeSpan.FromSeconds 10.0) (fun () -> client.Status = LspServerStatus.Running),
+                "server never reached Running; recent stderr: "
+                + String.concat " | " (client.RecentLog())
+            )
+
+            // Quit must not be hostage to a server's exit etiquette: sema
+            // (tower-lsp) ignores an `exit` that arrives before the shutdown
+            // response is flushed, and even the polite sequence only exits via
+            // its 2 s force-exit watchdog. The client politely notifies, then
+            // kills — the LSP spec requires servers to tolerate client death.
+            let stopwatch = System.Diagnostics.Stopwatch.StartNew()
+            client.Shutdown()
+            stopwatch.Stop()
+
+            Assert.Equal(LspServerStatus.Stopped, client.Status)
+
+            Assert.True(
+                stopwatch.ElapsedMilliseconds < 1500L,
+                $"Shutdown took {stopwatch.ElapsedMilliseconds} ms; quit must stay well under 1.5 s per client"
+            )
+        finally
+            try
+                Directory.Delete(root, true)
+            with _ ->
+                ()

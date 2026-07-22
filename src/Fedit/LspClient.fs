@@ -371,10 +371,15 @@ type LspClient(config: LanguageServerConfig, rootPath: string, callbacks: LspCli
             (fun id -> LspWire.referencesRequest id (LspUri.fromPath path) (LspPosition.ofPosition position))
             (fun outcome -> callback (Result.map LspWire.readLocations outcome))
 
-    /// Polite shutdown: `shutdown` request, `exit` notification, then
-    /// WaitForExit(3000) with a kill fallback. An abrupt child exit here is
-    /// normal (sema force-exits ~2s after `shutdown`) — final status is
-    /// Stopped, never Failed.
+    /// Shutdown notifies politely (`shutdown` request + `exit` notification)
+    /// but does not wait on the server's manners: measured against sema
+    /// (tower-lsp), an `exit` that lands before the shutdown response is
+    /// flushed is ignored outright, and even the polite sequence only exits
+    /// via the server's 2 s force-exit watchdog — a 3 s WaitForExit here made
+    /// quit stall for seconds per client. The spec requires servers to
+    /// tolerate client termination, so after a 250 ms grace the child is
+    /// killed. An abrupt child exit is normal — final status is Stopped,
+    /// never Failed.
     member _.Shutdown() : unit =
         let runningProcess =
             lock gate (fun () ->
@@ -388,13 +393,13 @@ type LspClient(config: LanguageServerConfig, rootPath: string, callbacks: LspCli
                 writeMessage (LspWire.shutdownRequest (allocateRequestId ())) |> ignore
                 writeMessage LspWire.exitNotification |> ignore
 
-                if not (p.WaitForExit 3000) then
+                if not (p.WaitForExit 250) then
                     try
                         p.Kill true
                     with _ ->
                         ()
 
-                    p.WaitForExit 1000 |> ignore
+                    p.WaitForExit 500 |> ignore
 
             setStatus LspServerStatus.Stopped
             failPending "language server stopped"

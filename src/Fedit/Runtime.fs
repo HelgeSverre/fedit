@@ -1387,9 +1387,22 @@ module Runtime =
                         lspClients.Clear()
                         clients)
 
-                for client in clients do
+                // Dispose concurrently: each Shutdown can spend its full
+                // notify-grace-kill budget, and paying it once per server in
+                // sequence made quit scale with the number of live clients.
+                let disposals =
+                    clients
+                    |> List.map (fun client ->
+                        Task.Run(fun () ->
+                            try
+                                (client :> IDisposable).Dispose()
+                            with _ ->
+                                ()))
+                    |> Array.ofList
+
+                if disposals.Length > 0 then
                     try
-                        (client :> IDisposable).Dispose()
+                        Task.WaitAll(disposals, TimeSpan.FromSeconds 2.0) |> ignore
                     with _ ->
                         ())
 
