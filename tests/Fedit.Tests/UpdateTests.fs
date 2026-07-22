@@ -819,6 +819,115 @@ let ``ClipboardPasted strips CRLF before inserting`` () =
     Buffer.text buffer |> should equal "a\nb"
 
 // ─────────────────────────────────────────────────────────────────────
+// Opening a nonexistent path: a permanent open creates an empty buffer
+// bound to it (the file lands on disk at first save); previews and real
+// I/O errors stay errors.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``FileOpened FileNotFound on a permanent open creates an empty buffer bound to the path`` () =
+    let next, _ =
+        Editor.update (FileOpened("/root/new.txt", OpenPermanent, None, Result.Error FileNotFound)) (initModel ())
+
+    let buffer = next.Editors.Buffers[next.Editors.ActiveBufferId]
+    buffer.FilePath |> should equal (Some "/root/new.txt")
+    buffer.Name |> should equal "new.txt"
+    Buffer.text buffer |> should equal ""
+    buffer.Dirty |> should equal false
+    next.Focus |> should equal Editor
+    next.Notification |> should equal (Some(Notification.info "New file new.txt"))
+
+[<Fact>]
+let ``FileOpened FileNotFound activates an existing buffer for the path instead of duplicating`` () =
+    let seeded, _ =
+        Editor.update (FileOpened("/root/new.txt", OpenPermanent, None, Result.Error FileNotFound)) (initModel ())
+
+    let boundId = seeded.Editors.ActiveBufferId
+
+    let next, _ =
+        Editor.update (FileOpened("/root/new.txt", OpenPermanent, None, Result.Error FileNotFound)) seeded
+
+    next.Editors.Buffers.Count |> should equal seeded.Editors.Buffers.Count
+    next.Editors.ActiveBufferId |> should equal boundId
+
+[<Fact>]
+let ``FileOpened FileNotFound on a preview stays an error`` () =
+    let model = initModel ()
+
+    let next, _ =
+        Editor.update (FileOpened("/root/gone.txt", OpenPreview, None, Result.Error FileNotFound)) model
+
+    next.Editors.Buffers.Count |> should equal model.Editors.Buffers.Count
+
+    match next.Notification with
+    | Some n -> n.Severity |> should equal Severity.Error
+    | None -> failwith "expected an error notification"
+
+[<Fact>]
+let ``FileOpened FileOpenFailed stays an error and creates no buffer`` () =
+    let model = initModel ()
+
+    let next, _ =
+        Editor.update (FileOpened("/root/dir", OpenPermanent, None, Result.Error(FileOpenFailed "denied"))) model
+
+    next.Editors.Buffers.Count |> should equal model.Editors.Buffers.Count
+
+    match next.Notification with
+    | Some n ->
+        n.Severity |> should equal Severity.Error
+        n.Message.Contains "denied" |> should equal true
+    | None -> failwith "expected an error notification"
+
+// ─────────────────────────────────────────────────────────────────────
+// LoadFile read classification (Runtime.readFileForOpen): a missing file
+// or missing parent directory is FileNotFound; a directory (or any other
+// I/O failure) is FileOpenFailed; a readable file is Ok.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``readFileForOpen classifies a missing file as FileNotFound`` () =
+    let missing =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName())
+
+    Runtime.readFileForOpen missing
+    |> should equal (Result.Error FileNotFound: Result<string, FileOpenError>)
+
+[<Fact>]
+let ``readFileForOpen classifies a missing parent directory as FileNotFound`` () =
+    let missing =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName(), "nested", "file.txt")
+
+    Runtime.readFileForOpen missing
+    |> should equal (Result.Error FileNotFound: Result<string, FileOpenError>)
+
+[<Fact>]
+let ``readFileForOpen reports a directory path as FileOpenFailed`` () =
+    let directory =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName())
+
+    System.IO.Directory.CreateDirectory directory |> ignore
+
+    try
+        match Runtime.readFileForOpen directory with
+        | Result.Error(FileOpenFailed _) -> ()
+        | other -> failwithf "expected FileOpenFailed, got %A" other
+    finally
+        System.IO.Directory.Delete directory
+
+[<Fact>]
+let ``readFileForOpen reads an existing file`` () =
+    let path =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName())
+
+    System.IO.File.WriteAllText(path, "hello")
+
+    try
+        Runtime.readFileForOpen path
+        |> should equal (Result.Ok "hello": Result<string, FileOpenError>)
+    finally
+        System.IO.File.Delete path
+
+// ─────────────────────────────────────────────────────────────────────
 // Phase-1 characterization net: these pin current behavior so the
 // runAction refactor is provably behavior-preserving.
 // ─────────────────────────────────────────────────────────────────────
@@ -2036,6 +2145,106 @@ let ``PastedText with sidebar focus is ignored`` () =
 
     Buffer.text (activeBuffer next) |> should equal ""
     next.Focus |> should equal Sidebar
+    effects |> should equal ([]: Effect list)
+
+// ─────────────────────────────────────────────────────────────────────
+// Clipboard paste (ClipboardPasted, the Ctrl+V effect result) routes by
+// focus exactly like bracketed paste: prompt takes the first line, the
+// sidebar ignores it, the buffer only changes in editor focus.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``ClipboardPasted with prompt focus inserts into the prompt, not the buffer`` () =
+    let opened, _ = Editor.update (KeyPressed(ck 'p')) (initModel ())
+    opened.Focus |> should equal Prompt
+
+    let next, _ = Editor.update (ClipboardPasted(Result.Ok "src/x.fs\nrest")) opened
+
+    next.Prompt.Active |> should equal true
+    next.Prompt.Text |> should equal (opened.Prompt.Text + "src/x.fs")
+    Buffer.text (activeBuffer next) |> should equal ""
+
+[<Fact>]
+let ``ClipboardPasted with sidebar focus is ignored`` () =
+    let model = { initModel () with Focus = Sidebar }
+    let next, effects = Editor.update (ClipboardPasted(Result.Ok "hello")) model
+
+    Buffer.text (activeBuffer next) |> should equal ""
+    next.Focus |> should equal Sidebar
+    effects |> should equal ([]: Effect list)
+
+// ─────────────────────────────────────────────────────────────────────
+// Global buffer-editing chords are inert while the prompt is open: the
+// hidden buffer must not change behind a modal surface.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``undo and redo in the prompt leave the buffer untouched`` () =
+    let typed = withText "abc"
+    let opened, _ = Editor.update (KeyPressed(ck 'p')) typed
+
+    let afterUndo, undoEffects = Editor.update (KeyPressed(ck 'z')) opened
+    Buffer.text (activeBuffer afterUndo) |> should equal "abc"
+    undoEffects |> should equal ([]: Effect list)
+    afterUndo.Prompt.Active |> should equal true
+
+    let afterRedo, redoEffects = Editor.update (KeyPressed(ck 'y')) afterUndo
+    Buffer.text (activeBuffer afterRedo) |> should equal "abc"
+    redoEffects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``select-all in the prompt does not select in the buffer`` () =
+    let opened, _ = Editor.update (KeyPressed(ck 'p')) (withText "abc")
+    let next, _ = Editor.update (KeyPressed(ck 'a')) opened
+
+    (activeBuffer next).Selection |> should equal (None: SelectionSpan option)
+    next.Prompt.Active |> should equal true
+
+[<Fact>]
+let ``cut in the prompt leaves the buffer selection untouched`` () =
+    let selected, _ = Editor.update (KeyPressed(ck 'a')) (withText "abc")
+    let opened, _ = Editor.update (KeyPressed(ck 'p')) selected
+    let next, effects = Editor.update (KeyPressed(ck 'x')) opened
+
+    Buffer.text (activeBuffer next) |> should equal "abc"
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``undo after closing the prompt works again`` () =
+    let typed = withText "a"
+    let opened, _ = Editor.update (KeyPressed(ck 'p')) typed
+    let closed, _ = Editor.update (KeyPressed(nk Escape)) opened
+    closed.Focus |> should equal Editor
+
+    let undone, _ = Editor.update (KeyPressed(ck 'z')) closed
+    Buffer.text (activeBuffer undone) |> should equal ""
+
+// ─────────────────────────────────────────────────────────────────────
+// Escape in editor focus clears the selection (and keeps its keypress
+// preamble: notifications clear on any dispatch).
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``Escape clears the selection in editor focus`` () =
+    let selected, _ = Editor.update (KeyPressed(ck 'a')) (withText "abc")
+    (activeBuffer selected).Selection.IsSome |> should equal true
+
+    let next, effects = Editor.update (KeyPressed(nk Escape)) selected
+
+    (activeBuffer next).Selection |> should equal (None: SelectionSpan option)
+    Buffer.text (activeBuffer next) |> should equal "abc"
+    next.Notification |> should equal (None: Notification option)
+    effects |> should equal ([]: Effect list)
+
+[<Fact>]
+let ``Escape without a selection is a harmless no-op`` () =
+    let model = withText "abc"
+    let cursorBefore = (activeBuffer model).Cursor
+
+    let next, effects = Editor.update (KeyPressed(nk Escape)) model
+
+    Buffer.text (activeBuffer next) |> should equal "abc"
+    (activeBuffer next).Cursor |> should equal cursorBefore
     effects |> should equal ([]: Effect list)
 
 // ─────────────────────────────────────────────────────────────────────

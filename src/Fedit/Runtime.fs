@@ -70,6 +70,19 @@ module Runtime =
 
         output
 
+    /// Read a file for `LoadFile`, classifying "not there" (missing file or
+    /// missing parent directory) apart from real I/O errors so the editor
+    /// can treat a permanent open of a nonexistent path as creating a new
+    /// file. Other failures (permissions, the path is a directory) surface
+    /// verbatim as `FileOpenFailed`.
+    let readFileForOpen (path: string) : Result<string, FileOpenError> =
+        try
+            Result.Ok(File.ReadAllText path)
+        with
+        | :? FileNotFoundException
+        | :? DirectoryNotFoundException -> Result.Error FileNotFound
+        | ex -> Result.Error(FileOpenFailed ex.Message)
+
     let private renderTextResult (result: Result<string, string>) =
         match result with
         | Result.Ok text -> $"Ok(<len={text.Length}>)"
@@ -79,6 +92,12 @@ module Runtime =
         match result with
         | Result.Ok() -> "Ok"
         | Result.Error error -> $"Error({error})"
+
+    let private renderFileOpenResult (result: Result<string, FileOpenError>) =
+        match result with
+        | Result.Ok text -> $"Ok(<len={text.Length}>)"
+        | Result.Error FileNotFound -> "Error(FileNotFound)"
+        | Result.Error(FileOpenFailed error) -> $"Error({error})"
 
     let private renderTarget (target: Position option) =
         match target with
@@ -111,7 +130,7 @@ module Runtime =
         | WorkspaceLoaded(Result.Ok _) -> "WorkspaceLoaded(Ok)"
         | WorkspaceLoaded(Result.Error error) -> $"WorkspaceLoaded(Error({error}))"
         | FileOpened(path, intent, target, result) ->
-            $"FileOpened({path}, {renderIntent intent}, target={renderTarget target}, {renderTextResult result})"
+            $"FileOpened({path}, {renderIntent intent}, target={renderTarget target}, {renderFileOpenResult result})"
         | BufferSaved(bufferId, path, revision, result) ->
             $"BufferSaved(buffer={bufferId}, path={path}, revision={revision}, {renderUnitResult result})"
         | ConfigSaved result -> $"ConfigSaved({renderUnitResult result})"
@@ -320,13 +339,7 @@ module Runtime =
                 let token = cts.Token
 
                 Task.Run(fun () ->
-                    let msg =
-                        try
-                            FileOpened(path, intent, target, Result.Ok(File.ReadAllText path))
-                        with ex ->
-                            FileOpened(path, intent, target, Result.Error ex.Message)
-
-                    enqueueUnlessCancelled token msg)
+                    enqueueUnlessCancelled token (FileOpened(path, intent, target, readFileForOpen path)))
                 |> ignore
             | SaveBuffer(bufferId, path, revision, contents) ->
                 let key =

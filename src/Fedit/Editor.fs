@@ -174,16 +174,7 @@ module Editor =
         let limit = model.Config.CompletionLimit
         let recent = model.Config.Recent
         let files = model.Workspace.Files
-        let needle = query
-
-        let matches (path: string) =
-            if String.IsNullOrEmpty needle then
-                true
-            else
-                let fileName = Path.GetFileName path |> Option.ofObj |> Option.defaultValue path
-
-                fileName.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0
-                || path.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0
+        let matches = Commands.matchesFileQuery query
 
         let recentRelative =
             recent
@@ -1290,6 +1281,16 @@ module Editor =
                 (model, [])
         | When(cond, thenDo, elseDo) -> runAction (if evalCond cond model then thenDo else elseDo) model
 
+        // Focus guard: buffer-editing verbs are inert while the prompt is up
+        // — a Global chord (Ctrl+Z/Y/A/X) must never mutate the buffer hidden
+        // behind a modal surface. Picker sessions bypass the keymap entirely,
+        // and Enter closes the prompt before executeCommand runs, so only
+        // live prompt keystrokes reach this guard.
+        | Undo
+        | Redo
+        | SelectAll
+        | Cut when model.Focus = Prompt -> model, []
+
         // motion / selection
         | MoveLeft -> moveCursor Buffer.moveLeft model
         | MoveRight -> moveCursor Buffer.moveRight model
@@ -1314,6 +1315,7 @@ module Editor =
         | ExtendHome -> extendCursor Buffer.moveHome model
         | ExtendEnd -> extendCursor Buffer.moveEnd model
         | SelectAll -> updateActiveBuffer Buffer.selectAll model, []
+        | ClearSelection -> updateActiveBuffer Buffer.clearSelection model, []
 
         // editing
         | Indent -> moveCursor (Buffer.indent model.Config.TabWidth) model
@@ -1978,9 +1980,7 @@ module Editor =
 
     /// Insert externally-sourced text into the active buffer as ONE
     /// `insertText` call — one undo entry — replacing any selection and
-    /// normalizing newlines to the LF-only document invariant. Shared by
-    /// `ClipboardPasted` (Ctrl+V effect result) and `PastedText`
-    /// (terminal bracketed paste).
+    /// normalizing newlines to the LF-only document invariant.
     let private insertPastedText (text: string) model =
         let text = fst (normalizeNewlines text)
         let buffer = activeBufferState model
@@ -1992,6 +1992,33 @@ module Editor =
                 Buffer.insertText text
 
         updateActiveBuffer (transform >> Buffer.clearSelection) model, []
+
+    /// Route externally-sourced pasted text by focus: the editor inserts it
+    /// into the active buffer, the prompt takes only the first line (a
+    /// multi-line paste must never act as Enter and execute commands),
+    /// picker/list sessions and the sidebar ignore it. Shared by
+    /// `ClipboardPasted` (Ctrl+V effect result) and `PastedText` (terminal
+    /// bracketed paste) so both paste routes behave identically.
+    let private routePastedText (text: string) model =
+        match model.Focus with
+        | Editor -> insertPastedText text model
+        | Prompt when isPromptListSession model.Prompt.Session ->
+            // Picker/list sessions filter by single keys; pasting into
+            // them has no sensible meaning. Ignore.
+            model, []
+        | Prompt ->
+            let normalized = fst (normalizeNewlines text)
+
+            let firstLine =
+                match normalized.IndexOf '\n' with
+                | -1 -> normalized
+                | newlineIdx -> normalized.Substring(0, newlineIdx)
+
+            if firstLine.Length = 0 then
+                model, []
+            else
+                insertPromptText firstLine model
+        | Sidebar -> model, []
 
     /// Pure message handler: translates a Msg into (Model', Effect list).
     /// The single dispatch point for all input events and effect results.
@@ -2142,7 +2169,37 @@ module Editor =
                                 Notification = Some(Notification.info $"Previewing {displayName}") }
                             |> applyTarget target,
                             []
-            | Result.Error message -> notify (Some(Notification.error $"Failed to open {path}: {message}")) model, []
+            | Result.Error FileNotFound when intent = OpenPermanent ->
+                // The path doesn't exist yet: `:open new.txt` (or `fedit
+                // new.txt`) creates an empty buffer bound to it — the file
+                // lands on disk at first save (`SaveBuffer` writes through
+                // `writeAllTextAtomic`, which creates missing parent
+                // directories). Not pushed to Recent and not revealed in the
+                // sidebar: nothing exists on disk yet.
+                match tryActivateExisting path model with
+                | Some activated -> activated |> applyTarget target, []
+                | None ->
+                    let displayName = Path.GetFileName path |> Option.ofObj |> Option.defaultValue path
+
+                    let buffer =
+                        Buffer.fromText model.Editors.NextBufferId (Some path) displayName "" "\n"
+
+                    { model with
+                        Editors =
+                            { model.Editors with
+                                Buffers = model.Editors.Buffers |> Map.add buffer.Id buffer
+                                ActiveBufferId = buffer.Id
+                                NextBufferId = buffer.Id + 1 }
+                        Focus = Editor
+                        Notification = Some(Notification.info $"New file {buffer.Name}") }
+                    |> applyTarget target,
+                    []
+            | Result.Error FileNotFound ->
+                // A preview peeks at what's on disk; a vanished file is an
+                // error there, never an implicit create.
+                notify (Some(Notification.error $"Failed to open {path}: file not found")) model, []
+            | Result.Error(FileOpenFailed message) ->
+                notify (Some(Notification.error $"Failed to open {path}: {message}")) model, []
         | BufferSaved(bufferId, path, revision, result) ->
             match result with
             | Result.Ok() ->
@@ -2233,32 +2290,10 @@ module Editor =
                 | first :: _ -> updateActiveBuffer (Buffer.moveToOffset first) withPreview, []
         | ClipboardPasted result ->
             match result with
-            | Result.Ok pastedText when pastedText.Length > 0 -> insertPastedText pastedText model
+            | Result.Ok pastedText when pastedText.Length > 0 -> routePastedText pastedText model
             | Result.Ok _ -> model, []
             | Result.Error message -> notify (Some(Notification.warning $"Paste failed: {message}")) model, []
-        | PastedText text when text.Length > 0 ->
-            match model.Focus with
-            | Editor -> insertPastedText text model
-            | Prompt when isPromptListSession model.Prompt.Session ->
-                // Picker/list sessions filter by single keys; pasting into
-                // them has no sensible meaning. Ignore.
-                model, []
-            | Prompt ->
-                // The prompt is a single-line input: insert only the first
-                // line so a multi-line paste can never act as Enter and
-                // execute commands statement by statement.
-                let normalized = fst (normalizeNewlines text)
-
-                let firstLine =
-                    match normalized.IndexOf '\n' with
-                    | -1 -> normalized
-                    | newlineIdx -> normalized.Substring(0, newlineIdx)
-
-                if firstLine.Length = 0 then
-                    model, []
-                else
-                    insertPromptText firstLine model
-            | Sidebar -> model, []
+        | PastedText text when text.Length > 0 -> routePastedText text model
         | PastedText _ -> model, []
         | PluginsScanned(Result.Ok registry) ->
             // Conflict warnings surface as a notification; absent conflicts

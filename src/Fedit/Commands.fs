@@ -370,6 +370,19 @@ module Commands =
     /// Built-ins-only parser. Plugin-aware callers should use `parseWith`.
     let parse (input: string) = parseWith specs input
 
+    /// Case-insensitive substring match on the file name or the full path —
+    /// the Ctrl+O file picker's matcher, shared with the `open`/`writeas`/
+    /// `recent` argument completions so every file-completion surface
+    /// matches the same way. An empty query matches everything.
+    let matchesFileQuery (query: string) (path: string) : bool =
+        if String.IsNullOrEmpty query then
+            true
+        else
+            let fileName = Path.GetFileName path |> Option.ofObj |> Option.defaultValue path
+
+            fileName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
+            || path.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
+
     /// Completion using an explicit spec list. The plugin-aware variant.
     let completionsWith (availableSpecs: Spec list) context (input: string) =
         let trimmed = input.TrimStart()
@@ -420,7 +433,7 @@ module Commands =
                 | "open"
                 | "writeas" ->
                     context.Files
-                    |> List.filter (fun filePath -> filePath.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
+                    |> List.filter (matchesFileQuery argument)
                     |> List.truncate context.CompletionLimit
                     |> List.map (fun filePath ->
                         { Label = filePath
@@ -437,12 +450,7 @@ module Commands =
                           Kind = PathItem })
                 | "recent" ->
                     context.Recent
-                    |> List.filter (fun filePath ->
-                        let display =
-                            Path.GetFileName filePath |> Option.ofObj |> Option.defaultValue filePath
-
-                        display.StartsWith(argument, StringComparison.OrdinalIgnoreCase)
-                        || filePath.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
+                    |> List.filter (matchesFileQuery argument)
                     |> List.truncate context.CompletionLimit
                     |> List.map (fun filePath ->
                         let label =

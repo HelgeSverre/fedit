@@ -117,6 +117,58 @@ let ``bare numeric is no longer a command (goto requires colon prefix at prompt 
     | other -> failwithf "expected Invalid for bare '42', got %A" other
 
 [<Fact>]
+let ``open completions match case-insensitive substrings like the file picker`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = [ "src/Fedit/Editor.fs"; "README.md" ]
+          Recent = []
+          Buffers = []
+          Themes = Themes.all
+          CompletionLimit = 8 }
+
+    // Neither a prefix of the relative path nor exact case — must still hit,
+    // matching the Ctrl+O picker's substring semantics.
+    let comps = Commands.completions ctx "open editor"
+    comps |> List.map (fun c -> c.Label) |> should equal [ "src/Fedit/Editor.fs" ]
+
+    comps
+    |> List.head
+    |> fun c -> c.ApplyText |> should equal "open src/Fedit/Editor.fs"
+
+[<Fact>]
+let ``writeas completions use the same substring matcher`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = [ "src/Fedit/Editor.fs"; "README.md" ]
+          Recent = []
+          Buffers = []
+          Themes = Themes.all
+          CompletionLimit = 8 }
+
+    let comps = Commands.completions ctx "writeas editor"
+    comps |> List.map (fun c -> c.Label) |> should equal [ "src/Fedit/Editor.fs" ]
+
+[<Fact>]
+let ``recent completions match substrings of the file name or path`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = []
+          Recent = [ "/home/user/notes.md"; "/home/user/todo.txt" ]
+          Buffers = []
+          Themes = Themes.all
+          CompletionLimit = 8 }
+
+    let comps = Commands.completions ctx "recent otes"
+    comps |> List.map (fun c -> c.Detail) |> should equal [ "/home/user/notes.md" ]
+
+[<Fact>]
+let ``matchesFileQuery matches file name or path, and everything on empty`` () =
+    Commands.matchesFileQuery "" "src/Editor.fs" |> should equal true
+    Commands.matchesFileQuery "editor" "src/Editor.fs" |> should equal true
+    Commands.matchesFileQuery "src/edi" "src/Editor.fs" |> should equal true
+    Commands.matchesFileQuery "buffer" "src/Editor.fs" |> should equal false
+
+[<Fact>]
 let ``completionLimit caps file completions`` () =
     let ctx =
         { RootPath = "/"

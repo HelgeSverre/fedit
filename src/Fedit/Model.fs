@@ -204,6 +204,16 @@ type OpenIntent =
     | OpenPermanent
     | OpenPreview
 
+/// Why a `LoadFile` read failed. Classified by the interpreter so the
+/// editor can distinguish "the path simply isn't there" — a permanent
+/// `:open` treats that as creating a new file — from real I/O errors
+/// (permissions, the path is a directory), which stay errors.
+type FileOpenError =
+    /// The file, or a directory in its path, does not exist.
+    | FileNotFound
+    /// Any other I/O failure, carrying the exception message.
+    | FileOpenFailed of message: string
+
 type Msg =
     | KeyPressed of Chord
     /// The pending multi-key sequence prefix timed out; clear it.
@@ -224,7 +234,7 @@ type Msg =
     /// `target` is an optional 0-based cursor position applied once the
     /// buffer exists (plugin `OpenFileAt`): it travels with the LoadFile
     /// effect and returns here so the jump survives the async load.
-    | FileOpened of path: string * intent: OpenIntent * target: Position option * Result<string, string>
+    | FileOpened of path: string * intent: OpenIntent * target: Position option * Result<string, FileOpenError>
     | BufferSaved of bufferId: int * path: string * revision: int * Result<unit, string>
     | ConfigSaved of Result<unit, string>
     /// The config file is on disk (written if missing): Ok carries its path

@@ -107,6 +107,9 @@ module Keymap =
           single (chord [ Ctrl ] (Named Delete)) DeleteWordForward
           single (chord [ Alt ] (Named Up)) (MoveLinesUp 1)
           single (chord [ Alt ] (Named Down)) (MoveLinesDown 1)
+          // Escape dismisses the selection; prefix-cancel runs ahead of the
+          // keymap, and notification/QuitArmed clearing are keypress preamble.
+          single (chord [] (Named Escape)) ClearSelection
 
           // ── macros: modifier chords only (bare Char is reserved for text) ──
           single (chord [ Ctrl; Shift ] (Key.Char 'm')) (RecordMacro 'a')
@@ -281,6 +284,7 @@ module Keymap =
         | "cut" -> Ok Cut
         | "paste" -> Ok Paste
         | "select-all" -> Ok SelectAll
+        | "clear-selection" -> Ok ClearSelection
         | "move-left" -> Ok MoveLeft
         | "move-right" -> Ok MoveRight
         | "move-up" -> Ok MoveUp

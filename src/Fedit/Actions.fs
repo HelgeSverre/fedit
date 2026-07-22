@@ -35,6 +35,8 @@ type Action =
     | ExtendHome
     | ExtendEnd
     | SelectAll
+    /// Drop the selection, leaving the cursor where it is.
+    | ClearSelection
     // editing
     | Indent
     | Unindent
@@ -142,6 +144,7 @@ module Action =
         | ExtendHome -> "extend-home"
         | ExtendEnd -> "extend-end"
         | SelectAll -> "select-all"
+        | ClearSelection -> "clear-selection"
         | Indent -> "indent"
         | Unindent -> "unindent"
         | DeleteWordBack -> "delete-word-back"
