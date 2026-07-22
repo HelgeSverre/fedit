@@ -18,6 +18,20 @@ let ``exit notification is a fixed envelope`` () =
     |> should equal """{"jsonrpc":"2.0","method":"exit","params":null}"""
 
 [<Fact>]
+let ``method-not-found reply splices a numeric id back verbatim`` () =
+    LspWire.methodNotFoundResponse "7" "workspace/configuration"
+    |> should
+        equal
+        """{"jsonrpc":"2.0","id":7,"error":{"code":-32601,"message":"method not found: workspace/configuration"}}"""
+
+[<Fact>]
+let ``method-not-found reply splices a string id back verbatim`` () =
+    LspWire.methodNotFoundResponse "\"req-1\"" "client/registerCapability"
+    |> should
+        equal
+        """{"jsonrpc":"2.0","id":"req-1","error":{"code":-32601,"message":"method not found: client/registerCapability"}}"""
+
+[<Fact>]
 let ``shutdown request carries the id`` () =
     LspWire.shutdownRequest 9
     |> should equal """{"jsonrpc":"2.0","id":9,"method":"shutdown","params":null}"""

@@ -29,7 +29,9 @@
     <Compile Include="PluginsTests.fs" />
     <Compile Include="PluginWireTests.fs" />
     <Compile Include="LspWireTests.fs" />
+    <Compile Include="LspTransportTests.fs" />
     <Compile Include="PluginHostTests.fs" />
+    <Compile Include="LspClientTests.fs" />
     <Compile Include="CliTests.fs" />
     <Compile Include="CompletionsTests.fs" />
     <Compile Include="StatusTests.fs" />

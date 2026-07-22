@@ -163,6 +163,20 @@ module LspWire =
             w.WriteString("method", "exit")
             w.WriteNull "params")
 
+    /// Error reply for a server->client request fedit does not implement
+    /// (JSON-RPC MethodNotFound, -32601). Some servers stall until every
+    /// request is answered. `rawId` is the id's raw JSON text from
+    /// `classifyMessage`, spliced back verbatim (number or string).
+    let methodNotFoundResponse (rawId: string) (methodName: string) : string =
+        envelope (fun w ->
+            w.WritePropertyName "id"
+            w.WriteRawValue rawId
+            w.WritePropertyName "error"
+            w.WriteStartObject()
+            w.WriteNumber("code", -32601)
+            w.WriteString("message", "method not found: " + methodName)
+            w.WriteEndObject())
+
     let private textDocumentPositionRequest (id: int) (methodName: string) (uri: string) (position: LspPosition) =
         envelope (fun w ->
             w.WriteNumber("id", id)
