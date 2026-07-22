@@ -263,3 +263,62 @@ let ``plugins and macros appear in command completions`` () =
     let labels = Commands.completions ctx "" |> List.map _.Label
     labels |> should contain "plugins"
     labels |> should contain "macros"
+
+[<Fact>]
+let ``quit force parses to Ready ForceQuit`` () =
+    Commands.parse "quit force" |> should equal (Ready ForceQuit)
+
+[<Fact>]
+let ``unknown quit argument is Invalid`` () =
+    match Commands.parse "quit now" with
+    | ParsedCommand.Invalid _ -> ()
+    | other -> failwithf "expected Invalid, got %A" other
+
+[<Fact>]
+let ``close parses to Ready (Close None)`` () =
+    Commands.parse "close" |> should equal (Ready(Close None))
+
+[<Fact>]
+let ``close with id or name parses to the matching buffer reference`` () =
+    Commands.parse "close 2" |> should equal (Ready(Close(Some(ById 2))))
+    Commands.parse "close a.fs" |> should equal (Ready(Close(Some(ByName "a.fs"))))
+
+[<Fact>]
+let ``quit completions suggest force`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = []
+          Recent = []
+          Buffers = []
+          Themes = Themes.all
+          CompletionLimit = 8 }
+
+    Commands.completions ctx "quit " |> List.map _.Label |> should equal [ "force" ]
+
+[<Fact>]
+let ``buffers completions mark dirty buffers`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = []
+          Recent = []
+          Buffers = [ 1, "a.fs", Some "/root/a.fs", true; 2, "b.fs", None, false ]
+          Themes = Themes.all
+          CompletionLimit = 8 }
+
+    Commands.completions ctx "buffers "
+    |> List.map _.Label
+    |> should equal [ "1  a.fs [+]"; "2  b.fs" ]
+
+[<Fact>]
+let ``close completions list open buffers with the close verb`` () =
+    let ctx =
+        { RootPath = "/"
+          Files = []
+          Recent = []
+          Buffers = [ 1, "a.fs", Some "/root/a.fs", true; 2, "b.fs", None, false ]
+          Themes = Themes.all
+          CompletionLimit = 8 }
+
+    let comps = Commands.completions ctx "close "
+    comps |> List.map _.ApplyText |> should equal [ "close 1"; "close 2" ]
+    comps |> List.map _.Label |> should equal [ "1  a.fs [+]"; "2  b.fs" ]

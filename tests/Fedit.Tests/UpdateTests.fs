@@ -2037,3 +2037,182 @@ let ``PastedText with sidebar focus is ignored`` () =
     Buffer.text (activeBuffer next) |> should equal ""
     next.Focus |> should equal Sidebar
     effects |> should equal ([]: Effect list)
+
+// ─────────────────────────────────────────────────────────────────────
+// Quit guard shared across routes (Ctrl+Q, `:quit`, `quit force`) and
+// close-buffer lifecycle (two-step dirty confirm, last-buffer scratch,
+// MRU fallback activation).
+// ─────────────────────────────────────────────────────────────────────
+
+let private pressKey chord m =
+    fst (Editor.update (KeyPressed chord) m)
+
+/// Open the palette on an existing model, type `text`, and press Enter.
+let private runCommandText (text: string) model =
+    let opened = pressKey (ck 'p') model
+    text |> Seq.fold (fun m c -> pressKey (chr c) m) opened |> pressKey (nk Enter)
+
+let private notificationMessage (model: Model) =
+    model.Notification |> Option.map (fun n -> n.Message)
+
+[<Fact>]
+let ``palette quit with a dirty buffer arms instead of quitting`` () =
+    let next = runCommandText "quit" (withText "x")
+
+    next.ShouldQuit |> should equal false
+    next.QuitArmed |> should equal true
+
+    notificationMessage next
+    |> should equal (Some "Unsaved changes in scratch. Quit again to discard.")
+
+[<Fact>]
+let ``second palette quit quits despite dirty buffers`` () =
+    let armed = runCommandText "quit" (withText "x")
+    let final = runCommandText "quit" armed
+    final.ShouldQuit |> should equal true
+
+[<Fact>]
+let ``quit force quits immediately despite dirty buffers`` () =
+    let final = runCommandText "quit force" (withText "x")
+    final.ShouldQuit |> should equal true
+
+[<Fact>]
+let ``Ctrl+q pressed twice with a dirty buffer quits`` () =
+    let armed = pressKey (ck 'q') (withText "x")
+    armed.ShouldQuit |> should equal false
+
+    let final = pressKey (ck 'q') armed
+    final.ShouldQuit |> should equal true
+
+[<Fact>]
+let ``a non-quit key disarms the quit warning`` () =
+    let armed = pressKey (ck 'q') (withText "x")
+    let moved = pressKey (nk Right) armed
+    moved.QuitArmed |> should equal false
+
+    // The next quit warns again instead of discarding.
+    let rewarned = pressKey (ck 'q') moved
+    rewarned.ShouldQuit |> should equal false
+    rewarned.QuitArmed |> should equal true
+
+[<Fact>]
+let ``quit warning names up to three dirty buffers then counts the rest`` () =
+    let model = initModel ()
+
+    let dirtyBuffer id name =
+        { Buffer.fromText id None name "x" "\n" with
+            Dirty = true }
+
+    let seeded =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers =
+                        Map.ofList
+                            [ for i, name in List.indexed [ "a.fs"; "b.fs"; "c.fs"; "d.fs"; "e.fs" ] ->
+                                  i + 1, dirtyBuffer (i + 1) name ] } }
+
+    let warned = pressKey (ck 'q') seeded
+
+    notificationMessage warned
+    |> should equal (Some "Unsaved changes in a.fs, b.fs, c.fs +2 more. Quit again to discard.")
+
+[<Fact>]
+let ``close-buffer activates the most recently active buffer`` () =
+    let model = initModel ()
+
+    let openedA, _ =
+        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok "a")) model
+
+    let openedB, _ =
+        Editor.update (FileOpened("/root/b.fs", OpenPermanent, None, Result.Ok "b")) openedA
+
+    // Buffers: 1 scratch, 2 a.fs, 3 b.fs (active). Jump to the scratch,
+    // then close it: the fallback must be the most recently active b.fs
+    // (3), not the adjacent a.fs (2).
+    let onScratch = pressKey (ck '1') openedB
+    onScratch.Editors.ActiveBufferId |> should equal 1
+
+    let closed = pressKey (ck 'w') onScratch
+    closed.Editors.Buffers.Count |> should equal 2
+    closed.Editors.Buffers.ContainsKey 1 |> should equal false
+    closed.Editors.ActiveBufferId |> should equal 3
+
+[<Fact>]
+let ``closing the last buffer leaves a fresh scratch`` () =
+    let closed = pressKey (ck 'w') (initModel ())
+
+    closed.Editors.Buffers.Count |> should equal 1
+    closed.Editors.ActiveBufferId |> should equal 2
+
+    let scratch = Editor.activeBufferState closed
+    scratch.Dirty |> should equal false
+    Buffer.text scratch |> should equal ""
+
+[<Fact>]
+let ``Ctrl+w on a dirty buffer arms then closes on repeat`` () =
+    let warned = pressKey (ck 'w') (withText "x")
+
+    warned.Editors.Buffers.Count |> should equal 1
+    warned.CloseArmed |> should equal (Some 1)
+
+    notificationMessage warned
+    |> should equal (Some "Unsaved changes in scratch. Close again to discard.")
+
+    let closed = pressKey (ck 'w') warned
+    closed.CloseArmed |> should equal (None: int option)
+    closed.Editors.ActiveBufferId |> should equal 2
+    Buffer.text (Editor.activeBufferState closed) |> should equal ""
+
+[<Fact>]
+let ``a non-close key disarms the close warning`` () =
+    let warned = pressKey (ck 'w') (withText "x")
+    let moved = pressKey (nk Right) warned
+    moved.CloseArmed |> should equal (None: int option)
+
+    // The next close warns again instead of discarding.
+    let rewarned = pressKey (ck 'w') moved
+    rewarned.Editors.Buffers.Count |> should equal 1
+    rewarned.CloseArmed |> should equal (Some 1)
+
+[<Fact>]
+let ``palette close on a dirty buffer arms then closes on repeat`` () =
+    let warned = runCommandText "close" (withText "x")
+    warned.Editors.Buffers.Count |> should equal 1
+    warned.CloseArmed |> should equal (Some 1)
+
+    let closed = runCommandText "close" warned
+    closed.Editors.ActiveBufferId |> should equal 2
+    Buffer.text (Editor.activeBufferState closed) |> should equal ""
+
+[<Fact>]
+let ``palette close by name closes the named buffer without switching`` () =
+    let model = initModel ()
+
+    let openedA, _ =
+        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok "a")) model
+
+    let openedB, _ =
+        Editor.update (FileOpened("/root/b.fs", OpenPermanent, None, Result.Ok "b")) openedA
+
+    let closed = runCommandText "close a.fs" openedB
+
+    closed.Editors.Buffers
+    |> Map.exists (fun _ buffer -> buffer.Name = "a.fs")
+    |> should equal false
+
+    closed.Editors.ActiveBufferId |> should equal openedB.Editors.ActiveBufferId
+
+[<Fact>]
+let ``palette close with an unknown name reports an error`` () =
+    let next = runCommandText "close nosuch" (initModel ())
+    next.Editors.Buffers.Count |> should equal 1
+    (notificationMessage next).Value.Contains "Unknown buffer" |> should equal true
+
+[<Fact>]
+let ``buffer switcher completions mark dirty buffers`` () =
+    let prompt = withText "x" |> pressKey (ck 'o') |> pressKey (chr '@')
+
+    prompt.Prompt.Completions
+    |> List.map (fun item -> item.Label)
+    |> should contain "1  scratch [+]"

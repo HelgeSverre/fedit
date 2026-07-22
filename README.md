@@ -228,7 +228,8 @@ Global shortcuts:
 - `Ctrl+E`: Focus the editor.
 - `Ctrl+S`: Save the active buffer.
 - `Ctrl+R`: Reload the workspace tree.
-- `Ctrl+Q`: Quit (prompts once if buffers are dirty; press again to discard).
+- `Ctrl+Q`: Quit (warns once if buffers are dirty, naming them; quit again to discard).
+- `Ctrl+W`: Close the active buffer (warns once if dirty; close again to discard). Activation falls back to the most recently active buffer; closing the last buffer leaves a fresh scratch.
 - `Ctrl+Z`: Undo.
 - `Ctrl+Y`: Redo.
 - `Ctrl+PageDown` / `Ctrl+PageUp`: Cycle to the next / previous open buffer.
@@ -291,13 +292,14 @@ Named commands (typed after `:`):
 - `open <path>`: Open a file from the current workspace. Activates the existing buffer if the file is already open.
 - `write`: Save the active buffer.
 - `writeas <path>`: Save the active buffer to another path.
-- `quit`: Exit the editor.
+- `quit [force]`: Exit the editor. With dirty buffers, plain `quit` warns once and quits on repeat; `quit force` discards unsaved changes immediately.
+- `close [id-or-name]`: Close a buffer (the active one by default). Dirty buffers warn once and close on repeat, like `quit`.
 - `config`: Open `~/.config/fedit/config.json` in a buffer; creates it from the running config on first call.
 - `reload`: Reload the workspace tree.
 - `next` / `prev`: Cycle buffers (also bound to `Ctrl+PageDown` / `Ctrl+PageUp`).
 - `theme <name>`: Switch the theme. The accent themes — `green` (default), `blue`, `orange`, `cyan`, `teal`, `yellow`, `red`, `graphite`, `evergreen`, `mono-amber` — swap the accent family and keep the terminal-default chrome; `github-light`, `github-dark`, and `ayu` repaint the full surface. The UI live-previews each highlight as you cycle. The choice persists to `~/.config/fedit/config.json` and is restored on next launch.
 - `recent <path>`: Pick a recently opened file. Tab to cycle through the last 20 files; the list persists in the same config file.
-- `buffers <id-or-name>`: Switch to an open buffer by numeric id or name. Completion shows `{id} {name}` with the file path as detail.
+- `buffers <id-or-name>`: Switch to an open buffer by numeric id or name. Completion shows `{id} {name}` with the file path as detail; dirty buffers carry a ` [+]` marker.
 - `syntax <on|off|toggle>`: Toggle syntax highlighting; persists to config under `syntaxHighlighting`.
 - `plugin <verb> [arg]`: In-editor plugin manager. See `docs/plugins.md` for the verbs.
 - `plugins`: Open the plugin manager picker.

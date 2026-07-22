@@ -58,6 +58,8 @@ let actionMeta (action: Action) : string * string =
     | Save -> "file", "Save the active buffer"
     | SaveAs _ -> "file", "Save the active buffer to a new path"
     | Quit -> "file", "Quit the editor"
+    | ForceQuit -> "file", "Quit the editor, discarding unsaved changes"
+    | CloseBuffer -> "buffer", "Close the active buffer"
     | OpenPalette -> "prompt", "Open the command palette"
     | OpenFilePicker -> "prompt", "Open the file picker"
     | OpenSearch -> "prompt", "Open in-buffer search"
@@ -129,6 +131,8 @@ let allActions: Action list =
       Save
       SaveAs ""
       Quit
+      ForceQuit
+      CloseBuffer
       OpenPalette
       OpenFilePicker
       OpenSearch

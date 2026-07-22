@@ -50,6 +50,7 @@ module Editor =
         { Buffers = Map.ofList [ 1, scratch ]
           ActiveBufferId = 1
           NextBufferId = 2
+          ActivationHistory = []
           PreviewBufferId = None
           BufferActivations = Map.empty }
 
@@ -229,8 +230,9 @@ module Editor =
         |> List.truncate model.Config.CompletionLimit
         |> List.map (fun (id, buffer) ->
             let detail = buffer.FilePath |> Option.defaultValue "scratch"
+            let marker = if buffer.Dirty then " [+]" else ""
 
-            { Label = $"{id}  {buffer.Name}"
+            { Label = $"{id}  {buffer.Name}{marker}"
               ApplyText = $"{id}"
               Detail = detail
               Kind = PathItem })
@@ -247,7 +249,7 @@ module Editor =
         let buffersForCompletion =
             model.Editors.Buffers
             |> Map.toList
-            |> List.map (fun (id, buffer) -> id, buffer.Name, buffer.FilePath)
+            |> List.map (fun (id, buffer) -> id, buffer.Name, buffer.FilePath, buffer.Dirty)
 
         Commands.completionsWith
             (Commands.allSpecs (pluginCmdTuples model))
@@ -528,6 +530,81 @@ module Editor =
                         ActiveBufferId = id } }
             |> notify (Some(Notification.info $"Buffer {index}/{ids.Length}"))
         | None -> model
+
+    /// Resolve a `@` / `:buffers` / `:close` buffer reference to a live
+    /// buffer id. Names match the buffer name or its full file path.
+    let private resolveBufferRef (bufferRef: BufferRef) (buffers: Map<int, BufferState>) : int option =
+        match bufferRef with
+        | ById id -> if buffers.ContainsKey id then Some id else None
+        | ByName name ->
+            buffers
+            |> Map.toList
+            |> List.tryFind (fun (_, buffer) -> buffer.Name = name || buffer.FilePath = Some name)
+            |> Option.map fst
+
+    /// How the user spelled a buffer reference, for error messages.
+    let private bufferRefLabel (bufferRef: BufferRef) : string =
+        match bufferRef with
+        | ById id -> string id
+        | ByName name -> name
+
+    /// Close a buffer with the same two-step confirmation as quit: a dirty
+    /// buffer warns and arms on the first invocation, and the second
+    /// invocation discards. Closing the last buffer leaves a fresh scratch
+    /// buffer; closing the active buffer activates the most recently active
+    /// other buffer (falling back to the newest remaining one).
+    let private closeBuffer (bufferId: int) (model: Model) : Model * Effect list =
+        match model.Editors.Buffers |> Map.tryFind bufferId with
+        | None -> notify (Some(Notification.error $"Unknown buffer '{bufferId}'.")) model, []
+        | Some buffer when buffer.Dirty && model.CloseArmed <> Some bufferId ->
+            { model with
+                CloseArmed = Some bufferId
+                Notification = Some(Notification.warning $"Unsaved changes in {buffer.Name}. Close again to discard.") },
+            []
+        | Some buffer ->
+            let editors = model.Editors
+            let remaining = editors.Buffers |> Map.remove bufferId
+
+            let nextEditors =
+                if Map.isEmpty remaining then
+                    // Last buffer: leave a fresh scratch so the editor is
+                    // never empty (mirrors the `init` state).
+                    let scratch = Buffer.createEmpty editors.NextBufferId
+
+                    { editors with
+                        Buffers = Map.ofList [ scratch.Id, scratch ]
+                        ActiveBufferId = scratch.Id
+                        NextBufferId = editors.NextBufferId + 1 }
+                else
+                    let nextActiveId =
+                        if editors.ActiveBufferId <> bufferId then
+                            editors.ActiveBufferId
+                        else
+                            editors.ActivationHistory
+                            |> List.tryFind (fun id -> id <> bufferId && remaining.ContainsKey id)
+                            |> Option.defaultValue (remaining |> Map.keys |> Seq.max)
+
+                    { editors with
+                        Buffers = remaining
+                        ActiveBufferId = nextActiveId }
+
+            let nextEditors =
+                { nextEditors with
+                    ActivationHistory = nextEditors.ActivationHistory |> List.filter ((<>) bufferId)
+                    BufferActivations = nextEditors.BufferActivations |> Map.remove bufferId
+                    PreviewBufferId =
+                        if editors.PreviewBufferId = Some bufferId then
+                            None
+                        else
+                            editors.PreviewBufferId }
+
+            { model with
+                Editors = nextEditors
+                CloseArmed = None
+                HighlightStates = model.HighlightStates |> Map.remove bufferId
+                MouseDrag = model.MouseDrag |> Option.filter (fun drag -> drag.AnchorBufferId <> bufferId)
+                Notification = Some(Notification.info $"Closed {buffer.Name}") },
+            []
 
     /// Sidebar selection for a just-opened file: with `autoReveal` on,
     /// expand the ancestor chain so the selection is actually visible;
@@ -999,6 +1076,15 @@ module Editor =
             // posts back and its Ok handler opens the file.
             model, [ EnsureConfigFile model.Config ]
         | Command.Quit -> runAction Action.Quit model
+        | Command.ForceQuit -> runAction Action.ForceQuit model
+        | Command.Close None -> runAction Action.CloseBuffer model
+        | Command.Close(Some bufferRef) ->
+            match resolveBufferRef bufferRef model.Editors.Buffers with
+            | Some id -> closeBuffer id model
+            | None ->
+                model
+                |> notify (Some(Notification.error $"Unknown buffer '{bufferRefLabel bufferRef}'.")),
+                []
         | Command.ToggleSidebar -> runAction Action.ToggleSidebar model
         | FocusTree -> runAction FocusSidebar model
         | Command.Reveal -> runAction RevealInSidebar model
@@ -1027,24 +1113,7 @@ module Editor =
                 []
             | None -> { model with Focus = Editor }, [ LoadFile(absolute, OpenPermanent, None) ]
         | SwitchBuffer bufferRef ->
-            let buffers = model.Editors.Buffers
-
-            let target =
-                match bufferRef with
-                | ById id when buffers.ContainsKey id -> Some id
-                | ById _ -> None
-                | ByName name ->
-                    buffers
-                    |> Map.toList
-                    |> List.tryFind (fun (_, b) -> b.Name = name || b.FilePath = Some name)
-                    |> Option.map fst
-
-            let label =
-                match bufferRef with
-                | ById id -> string id
-                | ByName name -> name
-
-            match target with
+            match resolveBufferRef bufferRef model.Editors.Buffers with
             | Some id ->
                 { model with
                     Editors =
@@ -1053,7 +1122,10 @@ module Editor =
                     Focus = Editor }
                 |> notify (Some(Notification.info $"Buffer {id}")),
                 []
-            | None -> model |> notify (Some(Notification.error $"Unknown buffer '{label}'.")), []
+            | None ->
+                model
+                |> notify (Some(Notification.error $"Unknown buffer '{bufferRefLabel bufferRef}'.")),
+                []
         | Command.Goto(line, column) ->
             let targetLine = max 0 (line - 1)
             let targetCol = max 0 ((Option.defaultValue 1 column) - 1)
@@ -1291,7 +1363,36 @@ module Editor =
         // command-group bodies
         | Save -> saveActiveBuffer None model
         | SaveAs path -> saveActiveBuffer (Some path) model
-        | Quit -> { model with ShouldQuit = true }, [ SaveConfig model.Config ]
+        | Quit ->
+            // Shared two-step quit guard: every route (Ctrl+Q, `:quit`,
+            // rebound quit keys) warns and arms on the first invocation
+            // with dirty buffers; the second invocation discards.
+            let dirtyBuffers =
+                model.Editors.Buffers
+                |> Map.toList
+                |> List.filter (fun (_, buffer) -> buffer.Dirty)
+
+            if model.QuitArmed || List.isEmpty dirtyBuffers then
+                runAction ForceQuit model
+            else
+                let names =
+                    dirtyBuffers |> List.truncate 3 |> List.map (fun (_, buffer) -> buffer.Name)
+
+                let overflow = dirtyBuffers.Length - names.Length
+                let shown = String.concat ", " names
+                let listed = if overflow > 0 then $"{shown} +{overflow} more" else shown
+
+                { model with
+                    QuitArmed = true
+                    Notification = Some(Notification.warning $"Unsaved changes in {listed}. Quit again to discard.") },
+                []
+        | ForceQuit ->
+            { model with
+                ShouldQuit = true
+                QuitArmed = false
+                Notification = None },
+            [ SaveConfig model.Config ]
+        | CloseBuffer -> closeBuffer model.Editors.ActiveBufferId model
         | OpenPalette ->
             openPrompt
                 ":"
@@ -1861,6 +1962,7 @@ module Editor =
           Plugins = PluginRegistry.empty
           HighlightStates = Map.empty
           QuitArmed = false
+          CloseArmed = None
           ShouldQuit = false
           Keymap = Keymap.defaults
           PendingPrefix = None
@@ -2314,12 +2416,9 @@ module Editor =
             if model.Focus = Prompt && isPromptListSession model.Prompt.Session then
                 runPrompt chord model
             else
-                let model =
-                    if chord = kCtrlQ then
-                        model
-                    else
-                        { model with QuitArmed = false }
-
+                // Armed quit/close confirmations are disarmed by the
+                // `disarmStaleConfirmations` chokepoint in `update`, not here:
+                // a prompt round-trip (`:quit` again) must keep them armed.
                 let ctx = contextOf model.Focus
 
                 // Record-append hook: while recording (and not replaying), capture
@@ -2373,32 +2472,11 @@ module Editor =
                         let model = { model with PendingPrefix = None }
 
                         match candidate with
-                        // Ctrl+Q two-stage quit stays bespoke — it owns QuitArmed
-                        // and is deliberately absent from the keymap defaults.
-                        | [ c ] when c = kCtrlQ ->
-                            let hasDirty = model.Editors.Buffers |> Map.exists (fun _ buffer -> buffer.Dirty)
-
-                            if model.QuitArmed || not hasDirty then
-                                { model with
-                                    ShouldQuit = true
-                                    QuitArmed = false
-                                    Notification = None },
-                                [ SaveConfig model.Config ]
-                            else
-                                let dirtyCount =
-                                    model.Editors.Buffers
-                                    |> Map.toList
-                                    |> List.filter (fun (_, b) -> b.Dirty)
-                                    |> List.length
-
-                                { model with
-                                    QuitArmed = true
-                                    Notification =
-                                        Some(
-                                            Notification.warning
-                                                $"Unsaved changes in {dirtyCount} buffer(s). Press Ctrl+Q again to discard."
-                                        ) },
-                                []
+                        // Ctrl+Q stays ahead of the keymap (quitting must
+                        // survive a broken keybinds file); the two-stage dirty
+                        // guard lives in `runAction Quit`, shared with `:quit`
+                        // and any rebound quit key.
+                        | [ c ] when c = kCtrlQ -> runAction Quit model
                         | _ ->
                             let model = { model with Notification = None }
 
@@ -2481,8 +2559,53 @@ module Editor =
         else
             model
 
+    /// Two-step confirmations (quit / close-buffer) stay armed only while
+    /// the user is re-invoking the verb: the immediate second chord, or the
+    /// prompt round-trip for `:quit` / `:close` (opening and typing in the
+    /// prompt must not disarm the first warning, so keys that leave the
+    /// prompt focused are exempt). Any other key press disarms, so the
+    /// destructive second invocation always follows straight after its
+    /// warning. "Left untouched by this dispatch" is the disarm signal —
+    /// arming and consuming both change the flag, so they stay armed.
+    let private disarmStaleConfirmations (msg: Msg) (before: Model) (after: Model) : Model =
+        match msg with
+        | KeyPressed _ when after.Focus <> Prompt ->
+            let after =
+                if before.QuitArmed && after.QuitArmed then
+                    { after with QuitArmed = false }
+                else
+                    after
+
+            if before.CloseArmed.IsSome && after.CloseArmed = before.CloseArmed then
+                { after with CloseArmed = None }
+            else
+                after
+        | _ -> after
+
+    /// Buffer MRU chokepoint: whenever a dispatch changes the active buffer,
+    /// push the previous one onto `ActivationHistory` (most recent first,
+    /// deduped, pruned to live buffers) so close-buffer can fall back to the
+    /// most recently active buffer. One chokepoint after `updateCore`, so no
+    /// individual activation site can forget.
+    let private recordBufferActivation (before: Model) (after: Model) : Model =
+        let previousId = before.Editors.ActiveBufferId
+
+        if previousId = after.Editors.ActiveBufferId then
+            after
+        else
+            let history =
+                previousId :: (after.Editors.ActivationHistory |> List.filter ((<>) previousId))
+                |> List.filter after.Editors.Buffers.ContainsKey
+
+            { after with
+                Editors =
+                    { after.Editors with
+                        ActivationHistory = history } }
+
     let update msg model =
         let next, effects = updateCore msg model
+        let next = disarmStaleConfirmations msg model next
+        let next = recordBufferActivation model next
         let next = promoteDirtyPreview next
         let next, highlightFx = highlightEffects model next
         next, effects @ highlightFx

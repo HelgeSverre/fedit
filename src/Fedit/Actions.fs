@@ -50,7 +50,14 @@ type Action =
     // commands
     | Save
     | SaveAs of string
+    /// Quit with the shared dirty-buffer guard: with unsaved changes the
+    /// first invocation warns and arms; the second discards and quits.
     | Quit
+    /// Quit unconditionally, discarding unsaved changes.
+    | ForceQuit
+    /// Close the active buffer, with the same two-step dirty confirmation
+    /// as `Quit`. Closing the last buffer leaves a fresh scratch buffer.
+    | CloseBuffer
     | OpenPalette
     | OpenFilePicker
     | OpenSearch
@@ -102,6 +109,8 @@ module Action =
         | Command.Write -> Some Action.Save
         | Command.WriteAs path -> Some(Action.SaveAs path)
         | Command.Quit -> Some Action.Quit
+        | Command.ForceQuit -> Some Action.ForceQuit
+        | Command.Close None -> Some Action.CloseBuffer
         | Command.NextBuffer -> Some Action.NextBuffer
         | Command.PreviousBuffer -> Some Action.PrevBuffer
         | Command.ReloadWorkspace -> Some Action.ReloadWorkspace
@@ -147,6 +156,8 @@ module Action =
         | Save -> "save"
         | SaveAs _ -> "save-as"
         | Quit -> "quit"
+        | ForceQuit -> "force-quit"
+        | CloseBuffer -> "close-buffer"
         | OpenPalette -> "command-palette"
         | OpenFilePicker -> "open-file"
         | OpenSearch -> "search"

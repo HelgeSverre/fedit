@@ -9,6 +9,11 @@ type EditorsState =
         Buffers: Map<int, BufferState>
         ActiveBufferId: int
         NextBufferId: int
+        /// Previously active buffer ids, most recent first — deduped and
+        /// pruned to live buffers by the `recordBufferActivation`
+        /// chokepoint in `Editor.update`. Close-buffer falls back to the
+        /// head of this list when the active buffer goes away.
+        ActivationHistory: int list
         /// Single VSCode-style preview slot. `Some id` while unpromoted;
         /// editing or explicit open clears it (promotes to permanent).
         /// A new preview reuses the same buffer id, replacing its content.
@@ -157,6 +162,11 @@ type Model =
         /// to load — the renderer just skips the color overlay.
         HighlightStates: Map<int, HighlightSpan array>
         QuitArmed: bool
+        /// `Some bufferId` after close-buffer warned about unsaved changes
+        /// in that buffer; the next close of the same buffer discards.
+        /// Same two-step confirmation pattern as `QuitArmed`; both disarm
+        /// via the `disarmStaleConfirmations` chokepoint in `Editor.update`.
+        CloseArmed: int option
         ShouldQuit: bool
         /// Effective keymap: `Keymap.defaults` overlaid by the user's
         /// `~/.config/fedit/keybinds` file. Carries defaults from `init` so the

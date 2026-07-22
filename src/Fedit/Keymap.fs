@@ -42,8 +42,10 @@ module Keymap =
 
     /// Compiled-in defaults. Reproduces today's dispatch exactly — every chord
     /// the global Ctrl handler / runEditor / runSidebar matched gets one entry.
-    /// `Ctrl+Q` is deliberately absent: its two-stage quit owns `QuitArmed` and
-    /// stays bespoke in `Editor.update`. Guarded by the parity test.
+    /// `Ctrl+Q` is deliberately absent: it dispatches ahead of the keymap in
+    /// `Editor.update` so quitting survives a broken keybinds file; the
+    /// two-stage dirty guard lives in `runAction Quit`. Guarded by the parity
+    /// test.
     let defaults: Keymap =
         [
           // ── global Ctrl chords (fire in every focus → Context.Global) ──
@@ -64,6 +66,7 @@ module Keymap =
           single (chord [ Ctrl ] (Named PageDown)) Action.NextBuffer
           |> inCtx Context.Global
           single (chord [ Ctrl ] (Named PageUp)) PrevBuffer |> inCtx Context.Global
+          single (chord [ Ctrl ] (Key.Char 'w')) CloseBuffer |> inCtx Context.Global
 
           // ── tri-state sidebar Ctrl+B, split per spec §6.5/§11.1 ──
           //   editor/global/prompt view: reveal+focus when hidden, focus when visible
@@ -266,6 +269,8 @@ module Keymap =
         match name with
         | "save" -> Ok Save
         | "quit" -> Ok Quit
+        | "force-quit" -> Ok ForceQuit
+        | "close-buffer" -> Ok CloseBuffer
         | "command-palette"
         | "open-palette" -> Ok OpenPalette
         | "open-file" -> Ok OpenFilePicker

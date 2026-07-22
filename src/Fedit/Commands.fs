@@ -15,7 +15,12 @@ type Command =
     | Open of string
     | Write
     | WriteAs of string
+    /// Quit with the dirty-buffer guard (warn + arm, quit on repeat).
     | Quit
+    /// `quit force` — quit unconditionally, discarding unsaved changes.
+    | ForceQuit
+    /// `close [id-or-name]` — close a buffer; `None` closes the active one.
+    | Close of BufferRef option
     | ToggleSidebar
     | FocusTree
     | FocusEditor
@@ -57,12 +62,15 @@ type ParsedCommand =
     | Invalid of string
 
 type CommandContext =
-    { RootPath: string
-      Files: string list
-      Recent: string list
-      Buffers: (int * string * string option) list
-      Themes: Theme list
-      CompletionLimit: int }
+    {
+        RootPath: string
+        Files: string list
+        Recent: string list
+        /// `(id, name, filePath, dirty)` per open buffer.
+        Buffers: (int * string * string option * bool) list
+        Themes: Theme list
+        CompletionLimit: int
+    }
 
 [<RequireQualifiedAccess>]
 module Commands =
@@ -115,10 +123,15 @@ module Commands =
                   else
                       Ready(WriteAs(argument.Trim())) }
           { Name = "quit"
-            Usage = "quit"
-            Summary = "Exit fedit."
+            Usage = "quit [force]"
+            Summary = "Exit fedit. `quit force` discards unsaved changes."
             Hidden = false
-            Constructor = simple Quit }
+            Constructor =
+              fun argument ->
+                  match argument.Trim().ToLowerInvariant() with
+                  | "" -> Ready Quit
+                  | "force" -> Ready ForceQuit
+                  | other -> Invalid $"Unknown quit argument '{other}'." }
           { Name = "config"
             Usage = "config"
             Summary = "Open the fedit config file (~/.config/fedit/config.json) in a buffer."
@@ -204,6 +217,23 @@ module Commands =
                           | _ -> ByName trimmed
 
                       Ready(SwitchBuffer bufferRef) }
+          { Name = "close"
+            Usage = "close [id-or-name]"
+            Summary = "Close a buffer (the active one by default)."
+            Hidden = false
+            Constructor =
+              fun argument ->
+                  let trimmed = argument.Trim()
+
+                  if String.IsNullOrWhiteSpace trimmed then
+                      Ready(Close None)
+                  else
+                      let bufferRef =
+                          match Int32.TryParse trimmed with
+                          | true, id -> ById id
+                          | _ -> ByName trimmed
+
+                      Ready(Close(Some bufferRef)) }
           { Name = "syntax"
             Usage = "syntax <on|off|toggle>"
             Summary = "Toggle syntax highlighting."
@@ -369,6 +399,23 @@ module Commands =
                 let commandName = trimmed[.. firstSpace - 1].ToLowerInvariant()
                 let argument = trimmed[firstSpace + 1 ..].TrimStart()
 
+                // Shared by `buffers` and `close`: one item per matching open
+                // buffer, dirty ones marked with the status bar's ` [+]`.
+                let bufferItems (verb: string) =
+                    context.Buffers
+                    |> List.filter (fun (id, name, _, _) ->
+                        name.StartsWith(argument, StringComparison.OrdinalIgnoreCase)
+                        || (string id).StartsWith argument)
+                    |> List.truncate context.CompletionLimit
+                    |> List.map (fun (id, name, filePath, dirty) ->
+                        let detail = filePath |> Option.defaultValue "scratch"
+                        let marker = if dirty then " [+]" else ""
+
+                        { Label = $"{id}  {name}{marker}"
+                          ApplyText = $"{verb} {id}"
+                          Detail = detail
+                          Kind = PathItem })
+
                 match commandName with
                 | "open"
                 | "writeas" ->
@@ -405,19 +452,16 @@ module Commands =
                           ApplyText = $"recent {filePath}"
                           Detail = filePath
                           Kind = PathItem })
-                | "buffers" ->
-                    context.Buffers
-                    |> List.filter (fun (id, name, _) ->
-                        name.StartsWith(argument, StringComparison.OrdinalIgnoreCase)
-                        || (string id).StartsWith argument)
-                    |> List.truncate context.CompletionLimit
-                    |> List.map (fun (id, name, filePath) ->
-                        let detail = filePath |> Option.defaultValue "scratch"
-
-                        { Label = $"{id}  {name}"
-                          ApplyText = $"buffers {id}"
-                          Detail = detail
-                          Kind = PathItem })
+                | "buffers" -> bufferItems "buffers"
+                | "close" -> bufferItems "close"
+                | "quit" ->
+                    [ "force" ]
+                    |> List.filter (fun verb -> verb.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
+                    |> List.map (fun verb ->
+                        { Label = verb
+                          ApplyText = $"quit {verb}"
+                          Detail = "discard unsaved changes and exit"
+                          Kind = Command })
                 | "plugin" ->
                     [ "list"; "enable"; "disable"; "install"; "remove"; "reload"; "validate" ]
                     |> List.filter (fun verb -> verb.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
