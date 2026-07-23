@@ -140,10 +140,13 @@ LF-normalized in memory, and both fedit and LSP address positions as
 conversion.
 
 Servers print startup banners to stderr; fedit drains and rings that
-output (`:lsp log`) and never treats it as failure. A server that exits
-during shutdown is normal (`sema` force-exits shortly after `shutdown`);
-a server that exits mid-session shows as `failed` in `:lsp` with the
-exit code in the log.
+output (`:lsp log`) and never treats it as failure. On quit, fedit sends
+`shutdown` and `exit`, gives each server 250 ms, then terminates it —
+the protocol requires servers to tolerate client termination, and quit
+must not wait on a slow exit path. All clients shut down concurrently,
+so quit stays instant however many servers are running. A server that
+exits mid-session shows as `failed` in `:lsp` with the exit code in the
+log.
 
 ## Troubleshooting
 
