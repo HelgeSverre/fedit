@@ -269,6 +269,91 @@ let ``HighlightParsed stores spans only for the current edit tick`` () =
     let fresh, _ = Editor.update (HighlightParsed(bufferId, 0, spans)) opened
     fresh.HighlightStates[bufferId] |> should equal spans
 
+[<Fact>]
+let ``SelectionLadderReady selects the smallest range larger than the caret`` () =
+    let opened, _ =
+        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok "let value = 42")) (initModel ())
+
+    let bufferId = opened.Editors.ActiveBufferId
+    let editTick = opened.Editors.Buffers[bufferId].EditTick
+    // Caret sits at index 0; every range encloses it, so the first is picked.
+    let ranges = [| (0, 3); (0, 9); (0, 14) |]
+    let next, _ = Editor.update (SelectionLadderReady(bufferId, editTick, ranges)) opened
+
+    next.Editors.Buffers[bufferId].Selection
+    |> should equal (Some { Anchor = 0; Head = 3 })
+
+    next.SelectionLadder.IsSome |> should equal true
+    next.SelectionLadder.Value.Index |> should equal 0
+
+[<Fact>]
+let ``SelectionLadderReady ignores a stale edit tick`` () =
+    let opened, _ =
+        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok "let value = 42")) (initModel ())
+
+    let bufferId = opened.Editors.ActiveBufferId
+    let ranges = [| (0, 3); (0, 14) |]
+    let stale, _ = Editor.update (SelectionLadderReady(bufferId, 99, ranges)) opened
+
+    stale.Editors.Buffers[bufferId].Selection |> should equal None
+    stale.SelectionLadder |> should equal None
+
+[<Fact>]
+let ``ExpandSelection and ShrinkSelection step the live ladder`` () =
+    let opened, _ =
+        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok "let value = 42")) (initModel ())
+
+    let opened = { opened with Focus = FocusTarget.Editor }
+    let bufferId = opened.Editors.ActiveBufferId
+    let editTick = opened.Editors.Buffers[bufferId].EditTick
+    let ranges = [| (0, 3); (0, 9); (0, 14) |]
+
+    // Seed selection (0,3) at index 0, as the interpreter's result would.
+    let seeded, _ = Editor.update (SelectionLadderReady(bufferId, editTick, ranges)) opened
+
+    // Ctrl+Alt+W → ExpandSelection: step (0,3) → (0,9).
+    let expandChord =
+        { Mods = Set.ofList [ Ctrl; Alt ]
+          Key = Key.Char 'w' }
+
+    let expanded, _ = Editor.update (KeyPressed expandChord) seeded
+
+    expanded.Editors.Buffers[bufferId].Selection
+    |> should equal (Some { Anchor = 0; Head = 9 })
+
+    expanded.SelectionLadder.Value.Index |> should equal 1
+
+    // Ctrl+Alt+Shift+W → ShrinkSelection: step (0,9) → (0,3).
+    let shrinkChord =
+        { Mods = Set.ofList [ Ctrl; Alt; Shift ]
+          Key = Key.Char 'w' }
+
+    let shrunk, _ = Editor.update (KeyPressed shrinkChord) expanded
+
+    shrunk.Editors.Buffers[bufferId].Selection
+    |> should equal (Some { Anchor = 0; Head = 3 })
+
+    shrunk.SelectionLadder.Value.Index |> should equal 0
+
+[<Fact>]
+let ``ExpandSelection with no live ladder emits a ComputeSelectionLadder effect`` () =
+    let opened, _ =
+        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok "let value = 42")) (initModel ())
+
+    let opened = { opened with Focus = FocusTarget.Editor }
+
+    let expandChord =
+        { Mods = Set.ofList [ Ctrl; Alt ]
+          Key = Key.Char 'w' }
+
+    let _, effects = Editor.update (KeyPressed expandChord) opened
+
+    effects
+    |> List.exists (function
+        | ComputeSelectionLadder(_, "fsharp", _, _, 0, 0) -> true
+        | _ -> false)
+    |> should equal true
+
 // "let x = 1\n" is 10 chars, so this lands just past the parse cap.
 let private overCapText () =
     String.replicate (Highlight.maxParseChars / 10 + 1) "let x = 1\n"

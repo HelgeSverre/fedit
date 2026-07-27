@@ -45,6 +45,8 @@ let actionMeta (action: Action) : string * string =
     | ExtendEnd -> "selection", "Extend the selection to the end of the line"
     | SelectAll -> "selection", "Select the whole buffer"
     | ClearSelection -> "selection", "Clear the selection, keeping the cursor in place"
+    | ExpandSelection -> "selection", "Grow the selection to the enclosing syntax node"
+    | ShrinkSelection -> "selection", "Shrink the selection to the previous syntax node"
     | InsertText _ -> "edit", "Insert literal text at the cursor"
     | DeleteBackward -> "edit", "Delete the selection or the character before the cursor"
     | DeleteForward -> "edit", "Delete the selection or the character after the cursor"
@@ -129,6 +131,8 @@ let allActions: Action list =
       ExtendEnd
       SelectAll
       ClearSelection
+      ExpandSelection
+      ShrinkSelection
       InsertText ""
       DeleteBackward
       DeleteForward

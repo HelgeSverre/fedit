@@ -343,6 +343,19 @@ module LspState =
                 | LspServerStatus.Stopped -> "stopped"
                 | LspServerStatus.NotStarted -> "idle"
 
+/// Cached expand/shrink-selection chain for one buffer revision. `Ranges`
+/// runs innermost→outermost in char-index space, each strictly larger than
+/// the previous; `Index` is the step currently applied to the selection.
+/// Self-invalidating: a stale `BufferId`/`EditTick`, or a live selection that
+/// no longer equals `Ranges.[Index]` (the user moved), forces a rebuild via
+/// the `ComputeSelectionLadder` effect. Produced by the effect interpreter,
+/// which owns the native tree-sitter parse — this record is pure data.
+type SelectionLadder =
+    { BufferId: int
+      EditTick: int
+      Ranges: (int * int)[]
+      Index: int }
+
 type Model =
     {
         Workspace: WorkspaceState
@@ -366,6 +379,9 @@ type Model =
         /// by edit tick in `update`. Empty when the grammar registry failed
         /// to load — the renderer just skips the color overlay.
         HighlightStates: Map<int, HighlightSpan array>
+        /// The active expand/shrink-selection chain, or `None` when no
+        /// expansion is in progress. See `SelectionLadder`.
+        SelectionLadder: SelectionLadder option
         QuitArmed: bool
         /// `Some bufferId` after close-buffer warned about unsaved changes
         /// in that buffer; the next close of the same buffer discards.
@@ -526,6 +542,10 @@ type Msg =
     /// Spans for `bufferId` as of `editTick`. Stale ticks are dropped —
     /// a newer `ParseHighlight` is already in flight for the newer text.
     | HighlightParsed of bufferId: int * editTick: int * spans: HighlightSpan array
+    /// The expand-selection ladder computed for `bufferId` as of `editTick`.
+    /// Ranges run innermost→outermost. Stale ticks are dropped (the buffer
+    /// was edited before the parse landed). Posted by `ComputeSelectionLadder`.
+    | SelectionLadderReady of bufferId: int * editTick: int * ranges: (int * int)[]
     | PluginsScanned of Result<PluginRegistry, string>
     /// A plugin command finished in the host: its PluginAction list to apply,
     /// or an error to surface. Posted by the `RunPluginCommand` interpreter.
@@ -595,6 +615,16 @@ type Effect =
     /// (immutable, cheap to share); the interpreter materializes the text,
     /// parses, and posts `HighlightParsed` tagged with `editTick`.
     | ParseHighlight of bufferId: int * language: string * document: PieceTable * editTick: int
+    /// Parse the buffer off the UI thread and post `SelectionLadderReady` with
+    /// the chain of node ranges enclosing `[selStart, selEnd)`. Same
+    /// piece-table-sharing pattern as `ParseHighlight`; drives expand-selection.
+    | ComputeSelectionLadder of
+        bufferId: int *
+        language: string *
+        document: PieceTable *
+        editTick: int *
+        selStart: int *
+        selEnd: int
     | ScanPlugins of disabledPlugins: Set<string>
     /// Invoke a plugin command in the out-of-process host. Carries the
     /// read-only context snapshot; the host runs the command's Run closure and

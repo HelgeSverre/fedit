@@ -322,3 +322,101 @@ let ``parseSpans reports UTF-16 char offsets after an astral-plane char`` () =
         | Some span ->
             Assert.Equal(expectedStart, span.StartByte)
             Assert.Equal(expectedEnd, span.EndByte)
+
+[<Fact>]
+[<Trait("Category", "Smoke")>]
+let ``selectionLadder climbs strictly nesting ranges from a caret to the root`` () =
+    use registry =
+        match HighlightRegistry.tryCreate () with
+        | Some r -> r
+        | None -> failwith "no registry"
+
+    let source = "let value = 42"
+    // A zero-width caret inside the "value" identifier (chars 4..9).
+    let caret = 5
+
+    match Highlight.selectionLadder registry "fsharp" source caret caret with
+    | None -> Assert.Fail "selectionLadder returned None"
+    | Some ranges ->
+        Assert.True(ranges.Length >= 2, "expected at least an inner token and the root")
+
+        // Every step contains the caret.
+        for (s, e) in ranges do
+            Assert.True(s <= caret && caret <= e, $"range {s}..{e} does not contain caret {caret}")
+
+        // Innermost→outermost: each step strictly contains the previous one.
+        for i in 0 .. ranges.Length - 2 do
+            let (s, e) = ranges[i]
+            let (s2, e2) = ranges[i + 1]
+
+            Assert.True(
+                s2 <= s && e <= e2 && (s2 < s || e2 > e),
+                $"step {i} ({s}..{e}) is not strictly inside ({s2}..{e2})"
+            )
+
+        // The innermost step is a non-empty token within the identifier.
+        let (s0, e0) = ranges[0]
+        Assert.True(e0 > s0, "innermost range is empty")
+        Assert.True(s0 >= 4 && e0 <= 9, $"innermost {s0}..{e0} is not within the identifier")
+
+        // The outermost step is the whole document (the tree root).
+        Assert.Equal((0, source.Length), ranges[ranges.Length - 1])
+
+[<Fact>]
+[<Trait("Category", "Smoke")>]
+let ``selectionLadder over the whole document yields only the root`` () =
+    use registry =
+        match HighlightRegistry.tryCreate () with
+        | Some r -> r
+        | None -> failwith "no registry"
+
+    let source = "let x = 1"
+
+    match Highlight.selectionLadder registry "fsharp" source 0 source.Length with
+    | None -> Assert.Fail "selectionLadder returned None"
+    | Some ranges ->
+        // Nothing encloses the full document but the root and any same-span
+        // wrappers, which collapse to a single step.
+        Assert.NotEmpty ranges
+        Assert.All(ranges, fun r -> Assert.Equal((0, source.Length), r))
+
+[<Fact>]
+let ``selectionLadder climbs a bundled grammar (python) from a caret to the root`` () =
+    // Python is bundled in TreeSitter.DotNet, so this exercises the ladder
+    // end-to-end wherever the tests run — not only where the external F#
+    // grammar is built.
+    use registry =
+        match HighlightRegistry.tryCreate () with
+        | Some r -> r
+        | None -> failwith "no registry"
+
+    let source = "def foo():\n    return 42"
+    let caret = source.IndexOf("foo", System.StringComparison.Ordinal) + 1
+
+    match Highlight.selectionLadder registry "python" source caret caret with
+    | None -> Assert.Fail "selectionLadder returned None (python grammar missing?)"
+    | Some ranges ->
+        Assert.True(ranges.Length >= 2, "expected an inner token and the root")
+
+        for (s, e) in ranges do
+            Assert.True(s <= caret && caret <= e, $"range {s}..{e} does not contain caret {caret}")
+
+        for i in 0 .. ranges.Length - 2 do
+            let (s, e) = ranges[i]
+            let (s2, e2) = ranges[i + 1]
+
+            Assert.True(
+                s2 <= s && e <= e2 && (s2 < s || e2 > e),
+                $"step {i} ({s}..{e}) is not strictly inside ({s2}..{e2})"
+            )
+
+        Assert.Equal((0, source.Length), ranges[ranges.Length - 1])
+
+[<Fact>]
+let ``selectionLadder returns None for an unknown language`` () =
+    use registry =
+        match HighlightRegistry.tryCreate () with
+        | Some r -> r
+        | None -> failwith "no registry"
+
+    Assert.True((Highlight.selectionLadder registry "not-a-language" "x" 0 0).IsNone)
