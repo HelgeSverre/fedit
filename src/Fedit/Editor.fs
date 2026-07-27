@@ -349,6 +349,171 @@ module Editor =
         { updated with
             SelectionLadder = Some { ladder with Index = index } }
 
+    // ── hex view ──────────────────────────────────────────────────────────
+    // A hex buffer is a normal BufferState whose document is the latin1
+    // projection of the file's bytes (char offset = byte offset), marked by
+    // an entry in `Model.HexViews`. These helpers reinterpret cursor motion
+    // and typing in byte space; geometry comes from `Hex.layoutFor` — the
+    // same function the renderer and mouse hit-testing use.
+
+    let private activeHexView (model: Model) : HexViewState option =
+        Map.tryFind model.Editors.ActiveBufferId model.HexViews
+
+    let private isActiveHexBuffer (model: Model) : bool =
+        Map.containsKey model.Editors.ActiveBufferId model.HexViews
+
+    /// Row layout + visible row count for the current editor rectangle —
+    /// derived from `Dock.metrics` so movement, hit-testing, and painting
+    /// share one geometry.
+    let private hexGeometry (model: Model) : HexLayout * int =
+        let metrics = Dock.metrics model
+        Hex.layoutFor metrics.EditorWidth, metrics.MainHeight
+
+    let private updateActiveHexView (transform: HexViewState -> HexViewState) (model: Model) : Model =
+        let id = model.Editors.ActiveBufferId
+
+        match Map.tryFind id model.HexViews with
+        | Some view ->
+            { model with
+                HexViews = Map.add id (transform view) model.HexViews }
+        | None -> model
+
+    let private rearmHighNibble (model: Model) : Model =
+        updateActiveHexView (fun view -> { view with HighNibble = true }) model
+
+    /// Byte offset of the active buffer's cursor (char offset — identical
+    /// in a latin1-projected document).
+    let private hexCursorOffset (buffer: BufferState) : int =
+        Buffer.positionToIndex buffer.Cursor buffer
+
+    /// Hex-view mouse hit-test: screen coordinates → (byte offset, pane).
+    /// Built on the same `HexLayout` the renderer paints with, so clicks
+    /// land exactly where the glyphs are. `None` outside the editor area,
+    /// on the offset column/gaps, or past the document's last row.
+    let private hexMouseTarget (event: MouseEvent) (model: Model) : (int * HexPane) option =
+        let editorX, editorWidth, mainHeight = editorLayout model
+        let mouseX = event.Position.Column
+        let mouseY = event.Position.Line
+
+        if
+            mouseY < 0
+            || mouseY >= mainHeight
+            || mouseX < editorX
+            || mouseX >= editorX + editorWidth
+        then
+            None
+        else
+            activeHexView model
+            |> Option.bind (fun view ->
+                let layout = Hex.layoutFor editorWidth
+                let buffer = activeBufferState model
+                let length = PieceTable.length buffer.Document
+                let row = view.Top + mouseY
+
+                if row >= Hex.rowCount layout.BytesPerRow length then
+                    None
+                else
+                    Hex.targetAt layout (mouseX - editorX)
+                    |> Option.map (fun (byteInRow, pane, _) -> min (row * layout.BytesPerRow + byteInRow) length, pane))
+
+    /// Hex cursor motion: land on `target` (clamped by `moveToOffset`),
+    /// drop the selection, re-arm the high nibble.
+    let private hexMoveTo (target: int) (model: Model) : Model * Effect list =
+        updateActiveBuffer (Buffer.clearSelection >> Buffer.moveToOffset target) model
+        |> rearmHighNibble,
+        []
+
+    /// Shift+motion in byte space: extend the selection through `target`.
+    let private hexExtendTo (target: int) (model: Model) : Model * Effect list =
+        updateActiveBuffer (Buffer.extendWith (Buffer.moveToOffset target)) model
+        |> rearmHighNibble,
+        []
+
+    /// Overwrite-typing, one char at a time: hex digits write nibbles in
+    /// the bytes pane, any latin1 char overwrites in the ASCII pane, and
+    /// typing at the end of the document appends. This is the one
+    /// InsertText interpretation for hex buffers, so keyboard input, paste,
+    /// plugin inserts, and macro replay all share typing's semantics.
+    let private hexTypeChar (c: char) (model: Model) : Model =
+        match activeHexView model with
+        | None -> model
+        | Some view ->
+            let buffer = activeBufferState model
+            let length = PieceTable.length buffer.Document
+            let offset = min (hexCursorOffset buffer) length
+            let replaced = min 1 (length - offset)
+
+            match view.Pane with
+            | HexAscii ->
+                if int c > 0xFF then
+                    model
+                else
+                    updateActiveBuffer (Buffer.clearSelection >> Buffer.replaceRange offset replaced (string c)) model
+                    |> rearmHighNibble
+            | HexBytes ->
+                match Hex.digitValue c with
+                | None -> model
+                | Some digit ->
+                    let existing = Hex.byteAt buffer offset |> Option.defaultValue 0
+
+                    if view.HighNibble then
+                        // Write the high nibble and park on the same byte so
+                        // the next digit completes it.
+                        let value = (digit <<< 4) ||| (existing &&& 0x0F)
+
+                        updateActiveBuffer
+                            (Buffer.clearSelection
+                             >> Buffer.replaceRange offset replaced (string (char value))
+                             >> Buffer.moveToOffset offset)
+                            model
+                        |> updateActiveHexView (fun v -> { v with HighNibble = false })
+                    else
+                        let value = (existing &&& 0xF0) ||| digit
+
+                        updateActiveBuffer
+                            (Buffer.clearSelection
+                             >> Buffer.replaceRange offset replaced (string (char value))
+                             >> Buffer.moveToOffset (offset + 1))
+                            model
+                        |> rearmHighNibble
+
+    /// `search-next` / `search-previous` in byte space: the last query
+    /// translated through `Hex.searchNeedle`, matched exactly.
+    let private hexRepeatSearch (delta: int) (model: Model) : Model * Effect list =
+        match model.LastSearchQuery with
+        | None -> notify (Some(Notification.info "No search to repeat")) model, []
+        | Some query ->
+            let buffer = activeBufferState model
+            let needle = Hex.searchNeedle query
+            let haystack = Buffer.text buffer
+            let cursorIndex = hexCursorOffset buffer
+
+            let target =
+                if delta > 0 then
+                    Hex.findNextExact needle (cursorIndex + 1) haystack
+                else
+                    Hex.findPreviousExact needle (cursorIndex - 1) haystack
+
+            match target with
+            | Some offset -> hexMoveTo offset model
+            | None -> notify (Some(Notification.info $"No matches for '{query}'")) model, []
+
+    /// The macro-recordable accepted-search form for hex buffers — the
+    /// byte-space sibling of `runAction SearchFor`.
+    let private hexSearchFor (query: string) (model: Model) : Model * Effect list =
+        if String.IsNullOrEmpty query then
+            model, []
+        else
+            let remembered =
+                { model with
+                    LastSearchQuery = Some query }
+
+            let needle = Hex.searchNeedle query
+
+            match Hex.findAllExact needle (Buffer.text (activeBufferState model)) with
+            | first :: _ -> hexMoveTo first remembered
+            | [] -> remembered |> notify (Some(Notification.info $"No matches for '{query}'")), []
+
     /// Build file-picker completion items from recent + workspace files
     /// matching the query. Recent items appear first.
     let private filePickerCompletions model query =
@@ -514,7 +679,8 @@ module Editor =
                         []
                     else
                         let buffer = activeBufferState nextModel
-                        [ RunSearch(buffer.Id, query, buffer.Document) ]
+
+                        [ RunSearch(buffer.Id, query, buffer.Document, Map.containsKey buffer.Id nextModel.HexViews) ]
                 | _ -> []
 
             nextModel, effects
@@ -668,7 +834,11 @@ module Editor =
             | None, None -> None
 
         match targetPath with
-        | Some path -> model, [ SaveBuffer(buffer.Id, path, buffer.EditTick, Buffer.serialize buffer) ]
+        | Some path ->
+            // Hex views save byte-exactly: the latin1 projection decodes
+            // back to raw bytes in the interpreter, no UTF-8 pass.
+            let binary = Map.containsKey buffer.Id model.HexViews
+            model, [ SaveBuffer(buffer.Id, path, buffer.EditTick, Buffer.serialize buffer, binary) ]
         | None ->
             let opened, effects = openPrompt ":writeas " model
             opened |> notify (Some(Notification.warning "Scratch buffers need a path.")), effects
@@ -821,6 +991,7 @@ module Editor =
                 Editors = nextEditors
                 CloseArmed = None
                 HighlightStates = model.HighlightStates |> Map.remove bufferId
+                HexViews = model.HexViews |> Map.remove bufferId
                 MouseDrag = model.MouseDrag |> Option.filter (fun drag -> drag.AnchorBufferId <> bufferId) }
             |> notify (Some(Notification.info $"Closed {buffer.Name}")),
             []
@@ -890,7 +1061,7 @@ module Editor =
         | _ ->
             match tryActivateExisting path model with
             | Some activated -> { activated with Focus = model.Focus } |> applyTarget target, []
-            | None -> model, [ LoadFile(path, OpenPreview, target) ]
+            | None -> model, [ LoadFile(path, OpenPreview, target, ViewAuto) ]
 
     let private openPreview (path: string) (model: Model) : Model * Effect list = openPreviewAt None path model
 
@@ -921,7 +1092,7 @@ module Editor =
         else
             match tryActivateExisting path model with
             | Some activated -> applyTarget (Some position) activated, []
-            | None -> { model with Focus = Editor }, [ LoadFile(path, OpenPermanent, Some position) ]
+            | None -> { model with Focus = Editor }, [ LoadFile(path, OpenPermanent, Some position, ViewAuto) ]
 
     let private severityLabel (severity: LspDiagnosticSeverity) =
         match severity with
@@ -1137,6 +1308,205 @@ module Editor =
         | CloseBuffer -> true
         | _ -> false
 
+    /// Hex-view action remap: when the active buffer is a hex view, the
+    /// text-editing vocabulary reinterprets in byte space — arrows step
+    /// bytes, up/down step rows, Tab flips panes, typing overwrites
+    /// nibbles. `None` falls through to the default interpreter for every
+    /// byte-agnostic verb (save, quit, buffers, panels, prompts, macros).
+    /// Composition forms are never remapped (they decompose first, and
+    /// each member routes back through here), and the prompt-inert guard
+    /// keeps precedence — a Global chord with the prompt up must stay a
+    /// no-op, never become a hex edit.
+    let private hexInterceptAction (action: Fedit.Action) (model: Model) : (Model * Effect list) option =
+        match action with
+        | NoOp
+        | Chain _
+        | When _ -> None
+        | _ when model.Focus = Prompt && isPromptInert action -> None
+        | _ ->
+            match activeHexView model with
+            | None -> None
+            | Some view ->
+                let buffer = activeBufferState model
+                let length = PieceTable.length buffer.Document
+                let offset = hexCursorOffset buffer
+                let layout, mainHeight = hexGeometry model
+                let bytesPerRow = layout.BytesPerRow
+                let clampOffset target = max 0 (min length target)
+                let rowStart = offset - offset % bytesPerRow
+
+                let pageJump = max 1 (mainHeight - model.Config.PageOverlap) * bytesPerRow
+
+                let switchPane =
+                    updateActiveHexView (fun v ->
+                        { v with
+                            Pane = (if v.Pane = HexBytes then HexAscii else HexBytes)
+                            HighNibble = true })
+
+                match action with
+                // byte-space motion
+                | MoveLeft -> Some(hexMoveTo (clampOffset (offset - 1)) model)
+                | MoveRight -> Some(hexMoveTo (clampOffset (offset + 1)) model)
+                | MoveUp -> Some(hexMoveTo (clampOffset (offset - bytesPerRow)) model)
+                | MoveDown -> Some(hexMoveTo (clampOffset (offset + bytesPerRow)) model)
+                | MoveHome -> Some(hexMoveTo rowStart model)
+                | MoveEnd -> Some(hexMoveTo (clampOffset (rowStart + bytesPerRow - 1)) model)
+                | MoveWordLeft -> Some(hexMoveTo (clampOffset (offset - 8)) model)
+                | MoveWordRight -> Some(hexMoveTo (clampOffset (offset + 8)) model)
+                | MovePageUp -> Some(hexMoveTo (clampOffset (offset - pageJump)) model)
+                | MovePageDown -> Some(hexMoveTo (clampOffset (offset + pageJump)) model)
+                | ExtendLeft -> Some(hexExtendTo (clampOffset (offset - 1)) model)
+                | ExtendRight -> Some(hexExtendTo (clampOffset (offset + 1)) model)
+                | ExtendUp -> Some(hexExtendTo (clampOffset (offset - bytesPerRow)) model)
+                | ExtendDown -> Some(hexExtendTo (clampOffset (offset + bytesPerRow)) model)
+                | ExtendHome -> Some(hexExtendTo rowStart model)
+                | ExtendEnd -> Some(hexExtendTo (clampOffset (rowStart + bytesPerRow - 1)) model)
+
+                // Tab / Shift+Tab flip between the hex and ASCII panes.
+                | Indent
+                | Unindent -> Some(switchPane model, [])
+
+                // byte-space editing
+                | InsertText text -> Some((text |> Seq.fold (fun m c -> hexTypeChar c m) model), [])
+                | DeleteBackward
+                | DeleteWordBack ->
+                    let next =
+                        if Buffer.hasSelection buffer then
+                            updateActiveBuffer Buffer.deleteSelection model
+                        else
+                            updateActiveBuffer Buffer.backspace model
+
+                    Some(rearmHighNibble next, [])
+                | DeleteForward
+                | DeleteWordForward ->
+                    let next =
+                        if Buffer.hasSelection buffer then
+                            updateActiveBuffer Buffer.deleteSelection model
+                        else
+                            updateActiveBuffer Buffer.deleteForward model
+
+                    Some(rearmHighNibble next, [])
+                | Undo -> Some(updateActiveBuffer Buffer.undo model |> rearmHighNibble, [])
+                | Redo -> Some(updateActiveBuffer Buffer.redo model |> rearmHighNibble, [])
+                // Line reordering has no byte-space meaning.
+                | MoveLinesUp _
+                | MoveLinesDown _ -> Some(model, [])
+
+                // Clipboard carries the spaced hex form ("74 68 69") so a
+                // selection can round-trip through the search prompt and
+                // `:replace` — and paste re-enters through typing.
+                | Copy ->
+                    match Buffer.selectionText buffer with
+                    | "" -> Some(model, [])
+                    | text ->
+                        Some(
+                            model |> notify (Some(Notification.info $"Copied {text.Length} byte(s) as hex")),
+                            [ ClipboardCopy(Hex.toHexString text) ]
+                        )
+                | Cut ->
+                    match Buffer.selectionText buffer with
+                    | "" -> Some(model, [])
+                    | text ->
+                        let next =
+                            updateActiveBuffer
+                                Buffer.deleteSelection
+                                (model |> notify (Some(Notification.info $"Cut {text.Length} byte(s) as hex")))
+
+                        Some(rearmHighNibble next, [ ClipboardCopy(Hex.toHexString text) ])
+
+                // byte-exact search repeats
+                | SearchNext -> Some(hexRepeatSearch 1 model)
+                | SearchPrevious -> Some(hexRepeatSearch -1 model)
+                | SearchFor query -> Some(hexSearchFor query model)
+
+                | _ -> None
+
+    /// Flip the active buffer between text and hex views in place. The
+    /// projection runs over the buffer's own content (serialize → UTF-8
+    /// bytes for text→hex; latin1 bytes → BOM-aware decode for hex→text),
+    /// so a clean buffer re-projects exactly what a reload would produce
+    /// and a dirty buffer keeps its unsaved edits. Undo history does not
+    /// survive the flip — the two views disagree on offsets, so a
+    /// cross-view undo would restore the wrong projection.
+    let private setHexViewMode (enable: bool) (model: Model) : Model * Effect list =
+        let buffer = activeBufferState model
+        let isHex = Map.containsKey buffer.Id model.HexViews
+
+        if enable = isHex then
+            let word = if isHex then "hex" else "text"
+            model |> notify (Some(Notification.info $"Already in {word} view.")), []
+        else
+            let rebuilt, nextHexViews, note =
+                if enable then
+                    let bytes = System.Text.Encoding.UTF8.GetBytes(Buffer.serialize buffer)
+
+                    Buffer.fromText buffer.Id buffer.FilePath buffer.Name (Hex.bytesToText bytes) "\n",
+                    Map.add buffer.Id Hex.initialView model.HexViews,
+                    Notification.info $"Hex view — {bytes.Length} byte(s)"
+                else
+                    let bytes = Hex.textToBytes (Buffer.text buffer)
+                    let decoded, newline = normalizeNewlines (Hex.decodeText bytes)
+
+                    Buffer.fromText buffer.Id buffer.FilePath buffer.Name decoded newline,
+                    Map.remove buffer.Id model.HexViews,
+                    if Hex.looksBinary bytes then
+                        Notification.warning "Text view of binary data — edits may not round-trip."
+                    else
+                        Notification.info "Text view."
+
+            // EditTick moves so the highlight/LSP chokepoints see the flip;
+            // Dirty carries over so unsaved edits stay flagged across it.
+            let rebuilt =
+                { rebuilt with
+                    EditTick = buffer.EditTick + 1
+                    SavedTick =
+                        (if buffer.Dirty then
+                             buffer.SavedTick
+                         else
+                             buffer.EditTick + 1)
+                    Dirty = buffer.Dirty }
+
+            { model with
+                Editors =
+                    { model.Editors with
+                        Buffers = model.Editors.Buffers |> Map.add rebuilt.Id rebuilt }
+                HexViews = nextHexViews }
+            |> updateActiveBuffer id
+            |> notify (Some note),
+            []
+
+    /// `:replace <from-hex> <to-hex>` — replace every occurrence in the
+    /// active hex-view buffer as ONE edit (one undo entry), landing the
+    /// cursor on the first replacement.
+    let private hexReplaceAll (fromHex: string) (toHex: string) (model: Model) : Model * Effect list =
+        let buffer = activeBufferState model
+
+        if not (Map.containsKey buffer.Id model.HexViews) then
+            notify (Some(Notification.error "replace works on hex views — run :hex first.")) model, []
+        else
+            match Hex.tryParseBytes fromHex, Hex.tryParseBytes toHex with
+            | Some needle, Some replacement ->
+                let haystack = Buffer.text buffer
+
+                match Hex.findAllExact needle haystack with
+                | [] -> notify (Some(Notification.info $"No matches for {fromHex}.")) model, []
+                | matches ->
+                    let replaced = haystack.Replace(needle, replacement, StringComparison.Ordinal)
+
+                    updateActiveBuffer
+                        (Buffer.clearSelection
+                         >> Buffer.replaceRange 0 haystack.Length replaced
+                         >> Buffer.moveToOffset (List.head matches))
+                        model
+                    |> rearmHighNibble
+                    |> notify (Some(Notification.info $"Replaced {matches.Length} occurrence(s).")),
+                    []
+            | _ ->
+                notify
+                    (Some(Notification.error "replace needs two hex byte sequences, e.g. :replace 1a2c78 ffffff"))
+                    model,
+                []
+
     /// Translate a plugin's `PluginAction list` return into core model
     /// updates + effects. Each action is applied in declaration order;
     /// `RunCommand` recursively dispatches via `executeCommand`. `source`
@@ -1199,7 +1569,7 @@ module Editor =
                         current
             | Fedit.PluginApi.OpenFile path ->
                 let absolutePath = resolvePath current.Workspace.RootPath path
-                effects.Add(LoadFile(absolutePath, OpenPermanent, None))
+                effects.Add(LoadFile(absolutePath, OpenPermanent, None, ViewAuto))
             | Fedit.PluginApi.SaveActiveBuffer ->
                 let nextModel, fx = saveActiveBuffer None current
                 current <- nextModel
@@ -1307,7 +1677,7 @@ module Editor =
                 else
                     match tryActivateExisting absolutePath current with
                     | Some activated -> current <- applyTarget target activated
-                    | None -> effects.Add(LoadFile(absolutePath, OpenPermanent, target))
+                    | None -> effects.Add(LoadFile(absolutePath, OpenPermanent, target, ViewAuto))
             | Fedit.PluginApi.MoveLinesUp count -> current <- updateActiveBuffer (Buffer.moveLinesUp count) current
             | Fedit.PluginApi.MoveLinesDown count -> current <- updateActiveBuffer (Buffer.moveLinesDown count) current
 
@@ -1552,7 +1922,7 @@ module Editor =
                 activated
                 |> notify (Some(Notification.info $"Activated {Path.GetFileName absolutePath}")),
                 []
-            | None -> { model with Focus = Editor }, [ LoadFile(absolutePath, OpenPermanent, None) ]
+            | None -> { model with Focus = Editor }, [ LoadFile(absolutePath, OpenPermanent, None, ViewAuto) ]
         | Write -> runAction Save model
         | WriteAs path -> runAction (SaveAs path) model
         | Command.OpenConfig ->
@@ -1597,7 +1967,7 @@ module Editor =
                 activated
                 |> notify (Some(Notification.info $"Activated {Path.GetFileName absolute}")),
                 []
-            | None -> { model with Focus = Editor }, [ LoadFile(absolute, OpenPermanent, None) ]
+            | None -> { model with Focus = Editor }, [ LoadFile(absolute, OpenPermanent, None, ViewAuto) ]
         | SwitchBuffer bufferRef ->
             match resolveBufferRef bufferRef model.Editors.Buffers with
             | Some id ->
@@ -1676,6 +2046,14 @@ module Editor =
                     $"Syntax highlighting on ({skippedForSize} buffer(s) too large to parse)."
 
             updated |> notify (Some(Notification.info note)), SaveConfig nextConfig :: parseEffects
+
+        | Command.HexView verb ->
+            match verb with
+            | "on" -> setHexViewMode true model
+            | "off" -> setHexViewMode false model
+            | _ -> setHexViewMode (not (Map.containsKey (activeBufferState model).Id model.HexViews)) model
+
+        | Command.Replace(fromHex, toHex) -> hexReplaceAll fromHex toHex model
 
         | Plugin("list", _)
         | Command.Plugins -> openPromptSession PromptSessionKind.PluginsSession model
@@ -1814,8 +2192,17 @@ module Editor =
 
     /// The single dispatcher. Each arm is the transition lifted verbatim
     /// from the handler that used to inline it. Public so tests and (later
-    /// phases) the keymap resolver can call it.
+    /// phases) the keymap resolver can call it. Hex-view buffers remap the
+    /// text-editing vocabulary first (`hexInterceptAction`); everything
+    /// else falls through to the default interpreter. Internal recursion
+    /// (Chain members, `When` branches, command bodies) re-enters here, so
+    /// the remap can never be bypassed.
     and runAction (action: Fedit.Action) (model: Model) : Model * Effect list =
+        match hexInterceptAction action model with
+        | Some result -> result
+        | None -> runDefaultAction action model
+
+    and private runDefaultAction (action: Fedit.Action) (model: Model) : Model * Effect list =
         match action with
         // composition & control flow
         | NoOp -> model, []
@@ -2118,7 +2505,7 @@ module Editor =
 
                 match tryActivateExisting path withWorkspace with
                 | Some activated -> activated, []
-                | None -> withWorkspace, [ LoadFile(path, OpenPermanent, None) ]
+                | None -> withWorkspace, [ LoadFile(path, OpenPermanent, None, ViewAuto) ]
             | SidebarNoOp -> { model with Workspace = workspace }, []
 
         // verbs whose canonical body stays in executeCommand (prompt-only).
@@ -2126,6 +2513,7 @@ module Editor =
         | SetTheme name -> executeCommand (Command.Theme name) model
         | Goto(line, col) -> executeCommand (Command.Goto(line, col)) model
         | OpenConfig -> executeCommand Command.OpenConfig model
+        | ToggleHexView -> executeCommand (Command.HexView "toggle") model
         | RunPlugin(source, name, arg) -> executeCommand (Command.PluginInvoke(source, name, arg)) model
 
         | ReloadKeybinds -> model, [ LoadKeybinds ]
@@ -2791,7 +3179,7 @@ module Editor =
               LoadKeybinds
               LoadMacros false ]
             @ (initialFile
-               |> Option.map (fun path -> LoadFile(path, OpenPermanent, None))
+               |> Option.map (fun path -> LoadFile(path, OpenPermanent, None, ViewAuto))
                |> Option.toList)
 
         let startupHint =
@@ -2810,6 +3198,7 @@ module Editor =
           UserThemes = userThemes
           Plugins = PluginRegistry.empty
           HighlightStates = Map.empty
+          HexViews = Map.empty
           SelectionLadder = None
           QuitArmed = false
           CloseArmed = None
@@ -2832,18 +3221,24 @@ module Editor =
 
     /// Insert externally-sourced text into the active buffer as ONE
     /// `insertText` call — one undo entry — replacing any selection and
-    /// normalizing newlines to the LF-only document invariant.
+    /// normalizing newlines to the LF-only document invariant. Hex views
+    /// route the paste through overwrite-typing instead, so pasted hex
+    /// ("1a 2c 78" from a hex-view copy) streams into the bytes pane
+    /// exactly as if typed.
     let private insertPastedText (text: string) model =
-        let text = fst (normalizeNewlines text)
-        let buffer = activeBufferState model
+        if isActiveHexBuffer model then
+            (text |> Seq.fold (fun current c -> hexTypeChar c current) model), []
+        else
+            let text = fst (normalizeNewlines text)
+            let buffer = activeBufferState model
 
-        let transform =
-            if Buffer.hasSelection buffer then
-                Buffer.deleteSelection >> Buffer.insertText text
-            else
-                Buffer.insertText text
+            let transform =
+                if Buffer.hasSelection buffer then
+                    Buffer.deleteSelection >> Buffer.insertText text
+                else
+                    Buffer.insertText text
 
-        updateActiveBuffer (transform >> Buffer.clearSelection) model, []
+            updateActiveBuffer (transform >> Buffer.clearSelection) model, []
 
     /// Route externally-sourced pasted text by focus: the editor inserts it
     /// into the active buffer, the prompt takes only the first line (a
@@ -2899,6 +3294,34 @@ module Editor =
                             (ticks * model.Config.MouseScrollLines)
                             (Workspace.clearSearch model.Workspace) },
                 []
+            elif isActiveHexBuffer model then
+                // Hex view: the wheel scrolls hex rows (ScrollViewport
+                // semantics — the view moves, the cursor is dragged only
+                // as far as needed to stay visible).
+                match activeHexView model with
+                | None -> model, []
+                | Some view ->
+                    let delta = ticks * model.Config.MouseScrollLines
+                    let layout, mainHeight = hexGeometry model
+                    let buffer = activeBufferState model
+                    let length = PieceTable.length buffer.Document
+                    let rows = Hex.rowCount layout.BytesPerRow length
+                    let maxTop = max 0 (rows - mainHeight)
+                    let newTop = max 0 (min maxTop (view.Top + delta))
+                    let offset = hexCursorOffset buffer
+                    let row = offset / layout.BytesPerRow
+                    let clampedRow = max newTop (min (newTop + mainHeight - 1) row)
+
+                    let target =
+                        min length (clampedRow * layout.BytesPerRow + offset % layout.BytesPerRow)
+
+                    model
+                    |> updateActiveHexView (fun v ->
+                        { v with
+                            Top = newTop
+                            HighNibble = true })
+                    |> updateActiveBuffer (Buffer.moveToOffset target),
+                    []
             else
                 let delta = ticks * model.Config.MouseScrollLines
 
@@ -2927,8 +3350,25 @@ module Editor =
             | Result.Error message -> notify (Some(Notification.error message)) model, []
         | FileOpened(path, intent, target, result) ->
             match result with
-            | Result.Ok contents ->
-                let normalized, newline = normalizeNewlines contents
+            | Result.Ok loaded ->
+                // Binary loads skip newline normalization — every byte of the
+                // latin1 projection is document data — and register the
+                // buffer id as a hex view once the buffer exists below.
+                let normalized, newline, isBinary =
+                    match loaded with
+                    | LoadedText contents ->
+                        let text, detectedNewline = normalizeNewlines contents
+                        text, detectedNewline, false
+                    | LoadedBinary latin1 -> latin1, "\n", true
+
+                let setHexEntry bufferId (m: Model) =
+                    if isBinary then
+                        { m with
+                            HexViews = Map.add bufferId Hex.initialView m.HexViews }
+                    else
+                        { m with
+                            HexViews = Map.remove bufferId m.HexViews }
+
                 let displayName = Path.GetFileName path |> Option.ofObj |> Option.defaultValue path
 
                 let recent =
@@ -2969,7 +3409,17 @@ module Editor =
                             Workspace = selectOrReveal path model model.Workspace
                             Focus = Editor
                             Config = nextConfig }
-                        |> notify (Some(Notification.info $"Opened {buffer.Name}"))
+                        |> setHexEntry buffer.Id
+                        |> notify (
+                            Some(
+                                Notification.info (
+                                    if isBinary then
+                                        $"Opened {buffer.Name} (binary — hex view)"
+                                    else
+                                        $"Opened {buffer.Name}"
+                                )
+                            )
+                        )
                         |> applyTarget target,
                         []
                     | OpenPreview ->
@@ -3002,6 +3452,7 @@ module Editor =
                                 HighlightStates = Map.remove old.Id model.HighlightStates
                                 Workspace = selectOrReveal path model model.Workspace
                                 Config = nextConfig }
+                            |> setHexEntry buffer.Id
                             |> notify (Some(Notification.info $"Previewing {displayName}"))
                             |> applyTarget target,
                             []
@@ -3018,6 +3469,7 @@ module Editor =
                                         PreviewBufferId = Some buffer.Id }
                                 Workspace = selectOrReveal path model model.Workspace
                                 Config = nextConfig }
+                            |> setHexEntry buffer.Id
                             |> notify (Some(Notification.info $"Previewing {displayName}"))
                             |> applyTarget target,
                             []
@@ -3398,6 +3850,30 @@ module Editor =
                             Workspace = workspace
                             Focus = Sidebar },
                         []
+                | None when isActiveHexBuffer model ->
+                    // Hex view: place the caret on the clicked byte and
+                    // adopt the clicked pane; dragging selects byte ranges.
+                    // Multi-click word/line selection and Ctrl+Click
+                    // goto-definition have no byte-space meaning.
+                    match hexMouseTarget event model with
+                    | None -> model, []
+                    | Some(offset, pane) ->
+                        let next =
+                            { model with Focus = Editor }
+                            |> updateActiveBuffer (Buffer.selectRange offset offset)
+                            |> updateActiveHexView (fun v ->
+                                { v with
+                                    Pane = pane
+                                    HighNibble = true })
+
+                        let buffer = activeBufferState next
+
+                        { next with
+                            MouseDrag =
+                                Some
+                                    { AnchorBufferId = buffer.Id
+                                      AnchorPosition = Buffer.indexToPosition offset buffer } },
+                        []
                 | None ->
                     match mouseToBufferPosition event model with
                     | None -> model, []
@@ -3468,6 +3944,26 @@ module Editor =
             | _ -> model, []
         | MouseDragged event ->
             match model.MouseDrag with
+            | Some drag when
+                drag.AnchorBufferId = model.Editors.ActiveBufferId
+                && Map.containsKey drag.AnchorBufferId model.HexViews
+                ->
+                match hexMouseTarget event model with
+                | None -> model, []
+                | Some(offset, _) ->
+                    let buffer = activeBufferState model
+                    let anchor = Buffer.positionToIndex drag.AnchorPosition buffer
+                    let length = PieceTable.length buffer.Document
+
+                    // Byte drags select inclusively of the byte under the
+                    // pointer, mirroring the text drag's cell-inclusive rule.
+                    let anchorIdx, headIdx =
+                        if offset >= anchor then
+                            anchor, min length (offset + 1)
+                        else
+                            min length (anchor + 1), offset
+
+                    updateActiveBuffer (Buffer.selectRange anchorIdx headIdx) model, []
             | Some drag when drag.AnchorBufferId = model.Editors.ActiveBufferId ->
                 match mouseToBufferPosition event model with
                 | None -> model, []
@@ -3697,7 +4193,12 @@ module Editor =
                             model, effects
                         else
                             let language =
-                                if PieceTable.length buffer.Document <= Highlight.maxParseChars then
+                                // Hex views never parse: the latin1
+                                // projection isn't source text, and the
+                                // renderer's hex branch has no color overlay.
+                                if Map.containsKey id after.HexViews then
+                                    None
+                                elif PieceTable.length buffer.Document <= Highlight.maxParseChars then
                                     languageFor buffer
                                 else
                                     None
@@ -3730,9 +4231,17 @@ module Editor =
             enabledLanguageServerFor after.Config path
 
         let documentsOf (model: Model) =
+            // Hex views are invisible to language servers — a latin1 byte
+            // projection is not a document a server can parse. A text↔hex
+            // flip therefore diffs as the path vanishing/appearing, which
+            // emits exactly the right didClose/didOpen pair.
             model.Editors.Buffers
             |> Map.toList
-            |> List.choose (fun (_, buffer) -> buffer.FilePath |> Option.map (fun path -> path, buffer))
+            |> List.choose (fun (id, buffer) ->
+                if Map.containsKey id model.HexViews then
+                    None
+                else
+                    buffer.FilePath |> Option.map (fun path -> path, buffer))
             |> Map.ofList
 
         let beforeDocuments = documentsOf before
@@ -3878,12 +4387,43 @@ module Editor =
                     { after.Editors with
                         ActivationHistory = history } }
 
+    /// Keep the active hex view's `Top` sliding with its cursor row — the
+    /// hex sibling of `Buffer.ensureViewport`, applied as an update
+    /// chokepoint so no individual hex handler has to remember it. Minimal
+    /// slide: the wheel handler's deliberate scrolls survive as long as
+    /// the cursor row stays visible.
+    let private ensureHexViewport (model: Model) : Model =
+        let bufferId = model.Editors.ActiveBufferId
+
+        match Map.tryFind bufferId model.HexViews with
+        | None -> model
+        | Some view ->
+            let buffer = activeBufferState model
+            let layout, mainHeight = hexGeometry model
+            let length = PieceTable.length buffer.Document
+            let maxTop = max 0 (Hex.rowCount layout.BytesPerRow length - mainHeight)
+            let row = hexCursorOffset buffer / layout.BytesPerRow
+
+            let slid =
+                if row < view.Top then row
+                elif row >= view.Top + mainHeight then row - mainHeight + 1
+                else view.Top
+
+            let clamped = max 0 (min maxTop slid)
+
+            if clamped = view.Top then
+                model
+            else
+                { model with
+                    HexViews = Map.add bufferId { view with Top = clamped } model.HexViews }
+
     let update msg model =
         let next, effects = updateCore msg model
         let next, effects = settleReplayFences msg next effects
         let next = disarmStaleConfirmations msg model next
         let next = recordBufferActivation model next
         let next = promoteDirtyPreview next
+        let next = ensureHexViewport next
         let next, highlightFx = highlightEffects model next
         let lspFx = lspSyncEffects model next
         next, effects @ highlightFx @ lspFx

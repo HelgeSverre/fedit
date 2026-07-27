@@ -63,7 +63,7 @@ let ``initWithInitialFile queues the file open after startup effects`` () =
 
     effects
     |> List.last
-    |> should equal (LoadFile("/root/file.fs", OpenPermanent, None))
+    |> should equal (LoadFile("/root/file.fs", OpenPermanent, None, ViewAuto))
 
 [<Fact>]
 let ``keybind command opens the keybinding prompt session`` () =
@@ -95,7 +95,7 @@ let ``typing in the search prompt emits RunSearch carrying the document`` () =
     effects
     |> List.exists (fun e ->
         match e with
-        | RunSearch(1, "a", document) -> PieceTable.toString document = "ab"
+        | RunSearch(1, "a", document, _) -> PieceTable.toString document = "ab"
         | _ -> false)
     |> should equal true
 
@@ -112,7 +112,7 @@ let private press chord m =
 
 let private openBufferWith content =
     let opened, _ =
-        Editor.update (FileOpened("/root/notes.txt", OpenPermanent, None, Result.Ok content)) (initModel ())
+        Editor.update (FileOpened("/root/notes.txt", OpenPermanent, None, Result.Ok(LoadedText content))) (initModel ())
 
     opened
 
@@ -228,7 +228,7 @@ let ``search-next finds occurrences added by edits after the accept`` () =
 [<Fact>]
 let ``FileOpened schedules a highlight parse for the new buffer`` () =
     let _, effects =
-        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok "let x = 1")) (initModel ())
+        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok(LoadedText "let x = 1"))) (initModel ())
 
     effects
     |> List.exists (fun e ->
@@ -240,7 +240,7 @@ let ``FileOpened schedules a highlight parse for the new buffer`` () =
 [<Fact>]
 let ``editing a highlighted buffer schedules a fresh parse at the new tick`` () =
     let opened, _ =
-        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok "let x = 1")) (initModel ())
+        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok(LoadedText "let x = 1"))) (initModel ())
 
     let _, effects = Editor.update (KeyPressed(chr 'y')) opened
 
@@ -254,7 +254,7 @@ let ``editing a highlighted buffer schedules a fresh parse at the new tick`` () 
 [<Fact>]
 let ``HighlightParsed stores spans only for the current edit tick`` () =
     let opened, _ =
-        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok "let x = 1")) (initModel ())
+        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok(LoadedText "let x = 1"))) (initModel ())
 
     let bufferId = opened.Editors.ActiveBufferId
 
@@ -272,7 +272,9 @@ let ``HighlightParsed stores spans only for the current edit tick`` () =
 [<Fact>]
 let ``SelectionLadderReady selects the smallest range larger than the caret`` () =
     let opened, _ =
-        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok "let value = 42")) (initModel ())
+        Editor.update
+            (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok(LoadedText "let value = 42")))
+            (initModel ())
 
     let bufferId = opened.Editors.ActiveBufferId
     let editTick = opened.Editors.Buffers[bufferId].EditTick
@@ -291,7 +293,9 @@ let ``SelectionLadderReady selects the smallest range larger than the caret`` ()
 [<Fact>]
 let ``SelectionLadderReady ignores a stale edit tick`` () =
     let opened, _ =
-        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok "let value = 42")) (initModel ())
+        Editor.update
+            (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok(LoadedText "let value = 42")))
+            (initModel ())
 
     let bufferId = opened.Editors.ActiveBufferId
     let ranges = [| (0, 3); (0, 14) |]
@@ -303,7 +307,9 @@ let ``SelectionLadderReady ignores a stale edit tick`` () =
 [<Fact>]
 let ``ExpandSelection and ShrinkSelection step the live ladder`` () =
     let opened, _ =
-        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok "let value = 42")) (initModel ())
+        Editor.update
+            (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok(LoadedText "let value = 42")))
+            (initModel ())
 
     let opened =
         { opened with
@@ -344,7 +350,9 @@ let ``ExpandSelection and ShrinkSelection step the live ladder`` () =
 [<Fact>]
 let ``ExpandSelection with no live ladder emits a ComputeSelectionLadder effect`` () =
     let opened, _ =
-        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok "let value = 42")) (initModel ())
+        Editor.update
+            (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok(LoadedText "let value = 42")))
+            (initModel ())
 
     let opened =
         { opened with
@@ -1018,7 +1026,7 @@ let ``FileOpened with CRLF normalizes to LF and remembers CRLF preference`` () =
     let model = initModel ()
 
     let next, _ =
-        Editor.update (FileOpened("/x.txt", OpenPermanent, None, Result.Ok "a\r\nb\r\n")) model
+        Editor.update (FileOpened("/x.txt", OpenPermanent, None, Result.Ok(LoadedText "a\r\nb\r\n"))) model
 
     let buffer = next.Editors.Buffers[next.Editors.ActiveBufferId]
     (Buffer.text buffer).Contains "\r" |> should equal false
@@ -1031,7 +1039,7 @@ let ``FileOpened with lone CR normalizes to LF and saves as LF`` () =
     let model = initModel ()
 
     let next, _ =
-        Editor.update (FileOpened("/x.txt", OpenPermanent, None, Result.Ok "a\rb\r")) model
+        Editor.update (FileOpened("/x.txt", OpenPermanent, None, Result.Ok(LoadedText "a\rb\r"))) model
 
     let buffer = next.Editors.Buffers[next.Editors.ActiveBufferId]
     (Buffer.text buffer).Contains "\r" |> should equal false
@@ -1118,16 +1126,16 @@ let ``readFileForOpen classifies a missing file as FileNotFound`` () =
     let missing =
         System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName())
 
-    Runtime.readFileForOpen missing
-    |> should equal (Result.Error FileNotFound: Result<string, FileOpenError>)
+    Runtime.readFileForOpen ViewAuto missing
+    |> should equal (Result.Error FileNotFound: Result<LoadedFile, FileOpenError>)
 
 [<Fact>]
 let ``readFileForOpen classifies a missing parent directory as FileNotFound`` () =
     let missing =
         System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName(), "nested", "file.txt")
 
-    Runtime.readFileForOpen missing
-    |> should equal (Result.Error FileNotFound: Result<string, FileOpenError>)
+    Runtime.readFileForOpen ViewAuto missing
+    |> should equal (Result.Error FileNotFound: Result<LoadedFile, FileOpenError>)
 
 [<Fact>]
 let ``readFileForOpen reports a directory path as FileOpenFailed`` () =
@@ -1137,7 +1145,7 @@ let ``readFileForOpen reports a directory path as FileOpenFailed`` () =
     System.IO.Directory.CreateDirectory directory |> ignore
 
     try
-        match Runtime.readFileForOpen directory with
+        match Runtime.readFileForOpen ViewAuto directory with
         | Result.Error(FileOpenFailed _) -> ()
         | other -> failwithf "expected FileOpenFailed, got %A" other
     finally
@@ -1151,8 +1159,8 @@ let ``readFileForOpen reads an existing file`` () =
     System.IO.File.WriteAllText(path, "hello")
 
     try
-        Runtime.readFileForOpen path
-        |> should equal (Result.Ok "hello": Result<string, FileOpenError>)
+        Runtime.readFileForOpen ViewAuto path
+        |> should equal (Result.Ok(LoadedText "hello"): Result<LoadedFile, FileOpenError>)
     finally
         System.IO.File.Delete path
 
@@ -1387,7 +1395,9 @@ let private withNestedTree () =
 [<Fact>]
 let ``FileOpened reveals collapsed ancestors when autoReveal is on`` () =
     let opened, _ =
-        Editor.update (FileOpened("/root/sub/deep/d.fs", OpenPermanent, None, Result.Ok "x")) (withNestedTree ())
+        Editor.update
+            (FileOpened("/root/sub/deep/d.fs", OpenPermanent, None, Result.Ok(LoadedText "x")))
+            (withNestedTree ())
 
     opened.Workspace.SelectedPath |> should equal (Some "/root/sub/deep/d.fs")
     opened.Workspace.Expanded |> Set.contains "/root/sub" |> should equal true
@@ -1403,7 +1413,7 @@ let ``FileOpened with autoReveal off keeps ancestors collapsed`` () =
             Config = { model.Config with AutoReveal = false } }
 
     let opened, _ =
-        Editor.update (FileOpened("/root/sub/deep/d.fs", OpenPermanent, None, Result.Ok "x")) model
+        Editor.update (FileOpened("/root/sub/deep/d.fs", OpenPermanent, None, Result.Ok(LoadedText "x"))) model
 
     opened.Workspace.Expanded |> should equal model.Workspace.Expanded
     // selectPath's ensureSelected falls back to the first visible entry (the
@@ -1414,7 +1424,9 @@ let ``FileOpened with autoReveal off keeps ancestors collapsed`` () =
 [<Fact>]
 let ``reveal-in-sidebar reveals the active file and focuses the sidebar`` () =
     let opened, _ =
-        Editor.update (FileOpened("/root/sub/deep/d.fs", OpenPermanent, None, Result.Ok "x")) (withNestedTree ())
+        Editor.update
+            (FileOpened("/root/sub/deep/d.fs", OpenPermanent, None, Result.Ok(LoadedText "x")))
+            (withNestedTree ())
 
     // Collapse everything back and hide the panel so the action has work to do.
     let collapsed =
@@ -1459,7 +1471,9 @@ let ``:reveal dispatches the action`` () =
         fst (Editor.update (KeyPressed chord) m)
 
     let opened, _ =
-        Editor.update (FileOpened("/root/sub/deep/d.fs", OpenPermanent, None, Result.Ok "x")) (withNestedTree ())
+        Editor.update
+            (FileOpened("/root/sub/deep/d.fs", OpenPermanent, None, Result.Ok(LoadedText "x")))
+            (withNestedTree ())
 
     let collapsed =
         { opened with
@@ -1942,7 +1956,7 @@ let ``a load-file fence parks the queue until FileOpened pumps it`` () =
 
     openEffects
     |> List.exists (function
-        | LoadFile("/root/new.txt", OpenPermanent, None) -> true
+        | LoadFile("/root/new.txt", OpenPermanent, None, ViewAuto) -> true
         | _ -> false)
     |> should equal true
 
@@ -1960,7 +1974,7 @@ let ``a load-file fence parks the queue until FileOpened pumps it`` () =
     // The completion clears the fence and pumps; the typed text lands in
     // the NEW buffer.
     let landed, landedEffects =
-        Editor.update (FileOpened("/root/new.txt", OpenPermanent, None, Result.Ok "content")) parked
+        Editor.update (FileOpened("/root/new.txt", OpenPermanent, None, Result.Ok(LoadedText "content"))) parked
 
     hasPump landedEffects |> should equal true
 
@@ -2212,7 +2226,7 @@ let ``a replayed save fences until BufferSaved lands`` () =
     let saveEffect =
         saveEffects
         |> List.tryPick (function
-            | SaveBuffer(bufferId, path, revision, _) -> Some(bufferId, path, revision)
+            | SaveBuffer(bufferId, path, revision, _, _) -> Some(bufferId, path, revision)
             | _ -> None)
 
     match saveEffect with
@@ -2270,7 +2284,7 @@ let ``Escape cancels an in-flight replay`` () =
 
     // The stale completion no longer pumps anything.
     let _, landedEffects =
-        Editor.update (FileOpened("/root/slow.txt", OpenPermanent, None, Result.Ok "late")) cancelled
+        Editor.update (FileOpened("/root/slow.txt", OpenPermanent, None, Result.Ok(LoadedText "late"))) cancelled
 
     hasPump landedEffects |> should equal false
 
@@ -2297,7 +2311,7 @@ let ``two same-kind fences need two completions before the pump`` () =
         | None -> failwith "expected a replay state"
 
     let first, firstEffects =
-        Editor.update (FileOpened("/root/one.txt", OpenPermanent, None, Result.Ok "one")) fenced
+        Editor.update (FileOpened("/root/one.txt", OpenPermanent, None, Result.Ok(LoadedText "one"))) fenced
 
     hasPump firstEffects |> should equal false
 
@@ -2307,7 +2321,7 @@ let ``two same-kind fences need two completions before the pump`` () =
     |> should equal (Map.ofList [ FileFence, 1 ])
 
     let _, secondEffects =
-        Editor.update (FileOpened("/root/two.txt", OpenPermanent, None, Result.Ok "two")) first
+        Editor.update (FileOpened("/root/two.txt", OpenPermanent, None, Result.Ok(LoadedText "two"))) first
 
     hasPump secondEffects |> should equal true
 
@@ -2379,7 +2393,9 @@ let ``ConfigFileReady Ok focuses the editor and loads the config file`` () =
         Editor.update (ConfigFileReady(Result.Ok "/root/config.json")) model
 
     next.Focus |> should equal Editor
-    effects |> should equal [ LoadFile("/root/config.json", OpenPermanent, None) ]
+
+    effects
+    |> should equal [ LoadFile("/root/config.json", OpenPermanent, None, ViewAuto) ]
 
 [<Fact>]
 let ``ConfigFileReady Error surfaces a warning notification`` () =
@@ -2739,7 +2755,7 @@ let private sidebarModelWithFiles (files: string list) =
 let ``space on a sidebar file emits a preview load`` () =
     let model = sidebarModelWithFiles [ "a.fs" ]
     let _, effects = Editor.update (KeyPressed(nk Space)) model
-    effects |> should equal [ LoadFile("/root/a.fs", OpenPreview, None) ]
+    effects |> should equal [ LoadFile("/root/a.fs", OpenPreview, None, ViewAuto) ]
 
 [<Fact>]
 let ``space with a type-ahead query stays a search character`` () =
@@ -2755,7 +2771,7 @@ let ``preview FileOpened creates the preview buffer and keeps focus`` () =
     let model = sidebarModelWithFiles [ "a.fs" ]
 
     let next, _ =
-        Editor.update (FileOpened("/root/a.fs", OpenPreview, None, Result.Ok "x")) model
+        Editor.update (FileOpened("/root/a.fs", OpenPreview, None, Result.Ok(LoadedText "x"))) model
 
     next.Editors.PreviewBufferId |> should equal (Some next.Editors.ActiveBufferId)
 
@@ -2767,7 +2783,7 @@ let ``a second preview reuses the buffer id`` () =
     let model = sidebarModelWithFiles [ "a.fs"; "b.fs" ]
 
     let first, _ =
-        Editor.update (FileOpened("/root/a.fs", OpenPreview, None, Result.Ok "alpha")) model
+        Editor.update (FileOpened("/root/a.fs", OpenPreview, None, Result.Ok(LoadedText "alpha"))) model
 
     let previewId = first.Editors.ActiveBufferId
 
@@ -2777,7 +2793,7 @@ let ``a second preview reuses the buffer id`` () =
             HighlightStates = first.HighlightStates |> Map.add previewId [||] }
 
     let second, _ =
-        Editor.update (FileOpened("/root/b.fs", OpenPreview, None, Result.Ok "beta")) seeded
+        Editor.update (FileOpened("/root/b.fs", OpenPreview, None, Result.Ok(LoadedText "beta"))) seeded
 
     second.Editors.ActiveBufferId |> should equal previewId
     second.Editors.PreviewBufferId |> should equal (Some previewId)
@@ -2794,7 +2810,7 @@ let ``editing the preview promotes it`` () =
     let model = sidebarModelWithFiles [ "a.fs" ]
 
     let previewed, _ =
-        Editor.update (FileOpened("/root/a.fs", OpenPreview, None, Result.Ok "x")) model
+        Editor.update (FileOpened("/root/a.fs", OpenPreview, None, Result.Ok(LoadedText "x"))) model
 
     let typed, _ = Editor.update (KeyPressed(chr 'y')) { previewed with Focus = Editor }
 
@@ -2805,7 +2821,7 @@ let ``enter on the previewed file promotes it without reloading`` () =
     let model = sidebarModelWithFiles [ "a.fs" ]
 
     let previewed, _ =
-        Editor.update (FileOpened("/root/a.fs", OpenPreview, None, Result.Ok "x")) model
+        Editor.update (FileOpened("/root/a.fs", OpenPreview, None, Result.Ok(LoadedText "x"))) model
 
     previewed.Focus |> should equal Sidebar
     let next, effects = Editor.update (KeyPressed(nk Enter)) previewed
@@ -2820,7 +2836,7 @@ let ``space on a file open in a normal buffer activates it without previewing`` 
     let model = sidebarModelWithFiles [ "a.fs" ]
 
     let opened, _ =
-        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok "x")) model
+        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok(LoadedText "x"))) model
 
     let inSidebar = { opened with Focus = Sidebar }
     let next, effects = Editor.update (KeyPressed(nk Space)) inSidebar
@@ -2835,7 +2851,7 @@ let ``space on the previewed file is a no-op activation`` () =
     let model = sidebarModelWithFiles [ "a.fs" ]
 
     let previewed, _ =
-        Editor.update (FileOpened("/root/a.fs", OpenPreview, None, Result.Ok "x")) model
+        Editor.update (FileOpened("/root/a.fs", OpenPreview, None, Result.Ok(LoadedText "x"))) model
 
     let next, effects = Editor.update (KeyPressed(nk Space)) previewed
 
@@ -2849,10 +2865,10 @@ let ``FileOpened OpenPermanent of an already-open path activates instead of dupl
     let model = sidebarModelWithFiles [ "a.fs" ]
 
     let opened, _ =
-        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok "x")) model
+        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok(LoadedText "x"))) model
 
     let again, _ =
-        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok "x")) opened
+        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok(LoadedText "x"))) opened
 
     again.Editors.Buffers.Count |> should equal opened.Editors.Buffers.Count
     again.Editors.ActiveBufferId |> should equal opened.Editors.ActiveBufferId
@@ -2953,7 +2969,7 @@ let ``click on the selected file row opens it as a preview`` () =
     let next, effects =
         Editor.update (MousePressed(mouseEvent LeftButton Press row 1, 1)) model
 
-    effects |> should equal [ LoadFile("/root/a.fs", OpenPreview, None) ]
+    effects |> should equal [ LoadFile("/root/a.fs", OpenPreview, None, ViewAuto) ]
     next.Focus |> should equal Sidebar
 
 [<Fact>]
@@ -3263,10 +3279,10 @@ let ``close-buffer activates the most recently active buffer`` () =
     let model = initModel ()
 
     let openedA, _ =
-        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok "a")) model
+        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok(LoadedText "a"))) model
 
     let openedB, _ =
-        Editor.update (FileOpened("/root/b.fs", OpenPermanent, None, Result.Ok "b")) openedA
+        Editor.update (FileOpened("/root/b.fs", OpenPermanent, None, Result.Ok(LoadedText "b"))) openedA
 
     // Buffers: 1 scratch, 2 a.fs, 3 b.fs (active). Jump to the scratch,
     // then close it: the fallback must be the most recently active b.fs
@@ -3331,10 +3347,10 @@ let ``palette close by name closes the named buffer without switching`` () =
     let model = initModel ()
 
     let openedA, _ =
-        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok "a")) model
+        Editor.update (FileOpened("/root/a.fs", OpenPermanent, None, Result.Ok(LoadedText "a"))) model
 
     let openedB, _ =
-        Editor.update (FileOpened("/root/b.fs", OpenPermanent, None, Result.Ok "b")) openedA
+        Editor.update (FileOpened("/root/b.fs", OpenPermanent, None, Result.Ok(LoadedText "b"))) openedA
 
     let closed = runCommandText "close a.fs" openedB
 
@@ -3663,7 +3679,7 @@ let ``MacrosFileReady opens the macros file in a buffer`` () =
     next.Focus |> should equal Editor
 
     effects
-    |> List.contains (LoadFile("/tmp/fedit-macros", OpenPermanent, None))
+    |> List.contains (LoadFile("/tmp/fedit-macros", OpenPermanent, None, ViewAuto))
     |> should equal true
 
 [<Fact>]

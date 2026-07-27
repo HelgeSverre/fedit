@@ -159,7 +159,162 @@ module Layout =
             let text = $"{indentation}{marker}{entry.Name}"
             Screen.writeText 0 row (if entry.IsSelected then selected else surface) width (pad width text) screen)
 
-    let private renderEditor x width height screen model =
+    /// Hex view: `00000010  74 68 69 73 …  |this…` — offset column, hex
+    /// byte cells (gap after each 8), ASCII cells. Geometry comes from
+    /// `Hex.layoutFor`, the same function the mouse hit-testing and cursor
+    /// movement in `Editor` use, so paint and input can never drift.
+    /// Overlay order matches the text view: base → selection → search;
+    /// the caret's twin cell in the other pane paints selected so the
+    /// hex/ASCII pairing reads at a glance.
+    let private renderHexEditor x width height screen (view: HexViewState) model =
+        let buffer = Editor.activeBufferState model
+        let theme = effectiveTheme model
+        let selected = selectedOf theme
+        let surface = surfaceOf theme
+        let lineNumber = lineNumberOf theme
+        let currentLineNumber = currentLineOf theme
+        let currentLineBg = activeLineOf theme
+        let layout = Hex.layoutFor width
+        let bytesPerRow = layout.BytesPerRow
+        let length = PieceTable.length buffer.Document
+        let rows = Hex.rowCount bytesPerRow length
+        let cursorOffset = Buffer.positionToIndex buffer.Cursor buffer
+        let cursorRow = cursorOffset / bytesPerRow
+
+        // Defensive clamp: the update chokepoint keeps `Top` honest, but a
+        // resize between dispatches must not paint past the document.
+        let top = max 0 (min view.Top (max 0 (rows - 1)))
+
+        let selection = Buffer.selectionRange buffer
+
+        // Matches restricted to the visible byte range once, not per cell.
+        let searchInfo =
+            match model.Prompt.SearchPreview with
+            | Some preview when preview.Matches.Length > 0 ->
+                let needle = Hex.searchNeedle (Prompt.argumentOf model.Prompt.Text)
+
+                if needle.Length = 0 then
+                    None
+                else
+                    let visibleStart = top * bytesPerRow
+                    let visibleEnd = (top + height) * bytesPerRow
+
+                    let visible =
+                        preview.Matches
+                        |> List.filter (fun m -> m + needle.Length > visibleStart && m < visibleEnd)
+
+                    Some(needle.Length, visible)
+            | _ -> None
+
+        let highlightStyle =
+            { Style.defaultStyle with
+                Inverted = true }
+
+        // One slice for the whole visible window: `Hex.slice` pays an
+        // O(lines) locate per call, so a per-row slice would walk the
+        // line cache once per painted row.
+        let windowStart = top * bytesPerRow
+        let window = Hex.slice buffer windowStart (height * bytesPerRow)
+
+        Screen.fillRect x 0 width height surface ' ' screen
+
+        for screenRow in 0 .. height - 1 do
+            let rowIndex = top + screenRow
+
+            if rowIndex < rows then
+                let rowStart = rowIndex * bytesPerRow
+
+                let bytes =
+                    let fromIndex = rowStart - windowStart
+
+                    if fromIndex >= window.Length then
+                        ""
+                    else
+                        window.Substring(fromIndex, min bytesPerRow (window.Length - fromIndex))
+
+                let activeRow = rowIndex = cursorRow
+
+                let textStyle =
+                    if activeRow && model.Focus = Editor then
+                        currentLineBg
+                    else
+                        surface
+
+                Screen.writeText
+                    x
+                    screenRow
+                    (if activeRow then currentLineNumber else lineNumber)
+                    (Hex.offsetWidth + 2)
+                    (rowStart.ToString("x8") + "  ")
+                    screen
+
+                if activeRow && model.Focus = Editor then
+                    let contentSpan =
+                        max 0 (min (width - layout.HexStart) (layout.RowWidth - layout.HexStart))
+
+                    Screen.fillRect (x + layout.HexStart) screenRow contentSpan 1 textStyle ' ' screen
+
+                for i in 0 .. bytes.Length - 1 do
+                    let value = int bytes[i] &&& 0xFF
+                    let byteOffset = rowStart + i
+
+                    let isSelected =
+                        match selection with
+                        | Some(selStart, selEnd) -> selEnd > selStart && byteOffset >= selStart && byteOffset < selEnd
+                        | None -> false
+
+                    let isMatch =
+                        match searchInfo with
+                        | Some(needleLength, matches) ->
+                            matches
+                            |> List.exists (fun m -> byteOffset >= m && byteOffset < m + needleLength)
+                        | None -> false
+
+                    let isCaretByte = model.Focus = Editor && byteOffset = cursorOffset
+
+                    let styleFor mirrorsCaret =
+                        if isMatch then highlightStyle
+                        elif isSelected then selected
+                        elif isCaretByte && mirrorsCaret then selected
+                        else textStyle
+
+                    let hexStyle = styleFor (view.Pane = HexAscii)
+                    let asciiStyle = styleFor (view.Pane = HexBytes)
+
+                    let hexX = x + Hex.hexColOf layout i
+
+                    if hexX + 1 < x + width then
+                        Screen.writeText hexX screenRow hexStyle 2 (value.ToString "x2") screen
+
+                    let asciiX = x + Hex.asciiColOf layout i
+
+                    if asciiX < x + width then
+                        let glyph = if value >= 0x20 && value < 0x7F then char value else '.'
+                        Screen.setCell asciiX screenRow asciiStyle glyph screen
+            else
+                Screen.writeText x screenRow lineNumber Hex.offsetWidth (pad Hex.offsetWidth "~") screen
+
+        if model.Focus = Editor then
+            let caretRow = cursorRow - top
+            let byteInRow = cursorOffset % bytesPerRow
+
+            let caretCol =
+                match view.Pane with
+                | HexBytes -> Hex.hexColOf layout byteInRow + (if view.HighNibble then 0 else 1)
+                | HexAscii -> Hex.asciiColOf layout byteInRow
+
+            if caretRow >= 0 && caretRow < height && x + caretCol < x + width then
+                Screen.withCursor
+                    { Left = x + caretCol
+                      Top = caretRow
+                      Visible = true }
+                    screen
+            else
+                screen
+        else
+            screen
+
+    let private renderTextEditor x width height screen model =
         let buffer = Editor.activeBufferState model
         let theme = effectiveTheme model
         let selected = selectedOf theme
@@ -340,6 +495,14 @@ module Layout =
                 screen
         else
             screen
+
+    /// The editor rectangle: hex views (an entry in `Model.HexViews` for
+    /// the active buffer) take the hex branch; everything else paints as
+    /// text.
+    let private renderEditor x width height screen model =
+        match Map.tryFind model.Editors.ActiveBufferId model.HexViews with
+        | Some hexView -> renderHexEditor x width height screen hexView model
+        | None -> renderTextEditor x width height screen model
 
     // ── Picker dock ─────────────────────────────────────────────────────
     // Renders a `PickerView` — semantic, layout-agnostic data — into the dock.

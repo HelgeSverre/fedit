@@ -108,6 +108,39 @@ module File =
 
             reraise ()
 
+    /// Byte-exact sibling of `writeAllTextAtomic` — hex-view buffers save
+    /// through here so binary files round-trip without an encoding pass.
+    let writeAllBytesAtomic (path: string) (bytes: byte[]) =
+        let fullPath = Path.GetFullPath path
+
+        let directory =
+            Path.GetDirectoryName fullPath
+            |> Text.optStr
+            |> Option.defaultValue Environment.CurrentDirectory
+
+        Directory.CreateDirectory directory |> ignore
+
+        let fileName =
+            Path.GetFileName fullPath |> Text.optStr |> Option.defaultValue "file"
+
+        let tempPath = Path.Combine(directory, $".{fileName}.{Guid.NewGuid():N}.tmp")
+
+        try
+            use stream =
+                new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)
+
+            stream.Write(bytes, 0, bytes.Length)
+            stream.Flush true
+            File.Move(tempPath, fullPath, overwrite = true)
+        with _ ->
+            try
+                if File.Exists tempPath then
+                    File.Delete tempPath
+            with _ ->
+                ()
+
+            reraise ()
+
 module Notification =
     /// Cap for the notification ring buffer (`Model.NotificationLog`):
     /// the `:messages` picker reviews the most recent entries only.

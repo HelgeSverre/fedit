@@ -74,10 +74,24 @@ module Runtime =
     /// missing parent directory) apart from real I/O errors so the editor
     /// can treat a permanent open of a nonexistent path as creating a new
     /// file. Other failures (permissions, the path is a directory) surface
-    /// verbatim as `FileOpenFailed`.
-    let readFileForOpen (path: string) : Result<string, FileOpenError> =
+    /// verbatim as `FileOpenFailed`. Reads raw bytes so the view decision
+    /// is byte-accurate: `ViewAuto` runs the binary heuristic, `ViewHex`
+    /// forces the latin1 hex projection, `ViewText` forces the historical
+    /// BOM-aware UTF-8 decode.
+    let readFileForOpen (view: OpenView) (path: string) : Result<LoadedFile, FileOpenError> =
         try
-            Result.Ok(File.ReadAllText path)
+            let bytes = File.ReadAllBytes path
+
+            let binary =
+                match view with
+                | ViewHex -> true
+                | ViewText -> false
+                | ViewAuto -> Hex.looksBinary bytes
+
+            if binary then
+                Result.Ok(LoadedBinary(Hex.bytesToText bytes))
+            else
+                Result.Ok(LoadedText(Hex.decodeText bytes))
         with
         | :? FileNotFoundException
         | :? DirectoryNotFoundException -> Result.Error FileNotFound
@@ -93,11 +107,18 @@ module Runtime =
         | Result.Ok() -> "Ok"
         | Result.Error error -> $"Error({error})"
 
-    let private renderFileOpenResult (result: Result<string, FileOpenError>) =
+    let private renderFileOpenResult (result: Result<LoadedFile, FileOpenError>) =
         match result with
-        | Result.Ok text -> $"Ok(<len={text.Length}>)"
+        | Result.Ok(LoadedText text) -> $"Ok(text, <len={text.Length}>)"
+        | Result.Ok(LoadedBinary latin1) -> $"Ok(binary, <len={latin1.Length}>)"
         | Result.Error FileNotFound -> "Error(FileNotFound)"
         | Result.Error(FileOpenFailed error) -> $"Error({error})"
+
+    let private renderView view =
+        match view with
+        | ViewAuto -> "auto"
+        | ViewText -> "text"
+        | ViewHex -> "hex"
 
     let private renderTarget (target: Position option) =
         match target with
@@ -198,15 +219,16 @@ module Runtime =
     let private renderEffect effect =
         match effect with
         | ScanWorkspace path -> $"ScanWorkspace({path})"
-        | LoadFile(path, intent, target) -> $"LoadFile({path}, {renderIntent intent}, target={renderTarget target})"
-        | SaveBuffer(bufferId, path, revision, contents) ->
-            $"SaveBuffer(buffer={bufferId}, path={path}, revision={revision}, contentsLen={contents.Length})"
+        | LoadFile(path, intent, target, view) ->
+            $"LoadFile({path}, {renderIntent intent}, target={renderTarget target}, view={renderView view})"
+        | SaveBuffer(bufferId, path, revision, contents, binary) ->
+            $"SaveBuffer(buffer={bufferId}, path={path}, revision={revision}, contentsLen={contents.Length}, binary={binary})"
         | SaveConfig _ -> "SaveConfig(<config>)"
         | EnsureConfigFile _ -> "EnsureConfigFile(<config>)"
         | ClipboardCopy text -> $"ClipboardCopy(<len={text.Length}>)"
         | ClipboardPaste -> "ClipboardPaste"
-        | RunSearch(bufferId, query, document) ->
-            $"RunSearch(buffer={bufferId}, queryLen={query.Length}, haystackLen={PieceTable.length document})"
+        | RunSearch(bufferId, query, document, hex) ->
+            $"RunSearch(buffer={bufferId}, queryLen={query.Length}, haystackLen={PieceTable.length document}, hex={hex})"
         | ParseHighlight(bufferId, language, document, editTick) ->
             $"ParseHighlight(buffer={bufferId}, lang={language}, tick={editTick}, docLen={PieceTable.length document})"
         | ComputeSelectionLadder(bufferId, language, _, editTick, selStart, selEnd) ->
@@ -618,15 +640,15 @@ module Runtime =
 
                     enqueueUnlessCancelled token msg)
                 |> ignore
-            | LoadFile(path, intent, target) ->
+            | LoadFile(path, intent, target, view) ->
                 let cts = cancelAndReplace loadCts
                 loadCts <- Some cts
                 let token = cts.Token
 
                 Task.Run(fun () ->
-                    enqueueUnlessCancelled token (FileOpened(path, intent, target, readFileForOpen path)))
+                    enqueueUnlessCancelled token (FileOpened(path, intent, target, readFileForOpen view path)))
                 |> ignore
-            | SaveBuffer(bufferId, path, revision, contents) ->
+            | SaveBuffer(bufferId, path, revision, contents, binary) ->
                 let key =
                     try
                         Path.GetFullPath path
@@ -644,7 +666,11 @@ module Runtime =
                             (fun (_: Task) ->
                                 let msg =
                                     try
-                                        File.writeAllTextAtomic path contents
+                                        if binary then
+                                            File.writeAllBytesAtomic path (Hex.textToBytes contents)
+                                        else
+                                            File.writeAllTextAtomic path contents
+
                                         BufferSaved(bufferId, path, revision, Result.Ok())
                                     with ex ->
                                         BufferSaved(bufferId, path, revision, Result.Error ex.Message)
@@ -697,7 +723,7 @@ module Runtime =
 
                     queue.Enqueue msg)
                 |> ignore
-            | RunSearch(bufferId, query, document) ->
+            | RunSearch(bufferId, query, document, hex) ->
                 // Cancel any in-flight search; the latest query wins.
                 let cts = cancelAndReplace searchCts
                 searchCts <- Some cts
@@ -708,9 +734,18 @@ module Runtime =
                     // effect carries only the shared piece table. The scan
                     // itself is `Buffer.findAllMatches` — the same core the
                     // search-next/search-previous repeat actions use, so the
-                    // two paths can never disagree on match semantics.
+                    // two paths can never disagree on match semantics. Hex
+                    // buffers translate the query through `Hex.searchNeedle`
+                    // and match byte-exactly — again the same core the hex
+                    // repeat actions use.
                     let haystack = PieceTable.toString document
-                    let matches = Buffer.findAllMatches query haystack
+
+                    let matches =
+                        if hex then
+                            Hex.findAllExact (Hex.searchNeedle query) haystack
+                        else
+                            Buffer.findAllMatches query haystack
+
                     enqueueUnlessCancelled token (SearchCompleted(bufferId, query, matches)))
                 |> ignore
             | ClipboardPaste ->

@@ -257,6 +257,33 @@ replaces it entirely:
 Full guide — config schema, architecture, troubleshooting — in
 [docs/lsp.md](docs/lsp.md).
 
+## Hex editing
+
+Open a binary file and `fedit` shows it as a hex dump — offset column,
+byte cells with a gap after each 8, and an ASCII column (16 bytes per
+row, dropping to 8 or 4 on narrow terminals). Detection is git's
+heuristic (a NUL byte in the first 8000 bytes); `:hex` forces the view
+for any buffer and `:hex` again (or `:hex off`) returns to text. The
+`toggle-hex-view` action is bindable like everything else.
+
+- Type hex digits to overwrite one nibble at a time; typing at the end
+  of the file appends.
+- `Tab` flips between the byte and ASCII panes — in the ASCII pane,
+  typing overwrites whole bytes.
+- Arrows move by bytes and rows, `Home`/`End` snap to the row edges,
+  and clicking either pane places the caret on that byte.
+- `Delete`/`Backspace` remove bytes. Selection, undo, copy, and cut
+  work on byte ranges — copy puts the spaced hex form (`74 68 69`) on
+  the clipboard, and pasting hex types it back in.
+- `/` searches byte sequences: `1a 2c 78` (or `1a2c78`) matches bytes;
+  a query that isn't hex matches as literal text, byte-exactly.
+- `:replace 1a2c78 ffffff` replaces every occurrence of a byte
+  sequence in one undo step.
+
+Saving writes the bytes exactly — no encoding pass, no newline
+normalization. The status bar reads `HEX` with the caret's byte offset
+and value (`0x0000001a:4f`).
+
 ## Plugins
 
 `fedit` supports third-party plugins written in F#. Plugins register
