@@ -278,7 +278,9 @@ let ``SelectionLadderReady selects the smallest range larger than the caret`` ()
     let editTick = opened.Editors.Buffers[bufferId].EditTick
     // Caret sits at index 0; every range encloses it, so the first is picked.
     let ranges = [| (0, 3); (0, 9); (0, 14) |]
-    let next, _ = Editor.update (SelectionLadderReady(bufferId, editTick, ranges)) opened
+
+    let next, _ =
+        Editor.update (SelectionLadderReady(bufferId, editTick, ranges)) opened
 
     next.Editors.Buffers[bufferId].Selection
     |> should equal (Some { Anchor = 0; Head = 3 })
@@ -303,13 +305,17 @@ let ``ExpandSelection and ShrinkSelection step the live ladder`` () =
     let opened, _ =
         Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok "let value = 42")) (initModel ())
 
-    let opened = { opened with Focus = FocusTarget.Editor }
+    let opened =
+        { opened with
+            Focus = FocusTarget.Editor }
+
     let bufferId = opened.Editors.ActiveBufferId
     let editTick = opened.Editors.Buffers[bufferId].EditTick
     let ranges = [| (0, 3); (0, 9); (0, 14) |]
 
     // Seed selection (0,3) at index 0, as the interpreter's result would.
-    let seeded, _ = Editor.update (SelectionLadderReady(bufferId, editTick, ranges)) opened
+    let seeded, _ =
+        Editor.update (SelectionLadderReady(bufferId, editTick, ranges)) opened
 
     // Ctrl+Alt+W → ExpandSelection: step (0,3) → (0,9).
     let expandChord =
@@ -340,7 +346,9 @@ let ``ExpandSelection with no live ladder emits a ComputeSelectionLadder effect`
     let opened, _ =
         Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok "let value = 42")) (initModel ())
 
-    let opened = { opened with Focus = FocusTarget.Editor }
+    let opened =
+        { opened with
+            Focus = FocusTarget.Editor }
 
     let expandChord =
         { Mods = Set.ofList [ Ctrl; Alt ]

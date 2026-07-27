@@ -445,7 +445,9 @@ module Highlight =
                 | null -> Some [||]
                 | tree ->
                     use tree = tree
-                    let contains (n: TreeSitter.Node) = n.StartIndex <= selStart && n.EndIndex >= selEnd
+
+                    let contains (n: TreeSitter.Node) =
+                        n.StartIndex <= selStart && n.EndIndex >= selEnd
 
                     // Descend from the root to the smallest node still spanning
                     // the selection, recording every ancestor's range on the way

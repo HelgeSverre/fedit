@@ -345,7 +345,9 @@ module Editor =
     let private applyLadderStep (ladder: SelectionLadder) (index: int) (model: Model) : Model =
         let (s, e) = ladder.Ranges[index]
         let updated = updateActiveBuffer (Buffer.selectRange s e) model
-        { updated with SelectionLadder = Some { ladder with Index = index } }
+
+        { updated with
+            SelectionLadder = Some { ladder with Index = index } }
 
     /// Build file-picker completion items from recent + workspace files
     /// matching the query. Recent items appear first.
