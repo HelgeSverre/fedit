@@ -61,6 +61,12 @@ type Command =
     | Lsp of verb: string * argument: string
     /// Open the active buffer's language-server diagnostics in a picker.
     | Diagnostics
+    /// `:hex [on|off|toggle]` — flip the active buffer between text and
+    /// hex views (offset column | hex bytes | ASCII). Bare `:hex` toggles.
+    | HexView of verb: string
+    /// `:replace <from-hex> <to-hex>` — replace every occurrence of a byte
+    /// sequence in the active hex-view buffer.
+    | Replace of fromHex: string * toHex: string
 
 type ParsedCommand =
     | Empty
@@ -346,7 +352,38 @@ module Commands =
             Usage = "diagnostics"
             Summary = "List the active buffer's language-server diagnostics."
             Hidden = false
-            Constructor = simple Diagnostics } ]
+            Constructor = simple Diagnostics }
+          { Name = "hex"
+            Usage = "hex [on|off|toggle]"
+            Summary = "View the active buffer as a hex dump. Bare `hex` toggles."
+            Hidden = false
+            Constructor =
+              fun argument ->
+                  match argument.Trim().ToLowerInvariant() with
+                  | "" -> Ready(HexView "toggle")
+                  | "on"
+                  | "off"
+                  | "toggle" as verb -> Ready(HexView verb)
+                  | other -> Invalid $"Unknown hex verb '{other}'." }
+          { Name = "replace"
+            Usage = "replace <from-hex> <to-hex>"
+            Summary = "Replace every occurrence of a byte sequence, e.g. `replace 1a2c78 ffffff` (hex view)."
+            Hidden = false
+            Constructor =
+              fun argument ->
+                  let tokens = argument.Split([| ' '; '\t' |], StringSplitOptions.RemoveEmptyEntries)
+
+                  match tokens with
+                  | [||] -> Pending "From and to byte sequences required."
+                  | [| _ |] -> Pending "Replacement byte sequence required."
+                  | [| fromHex; toHex |] ->
+                      if (Hex.tryParseBytes fromHex).IsNone then
+                          Invalid $"'{fromHex}' is not a hex byte sequence."
+                      elif (Hex.tryParseBytes toHex).IsNone then
+                          Invalid $"'{toHex}' is not a hex byte sequence."
+                      else
+                          Ready(Replace(fromHex, toHex))
+                  | _ -> Invalid "replace takes exactly two byte sequences." } ]
 
     /// Specs synthesized from currently-loaded plugin commands. Each tuple
     /// is `(commandName, summary, sourcePluginName)`. Plugin specs sit
@@ -536,6 +573,14 @@ module Commands =
                         { Label = verb
                           ApplyText = $"syntax {verb}"
                           Detail = "syntax highlighting toggle"
+                          Kind = Command })
+                | "hex" ->
+                    [ "on"; "off"; "toggle" ]
+                    |> List.filter (fun verb -> verb.StartsWith(argument, StringComparison.OrdinalIgnoreCase))
+                    |> List.map (fun verb ->
+                        { Label = verb
+                          ApplyText = $"hex {verb}"
+                          Detail = "hex view toggle"
                           Kind = Command })
                 | "lsp" ->
                     // Verb first; once a server-taking verb is typed, complete

@@ -94,6 +94,9 @@ type Action =
     | Goto of line: int * col: int option
     | ReloadWorkspace
     | OpenConfig
+    /// Flip the active buffer between text and hex views (the `:hex`
+    /// command's chord-action form).
+    | ToggleHexView
     | ReloadKeybinds
     | RunPlugin of source: string * name: string * arg: string
     // language servers (interpreted via Lsp* effects in Editor.runAction)
@@ -209,6 +212,7 @@ module Action =
         | Goto _ -> "goto"
         | ReloadWorkspace -> "reload-workspace"
         | OpenConfig -> "open-config"
+        | ToggleHexView -> "toggle-hex-view"
         | ReloadKeybinds -> "reload-keybinds"
         | RunPlugin _ -> "run-plugin"
         | GotoDefinition -> "goto-definition"

@@ -137,7 +137,11 @@ module Status =
                     $"TREE  find:{model.Workspace.SearchBuffer}"
                 else
                     "TREE"
-            | Editor -> "EDIT"
+            | Editor ->
+                if Map.containsKey model.Editors.ActiveBufferId model.HexViews then
+                    "HEX"
+                else
+                    "EDIT"
             | Prompt -> promptModeLabel model.Prompt.Mode
 
         recording + pending + label
@@ -163,10 +167,21 @@ module Status =
             else
                 ""
 
+        // Hex views reinterpret the position tokens in byte space: [LINE]
+        // is the cursor's byte offset, [COLUMN] the byte value under it,
+        // and [LINE_ENDING] reads BIN (newlines are just bytes there).
+        let isHexView = Map.containsKey model.Editors.ActiveBufferId model.HexViews
+
         match name, modifier with
         | "mode", _ -> focusText model
+        | "line", _ when isHexView -> "0x" + (Buffer.positionToIndex buffer.Cursor buffer).ToString "x8"
         | "line", _ -> string (buffer.Cursor.Line + 1)
+        | "column", _ when isHexView ->
+            match Hex.byteAt buffer (Buffer.positionToIndex buffer.Cursor buffer) with
+            | Some value -> value.ToString "x2"
+            | None -> "--"
         | "column", _ -> string (buffer.Cursor.Column + 1)
+        | "line_ending", _ when isHexView -> "BIN"
         | "line_ending", _ -> if buffer.Newline = "\r\n" then "CRLF" else "LF"
         | "buffer", _ -> bufferIndicator model
         | "current_file", Some "full" -> (buffer.FilePath |> Option.defaultValue "[scratch]") + previewSuffix

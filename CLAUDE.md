@@ -19,6 +19,7 @@ KeyPressed / Resize → Msg → Editor.update (pure) → (Model', [Effect])
 - **Editor.update** is the only place state transitions live. Returns `(Model', Effect list)`.
 - **runEffect** is the only impure path — file I/O, clipboard, config writes. Effects post results as `Msg` into a `ConcurrentQueue` drained each tick.
 - **Buffers** use a piece table (`PieceTable.fs`); each buffer owns its undo/redo stack.
+- **Hex views** (auto-detected binary files, `:hex`) are ordinary buffers holding the latin1 projection of the raw bytes (char offset = byte offset), marked by an entry in `Model.HexViews`. Row geometry lives in `Hex.fs` (`Hex.layoutFor`) and is shared by the renderer, mouse hit-testing, and cursor movement — the `Dock.metrics` convention. Saves go through `writeAllBytesAtomic` (byte-exact); highlighting and LSP skip hex buffers.
 - **Themes** own the full chrome surface — accent plus an explicit fg/bg per region (editor, gutter, prompt, dock, status, selection, active line). Bundled dark themes set `Default` backgrounds so they keep terminal-default chrome; a light theme supplies real backgrounds.
 
 Source file order (`<Compile>` in `src/Fedit/Fedit.fsproj` is canonical):

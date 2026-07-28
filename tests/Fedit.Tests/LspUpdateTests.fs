@@ -39,7 +39,9 @@ let private diagnostic severity message : LspDiagnostic =
 [<Fact>]
 let ``opening a file with a matching server emits an Opened sync`` () =
     let _, effects =
-        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) (initModel ())
+        Editor.update
+            (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok(LoadedText "(def x 1)")))
+            (initModel ())
 
     match lspSyncsOf effects with
     | [ sync ] ->
@@ -56,7 +58,9 @@ let ``opening a file with a matching server emits an Opened sync`` () =
 [<Fact>]
 let ``the sync effect carries the workspace root as the root fallback`` () =
     let _, effects =
-        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) (initModel ())
+        Editor.update
+            (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok(LoadedText "(def x 1)")))
+            (initModel ())
 
     effects
     |> List.exists (fun effect ->
@@ -68,7 +72,9 @@ let ``the sync effect carries the workspace root as the root fallback`` () =
 [<Fact>]
 let ``editing a synced buffer emits Changed with Version equal to EditTick`` () =
     let opened, _ =
-        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) (initModel ())
+        Editor.update
+            (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok(LoadedText "(def x 1)")))
+            (initModel ())
 
     let edited, effects = Editor.update (KeyPressed(chr 'y')) opened
     let buffer = edited.Editors.Buffers[edited.Editors.ActiveBufferId]
@@ -86,7 +92,7 @@ let ``editing a synced buffer emits Changed with Version equal to EditTick`` () 
 [<Fact>]
 let ``an unmatched extension emits no sync`` () =
     let _, effects =
-        Editor.update (FileOpened("/root/notes.txt", OpenPermanent, None, Result.Ok "hello")) (initModel ())
+        Editor.update (FileOpened("/root/notes.txt", OpenPermanent, None, Result.Ok(LoadedText "hello"))) (initModel ())
 
     lspSyncsOf effects |> List.isEmpty |> should equal true
 
@@ -101,27 +107,29 @@ let ``a disabled server emits no sync`` () =
                     DisabledLanguageServers = Set.ofList [ "sema" ] } }
 
     let _, effects =
-        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) disabled
+        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok(LoadedText "(def x 1)"))) disabled
 
     lspSyncsOf effects |> List.isEmpty |> should equal true
 
 [<Fact>]
 let ``re-opening an already-open file emits no sync`` () =
     let opened, _ =
-        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) (initModel ())
+        Editor.update
+            (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok(LoadedText "(def x 1)")))
+            (initModel ())
 
     let _, effects =
-        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) opened
+        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok(LoadedText "(def x 1)"))) opened
 
     lspSyncsOf effects |> List.isEmpty |> should equal true
 
 [<Fact>]
 let ``preview slot reuse closes the old document and opens the new`` () =
     let previewed, _ =
-        Editor.update (FileOpened("/root/a.sema", OpenPreview, None, Result.Ok "(a)")) (initModel ())
+        Editor.update (FileOpened("/root/a.sema", OpenPreview, None, Result.Ok(LoadedText "(a)"))) (initModel ())
 
     let _, effects =
-        Editor.update (FileOpened("/root/b.sema", OpenPreview, None, Result.Ok "(b)")) previewed
+        Editor.update (FileOpened("/root/b.sema", OpenPreview, None, Result.Ok(LoadedText "(b)"))) previewed
 
     match lspSyncsOf effects with
     | [ closed; opened ] ->
@@ -181,7 +189,9 @@ let ``statusLabel aggregates per-root clients worst-status-wins`` () =
 [<Fact>]
 let ``LspDiagnosticsPublished lands in the model and the status segment counts it`` () =
     let opened, _ =
-        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) (initModel ())
+        Editor.update
+            (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok(LoadedText "(def x 1)")))
+            (initModel ())
 
     let published, _ =
         Editor.update
@@ -258,7 +268,7 @@ let ``a disabled server does not shadow an enabled server for the same file type
                     DisabledLanguageServers = Set.ofList [ "sema" ] } }
 
     let _, effects =
-        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) configured
+        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok(LoadedText "(def x 1)"))) configured
 
     match lspSyncsOf effects with
     | [ sync ] -> sync.Server.Name |> should equal "sema-alt"
@@ -267,7 +277,9 @@ let ``a disabled server does not shadow an enabled server for the same file type
 [<Fact>]
 let ``the diagnostics segment is empty for a buffer without diagnostics`` () =
     let opened, _ =
-        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) (initModel ())
+        Editor.update
+            (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok(LoadedText "(def x 1)")))
+            (initModel ())
 
     let withFormat =
         { opened with
@@ -302,7 +314,7 @@ let private escapeKey: Chord = { Mods = Set.empty; Key = Named Escape }
 let private openedModel () =
     let model, _ =
         Editor.update
-            (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)\n(def y 2)\n(use x)"))
+            (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok(LoadedText "(def x 1)\n(def y 2)\n(use x)")))
             (initModel ())
 
     model
@@ -397,7 +409,7 @@ let ``a definition result for a no-longer-active buffer is dropped`` () =
     let requestingBufferId = model.Editors.ActiveBufferId
 
     let switched, _ =
-        Editor.update (FileOpened("/root/other.sema", OpenPermanent, None, Result.Ok "(other)")) model
+        Editor.update (FileOpened("/root/other.sema", OpenPermanent, None, Result.Ok(LoadedText "(other)"))) model
 
     switched.Editors.ActiveBufferId |> should not' (equal requestingBufferId)
 
@@ -420,7 +432,7 @@ let ``a hover result for a no-longer-active buffer is dropped`` () =
     let requestingBufferId = model.Editors.ActiveBufferId
 
     let switched, _ =
-        Editor.update (FileOpened("/root/other.sema", OpenPermanent, None, Result.Ok "(other)")) model
+        Editor.update (FileOpened("/root/other.sema", OpenPermanent, None, Result.Ok(LoadedText "(other)"))) model
 
     let next, _ =
         Editor.update (LspHoverResolved(Result.Ok [ "about main.sema" ], 0, requestingBufferId)) switched
@@ -531,7 +543,7 @@ let ``a definition in another file loads it with the target position`` () =
     effects
     |> List.exists (fun effect ->
         match effect with
-        | LoadFile("/root/lib.sema", OpenPermanent, Some { Line = 4; Column = 2 }) -> true
+        | LoadFile("/root/lib.sema", OpenPermanent, Some { Line = 4; Column = 2 }, ViewAuto) -> true
         | _ -> false)
     |> should equal true
 
@@ -854,7 +866,9 @@ let ``:lsp restart tears the server down before re-opening its documents`` () =
 [<Fact>]
 let ``closing a synced buffer emits a Closed sync`` () =
     let opened, _ =
-        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) (initModel ())
+        Editor.update
+            (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok(LoadedText "(def x 1)")))
+            (initModel ())
 
     // Dispatch through `update` (not `runAction`): the Closed sync is
     // emitted by the `lspSyncEffects` chokepoint, which only the full
@@ -885,7 +899,9 @@ let ``a replayed goto-definition fences until the definition resolves`` () =
             | _ -> false)
 
     let opened, _ =
-        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) (initModel ())
+        Editor.update
+            (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok(LoadedText "(def x 1)")))
+            (initModel ())
 
     let model =
         { opened with
@@ -940,7 +956,9 @@ let ``escape dismisses the error, then the panel, then the selection`` () =
     // LSP info panel, which outranks the keymap's clear-selection binding
     // — one press, one dismissal, three presses to a bare editor.
     let opened, _ =
-        Editor.update (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok "(def x 1)")) (initModel ())
+        Editor.update
+            (FileOpened("/root/main.sema", OpenPermanent, None, Result.Ok(LoadedText "(def x 1)")))
+            (initModel ())
 
     let selected, _ = Editor.runAction ExtendRight opened
 

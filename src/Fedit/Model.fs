@@ -379,6 +379,12 @@ type Model =
         /// by edit tick in `update`. Empty when the grammar registry failed
         /// to load — the renderer just skips the color overlay.
         HighlightStates: Map<int, HighlightSpan array>
+        /// Per-buffer hex view state, keyed by `BufferState.Id`. Presence
+        /// in the map means the buffer is a latin1-projected hex view
+        /// (offset column | hex bytes | ASCII); absence means a normal
+        /// text buffer. Entries follow the `HighlightStates` lifecycle —
+        /// set on open/toggle, removed on close.
+        HexViews: Map<int, HexViewState>
         /// The active expand/shrink-selection chain, or `None` when no
         /// expansion is in progress. See `SelectionLadder`.
         SelectionLadder: SelectionLadder option
@@ -441,6 +447,21 @@ type Model =
 type OpenIntent =
     | OpenPermanent
     | OpenPreview
+
+/// How a `LoadFile` should interpret the bytes on disk. `ViewAuto` runs
+/// the binary heuristic (`Hex.looksBinary`); the forced forms back the
+/// text↔hex view flip.
+type OpenView =
+    | ViewAuto
+    | ViewText
+    | ViewHex
+
+/// What `readFileForOpen` produced: decoded text (BOM-aware UTF-8, the
+/// historical `File.ReadAllText` behaviour) or the latin1 projection of
+/// the raw bytes for a hex-view buffer.
+type LoadedFile =
+    | LoadedText of contents: string
+    | LoadedBinary of latin1: string
 
 /// Why a `LoadFile` read failed. Classified by the interpreter so the
 /// editor can distinguish "the path simply isn't there" — a permanent
@@ -518,7 +539,7 @@ type Msg =
     /// `target` is an optional 0-based cursor position applied once the
     /// buffer exists (plugin `OpenFileAt`): it travels with the LoadFile
     /// effect and returns here so the jump survives the async load.
-    | FileOpened of path: string * intent: OpenIntent * target: Position option * Result<string, FileOpenError>
+    | FileOpened of path: string * intent: OpenIntent * target: Position option * Result<LoadedFile, FileOpenError>
     | BufferSaved of bufferId: int * path: string * revision: int * Result<unit, string>
     | ConfigSaved of Result<unit, string>
     /// The config file is on disk (written if missing): Ok carries its path
@@ -599,8 +620,11 @@ type Msg =
 
 type Effect =
     | ScanWorkspace of string
-    | LoadFile of path: string * intent: OpenIntent * target: Position option
-    | SaveBuffer of bufferId: int * path: string * revision: int * contents: string
+    | LoadFile of path: string * intent: OpenIntent * target: Position option * view: OpenView
+    /// `binary` routes the write through `writeAllBytesAtomic` with the
+    /// latin1 projection decoded back to raw bytes — a hex-view save is
+    /// byte-exact, never a UTF-8 encoding pass.
+    | SaveBuffer of bufferId: int * path: string * revision: int * contents: string * binary: bool
     | SaveConfig of Config
     /// Write the default config file if it doesn't exist yet, posting
     /// `ConfigFileReady` with the path so the editor can open it.
@@ -610,7 +634,10 @@ type Effect =
     /// Carries the (immutable, cheap-to-share) piece table rather than the
     /// rendered text: the interpreter does the `toString` on a pool thread,
     /// so a search keystroke costs the pure update loop nothing.
-    | RunSearch of bufferId: int * query: string * document: PieceTable
+    /// `hex` marks a hex-view buffer: the interpreter translates the query
+    /// through `Hex.searchNeedle` (hex byte sequences like "1a 2c 78") and
+    /// matches byte-exactly instead of case-insensitively.
+    | RunSearch of bufferId: int * query: string * document: PieceTable * hex: bool
     /// Parse syntax spans off the UI thread. Carries the piece table
     /// (immutable, cheap to share); the interpreter materializes the text,
     /// parses, and posts `HighlightParsed` tagged with `editTick`.
