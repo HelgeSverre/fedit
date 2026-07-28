@@ -5,20 +5,36 @@ const links = [
   { href: "/#install", label: "install" },
   { href: "/commands", label: "commands" },
   { href: "/themes", label: "themes" },
-  { href: "/extend", label: "extend" },
+  { href: "/docs/plugins", label: "plugins" },
   { href: "/docs", label: "docs" },
   { href: "/changelog", label: "changelog" },
 ];
+
+// The single longest href that prefixes the current path wins, so /docs
+// doesn't light up alongside /docs/plugins.
+const path = Astro.url.pathname.replace(/\/$/, "") || "/";
+
+const current = links
+  .filter(({ href }) => !href.includes("#"))
+  .filter(({ href }) => path === href || path.startsWith(href + "/"))
+  .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 ---
 
 <header class="site-head">
+  <a class="skip-link" href="#top">skip to content</a>
   <div class="container">
     <a class="brand" href="/" aria-label="fedit home">
       <Symbol size={18} />
       <span class="brand-word">fedit</span>
     </a>
     <nav aria-label="primary">
-      {links.map(({ href, label }) => <a href={href}>{label}</a>)}
+      {
+        links.map(({ href, label }) => (
+          <a href={href} aria-current={href === current ? "page" : undefined}>
+            {label}
+          </a>
+        ))
+      }
       <a href="https://github.com/HelgeSverre/fedit" class="ext" target="_blank" rel="noopener"
         >github</a
       >
@@ -61,6 +77,18 @@ const links = [
     display: flex;
     gap: 4px;
     font-size: 13px;
+    /* Narrow screens: the link row scrolls horizontally instead of
+     * clipping — no wrap (keeps the 56px bar) and no visible scrollbar. */
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  nav::-webkit-scrollbar {
+    display: none;
+  }
+  nav a {
+    flex-shrink: 0;
   }
   nav a {
     color: var(--fg-muted);
@@ -84,8 +112,27 @@ const links = [
     transform-origin: left center;
     transition: transform var(--t-base) var(--ease);
   }
-  nav a:hover {
+  nav a:hover,
+  nav a[aria-current="page"] {
     color: var(--fg);
+  }
+  /* Visually hidden until keyboard focus, then a normal focusable link
+   * pinned to the header's top-left. */
+  .skip-link {
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    padding: 6px 10px;
+    background: var(--bg);
+    color: var(--fg);
+    text-decoration: none;
+    transform: translateY(-200%);
+  }
+  .skip-link:focus-visible {
+    transform: none;
+    outline: 3px solid var(--accent-soft);
+    outline-offset: 2px;
+    z-index: 20;
   }
   nav a:hover::after {
     transform: scaleX(1);

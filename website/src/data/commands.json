@@ -1,0 +1,118 @@
+[
+  {
+    "name": "open",
+    "usage": "open <path>",
+    "summary": "Open a file from the workspace.",
+    "hidden": false
+  },
+  { "name": "write", "usage": "write", "summary": "Save the active buffer.", "hidden": false },
+  {
+    "name": "writeas",
+    "usage": "writeas <path>",
+    "summary": "Save the active buffer to a new path.",
+    "hidden": false
+  },
+  {
+    "name": "quit",
+    "usage": "quit [force]",
+    "summary": "Exit fedit. `quit force` discards unsaved changes.",
+    "hidden": false
+  },
+  {
+    "name": "config",
+    "usage": "config",
+    "summary": "Open the fedit config file (~/.config/fedit/config.json) in a buffer.",
+    "hidden": false
+  },
+  { "name": "sidebar", "usage": "sidebar", "summary": "Toggle the sidebar.", "hidden": true },
+  { "name": "tree", "usage": "tree", "summary": "Focus the file tree.", "hidden": true },
+  { "name": "editor", "usage": "editor", "summary": "Focus the editor.", "hidden": true },
+  {
+    "name": "reveal",
+    "usage": "reveal",
+    "summary": "Reveal the active file in the sidebar.",
+    "hidden": false
+  },
+  { "name": "reload", "usage": "reload", "summary": "Reload the workspace tree.", "hidden": false },
+  { "name": "next", "usage": "next", "summary": "Activate the next open buffer.", "hidden": false },
+  {
+    "name": "prev",
+    "usage": "prev",
+    "summary": "Activate the previous open buffer.",
+    "hidden": false
+  },
+  {
+    "name": "theme",
+    "usage": "theme <name>",
+    "summary": "Switch theme. Bundled palettes plus any user themes from ~/.config/fedit/themes/*.json.",
+    "hidden": false
+  },
+  {
+    "name": "recent",
+    "usage": "recent <path>",
+    "summary": "Open a recently used file.",
+    "hidden": false
+  },
+  {
+    "name": "buffers",
+    "usage": "buffers <id-or-name>",
+    "summary": "Switch to an open buffer.",
+    "hidden": false
+  },
+  {
+    "name": "close",
+    "usage": "close [id-or-name]",
+    "summary": "Close a buffer (the active one by default).",
+    "hidden": false
+  },
+  {
+    "name": "syntax",
+    "usage": "syntax <on|off|toggle>",
+    "summary": "Toggle syntax highlighting.",
+    "hidden": false
+  },
+  {
+    "name": "plugin",
+    "usage": "plugin <list|enable|disable|install|remove|reload|validate> [arg]",
+    "summary": "Manage installed plugins.",
+    "hidden": false
+  },
+  { "name": "plugins", "usage": "plugins", "summary": "Open the plugin manager.", "hidden": false },
+  { "name": "macros", "usage": "macros", "summary": "Open the macro manager.", "hidden": false },
+  {
+    "name": "messages",
+    "usage": "messages",
+    "summary": "Review recent notifications, newest first.",
+    "hidden": false
+  },
+  {
+    "name": "keybind",
+    "usage": "keybind [reload | <stroke>]",
+    "summary": "List effective keybindings, reload the file, or show what a stroke is bound to.",
+    "hidden": false
+  },
+  {
+    "name": "lsp",
+    "usage": "lsp [status|restart|enable|disable|log] [server]",
+    "summary": "Manage language servers. Bare `lsp` opens the manager.",
+    "hidden": false
+  },
+  {
+    "name": "diagnostics",
+    "usage": "diagnostics",
+    "summary": "List the active buffer's language-server diagnostics.",
+    "hidden": false
+  },
+  {
+    "name": "hex",
+    "usage": "hex [on|off|toggle]",
+    "summary": "View the active buffer as a hex dump. Bare `hex` toggles.",
+    "hidden": false
+  },
+  {
+    "name": "replace",
+    "usage": "replace <from> <to>",
+    "summary": "Replace every occurrence, exact-match — `replace foo bar`, or `replace 1a2c78 ffffff` in a hex view.",
+    "hidden": false
+  }
+]

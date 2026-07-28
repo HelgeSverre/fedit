@@ -15,7 +15,7 @@ interface Props {
 
 const {
   title = "fedit",
-  description = "A small terminal text editor written in F#. Workspace tree, multi-buffer, piece-table buffers, find, command palette, system clipboard, ten color themes.",
+  description = "A small NativeAOT terminal editor written in F#, with LSP navigation, tree-sitter highlighting, semantic macros, F# plugins, and thirteen themes.",
   image = "/og/default.png",
   titleOverride = false,
 } = Astro.props;
@@ -72,7 +72,7 @@ const ogImage = new URL(image, Astro.site).toString();
   </head>
   <body>
     <Header />
-    <main id="top">
+    <main id="top" tabindex="-1">
       <slot />
     </main>
     <Footer />

@@ -1,6 +1,6 @@
 ---
 import DocsLayout from "../../layouts/DocsLayout.astro";
-import keybindings from "../../data/keybindings.json";
+import { keybindingReference as keybindings } from "../../data/keybinding-reference";
 const contexts = [...new Set(keybindings.filter((k) => k.context).map((k) => k.context))].sort();
 const filters = ["all", ...contexts, "unbound"];
 ---
@@ -13,10 +13,15 @@ const filters = ["all", ...contexts, "unbound"];
   <div class="section__head">
     <h1>keybindings</h1>
     <p class="section__lede">
-      Every action and its default binding — including the actions with no key bound. Generated from
-      the compiled-in keymap (<code>src/Fedit/Keymap.fs</code>). Bind the unbound ones in <code
-        >~/.config/fedit/keybinds</code
-      >.
+      Default bindings, the reserved <kbd>Ctrl+Q</kbd> quit gesture, and every action with no key bound.
+      The configurable rows are generated from the compiled-in keymap (<code
+        >src/Fedit/Keymap.fs</code
+      >). Bind the unbound ones in <code>~/.config/fedit/keybinds</code>.
+    </p>
+    <p class="kb-note">
+      <kbd>Ctrl+Q</kbd> is deliberately handled before keymap resolution, so quitting still works when
+      a user keymap fails to load. Composite <kbd>Ctrl+T</kbd> rows retain their actual
+      <code>when</code>/<code>chain</code> actions while describing the sidebar behavior they produce.
     </p>
   </div>
 
@@ -100,7 +105,7 @@ const filters = ["all", ...contexts, "unbound"];
 <script>
   import Alpine from "alpinejs";
   import focus from "@alpinejs/focus";
-  import keybindings from "../../data/keybindings.json";
+  import { keybindingReference as keybindings } from "../../data/keybinding-reference";
 
   type Binding = {
     stroke: string;
@@ -151,6 +156,14 @@ const filters = ["all", ...contexts, "unbound"];
 <style>
   [x-cloak] {
     display: none !important;
+  }
+
+  .kb-note {
+    max-width: 78ch;
+    padding: var(--space-2) var(--space-3);
+    border-left: 3px solid var(--accent);
+    background: var(--surface-2);
+    color: var(--fg-muted);
   }
 
   /* =============================================================== */

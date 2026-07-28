@@ -2,565 +2,329 @@
 import DocsLayout from "../../layouts/DocsLayout.astro";
 import TuiFrame from "../../components/TuiFrame.astro";
 
-const messages = [
-  {
-    name: "input events",
-    arg: "KeyPressed · Resize · MouseScrolled",
-    desc: "Raw terminal input, read each tick and dispatched straight into update.",
-  },
-  {
-    name: "async results",
-    arg: "WorkspaceLoaded · FileOpened · BufferSaved · SearchCompleted · …",
-    desc: "Outcomes of effects that ran on the thread pool, posted back through the queue. Plugin and keybind loads land here too — PluginsScanned, PluginBuildFinished, KeybindsLoaded.",
-  },
-  {
-    name: "timing & macros",
-    arg: "SequenceTimedOut · MacroReplayStart · MacroReplayEnd",
-    desc: "The multi-key sequence deadline firing, and the brackets that wrap an injected macro replay so its keystrokes aren't recorded a second time.",
-  },
-];
-
-const effects = [
-  {
-    name: "ScanWorkspace",
-    arg: "path",
-    desc: "Walk the directory tree off-thread. A second scan cancels the one in flight.",
-  },
-  {
-    name: "LoadFile",
-    arg: "path",
-    desc: "Read a file into a new buffer. A second load cancels the one in flight.",
-  },
-  {
-    name: "SaveBuffer",
-    arg: "id · path · rev · text",
-    desc: "Write a buffer to disk, carrying the revision so a stale save can't mark a freshly-edited buffer clean.",
-  },
-  {
-    name: "SaveConfig",
-    arg: "config",
-    desc: "Persist config.json. Serialized through a task chain so concurrent writes never interleave.",
-  },
-  {
-    name: "ClipboardCopy · ClipboardPaste",
-    arg: "",
-    desc: "Read from or write to the system clipboard.",
-  },
-  {
-    name: "RunSearch",
-    arg: "id · query · haystack",
-    desc: "Incremental in-buffer search off-thread. A new query cancels the previous one.",
-  },
-  {
-    name: "ScanPlugins · InstallPluginFromSource · RemovePluginDir · BuildPlugin",
-    arg: "",
-    desc: "Discover, install, remove, or compile plugins under ~/.config/fedit/plugins/.",
-  },
-  {
-    name: "LoadKeybinds",
-    arg: "",
-    desc: "(Re)load ~/.config/fedit/keybinds and merge it over the compiled defaults.",
-  },
-  {
-    name: "ReplayKeys",
-    arg: "chords · count",
-    desc: "Re-enqueue recorded chords as KeyPressed messages N times. The one effect run synchronously — it owns the queue.",
-  },
-];
-
-const model = [
-  {
-    name: "Editors",
-    arg: "Map<int, BufferState>",
-    desc: "Every open buffer plus the active id. Each buffer owns its piece table, cursor, viewport, and undo/redo stacks.",
-  },
-  {
-    name: "Workspace",
-    arg: "WorkspaceState",
-    desc: "The file tree, a flat path→node map for O(1) lookup, the expanded-folder set, and the type-ahead selection.",
-  },
-  {
-    name: "Prompt",
-    arg: "PromptState",
-    desc: "The single modal input line — command, search, buffer picker, or file picker. The mode is inferred from the first character.",
-  },
-  {
-    name: "Panels · Focus · Terminal",
-    arg: "",
-    desc: "Sidebar and dock geometry, which region holds the keyboard, and the current console size.",
-  },
-  {
-    name: "Config · UserThemes",
-    arg: "",
-    desc: "Persisted preferences (theme, tab width, scroll, status format) and any user theme JSON loaded from disk.",
-  },
-  {
-    name: "Plugins",
-    arg: "PluginRegistry",
-    desc: "Loaded plugins and the commands plus keybindings they contribute.",
-  },
-  {
-    name: "HighlightRegistry · HighlightStates",
-    arg: "",
-    desc: "The process-wide tree-sitter registry and per-buffer parse state. None when the native grammar fails to load — the editor then runs uncolored.",
-  },
-  {
-    name: "Keymap · PendingPrefix",
-    arg: "",
-    desc: "The effective chord→action map, plus any multi-key sequence in flight with its timeout.",
-  },
-  {
-    name: "Registers · Recording · Replaying · LastMacro",
-    arg: "",
-    desc: "Session-only macro state: what's stored, what's being recorded, and what's replaying.",
-  },
-];
-
-const pipeline = [
-  {
-    stage: "Layout.render",
-    ref: "View.fs",
-    desc: "Folds the Model into a Screen — sidebar, editor area, dock, and status bar — each painted with the active theme's colors. Pure: no terminal calls.",
-  },
-  {
-    stage: "Screen",
-    ref: "Screen.fs",
-    desc: "An immutable Width × Height grid of Cells (a glyph + Style) plus an optional cursor. Style carries fg/bg Color (Default | Indexed | Rgb), bold, and inverted.",
-  },
-  {
-    stage: "Renderer.render",
-    ref: "Renderer.fs",
-    desc: "Diffs the new Screen against the previous one and writes only the cells that changed as SGR escapes (truecolor, or quantized to 256). A size change forces a clear and full repaint.",
-  },
-];
-
 const subsystems = [
   {
-    name: "themes",
-    file: "Themes.fs · Color.fs",
-    desc: "Each theme owns the full chrome — accent plus an explicit fg/bg for every region: editor, gutter, prompt, dock, status, selection, active line. A light theme is just another record. Color.fs parses hex and quantizes truecolor to the 256-color cube.",
+    name: "files + buffers",
+    owner: "Buffer · PieceTable · Hex · Runtime",
+    detail:
+      "Text stays LF-normalized in memory and preserves its original line ending on save. Binary files take a raw-byte, byte-exact hex path.",
   },
   {
-    name: "prompt + commands",
-    file: "Prompt.fs · Commands.fs",
-    desc: "One modal line whose first character picks the mode: ':' runs a named command (or a ':LINE:COL' jump), '/' searches the buffer, '@' lists buffers, anything else is the file picker. Commands.fs defines the verbs; completions merge in plugin commands.",
+    name: "syntax",
+    owner: "Highlight · Runtime",
+    detail:
+      "Tree-sitter parsing runs off the update thread. Today each edit schedules a full reparse; stale results are rejected by edit tick.",
   },
   {
-    name: "keymap + keybinds",
-    file: "Keymap.fs · KeymapIO.fs",
-    desc: "Chords resolve to a closed set of Actions. Keymap.defaults ships compiled in; KeymapIO overlays the user's ~/.config/fedit/keybinds file at startup. ':keybind' opens the effective map in a buffer.",
+    name: "language servers",
+    owner: "Lsp* · Runtime",
+    detail:
+      "One stdio JSON-RPC client per server and project root. Diagnostics and navigation return as messages with stale-result guards.",
   },
   {
     name: "plugins",
-    file: "Plugins.fs · Fedit.PluginApi/",
-    desc: "F# DLLs discovered under ~/.config/fedit/plugins/, built lazily, and loaded into isolated AssemblyLoadContexts inside a separate Fedit.PluginHost process (so the editor can ship as NativeAOT). They register commands and keybindings against the read-only IPluginHost contract.",
-  },
-  {
-    name: "highlighting",
-    file: "Highlight.fs",
-    desc: "Tree-sitter parses each buffer incrementally; capture classes (keyword, string, …) map to theme colors the renderer overlays. 25 grammars register; the registry is absent if the native library can't load.",
+    owner: "PluginHostClient · Fedit.PluginHost",
+    detail:
+      "The NativeAOT editor talks newline-delimited JSON-RPC to a separate .NET host that builds, loads, and invokes trusted F# plugins.",
   },
   {
     name: "macros",
-    file: "Editor.fs · Runtime.fs",
-    desc: "Keystrokes record into named registers and replay via the ReplayKeys effect, bracketed by MacroReplayStart/End so injected keys aren't re-recorded. Session-only, never persisted.",
+    owner: "MacroIO · Editor",
+    detail:
+      "Registers store semantic action and command steps, persist in ~/.config/fedit/macros, and replay through a fenced queue.",
   },
   {
-    name: "cli",
-    file: "Cli.fs · Cli/Commands/",
-    desc: "A declarative argument parser with help/version short-circuits and subcommands — fedit plugins, fedit completions <shell>, fedit keybinds, fedit themes — that run without starting the TUI.",
-  },
-  {
-    name: "status bar",
-    file: "Status.fs",
-    desc: "A format string of [TOKEN]s ([MODE], [LINE], [CURRENT_FILE:short], …) with a <EXPAND> spacer that absorbs the remaining width. Unknown tokens render literally, so typos are visible.",
+    name: "terminal adaptation",
+    owner: "TerminalCapabilities · Input · Renderer",
+    detail:
+      "Capability detection selects keyboard, mouse, image, and color behavior. Rendering downgrades through truecolor, 256-color, 16-color, and terminal defaults.",
   },
 ];
 ---
 
 <DocsLayout
   title="architecture"
-  description="fedit is an Elm-style update loop. A pure Model, a pure update returning effects as data, an effect interpreter that folds results back as messages, piece-table buffers, and an ANSI screen renderer."
+  description="How fedit separates deterministic editor state from terminal I/O, files, tree-sitter, language servers, and the out-of-process plugin host."
   image="/og/architecture.png"
 >
   <div class="section__head">
     <h1>architecture</h1>
     <p class="section__lede">
-      An Elm-style update loop. A pure model, a pure update, and one effect interpreter that folds
-      its results back into the loop as messages.
+      A deterministic editor core surrounded by explicit runtime boundaries. The update path stays
+      synchronous; slow or stateful work returns through the message queue.
     </p>
   </div>
 
-  <section>
-    <h2>the loop</h2>
-    <p class="arch-p">
-      The <code>Model</code> is pure data. <code>Editor.update</code> is a pure function that takes a
-      <code>Msg</code> and returns a new model plus a list of <code>Effect</code>s — descriptions of
-      I/O, not the I/O itself. The interpreter (<code>Runtime.startEffect</code>) runs those effects
-      on the thread pool and posts each result back into a <code>ConcurrentQueue&lt;Msg&gt;</code> that
-      the main loop drains every tick. Rendering is the other pure half: <code>Layout.render</code>
-      projects the model to a <code>Screen</code>, and <code>Renderer.render</code> writes that grid as
-      ANSI escapes.
-    </p>
+  <div class="prose prose--wide stack stack--lg">
+    <section>
+      <h2>the main loop</h2>
+      <p>
+        Terminal input and completed background work meet in one message queue.
+        <code>Editor.update</code> applies one message to deterministic state and returns the next model
+        plus descriptions of work for the runtime. Rendering projects that model to a cell grid; effects
+        leave the pure core and eventually post results back to the same queue.
+      </p>
+      <TuiFrame label="data flow"
+        ><Fragment
+          set:html={`  terminal input                        async completions
+ keys · mouse · paste · resize          files · LSP · plugins · parsing
+          |                                      |
+          |                            +-------------------+
+          |                            |  ConcurrentQueue  |
+          |                            +-------------------+
+          |                                      |
+          +------------------+-------------------+
+                             |
+                             v  Msg
+                   +-------------------+
+                   |   <span class="accent">Editor.update</span>   |  pure
+                   +-------------------+
+                             |
+                   (Model', Effect list)
+          +------------------+-------------------+
+          |                                      |
+   Model' v                                      v  Effect list
+ +-----------------+                   +-------------------+
+ |  <span class="accent">Layout.render</span>  |  pure             | <span class="accent">Runtime.startEffect</span> |  impure
+ +-----------------+                   +-------------------+
+          |                            I/O · tree-sitter · RPC
+       Screen                                     |
+          |                                       v
+          v                              result Msg returns to
+ +-----------------+                     ConcurrentQueue
+ | <span class="accent">Renderer.render</span> |
+ |  ANSI diff      |
+ +-----------------+
+          |
+          v
+      terminal`}
+        /></TuiFrame
+      >
+      <p class="note">
+        Effects never mutate the model directly. They enqueue a result message, and
+        <code>Editor.update</code> decides whether that result is still relevant.
+      </p>
+    </section>
 
-    <p class="arch-p note">
-      <strong>One rule holds the whole thing together.</strong> Nothing in <code>update</code> touches
-      the disk, the clipboard, or the clock. Side effects only ever leave as data; the runtime is the
-      single place they run. That's what keeps the editor's state transitions testable.
-    </p>
+    <section>
+      <h2>state and resources</h2>
+      <div class="split">
+        <article>
+          <h3>Model owns deterministic state</h3>
+          <p>
+            Buffers, active/focused surfaces, prompts and pickers, workspace tree, notifications,
+            keymaps, macro registers, hex views, highlight spans, diagnostics, jump history,
+            structural-selection ladders, and mouse-drag state.
+          </p>
+        </article>
+        <article>
+          <h3>Runtime owns operational resources</h3>
+          <p>
+            Terminal handles, filesystem watchers, cancellation tokens, task chains, the tree-sitter
+            registry, the plugin-host client, and live language-server processes.
+          </p>
+        </article>
+      </div>
+      <p>
+        This is MVU at the domain boundary, not a claim that every process resource fits in one
+        immutable record. The model contains everything required to render and make deterministic
+        decisions; the runtime interprets requested work.
+      </p>
 
-    <TuiFrame label="data flow"
-      ><Fragment
-        set:html={`  input events                          async effect results
-  (dispatched each tick)                (drained from the queue)
-         |                                      |
-         |                            +-------------------+
-         |                            |  ConcurrentQueue  |
-         |                            +-------------------+
-         |                                      |
-         +------------------+-------------------+
-                            |
-                            v  Msg
-                  +-------------------+
-                  |   <span class="accent">Editor.update</span>   | (pure)
-                  +-------------------+
-                            |
-                  (Model', Effect list)
-         +------------------+-------------------+
-         |                                      |
-  Model' v                                      v  Effect list
-+-----------------+                   +-------------------+
-|  <span class="accent">Layout.render</span>  | (pure)            |     runEffect     | (impure)
-+-----------------+                   +-------------------+
-         |                            file I/O, clipboard, search,
-      Screen                          plugins, config, macros.
-         |
-         v                                      |
-+-----------------+                             v
-| <span class="accent">Renderer.render</span> |                   result posts back to the
-|  ANSI escapes   |                   ConcurrentQueue (next tick)
-+-----------------+
-         |
-         v
-   terminal output`}
-      /></TuiFrame
-    >
-  </section>
+      <TuiFrame label="process and resource boundaries"
+        ><Fragment
+          set:html={`+-----------------------------------------------------------------------+
+|                     <span class="accent">fedit</span>  (NativeAOT process)                     |
+|                                                                       |
+|  Model &lt;-&gt; Editor.update &lt;-&gt; Layout &lt;-&gt; Renderer                  |
+|                    |                                                  |
+|                    v Effect                                           |
+|              +-------------+                                          |
+|              |   Runtime   |                                          |
+|              +------+------+                                          |
+|                     |                                                 |
+|    +----------------+----------------+------------------+              |
+|    |                |                |                  |              |
+| file/config     tree-sitter    PluginHostClient     LspClient map      |
+| clipboard       parse worker          |                  |              |
+| watcher        + registry             | JSON-RPC         | JSON-RPC     |
++---------------------------------------|------------------|--------------+
+                                        v                  v
+                              +------------------+   +------------------+
+                              | <span class="accent">Fedit.PluginHost</span> |   | language servers |
+                              | plugin ALCs      |   | stdio processes  |
+                              +------------------+   +------------------+`}
+        /></TuiFrame
+      >
+    </section>
 
-  <section>
-    <h2>messages and effects</h2>
-    <p class="arch-p">
-      Two closed unions define everything that can happen. <code>Msg</code> is every event the loop reacts
-      to; <code>Effect</code> is every side effect <code>update</code> can ask for. Adding a capability
-      means adding a case to each and handling it in <code>update</code> and the interpreter — the type
-      checker finds every place that has to change.
-    </p>
+    <section>
+      <h2>subsystems</h2>
+      <div class="system-list">
+        {
+          subsystems.map((system) => (
+            <article>
+              <div>
+                <h3>{system.name}</h3>
+                <code>{system.owner}</code>
+              </div>
+              <p>{system.detail}</p>
+            </article>
+          ))
+        }
+      </div>
+    </section>
 
-    <h3 class="arch-h3">Msg — what happened</h3>
-    <dl class="doc-dl">
-      {
-        messages.map((m) => (
-          <div class="doc-dl__row">
-            <dt>
-              <code class="dl-name">{m.name}</code>
-              <span class="dl-arg">{m.arg}</span>
-            </dt>
-            <dd>
-              <p class="arch-p">{m.desc}</p>
-            </dd>
-          </div>
-        ))
-      }
-    </dl>
+    <section>
+      <h2>rendering pipeline</h2>
+      <p>
+        Rendering stays a projection until the final terminal write. The screen diff keeps ordinary
+        edits small, while terminal capability detection selects the best color representation the
+        current terminal can display.
+      </p>
+      <TuiFrame label="one frame"
+        ><Fragment
+          set:html={` <span class="accent">Model</span>
+   |
+   | Layout.render  (pure)
+   v
+ <span class="accent">Screen</span>  Width x Height grid of Cell(glyph, style)
+   |
+   | compare with previous Screen
+   v
+ changed cells only
+   |
+   | Renderer.render
+   +-- truecolor terminal  -&gt;  24-bit RGB SGR
+   +-- 256-color terminal -&gt;  quantized ANSI cube
+   +-- 16-color terminal  -&gt;  nearest standard color
+   +-- default colors     -&gt;  terminal-owned foreground/background
+   |
+   v
+ ANSI output + cursor placement`}
+        /></TuiFrame
+      >
+    </section>
 
-    <h3 class="arch-h3">Effect — what to do next</h3>
-    <dl class="doc-dl">
-      {
-        effects.map((e) => (
-          <div class="doc-dl__row">
-            <dt>
-              <code class="dl-name">{e.name}</code>
-              {e.arg && <span class="dl-arg">{e.arg}</span>}
-            </dt>
-            <dd>
-              <p class="arch-p">{e.desc}</p>
-            </dd>
-          </div>
-        ))
-      }
-    </dl>
-  </section>
+    <section>
+      <h2>ordering and stale work</h2>
+      <p>
+        F# compile order in <code>Fedit.fsproj</code> is the dependency map. Primitive data structures
+        come first; editor state and update logic sit in the middle; terminal/runtime interpreters and
+        the CLI come last. New subsystems should enter through a message/effect seam instead of calling
+        runtime resources from <code>Editor.update</code>.
+      </p>
+      <p>
+        Background parsing, file reads, LSP requests, and selection-ladder computation carry buffer
+        identity and version information. The update layer drops completions for a closed, switched,
+        or edited buffer. Cancellation reduces wasted work; version checks preserve correctness.
+      </p>
 
-  <section>
-    <h2>the model</h2>
-    <p class="arch-p">
-      One record holds the entire editor. Everything the UI shows is a projection of it, and every
-      <code>Msg</code> produces a new one — there is no state hiding in mutable fields off to the side.
-    </p>
-
-    <dl class="doc-dl">
-      {
-        model.map((f) => (
-          <div class="doc-dl__row">
-            <dt>
-              <code class="dl-name">{f.name}</code>
-              {f.arg && <span class="dl-arg">{f.arg}</span>}
-            </dt>
-            <dd>
-              <p class="arch-p">{f.desc}</p>
-            </dd>
-          </div>
-        ))
-      }
-    </dl>
-  </section>
-
-  <section>
-    <h2>rendering pipeline</h2>
-    <p class="arch-p">
-      A frame is three pure steps. The model becomes a grid, the grid is diffed against the last
-      one, and only the difference reaches the terminal.
-    </p>
-
-    <ol class="doc-pipeline">
-      {
-        pipeline.map((p, i) => (
-          <li>
-            <code class="pipeline-step">
-              {String(i + 1).padStart(2, "0")} {p.stage}
-            </code>
-            <code class="pipeline-ref">{p.ref}</code>
-            <p class="arch-p">{p.desc}</p>
-          </li>
-        ))
-      }
-    </ol>
-  </section>
-
-  <section>
-    <h2>buffer storage</h2>
-    <p class="arch-p">
-      Text buffers use a piece table. The original file contents stay in one string, inserted text
-      is appended to another, and the visible document is a list of pieces pointing into the two.
-      Inserts and deletes stay local to the piece list instead of copying the whole document. Each
-      buffer owns its own undo and redo stacks (capped at 200 revisions) and an <code>EditTick</code
-      > counter, so a save that lands against a since-edited buffer is detected rather than silently marking
-      it clean.
-    </p>
-  </section>
-
-  <section>
-    <h2>module layers</h2>
-    <p class="arch-p">
-      F# compiles top-to-bottom, so the <code>&lt;Compile&gt;</code> order in
-      <code>Fedit.fsproj</code> is also the dependency order: every module can only see the ones above
-      it. It reads as a clean bottom-up stack — primitives and text first, the pure update in the middle,
-      the impure runtime and CLI last.
-    </p>
-
-    <TuiFrame label="module order (Fedit.fsproj)"
-      ><Fragment
-        set:html={`   primitives |  Primitives  -&gt;  Keys  -&gt;  Events
+      <TuiFrame label="module order (Fedit.fsproj)"
+        ><Fragment
+          set:html={`   primitives |  Primitives -&gt; Keys -&gt; Events
               |
-     terminal |  TerminalCapabilities  -&gt;  MouseProtocol  -&gt;  ImageProtocol  -&gt;  KittyImage
+     terminal |  TerminalCapabilities -&gt; MouseProtocol -&gt; ImageProtocol -&gt; KittyImage
               |
-  text buffer |  PieceTable  -&gt;  Buffer
+ text/storage |  PieceTable -&gt; Buffer -&gt; Hex -&gt; Workspace
               |
-    workspace |  Workspace
+ screen/theme |  Screen -&gt; Color -&gt; Themes -&gt; Highlight
               |
- screen model |  Screen  -&gt;  Color  -&gt;  Themes  -&gt;  Highlight
+commands/keys |  Commands -&gt; Actions -&gt; Keymap
               |
-commands/keys |  Commands  -&gt;  Actions  -&gt;  Keymap  -&gt;  Plugins
+      plugins |  Plugins -&gt; PluginWire -&gt; PluginProtocol -&gt; PluginHostClient
               |
- picker types |  PickerTypes  -&gt;  PromptTypes
+          LSP |  LspTypes -&gt; LspWire -&gt; LspTransport -&gt; LspClient
               |
-        state |  Model  -&gt;  Config  -&gt;  Pickers  -&gt;  KeymapIO  -&gt;  Prompt  -&gt;  Dock
+     UI types |  PickerTypes -&gt; PromptTypes -&gt; Model -&gt; Config -&gt; Pickers
+              |  -&gt; KeymapIO -&gt; MacroIO -&gt; Prompt -&gt; Dock
               |
        update |  Editor
               |
- render/input |  Status  -&gt;  Renderer  -&gt;  Input  -&gt;  View
+ render/input |  Status -&gt; Renderer -&gt; Input -&gt; View
               |
-      runtime |  Terminal  -&gt;  Runtime  -&gt;  Cli  -&gt;  Cli/Commands/*
+      runtime |  Terminal -&gt; Runtime -&gt; Cli -&gt; Cli/Commands/*
               |
         entry |  Program`}
-      /></TuiFrame
-    >
-  </section>
+        /></TuiFrame
+      >
+    </section>
 
-  <section>
-    <h2>subsystems</h2>
-    <p class="arch-p">
-      The core loop is small; most of the editor is the subsystems hanging off it. Each is a slice
-      of the model plus the modules that own it.
-    </p>
-
-    <dl class="doc-dl">
-      {
-        subsystems.map((s) => (
-          <div class="doc-dl__row">
-            <dt>
-              <code class="dl-name">{s.name}</code>
-              <span class="dl-arg">{s.file}</span>
-            </dt>
-            <dd>
-              <p class="arch-p">{s.desc}</p>
-            </dd>
-          </div>
-        ))
-      }
-    </dl>
-
-    <p class="arch-p">
-      Plugins get their own page — see <a href="/docs/plugins">plugins</a> for the authoring surface,
-      the action types, and the six reference implementations.
-    </p>
-  </section>
-
-  <section>
-    <h2>concurrency</h2>
-    <p class="arch-p">
-      The workspace scan, file open and save, search, clipboard, plugin builds, and config writes
-      all run on the thread pool via <code>Task.Run</code>. Their results enqueue onto the
-      <code>ConcurrentQueue&lt;Msg&gt;</code> the main loop drains each tick, so input never blocks behind
-      I/O. <code>ScanWorkspace</code>, <code>LoadFile</code>, and <code>RunSearch</code> each hold a single
-      <code>CancellationTokenSource</code> — a second invocation cancels the previous result instead of
-      racing it. Config saves are chained through one <code>Task</code> so writes land in order. A <code
-        >FileSystemWatcher</code
-      > on the workspace root, debounced 300ms and filtered against <code>.git</code>/<code
-        >bin</code
-      >/<code>obj</code>, posts
-      <code>WorkspaceChangedExternally</code> to trigger a rescan when files change on disk.
-    </p>
-  </section>
-
-  <section>
-    <h2>files and encoding</h2>
-    <p class="arch-p">
-      Files are read as UTF-8. The line ending of the loaded file (<code>LF</code> or <code
-        >CRLF</code
-      >) is detected and reused on save; the buffer always works in <code>\n</code> form internally. Saving
-      writes UTF-8 without a byte-order mark.
-    </p>
-  </section>
-
-  <section>
-    <h2>further reading</h2>
-    <p class="arch-p">
-      The agent guide, including the full <code>Msg</code> / <code>Effect</code> taxonomy and the project
-      conventions, lives in <a href="https://github.com/HelgeSverre/fedit/blob/main/CLAUDE.md"
-        >CLAUDE.md</a
-      >. Phase notes for shipped work are in
-      <a href="https://github.com/HelgeSverre/fedit/blob/main/CHANGELOG.md">CHANGELOG.md</a>, and
-      the source itself is under <a href="https://github.com/HelgeSverre/fedit/tree/main/src/Fedit"
-        >src/Fedit/</a
-      >.
-    </p>
-  </section>
+    <section>
+      <h2>read the subsystem guides</h2>
+      <ul class="links">
+        <li><a href="/docs/lsp">Language servers</a> — processes, synchronization, navigation.</li>
+        <li
+          ><a href="/docs/syntax-highlighting">Syntax highlighting</a> — grammars and parse flow.</li
+        >
+        <li><a href="/docs/macros">Macros</a> — persistent semantic replay.</li>
+        <li><a href="/docs/plugins">Plugins</a> — host process, JSON-RPC boundary, API contract.</li
+        >
+        <li><a href="/docs/hex">Hex editing</a> — binary detection and byte-exact saves.</li>
+      </ul>
+    </section>
+  </div>
 </DocsLayout>
 
 <style>
-  .arch-p {
-    color: var(--fg);
-    max-width: 75ch;
-  }
-  .arch-p code {
-    color: var(--fg);
-  }
-
-  .arch-h3 {
+  section > p,
+  .links {
+    max-width: 78ch;
     color: var(--fg-muted);
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin: var(--space-3) 0 0;
+    line-height: 1.65;
   }
-
-  /* Key-insight callout (ported from plugins.astro). */
   .note {
-    border-left: 3px solid var(--accent);
     padding: var(--space-2) var(--space-3);
+    border-left: 3px solid var(--accent);
     background: var(--surface-2);
   }
-  .note strong {
-    color: var(--accent);
-  }
-
-  /* Rendering pipeline as a stacked list (ported from plugins.astro). */
-  .doc-pipeline {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    max-width: 75ch;
-  }
-  .doc-pipeline li {
-    border-left: 2px solid var(--border);
-    padding: var(--space-1) 0 var(--space-1) var(--space-3);
-  }
-  .pipeline-step {
-    background: transparent;
-    border: none;
-    padding: 0;
-    color: var(--accent);
-    font-size: 12px;
-    letter-spacing: 0.08em;
-  }
-  .pipeline-ref {
-    background: transparent;
-    border: none;
-    padding: 0 0 0 var(--space-2);
-    color: var(--fg-subtle);
-    font-size: 12px;
-  }
-  .doc-pipeline p {
-    margin: var(--space-1) 0 0;
-  }
-
-  /* Definition-list reference grid (ported from plugins.astro). */
-  .doc-dl {
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    max-width: 75ch;
-  }
-  .doc-dl__row {
+  .split {
     display: grid;
-    grid-template-columns: minmax(160px, 16em) 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    max-width: 78ch;
+  }
+  .split article {
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+  }
+  .split h3,
+  .system-list h3 {
+    margin-top: 0;
+  }
+  .split p,
+  .system-list p {
+    margin-bottom: 0;
+    color: var(--fg-muted);
+  }
+  .system-list {
+    max-width: 78ch;
+  }
+  .system-list article {
+    display: grid;
+    grid-template-columns: minmax(190px, 0.7fr) 1.3fr;
     gap: var(--space-3);
     padding: var(--space-3) 0;
     border-bottom: 1px solid var(--border);
-    align-items: baseline;
   }
-  .doc-dl__row:last-child {
-    border-bottom: none;
-  }
-  @media (max-width: 600px) {
-    .doc-dl__row {
-      grid-template-columns: 1fr;
-      gap: var(--space-1);
-    }
-  }
-  .doc-dl dt {
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .dl-name {
-    background: transparent;
-    border: none;
+  .system-list code {
     padding: 0;
-    color: var(--accent);
-    font-size: 14px;
-  }
-  .dl-arg {
+    border: 0;
+    background: transparent;
     color: var(--fg-subtle);
     font-size: 11px;
-    font-family: var(--font-jetbrains-mono);
   }
-  .doc-dl dd {
-    margin: 0;
+  .system-list p {
+    margin-top: 0;
+  }
+  .links {
+    padding-left: 1.4em;
+  }
+  @media (max-width: 680px) {
+    .split,
+    .system-list article {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

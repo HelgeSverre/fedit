@@ -1,0 +1,151 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+
+const languages = [
+  ["F#", ".fs · .fsi · .fsx"],
+  ["JavaScript", ".js · .mjs · .cjs"],
+  ["TypeScript", ".ts"],
+  ["TSX", ".tsx"],
+  ["Python", ".py"],
+  ["JSON", ".json"],
+  ["C#", ".cs"],
+  ["Go", ".go"],
+  ["Rust", ".rs"],
+  ["HTML", ".html · .htm"],
+  ["CSS", ".css"],
+  ["C", ".c · .h"],
+  ["PHP", ".php · .phtml"],
+  ["Shell", ".sh · .bash · .zsh · .ksh and common shell files"],
+  ["Markdown", ".md · .mdx · .markdown"],
+  ["XML", ".xml · .svg · .xsl · .xslt"],
+  ["Dart", ".dart"],
+  ["Just", ".just · Justfile"],
+  ["Make", ".mk · Makefile · GNUmakefile"],
+  ["Astro", ".astro"],
+  ["TOML", ".toml"],
+  ["Sema", ".sema"],
+  ["AppleScript", ".applescript"],
+  ["ReScript", ".res · .resi"],
+  ["Zig", ".zig"],
+];
+---
+
+<DocsLayout
+  title="syntax highlighting"
+  description="Supported tree-sitter languages, syntax controls, theme behavior, structural selection, and troubleshooting in fedit."
+>
+  <div class="section__head">
+    <h1>syntax highlighting</h1>
+    <p class="section__lede">
+      fedit uses tree-sitter grammars and queries to color source code. Parsing runs outside the
+      editor update loop, and stale results are ignored when a buffer changes again.
+    </p>
+  </div>
+
+  <div class="prose prose--wide stack stack--lg">
+    <section>
+      <h2>controls</h2>
+      <p>
+        Run <code>syntax on</code>, <code>syntax off</code>, or <code>syntax toggle</code> from the command
+        palette. The setting persists in <code>~/.config/fedit/config.json</code>.
+      </p>
+      <p>
+        Themes map tree-sitter captures—keywords, strings, comments, functions, types, numbers,
+        operators, and punctuation—to their own syntax palette. Missing colors fall back to the
+        theme's surface foreground.
+      </p>
+    </section>
+
+    <section>
+      <h2>supported languages</h2>
+      <div class="language-grid">
+        {
+          languages.map(([language, files]) => (
+            <div>
+              <strong>{language}</strong>
+              <span>{files}</span>
+            </div>
+          ))
+        }
+      </div>
+      <p>
+        Extensionless shell scripts are also detected from their shebang. Language detection checks
+        special filenames before extensions.
+      </p>
+    </section>
+
+    <section>
+      <h2>structural selection</h2>
+      <p>
+        <kbd>Shift+Alt+Up</kbd> expands the selection to the smallest enclosing syntax node;
+        <kbd>Shift+Alt+Down</kbd> returns to the previous node. <kbd>Ctrl+Alt+W</kbd> is an additional
+        expand binding. This works for any loaded grammar and is inert in hex view.
+      </p>
+    </section>
+
+    <section>
+      <h2>how updates stay responsive</h2>
+      <p>
+        Each text edit schedules a full parse on a background worker. The result carries the buffer
+        id and edit tick; if the buffer has changed or closed before parsing finishes, the editor
+        drops the result. Incremental tree edits are not implemented yet.
+      </p>
+    </section>
+
+    <section>
+      <h2>troubleshooting</h2>
+      <ul>
+        <li>
+          If no colors appear, confirm highlighting is enabled with <code>syntax on</code>.
+        </li>
+        <li>
+          If one language stays plain, verify the file extension is listed above and inspect the
+          startup trace from <code>fedit --log &lt;path&gt;</code>.
+        </li>
+        <li>
+          User themes can override individual syntax colors in their optional <code>syntax</code> object.
+        </li>
+        <li>Binary and hex-view buffers deliberately skip syntax parsing.</li>
+      </ul>
+    </section>
+  </div>
+</DocsLayout>
+
+<style>
+  section > p,
+  section > ul {
+    max-width: 76ch;
+    color: var(--fg-muted);
+    line-height: 1.65;
+  }
+  .language-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 78ch;
+    border-top: 1px solid var(--border);
+  }
+  .language-grid div {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .language-grid div:nth-child(odd) {
+    border-right: 1px solid var(--border);
+  }
+  .language-grid span {
+    color: var(--fg-subtle);
+    font-family: var(--font-jetbrains-mono);
+    font-size: 11px;
+    text-align: right;
+  }
+  @media (max-width: 720px) {
+    .language-grid {
+      grid-template-columns: 1fr;
+    }
+    .language-grid div:nth-child(odd) {
+      border-right: 0;
+    }
+  }
+</style>

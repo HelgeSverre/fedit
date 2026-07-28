@@ -18,10 +18,26 @@ const trimmed = content.trimEnd();
 <div class={`tui-frame frame ${className}`} style={style}>
   {label && <div class="tui-frame__label frame__label">{label}</div>}
   <pre class="tui" set:html={trimmed} />
+  {
+    Astro.slots.has("footer") && (
+      <div class="tui-frame__footer">
+        <slot name="footer" />
+      </div>
+    )
+  }
 </div>
 
 <style>
   /* Frame surface + label bar come from the shared .frame in global.css. */
+  /* Optional dock-style detail area under the content — the label bar's
+   * bottom sibling, for captions that belong to the window. */
+  .tui-frame__footer {
+    border-top: 1px solid var(--border);
+    padding: 12px 18px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--fg-muted);
+  }
   pre.tui {
     margin: 0;
     border: none;

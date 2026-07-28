@@ -1,0 +1,35 @@
+---
+import Site from "../layouts/Site.astro";
+import TuiFrame from "../components/TuiFrame.astro";
+---
+
+<Site title="404" description="No page at this path.">
+  <section class="section">
+    <div class="container stack stack--lg">
+      <div class="section__head">
+        <h1>404</h1>
+        <p class="section__lede">No page at this path.</p>
+      </div>
+
+      <TuiFrame label="fedit"
+        ><Fragment
+          set:html={`<span class="muted">:open</span> this-page
+
+<span class="accent">E404</span> <span class="muted">no such file — check the path, or start from one of these:</span>`}
+        /></TuiFrame
+      >
+
+      <p class="fof-links">
+        <a href="/">front page</a> · <a href="/docs">docs</a> · <a href="/commands">commands</a> · <a
+          href="/changelog">changelog</a
+        >
+      </p>
+    </div>
+  </section>
+</Site>
+
+<style>
+  .fof-links {
+    color: var(--fg-muted);
+  }
+</style>

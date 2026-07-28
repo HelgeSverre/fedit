@@ -9,8 +9,8 @@ editor free of a runtime JIT (so it can ship as NativeAOT) and means a slow
 or crashing plugin never freezes the UI. **Authoring is unchanged** — the
 contract and folder layout below are exactly the same.
 
-This page is the authoring guide. For the marketing-tinted introduction
-see [the plugins page on fedit.dev](https://fedit.dev/plugins).
+This page is the authoring guide. For working examples, see
+[the reference plugins on fedit.dev](https://fedit.dev/plugins).
 
 > **Trust model.** Plugins run as full .NET code with no sandbox — they
 > can read any file, open any socket, and run any process. Treat
@@ -19,13 +19,13 @@ see [the plugins page on fedit.dev](https://fedit.dev/plugins).
 
 ## At a glance
 
-| What plugins can do                                       | What's not in scope yet                                |
-| --------------------------------------------------------- | ------------------------------------------------------ |
-| Register named commands (`:wc`, `:todocount`, …)          | Async handlers — runs on the UI thread, target < 50 ms |
-| Bind chords to commands (`Ctrl+T`, `Alt+x`, `F5`, …)      | Custom panels, themes, file types, LSP                 |
-| Read text, cursor, file path, workspace root + file index | Plugin sandbox / capability restriction (full trust)   |
-| Emit `Notify`, `InsertText`, `MoveCursor`, `OpenFile`, …  | Cross-language plugins — F# only                       |
-| Chain into built-ins via `RunCommand "open foo.fs"`       | Per-plugin settings — no `IPluginHost.Config<T>()` yet |
+| What plugins can do                                       | What's not in scope yet                                      |
+| --------------------------------------------------------- | ------------------------------------------------------------ |
+| Register named commands (`:wc`, `:todocount`, …)          | Async handler API — handlers are synchronous inside the host |
+| Bind chords to commands (`Ctrl+T`, `Alt+x`, `F5`, …)      | Custom panels, themes, file types, LSP                       |
+| Read text, cursor, file path, workspace root + file index | Plugin sandbox / capability restriction (full trust)         |
+| Emit `Notify`, `InsertText`, `MoveCursor`, `OpenFile`, …  | Cross-language plugins — F# only                             |
+| Chain into built-ins via `RunCommand "open foo.fs"`       | Per-plugin settings — no `IPluginHost.Config<T>()` yet       |
 
 ## Five-minute quickstart
 
@@ -402,8 +402,9 @@ declared `name`. Zip and folder sources work the same way.
 
 This is the MVP. Concretely deferred to v2:
 
-- **Async / long-running commands** — handlers block the UI thread.
-  Plugins doing real I/O need to keep work brief.
+- **Async handler API** — handlers are synchronous inside the plugin-host
+  process. Slow work does not freeze the editor UI, but it delays later
+  plugin-host requests, so plugins doing real I/O should still keep work brief.
 - **Per-plugin settings** — no `IPluginHost.Config<T>()` yet. Plugins
   that need configuration can read their own JSON file relative to
   `~/.config/fedit/plugins/<name>/`.

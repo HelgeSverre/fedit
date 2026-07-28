@@ -19,6 +19,7 @@ package-lock.json
 
 # Generated
 CHANGELOG.md
+website/src/content/canonical/
 
 # Vendored submodules — leave their formatting alone.
 vendor/

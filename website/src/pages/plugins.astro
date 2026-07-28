@@ -1,594 +1,145 @@
 ---
-import Site from "../layouts/Site.astro";
-import PluginCard from "../components/PluginCard.astro";
-import { plugins } from "../data/plugins";
+import DocsLayout from "../layouts/DocsLayout.astro";
 
-// Tag filter options, derived from the catalog so the chips never drift from
-// the data. Sorted, deduped.
-const tags = [...new Set(plugins.flatMap((p) => p.tags))].sort();
-const total = plugins.length;
-const bundledCount = plugins.filter((p) => p.bundled).length;
+const examples = [
+  {
+    name: "wordcount",
+    command: "wc",
+    summary: "Count whitespace-separated words in the active buffer.",
+    actions: "Notify",
+  },
+  {
+    name: "journal",
+    command: "journal",
+    summary: "Insert a timestamp at the cursor and reveal the stamped file in the sidebar.",
+    actions: "InsertText · RevealPath · Notify",
+  },
+  {
+    name: "todo-count",
+    command: "todocount",
+    summary: "Walk the workspace file index and report the number of TODO markers.",
+    actions: "Notify",
+  },
+  {
+    name: "todo-list",
+    command: "todolist",
+    summary: "Create a clickable TODO report whose rows jump to the source location.",
+    actions: "NewBuffer · SetBufferActivation · OpenFileAt · Notify",
+  },
+  {
+    name: "todo-next",
+    command: "todonext",
+    summary: "Jump to the next TODO across open buffers and register a plugin keybinding.",
+    actions: "MoveCursor · SwitchBuffer · RegisterKeybinding",
+  },
+  {
+    name: "jot",
+    command: "jot",
+    summary: "Keep a session scratchpad of code locations, mark entries done, and jump back.",
+    actions: "NewBuffer · ReplaceRange · RevealPath · OpenFilePreview",
+  },
+];
 ---
 
-<Site
-  title="plugins"
-  description="A preview catalog of fedit plugins. Search, sort, and filter, then copy a fedit plugins install command. No public registry yet — the listing is a sample plus the six bundled reference plugins."
+<DocsLayout
+  title="reference plugins"
+  description="Six real, bundled fedit plugin examples covering notifications, edits, scratch buffers, navigation, activation, and keybindings."
   image="/og/plugins.png"
 >
-  <section class="section" x-data="pluginRegistry" x-init="init()" @keydown.escape.window="close()">
-    <div class="container stack stack--lg">
-      <div class="section__head">
-        <h1>plugins</h1>
-        <p class="section__lede">
-          Browse the catalog, copy a <code>fedit plugins install</code> command, drop the result into
-          <code>~/.config/fedit/plugins/</code>. Commands and keybindings register on the next
-          launch.
-        </p>
-      </div>
+  <div class="section__head">
+    <h1>reference plugins</h1>
+    <p class="section__lede">
+      Real examples from the fedit repository. These are teaching projects, not a registry: there
+      are no invented download counts, ratings, or remote install claims.
+    </p>
+  </div>
 
-      <!-- preview honesty note -->
-      <p class="preview-note">
-        <strong>Preview catalog.</strong> There is no public plugin registry yet. The {bundledCount} entries
-        marked <span class="bundled-word">bundled</span> are the real reference plugins under <code
-          >examples/</code
-        >; the rest are placeholders that show what a listing will look like. Install commands for
-        the placeholders point at example URLs.
-      </p>
-
-      <!-- controls -->
-      <div class="controls">
-        <div class="control control--search">
-          <label for="plugin-search">Search</label>
-          <input
-            id="plugin-search"
-            type="search"
-            x-model="query"
-            placeholder="name, description, or tag"
-            autocomplete="off"
-            spellcheck="false"
-          />
-        </div>
-
-        <div class="control control--sort">
-          <label for="plugin-sort">Sort</label>
-          <select id="plugin-sort" x-model="sort">
-            <option value="name">name A–Z</option>
-            <option value="downloads">most installed</option>
-            <option value="updated">recently updated</option>
-          </select>
-        </div>
-
-        <div class="control control--filter">
-          <label for="plugin-tag">Tag</label>
-          <select id="plugin-tag" x-model="tag">
-            <option value="">all tags</option>
-            {tags.map((t) => <option value={t}>{t}</option>)}
-          </select>
-        </div>
-
-        <p class="result-count" aria-live="polite">
-          <span x-text="filtered.length"></span> of {total}
-        </p>
-      </div>
-
-      <!-- grid -->
-      <section>
-        <div class="plugin-grid" x-show="filtered.length > 0">
-          <template x-for="p in filtered" :key="p.name">
-            <PluginCard />
-          </template>
-        </div>
-        <p class="empty" x-show="filtered.length === 0" x-cloak>
-          No plugins match <code x-text="query"></code>. Clear the search or pick another tag.
-        </p>
-      </section>
-
-      <section>
-        <p class="muted-p">
-          Build your own in F# — the <a href="/extend">extend guide</a> walks the wordcount plugin skeleton,
-          the twenty actions you can return, and the load lifecycle. Source for the bundled six lives
-          under
-          <code>examples/</code>.
-        </p>
-      </section>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- DETAIL MODAL                                                 -->
-    <!-- ============================================================ -->
-    <div
-      class="modal"
-      x-cloak
-      x-show="active"
-      @click.self="close()"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-title"
-      x-transition.opacity
+  <div class="install-note">
+    <p>Clone the repository, then copy an example into your plugin directory:</p>
+    <pre
+      ><span class="dim">$</span> git clone --depth 1 https://github.com/HelgeSverre/fedit
+<span class="dim">$</span> mkdir -p ~/.config/fedit/plugins
+<span class="dim">$</span> cp -R fedit/examples/wordcount ~/.config/fedit/plugins/</pre
     >
-      <div
-        class="modal__panel"
-        x-show="active"
-        x-transition
-        x-trap.noscroll="active"
-        @keydown.escape="close()"
-      >
-        <template x-if="active">
-          <div>
-            <header class="modal__head">
-              <div class="modal__title">
-                <span class="dot" :class="{ bundled: active.bundled }" aria-hidden="true"></span>
-                <h2 id="modal-title" x-text="active.name"></h2>
-                <span class="label" x-show="active.bundled">bundled</span>
-                <code class="ver" x-text="'v' + active.version"></code>
-              </div>
-              <button type="button" class="modal__close" @click="close()" aria-label="Close">
-                ✕
-              </button>
-            </header>
+    <p>
+      Restart fedit or run <code>plugin reload</code>. Review the source first: plugins are trusted
+      .NET code with no sandbox.
+    </p>
+  </div>
 
-            <p class="modal__desc" x-text="active.description"></p>
-
-            <!-- install snippet -->
-            <div class="install">
-              <span class="install__label">install</span>
-              <button
-                type="button"
-                class="install__cmd"
-                @click="copyInstall(active)"
-                :aria-label="copied ? 'Copied install command' : 'Copy install command'"
-              >
-                <code><span class="prompt">$</span> <span x-text="installCmd(active)"></span></code>
-                <span class="install__hint" x-text="copied ? 'copied' : 'copy'"></span>
-              </button>
-            </div>
-
-            <!-- meta -->
-            <dl class="modal__meta">
-              <dt>author</dt>
-              <dd x-text="active.author"></dd>
-              <dt>version</dt>
-              <dd x-text="active.version"></dd>
-              <dt>api</dt>
-              <dd x-text="'v' + active.apiVersion"></dd>
-              <dt>updated</dt>
-              <dd x-text="active.updated"></dd>
-              <dt>installs</dt>
-              <dd x-text="fmtDownloads(active.downloads)"></dd>
-              <dt>homepage</dt>
-              <dd>
-                <a :href="active.homepage" x-text="active.homepage" target="_blank" rel="noopener"
-                ></a>
-              </dd>
-              <dt>tags</dt>
-              <dd class="modal__tags">
-                <template x-for="t in active.tags" :key="t">
-                  <span class="tag" x-text="t"></span>
-                </template>
-              </dd>
-            </dl>
-
-            <p class="modal__foot" x-show="!active.bundled" x-cloak>
-              Placeholder entry — the source URL is illustrative. No registry to install from yet.
-            </p>
-            <p class="modal__foot" x-show="active.bundled">
-              Reference plugin. Copy it from <code>examples/</code>, or install the repo path above.
-            </p>
+  <div class="examples">
+    {
+      examples.map((example) => (
+        <article>
+          <div class="example-head">
+            <h2>{example.name}</h2>
+            <code>:{example.command}</code>
           </div>
-        </template>
-      </div>
-    </div>
-  </section>
-</Site>
+          <p>{example.summary}</p>
+          <p class="actions">{example.actions}</p>
+          <a
+            href={`https://github.com/HelgeSverre/fedit/tree/main/examples/${example.name}`}
+            target="_blank"
+            rel="noopener"
+          >
+            read source →
+          </a>
+        </article>
+      ))
+    }
+  </div>
 
-<script>
-  import Alpine from "alpinejs";
-  import focus from "@alpinejs/focus";
-  import { plugins, type Plugin } from "../data/plugins";
-
-  type SortKey = "name" | "downloads" | "updated";
-
-  Alpine.plugin(focus);
-
-  Alpine.data("pluginRegistry", () => ({
-    all: plugins as Plugin[],
-    query: "",
-    sort: "name" as SortKey,
-    tag: "",
-    active: null as Plugin | null,
-    copied: false,
-    _copyTimer: 0 as ReturnType<typeof setTimeout> | 0,
-
-    init() {
-      // Deep-link support: /plugins#vim-bindings opens that card's panel.
-      const hash = decodeURIComponent(location.hash.replace(/^#/, ""));
-      if (hash) {
-        const match = this.all.find((p) => p.name === hash);
-        if (match) this.open(match);
-      }
-    },
-
-    get filtered(): Plugin[] {
-      const q = this.query.trim().toLowerCase();
-      let out = this.all.filter((p) => {
-        if (this.tag && !p.tags.includes(this.tag)) return false;
-        if (!q) return true;
-        return (
-          p.name.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q) ||
-          p.tags.some((t) => t.toLowerCase().includes(q))
-        );
-      });
-      out = [...out].sort((a, b) => {
-        switch (this.sort) {
-          case "downloads":
-            return b.downloads - a.downloads;
-          case "updated":
-            return b.updated.localeCompare(a.updated);
-          default:
-            return a.name.localeCompare(b.name);
-        }
-      });
-      return out;
-    },
-
-    installCmd(p: Plugin): string {
-      return `fedit plugins install ${p.source}`;
-    },
-
-    fmtDownloads(n: number): string {
-      return n.toLocaleString("en-US");
-    },
-
-    open(p: Plugin) {
-      this.active = p;
-      this.copied = false;
-      history.replaceState(null, "", `#${encodeURIComponent(p.name)}`);
-    },
-
-    close() {
-      if (!this.active) return;
-      this.active = null;
-      history.replaceState(null, "", location.pathname);
-    },
-
-    async copyInstall(p: Plugin) {
-      const cmd = this.installCmd(p);
-      try {
-        await navigator.clipboard.writeText(cmd);
-      } catch {
-        // Clipboard API needs a secure context (HTTPS or localhost) — both
-        // hold for this site, so a failure here means the user denied access.
-        // Leave the state untouched rather than claim a copy that didn't land.
-        return;
-      }
-      this.copied = true;
-      if (this._copyTimer) clearTimeout(this._copyTimer);
-      this._copyTimer = setTimeout(() => (this.copied = false), 1600);
-    },
-  }));
-
-  window.Alpine = Alpine;
-  Alpine.start();
-</script>
+  <p>
+    Ready to write one? The <a href="/docs/plugins">plugin author guide</a> covers the manifest, host
+    lifecycle, API contract, installation, and debugging.
+  </p>
+</DocsLayout>
 
 <style>
-  /* Hide Alpine-controlled regions until the framework boots. */
-  [x-cloak] {
-    display: none !important;
-  }
-
-  /* =============================================================== */
-  /* PREVIEW NOTE                                                    */
-  /* =============================================================== */
-  .preview-note {
-    color: var(--fg-muted);
+  .install-note {
+    max-width: 78ch;
+    padding: var(--space-3);
     border-left: 3px solid var(--accent);
-    padding: var(--space-1) var(--space-3);
-    margin: 0;
-    max-width: 80ch;
-    font-size: 13px;
-    line-height: 1.6;
-  }
-  .preview-note strong {
-    color: var(--accent);
-    font-weight: 500;
-  }
-  .bundled-word {
-    color: var(--accent);
-  }
-
-  /* =============================================================== */
-  /* CONTROLS                                                        */
-  /* =============================================================== */
-  .controls {
-    display: grid;
-    grid-template-columns: 1fr auto auto auto;
-    gap: var(--space-2);
-    align-items: end;
-  }
-  @media (max-width: 720px) {
-    .controls {
-      grid-template-columns: 1fr 1fr;
-    }
-    .control--search {
-      grid-column: 1 / -1;
-    }
-  }
-
-  .control {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .control label {
-    font-family: var(--font-jetbrains-mono);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--fg-subtle);
-  }
-  .control input,
-  .control select {
-    font-family: var(--font-jetbrains-mono);
-    font-size: 13px;
-    color: var(--fg);
-    background: var(--surface-deep);
-    border: 1px solid var(--border-strong);
-    border-radius: 2px;
-    padding: 8px 10px;
-    transition: border-color var(--t-base) var(--ease);
-  }
-  .control select {
-    cursor: pointer;
-  }
-  .control input:hover,
-  .control select:hover {
-    border-color: var(--fg-subtle);
-  }
-  .control input:focus-visible,
-  .control select:focus-visible {
-    outline: 3px solid var(--accent-soft);
-    outline-offset: 2px;
-    border-color: var(--accent);
-  }
-  .control input::placeholder {
-    color: var(--fg-subtle);
-  }
-
-  .result-count {
-    font-family: var(--font-jetbrains-mono);
-    font-size: 12px;
-    color: var(--fg-subtle);
-    margin: 0;
-    padding-bottom: 9px;
-    white-space: nowrap;
-  }
-  .result-count span {
-    color: var(--accent);
-  }
-  @media (max-width: 720px) {
-    .result-count {
-      grid-column: 1 / -1;
-      padding-bottom: 0;
-    }
-  }
-
-  /* =============================================================== */
-  /* GRID                                                            */
-  /* =============================================================== */
-  .plugin-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: var(--space-2);
-  }
-
-  .empty {
-    color: var(--fg-muted);
-    font-size: 14px;
-    padding: var(--space-5) 0;
-    text-align: center;
-  }
-
-  /* =============================================================== */
-  /* MODAL                                                           */
-  /* =============================================================== */
-  .modal {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding: var(--space-5) var(--space-3);
-    overflow-y: auto;
-    /* Solid scrim — no glassmorphism. */
-    background: color-mix(in srgb, var(--neutral-950) 70%, transparent);
-  }
-
-  .modal__panel {
-    width: 100%;
-    max-width: 560px;
-    background: var(--surface-deep);
-    border: 1px solid var(--border-strong);
-    border-radius: 4px;
-    box-shadow: 0 12px 40px color-mix(in srgb, var(--neutral-950) 40%, transparent);
-    padding: var(--space-4);
-    margin: auto 0;
-  }
-
-  .modal__head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-2);
-    margin-bottom: var(--space-3);
-  }
-  .modal__title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .modal__title .dot {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--border-strong);
-  }
-  .modal__title .dot.bundled {
-    background: var(--accent);
-  }
-  .modal__title h2 {
-    font-size: 22px;
-    color: var(--fg);
-  }
-  .modal__title .label {
-    font-family: var(--font-jetbrains-mono);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--accent);
-    background: color-mix(in oklch, var(--accent) 12%, transparent);
-    padding: 2px 6px;
-    border-radius: 2px;
-  }
-  .modal__title .ver {
-    background: transparent;
-    border: none;
-    padding: 0;
-    font-size: 12px;
-    color: var(--fg-subtle);
-  }
-
-  .modal__close {
-    color: var(--fg-subtle);
-    font-size: 14px;
-    line-height: 1;
-    padding: 6px;
-    border-radius: 2px;
-    transition: color var(--t-base) var(--ease);
-  }
-  .modal__close:hover {
-    color: var(--fg);
-  }
-
-  .modal__desc {
-    margin: 0 0 var(--space-3);
-    color: var(--fg-muted);
-    font-size: 14px;
-    line-height: 1.6;
-  }
-
-  /* install snippet ----------------------------------------------- */
-  .install {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: var(--space-3);
-  }
-  .install__label {
-    font-family: var(--font-jetbrains-mono);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--fg-subtle);
-  }
-  .install__cmd {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    width: 100%;
-    text-align: left;
     background: var(--surface-2);
-    border: 1px solid var(--border-strong);
-    border-radius: 2px;
-    padding: 10px 12px;
-    transition: border-color var(--t-base) var(--ease);
   }
-  .install__cmd:hover {
-    border-color: var(--accent);
+  .install-note p:first-child {
+    margin-top: 0;
   }
-  .install__cmd code {
-    background: transparent;
-    border: none;
-    padding: 0;
-    font-size: 12.5px;
-    color: var(--fg);
-    overflow-x: auto;
-    white-space: nowrap;
-    /* Thin horizontal scrollbar for long install URLs. */
-    scrollbar-width: thin;
-    scrollbar-color: var(--fg-subtle) transparent;
+  .install-note p:last-child {
+    margin-bottom: 0;
   }
-  .install__cmd code::-webkit-scrollbar {
-    height: 6px;
-  }
-  .install__cmd code::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .install__cmd code::-webkit-scrollbar-thumb {
-    background: var(--fg-subtle);
-    border-radius: 999px;
-  }
-  .install__cmd .prompt {
-    color: var(--fg-subtle);
-    margin-right: 6px;
-  }
-  .install__hint {
-    font-family: var(--font-jetbrains-mono);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--accent);
-    flex-shrink: 0;
-  }
-
-  /* meta ----------------------------------------------------------- */
-  .modal__meta {
+  .examples {
     display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 8px 20px;
-    align-items: baseline;
-    margin: 0 0 var(--space-3);
-    font-size: 13px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
   }
-  .modal__meta dt {
+  .examples article {
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+  }
+  .example-head {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-2);
+    align-items: baseline;
+  }
+  .example-head h2 {
+    margin: 0;
+  }
+  .example-head code {
+    color: var(--accent);
+  }
+  .examples p {
+    color: var(--fg-muted);
+  }
+  .actions {
     font-family: var(--font-jetbrains-mono);
     font-size: 11px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--fg-subtle);
-    white-space: nowrap;
   }
-  .modal__meta dd {
-    margin: 0;
-    color: var(--fg-muted);
-    overflow-wrap: anywhere;
-  }
-  .modal__tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .modal__tags .tag {
-    font-family: var(--font-jetbrains-mono);
-    font-size: 10px;
-    letter-spacing: 0.04em;
-    color: var(--fg-subtle);
-    border: 1px solid var(--border);
-    border-radius: 2px;
-    padding: 1px 6px;
-  }
-
-  .modal__foot {
-    margin: 0;
-    padding-top: var(--space-2);
-    border-top: 1px solid var(--border);
-    color: var(--fg-subtle);
-    font-size: 12px;
-    line-height: 1.55;
+  @media (max-width: 680px) {
+    .examples {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

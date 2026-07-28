@@ -5,39 +5,44 @@ import CaretRise from "../components/mascots/CaretRise.astro";
 
 const features = [
   {
-    name: "workspace tree",
-    desc: "open a directory, navigate with arrow keys, expand and collapse with left/right",
-  },
-  { name: "multi-buffer", desc: "open any number of files; switch with next / prev / buffers" },
-  {
-    name: "piece-table buffers",
-    desc: "inserts and deletes stay local; each buffer has its own undo/redo stack",
-  },
-  { name: "find", desc: "live-highlight as you type; enter or down to advance, up for previous" },
-  {
-    name: "command palette",
-    desc: "Ctrl+P opens a command bar — prefix-matched commands, substring-matched files, last 20 entries as history",
+    name: "native and quick",
+    desc: "NativeAOT is the default release: roughly 7 MB and about 10 ms to first paint on the reference machine",
   },
   {
-    name: "system clipboard",
-    desc: "Ctrl+C / Ctrl+X / Ctrl+V via pbcopy on macOS, xclip on Linux",
+    name: "language servers",
+    desc: "stdio LSP clients provide diagnostics, hover, definitions, references, Ctrl+Click, and jump-back",
   },
   {
-    name: "live file watcher",
-    desc: "external changes trigger a debounced 300ms rescan; no need to press Ctrl+R",
+    name: "tree-sitter",
+    desc: "syntax highlighting for 25 languages plus structural expand and shrink selection",
   },
   {
-    name: "thirteen themes",
-    desc: "full-surface palettes (incl. light); swap live, persists to ~/.config/fedit/config.json",
+    name: "semantic macros",
+    desc: "record actions and command outcomes, replay async steps safely, and persist registers as plain text",
   },
-  { name: "UTF-8", desc: "reads any line-ending style, preserves it on save, no BOM written" },
+  {
+    name: "F# plugins",
+    desc: "trusted plugins run in a separate .NET host and return typed actions over a JSON-RPC boundary",
+  },
+  {
+    name: "hex + binary",
+    desc: "detect binary files, edit raw bytes in a hex grid, search and replace, then save byte-for-byte",
+  },
+  {
+    name: "terminal-native input",
+    desc: "keyboard protocols, mouse placement and drag selection, multi-click selection, and Ctrl+Click navigation",
+  },
+  {
+    name: "workspace editing",
+    desc: "piece-table buffers, file tree, live watcher, command palette, search, clipboard, and thirteen themes",
+  },
 ];
 
 const cards = [
   {
     href: "/commands",
     title: "commands",
-    blurb: "Every keybinding and command bar verb in one reference.",
+    blurb: "Every command bar verb, generated from the editor's parser specs.",
   },
   {
     href: "/themes",
@@ -45,9 +50,15 @@ const cards = [
     blurb: "Thirteen palettes, including light. Switch live from the command bar.",
   },
   {
-    href: "/how",
-    title: "how it works",
-    blurb: "Pure-data MVU loop, piece-table buffers, effects on the thread pool.",
+    href: "/docs/plugins",
+    title: "plugins",
+    blurb: "Build F# commands and keybindings against the out-of-process plugin API.",
+  },
+  {
+    href: "/docs/architecture",
+    title: "architecture",
+    blurb:
+      "The deterministic update loop and its runtime, LSP, tree-sitter, and plugin boundaries.",
   },
   {
     href: "/brand",
@@ -59,7 +70,7 @@ const cards = [
 
 <Site
   title="fedit — edit files in the terminal"
-  description="A small terminal text editor written in F#. Workspace tree, multi-buffer, piece-table buffers, find, command palette, system clipboard, thirteen color themes."
+  description="A small NativeAOT terminal editor written in F#, with LSP navigation, tree-sitter highlighting, semantic macros, F# plugins, and byte-exact hex editing."
   image="/og/index.png"
   titleOverride
 >
@@ -151,40 +162,9 @@ const cards = [
         Installs to <code>%LOCALAPPDATA%\Programs\fedit</code> and adds it to your user
         <code>PATH</code>. Or download the
         <a href="https://github.com/HelgeSverre/fedit/releases/latest"
-          ><code>x86_64-pc-windows-msvc.zip</code></a
+          ><code>fedit-x86_64-pc-windows-msvc.zip</code></a
         > and extract it onto your <code>PATH</code>.
       </p>
-
-      <h3>from source</h3>
-      <pre
-        ><span class="dim">$</span> git clone https://github.com/HelgeSverre/fedit
-<span class="dim">$</span> cd fedit
-<span class="dim">$</span> just install
-<span class="dim">$</span> fedit .</pre
-      >
-      <p class="muted-p">
-        The <code>just install</code> recipe publishes a self-contained single-file binary to <code
-          >~/.local/bin</code
-        >. Override the destination with <code>just install path/to/bin</code>. Remove with <code
-          >just uninstall</code
-        >. Requires .NET SDK 10 and <a href="https://github.com/casey/just">just</a>; the repo ships
-        a local <code>.dotnet</code> SDK so cloning is enough.
-      </p>
-
-      <h3>run without installing</h3>
-      <pre
-        ><span class="dim">$</span> ./fedit .                              <span class="comment"># shell shim, pins local .dotnet</span>
-<span class="dim">$</span> dotnet run --project src/Fedit/Fedit.fsproj -- .
-<span class="dim">$</span> just run .                             <span class="comment"># or via the recipe</span></pre
-      >
-
-      <h3>dev loop</h3>
-      <pre
-        ><span class="dim">$</span> just dev .         <span class="comment"># dotnet watch, re-launches on source changes</span>
-<span class="dim">$</span> just check         <span class="comment"># lint + build + test, the pre-commit gate</span>
-<span class="dim">$</span> just test          <span class="comment"># xUnit + FsCheck</span>
-<span class="dim">$</span> just format        <span class="comment"># fantomas + oxfmt</span></pre
-      >
 
       <h3>flags</h3>
       <dl class="dl-grid">

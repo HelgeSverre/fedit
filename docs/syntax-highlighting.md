@@ -29,9 +29,10 @@ buffer text  →  Parser.Parse  →  Tree
 - `Highlight.fs` owns `HighlightCapture` (the 16-case DU we paint),
   `HighlightSpan`, `HighlightState`, and `HighlightRegistry` (one
   language + query per supported language; parsers are per-buffer).
-- `Model.HighlightRegistry` is built once by `Runtime.run` and lasts the
-  process. `Model.HighlightStates : Map<int, HighlightState>` holds
-  per-buffer parse state keyed by `BufferState.Id`.
+- `Runtime.run` builds and owns one `HighlightRegistry` for the process;
+  the native parser/query resources do not live in the deterministic
+  editor model. `Model.HighlightStates : Map<int, HighlightState>` holds
+  per-buffer parse results keyed by `BufferState.Id`.
 - `Editor.update` reparses on every `EditTick` bump (mutating edits
   only — cursor / viewport moves don't trigger a reparse).
 - `Layout.renderEditor` overlays foreground colors per cell after the
@@ -52,7 +53,7 @@ extension, then `#!` shebang line (for extensionless scripts):
 | `javascript`  | `.js`, `.mjs`, `.cjs`                                                                                                                       |
 | `typescript`  | `.ts`                                                                                                                                       |
 | `tsx`         | `.tsx`                                                                                                                                      |
-| `python`      | `.py`                                                                                                                                       |
+| `python`      | `.py`, `.pyi`, `.pyw`; or a `#!/usr/bin/env python3`-style shebang                                                                          |
 | `json`        | `.json`                                                                                                                                     |
 | `c-sharp`     | `.cs`                                                                                                                                       |
 | `go`          | `.go`                                                                                                                                       |

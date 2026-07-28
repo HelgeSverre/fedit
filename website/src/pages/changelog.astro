@@ -1,36 +1,37 @@
 ---
 import Site from "../layouts/Site.astro";
-import { changelog } from "../data/changelog";
+import { loadChangelog, renderInlineMarkdown } from "../data/changelog";
+
+const changelog = loadChangelog();
 ---
 
-<Site title="changelog" description="What shipped in fedit, phase by phase.">
+<Site title="changelog" description="What changed in fedit, release by release.">
   <section class="section">
     <div class="container stack stack--lg">
       <div class="section__head">
         <h1>changelog</h1>
         <p class="section__lede">
-          What shipped, newest first. fedit's history is a phase-based log — full record in <a
+          Release by release, newest first. Downloads and full notes in <a
             href="https://github.com/HelgeSverre/fedit/releases">GitHub releases</a
           >.
         </p>
       </div>
       {
-        changelog.map((entry) => (
-          <section class="cl-entry">
+        changelog.map((release) => (
+          <section class="cl-entry prose">
             <h2>
-              {entry.version}
-              {entry.date && <span class="cl-date">{entry.date}</span>}
+              {release.version}
+              {release.date ? (
+                <span class="cl-date">{release.date}</span>
+              ) : (
+                <span class="cl-date">unreleased</span>
+              )}
             </h2>
-            {entry.sections.map((s) => (
-              <div class="cl-section">
-                {s.type !== "shipped" && <h3>{s.type}</h3>}
-                <ul>
-                  {s.items.map((i) => (
-                    <li>{i}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+            <ul>
+              {release.items.map((item) => (
+                <li set:html={renderInlineMarkdown(item)} />
+              ))}
+            </ul>
           </section>
         ))
       }
@@ -39,10 +40,8 @@ import { changelog } from "../data/changelog";
 </Site>
 
 <style>
-  .cl-entry {
-    border-top: 1px solid var(--border);
-    padding-top: 24px;
-  }
+  /* The prose h2 rule (border-top in global.css) is the entry
+   * separator — a border on the section too would draw a double line. */
   .cl-entry h2 {
     display: flex;
     align-items: baseline;
@@ -54,18 +53,11 @@ import { changelog } from "../data/changelog";
     color: var(--fg-subtle);
     font-family: var(--font-jetbrains-mono);
   }
-  .cl-section h3 {
-    font-size: 13px;
-    text-transform: lowercase;
-    color: var(--fg-muted);
-    margin-bottom: 4px;
-  }
-  .cl-section ul {
-    margin: 0 0 16px;
-    padding-left: 20px;
+  .cl-entry li {
+    max-width: 90ch;
     color: var(--fg-muted);
   }
-  .cl-section li {
-    margin: 4px 0;
+  .cl-entry :global(code) {
+    color: var(--fg);
   }
 </style>

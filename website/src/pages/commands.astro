@@ -1,244 +1,97 @@
 ---
-import Site from "../layouts/Site.astro";
+import DocsLayout from "../layouts/DocsLayout.astro";
+import commands from "../data/commands.json";
+
+const renderSummary = (summary: string) =>
+  summary
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
 ---
 
-<Site
+<DocsLayout
   title="commands"
-  description="fedit keybindings and command bar reference: global shortcuts, editor motions, find, file tree navigation, and every command you can run after Ctrl+P."
+  description="Every built-in fedit command, generated from the parser and completion specs used by the editor."
   image="/og/commands.png"
 >
-  <section class="section">
-    <div class="container stack stack--lg">
-      <div class="section__head">
-        <h1>commands</h1>
-        <p class="section__lede">
-          Every keybinding and command in fedit. <kbd>Ctrl</kbd> chords are <kbd>Ctrl</kbd> on every platform;
-          <kbd>Alt</kbd> is <kbd>Option</kbd> on macOS. On terminals that report the Command key, <kbd
-            >⌘+←/→</kbd
-          > jumps to line start/end (and <kbd>⌘+Shift+←/→</kbd> extends the selection there) — those four
-          are the only <kbd>⌘</kbd> bindings.
-        </p>
-      </div>
+  <div class="section__head">
+    <h1>commands</h1>
+    <p class="section__lede">
+      Every built-in command accepted by the command palette. This page is generated from the same
+      specs used by fedit's parser and completions.
+    </p>
+  </div>
 
-      <section>
-        <h2>global</h2>
-        <dl class="dl-grid">
-          <dt><kbd>Ctrl+P</kbd></dt>
-          <dd>open the command bar (command mode)</dd>
-          <dt><kbd>Ctrl+O</kbd></dt>
-          <dd>open the file picker — recent files first, then workspace files</dd>
-          <dt><kbd>Ctrl+F</kbd></dt>
-          <dd>find in the active buffer</dd>
-          <dt><kbd>Ctrl+T</kbd></dt>
-          <dd>
-            toggle the file tree — hidden: reveal and focus; visible elsewhere: focus; focused: hide
-            and return to the editor
-          </dd>
-          <dt><kbd>Ctrl+E</kbd></dt>
-          <dd>focus the editor</dd>
-          <dt><kbd>Ctrl+S</kbd></dt>
-          <dd>save the active buffer</dd>
-          <dt><kbd>Ctrl+R</kbd></dt>
-          <dd>reload the workspace tree</dd>
-          <dt><kbd>Ctrl+Q</kbd></dt>
-          <dd>quit (prompts once if buffers are dirty; press again to discard)</dd>
-          <dt><kbd>Ctrl+Z</kbd></dt>
-          <dd>undo</dd>
-          <dt><kbd>Ctrl+Y</kbd></dt>
-          <dd>redo</dd>
-          <dt><kbd>Ctrl+PageDown</kbd> · <kbd>Ctrl+PageUp</kbd></dt>
-          <dd>cycle to the next / previous open buffer</dd>
-          <dt><kbd>Ctrl+1</kbd>…<kbd>Ctrl+9</kbd></dt>
-          <dd>jump to the open buffer at sorted index 1..9 (silent no-op if out of range)</dd>
-        </dl>
-      </section>
+  <div class="reference-note">
+    <p>
+      Press <kbd>Ctrl+P</kbd>, then type a command without the leading colon. Looking for shortcuts?
+      See the <a href="/docs/keybindings">generated keybinding reference</a>.
+    </p>
+  </div>
 
-      <section>
-        <h2>editor</h2>
-        <dl class="dl-grid">
-          <dt><kbd>← → ↑ ↓</kbd></dt>
-          <dd>move the cursor</dd>
-          <dt><kbd>Home</kbd> · <kbd>End</kbd></dt>
-          <dd>jump to line start / end</dd>
-          <dt><kbd>PageUp</kbd> · <kbd>PageDown</kbd></dt>
-          <dd>scroll a screen at a time</dd>
-          <dt><kbd>Alt+←</kbd> · <kbd>Alt+→</kbd> (or <kbd>Ctrl+←</kbd> · <kbd>Ctrl+→</kbd>)</dt>
-          <dd>move by word</dd>
-          <dt><kbd>⌘+←</kbd> · <kbd>⌘+→</kbd></dt>
-          <dd>jump to line start / end (terminals that report the Command key)</dd>
-          <dt><kbd>⌘+Shift+←</kbd> · <kbd>⌘+Shift+→</kbd></dt>
-          <dd>extend the selection to line start / end</dd>
-          <dt><kbd>Ctrl+Backspace</kbd> · <kbd>Ctrl+Delete</kbd></dt>
-          <dd>delete the previous / next word</dd>
-          <dt><kbd>Shift+←/→/↑/↓</kbd> · <kbd>Shift+Home</kbd> · <kbd>Shift+End</kbd></dt>
-          <dd>extend the selection</dd>
-          <dt><kbd>Ctrl+A</kbd></dt>
-          <dd>select the whole buffer</dd>
-          <dt><kbd>Ctrl+C</kbd> · <kbd>Ctrl+X</kbd></dt>
-          <dd>copy / cut to system clipboard</dd>
-          <dt><kbd>Ctrl+V</kbd></dt>
-          <dd>paste from system clipboard</dd>
-          <dt><kbd>Tab</kbd> · <kbd>Shift+Tab</kbd></dt>
-          <dd>indent / unindent the current line</dd>
-          <dt><kbd>Enter</kbd> · <kbd>Backspace</kbd> · <kbd>Delete</kbd></dt>
-          <dd>edit text; with a selection, replace it</dd>
-        </dl>
-      </section>
+  <div class="command-list">
+    {
+      commands.map((command) => (
+        <article class="command-row">
+          <div>
+            <code class="command-usage">{command.usage}</code>
+            {command.hidden && <span class="command-badge">keyboard-first</span>}
+          </div>
+          <p set:html={renderSummary(command.summary)} />
+        </article>
+      ))
+    }
+  </div>
+</DocsLayout>
 
-      <section>
-        <h2>macros</h2>
-        <dl class="dl-grid">
-          <dt><kbd>Ctrl+Shift+M</kbd></dt>
-          <dd>
-            start / stop recording keystrokes into register <code>a</code>; the status bar shows
-            <code>REC @a</code> while recording
-          </dd>
-          <dt><kbd>Ctrl+Shift+R</kbd></dt>
-          <dd>replay the recorded macro</dd>
-          <dt><kbd>Ctrl+Shift+.</kbd></dt>
-          <dd>repeat the last macro</dd>
-        </dl>
-      </section>
-
-      <section>
-        <h2>find <span class="muted">(after Ctrl+F)</span></h2>
-        <dl class="dl-grid">
-          <dt>type</dt>
-          <dd>extend the query; matches highlight live and the cursor jumps to the first hit</dd>
-          <dt><kbd>Enter</kbd> · <kbd>↓</kbd></dt>
-          <dd>advance to next match</dd>
-          <dt><kbd>↑</kbd></dt>
-          <dd>previous match</dd>
-          <dt><kbd>Backspace</kbd></dt>
-          <dd>shorten the query (no-op once empty)</dd>
-          <dt><kbd>Escape</kbd></dt>
-          <dd>close the prompt and clear the highlights</dd>
-        </dl>
-      </section>
-
-      <section>
-        <h2>file tree</h2>
-        <dl class="dl-grid">
-          <dt><kbd>↑</kbd> · <kbd>↓</kbd></dt>
-          <dd>move selection</dd>
-          <dt><kbd>PageUp</kbd> · <kbd>PageDown</kbd></dt>
-          <dd>jump ten entries at a time</dd>
-          <dt><kbd>Home</kbd> · <kbd>End</kbd></dt>
-          <dd>first / last visible entry</dd>
-          <dt><kbd>←</kbd></dt>
-          <dd>collapse the selected directory or move to its parent</dd>
-          <dt><kbd>→</kbd></dt>
-          <dd>expand the selected directory</dd>
-          <dt><kbd>Enter</kbd></dt>
-          <dd>open a file or toggle a directory</dd>
-          <dt><kbd>Escape</kbd></dt>
-          <dd>return focus to the editor</dd>
-        </dl>
-      </section>
-
-      <section>
-        <h2>command bar</h2>
-        <p class="muted-p">
-          One prompt, four modes — the first character picks the mode: <code>:</code> runs a named command
-          (or a <code>:LINE[:COL]</code> jump), <code>/</code> finds in the buffer,
-          <code>@</code> switches buffers, and an empty prompt is the file picker.
-          <kbd>Ctrl+P</kbd> opens in command mode, <kbd>Ctrl+O</kbd> in the file picker,
-          <kbd>Ctrl+F</kbd> in find.
-        </p>
-        <dl class="dl-grid">
-          <dt>type</dt>
-          <dd>filter; the dock panel shows matching commands or workspace paths</dd>
-          <dt><kbd>Tab</kbd></dt>
-          <dd>
-            apply the highlighted completion's text — <code>:o</code> + <kbd>Tab</kbd> becomes
-            <code>:open</code>, ready for arguments
-          </dd>
-          <dt><kbd>↑</kbd> · <kbd>↓</kbd> · <kbd>Shift+Tab</kbd></dt>
-          <dd
-            >move the completion highlight (in find mode, <kbd>↑</kbd>/<kbd>↓</kbd> cycle matches)</dd
-          >
-          <dt><kbd>Alt+↑</kbd> · <kbd>Alt+↓</kbd></dt>
-          <dd>walk through recent command history (last 20)</dd>
-          <dt><kbd>Enter</kbd></dt>
-          <dd>run the parsed command or apply the highlighted completion</dd>
-          <dt><kbd>Escape</kbd></dt>
-          <dd>close the command bar without running anything</dd>
-        </dl>
-      </section>
-
-      <section>
-        <h2>command bar commands</h2>
-        <dl class="dl-grid cmd">
-          <dt><code>open &lt;path&gt;</code></dt>
-          <dd>
-            open a file from the current workspace; activates the existing buffer if already open
-          </dd>
-
-          <dt><code>write</code></dt>
-          <dd>save the active buffer</dd>
-
-          <dt><code>writeas &lt;path&gt;</code></dt>
-          <dd>save the active buffer to another path</dd>
-
-          <dt><code>quit</code></dt>
-          <dd>exit the editor</dd>
-
-          <dt><code>config</code></dt>
-          <dd>
-            open <code>~/.config/fedit/config.json</code> in a buffer; creates it from the running config
-            on first call
-          </dd>
-
-          <dt><code>reload</code></dt>
-          <dd>reload the workspace tree</dd>
-
-          <dt><code>next</code> · <code>prev</code></dt>
-          <dd>activate the next / previous open buffer</dd>
-
-          <dt><code>buffers &lt;id-or-name&gt;</code></dt>
-          <dd>switch to an open buffer by numeric id or name</dd>
-
-          <dt><code>theme &lt;name&gt;</code></dt>
-          <dd>
-            switch the theme — <code>green</code>, <code>blue</code>, <code>orange</code>, <code
-              >cyan</code
-            >, <code>teal</code>, <code>yellow</code>, <code>red</code>, <code>graphite</code>,
-            <code>evergreen</code>, <code>mono-amber</code>, <code>github-light</code>, <code
-              >github-dark</code
-            >, <code>ayu</code>; live-previews each as you cycle
-          </dd>
-
-          <dt><code>recent &lt;path&gt;</code></dt>
-          <dd>pick a recently opened file; completion cycles through the last 20</dd>
-
-          <dt><code>syntax &lt;on|off|toggle&gt;</code></dt>
-          <dd>toggle syntax highlighting; persists to config</dd>
-
-          <dt><code>plugin &lt;verb&gt; [arg]</code></dt>
-          <dd>
-            manage installed plugins — <code>list</code>, <code>enable</code>, <code>disable</code>, <code
-              >install</code
-            >, <code>remove</code>, <code>reload</code>, <code>validate</code>
-          </dd>
-
-          <dt><code>plugins</code></dt>
-          <dd>open the plugin manager</dd>
-
-          <dt><code>macros</code></dt>
-          <dd>open the macro manager</dd>
-
-          <dt><code>keybind [reload | &lt;stroke&gt;]</code></dt>
-          <dd>
-            list the effective keybindings, reload the keybinds file, or show what a stroke resolves
-            to in each context
-          </dd>
-        </dl>
-        <p class="muted-p">
-          Three keyboard-first verbs — <code>sidebar</code>, <code>tree</code>, <code>editor</code>
-          — still parse if typed but stay hidden from completion; <kbd>Ctrl+T</kbd> and
-          <kbd>Ctrl+E</kbd> cover the same ground.
-        </p>
-      </section>
-    </div>
-  </section>
-</Site>
+<style>
+  .reference-note {
+    max-width: 75ch;
+    padding: var(--space-2) var(--space-3);
+    border-left: 3px solid var(--accent);
+    background: var(--surface-2);
+  }
+  .reference-note p {
+    margin: 0;
+    color: var(--fg-muted);
+  }
+  .command-list {
+    border-top: 1px solid var(--border);
+  }
+  .command-row {
+    display: grid;
+    grid-template-columns: minmax(280px, 0.7fr) 1.3fr;
+    gap: var(--space-3);
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--border);
+    align-items: baseline;
+  }
+  .command-row p {
+    margin: 0;
+    color: var(--fg-muted);
+  }
+  /* Default fg, not accent: a full column of accent violates the
+   * one-accent-per-surface rule (brand/USAGE.md). */
+  .command-usage {
+    color: var(--fg);
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
+  .command-badge {
+    display: block;
+    margin-top: 5px;
+    color: var(--fg-subtle);
+    font-family: var(--font-jetbrains-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  @media (max-width: 640px) {
+    .command-row {
+      grid-template-columns: 1fr;
+      gap: var(--space-1);
+    }
+  }
+</style>

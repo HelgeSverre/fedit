@@ -10,6 +10,7 @@ interface Props {
 
 const { title, description, image } = Astro.props;
 const path = Astro.url.pathname.replace(/\/$/, "");
+const groups = [...new Set(docsNav.map((entry) => entry.group))];
 ---
 
 <Site title={title} description={description} image={image}>
@@ -18,18 +19,40 @@ const path = Astro.url.pathname.replace(/\/$/, "");
       <aside class="docs-side">
         <details class="docs-side__disclosure" open>
           <summary>docs</summary>
+          <script is:inline>
+            // Collapsed by default on small screens — the full nav would
+            // otherwise push the content a viewport down. Desktop keeps the
+            // open state (the summary is hidden there).
+            (function () {
+              const disclosure = document.currentScript.closest("details");
+              const narrow = window.matchMedia("(max-width: 720px)");
+              const apply = () => (disclosure.open = !narrow.matches);
+              apply();
+              narrow.addEventListener("change", apply);
+            })();
+          </script>
           <nav aria-label="documentation">
-            <ul>
-              {
-                docsNav.map((d) => (
-                  <li>
-                    <a href={d.href} aria-current={path === d.href ? "page" : undefined}>
-                      {d.label}
-                    </a>
-                  </li>
-                ))
-              }
-            </ul>
+            {
+              groups.map((group) => (
+                <section class="docs-side__group">
+                  <h2>{group}</h2>
+                  <ul>
+                    {docsNav
+                      .filter((entry) => entry.group === group)
+                      .map((entry) => (
+                        <li>
+                          <a
+                            href={entry.href}
+                            aria-current={path === entry.href ? "page" : undefined}
+                          >
+                            {entry.label}
+                          </a>
+                        </li>
+                      ))}
+                  </ul>
+                </section>
+              ))
+            }
           </nav>
         </details>
       </aside>
@@ -47,6 +70,17 @@ const path = Astro.url.pathname.replace(/\/$/, "");
     gap: 48px;
     align-items: start;
   }
+  /* Grid children default to min-width auto, which lets wide content
+   * (tables, long code) push the column past the viewport on small
+   * screens. Let the column shrink and scroll wide tables in place. */
+  .docs-body {
+    min-width: 0;
+  }
+  .docs-body :global(table) {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
   .docs-side {
     position: sticky;
     top: 72px;
@@ -56,13 +90,30 @@ const path = Astro.url.pathname.replace(/\/$/, "");
     margin: 0;
     padding: 0;
   }
-  .docs-side li {
-    margin: 4px 0;
+  .docs-side__group {
+    margin-bottom: 22px;
   }
+  /* Label indent = link padding + the 2px active-bar slot, so label and
+   * link text share one left edge. */
+  .docs-side__group h2 {
+    margin: 0 0 6px 12px;
+    color: var(--fg-subtle);
+    font-family: var(--font-jetbrains-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .docs-side li {
+    margin: 2px 0;
+  }
+  /* Nav-scale type (the header's 13px), not body scale — the sidebar
+   * should recede next to the content column. */
   .docs-side a {
     display: block;
-    padding: 6px 10px;
+    padding: 5px 10px;
     border-radius: 2px;
+    font-size: 13px;
     color: var(--fg-muted);
     text-decoration: none;
     border-left: 2px solid transparent;

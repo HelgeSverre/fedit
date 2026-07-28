@@ -8,6 +8,15 @@ export default defineConfig({
   site: "https://fedit.dev",
   redirects: {
     "/how": "/docs/architecture",
+    "/extend": "/docs/plugins",
+  },
+  markdown: {
+    shikiConfig: {
+      themes: {
+        light: "github-light",
+        dark: "github-dark",
+      },
+    },
   },
   integrations: [sitemap(), inspectClip()],
   build: {

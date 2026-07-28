@@ -38,17 +38,18 @@ preview: deps-if-needed
 check: deps-if-needed lint
     bun run check
 
-# Format website source: oxfmt for ts/tsx/css/md/mjs/json, prettier for astro
+# Format website source. Canonical Markdown mirrors are copied byte-for-byte
+# from the repository and deliberately excluded here.
 [group('format')]
 format: deps-if-needed
-    bun x oxfmt "**/*.{ts,tsx,css,md,mjs,json}"
+    bun x oxfmt "**/*.{ts,tsx,css,mjs,json}"
     bun x prettier --write "**/*.astro"
 
 # Lint with oxlint and check formatting with oxfmt + prettier
 [group('format')]
 lint: deps-if-needed
     bun x oxlint .
-    bun x oxfmt --check "**/*.{ts,tsx,css,md,mjs,json}"
+    bun x oxfmt --check "**/*.{ts,tsx,css,mjs,json}"
     bun x prettier --check "**/*.astro"
 
 # Regenerate src/data/keybindings.json from the F# default keymap.
@@ -68,6 +69,32 @@ gen-themes:
     PATH="$PWD/../.dotnet:$PATH" dotnet build ../src/Fedit/Fedit.fsproj --nologo >/dev/null
     PATH="$PWD/../.dotnet:$PATH" dotnet run --project ../src/Fedit/Fedit.fsproj --no-build -- themes --json > src/data/themes.json
     bun x oxfmt src/data/themes.json
+
+# Regenerate src/data/commands.json from the command-palette parser specs.
+[group('build')]
+gen-commands:
+    PATH="$PWD/../.dotnet:$PATH" dotnet build ../src/Fedit/Fedit.fsproj --nologo >/dev/null
+    PATH="$PWD/../.dotnet:$PATH" dotnet run --project ../src/Fedit/Fedit.fsproj --no-build -- commands --json > src/data/commands.json
+    bun x oxfmt src/data/commands.json
+
+# Regenerate every committed reference dataset.
+[group('build')]
+gen-reference-data: gen-keybinds gen-themes gen-commands
+
+# Copy canonical repository docs into the deployable website tree. These
+# mirrors are committed so Vercel never needs to read outside website/.
+[group('build')]
+sync-canonical-docs:
+    node scripts/sync-canonical-docs.mjs
+
+# Refresh every source-derived website artifact.
+[group('build')]
+refresh-content: gen-reference-data sync-canonical-docs
+
+# Fail when committed website data/docs no longer match canonical sources.
+[group('test')]
+verify-generated:
+    PATH="$PWD/../.dotnet:$PATH" node scripts/verify-generated.mjs
 
 # Remove build artifacts
 [group('build')]

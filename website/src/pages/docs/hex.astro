@@ -1,0 +1,88 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+---
+
+<DocsLayout
+  title="hex + binary files"
+  description="Open, inspect, search, replace, and save binary files byte-for-byte in fedit's hex view."
+>
+  <div class="section__head">
+    <h1>hex + binary files</h1>
+    <p class="section__lede">
+      Binary files bypass text decoding. fedit renders their raw bytes as offsets, hexadecimal
+      pairs, and an ASCII gutter, then writes edited bytes back exactly.
+    </p>
+  </div>
+
+  <div class="prose prose--wide stack stack--lg">
+    <section>
+      <h2>opening and switching views</h2>
+      <p>
+        Files detected as binary open directly in hex view. For any active buffer, run
+        <code>hex</code>, <code>hex on</code>, <code>hex off</code>, or <code>hex toggle</code> from the
+        command palette. The <code>toggle-hex-view</code> action can also be assigned in
+        <code>~/.config/fedit/keybinds</code>. Flipping a hex view to text warns and marks the
+        buffer modified when the decode is lossy — UTF-16 or BOM transcoding, invalid UTF-8, lone
+        carriage returns — so a save can never silently rewrite bytes from a buffer that read as
+        clean.
+      </p>
+    </section>
+
+    <section>
+      <h2>editing</h2>
+      <ul>
+        <li>Type hexadecimal digits in the byte columns; two nibbles form one byte.</li>
+        <li>
+          <kbd>Tab</kbd> flips between the byte and ASCII panes — ASCII typing overwrites whole bytes.
+        </li>
+        <li>Cursor movement, selections, copy, paste, undo, and redo operate on byte positions.</li>
+        <li>
+          Copy puts the spaced hex form (<code>74 68 69</code>) on the clipboard; pasting hex types
+          it back in.
+        </li>
+        <li
+          >Search accepts a hexadecimal byte sequence when it parses as one, otherwise literal
+          bytes.</li
+        >
+        <li>
+          <code>replace &lt;from&gt; &lt;to&gt;</code> replaces every exact match as one undo step, using
+          the same hex-or-literal interpretation. The command works in text buffers too, where both arguments
+          are literal text.
+        </li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>save behavior</h2>
+      <p class="note">
+        A binary buffer never passes through UTF-8 or line-ending conversion. Save serializes the
+        current byte sequence through the atomic raw-byte write path, so untouched bytes remain
+        byte-for-byte identical. The first save of a hex view also copies the original file to
+        <code>&lt;path&gt;.bak</code> — a one-time backup that a later save never overwrites.
+      </p>
+    </section>
+
+    <section>
+      <h2>limitations</h2>
+      <p>
+        Syntax highlighting, language-server navigation, and structural syntax selection are inert
+        in hex view because they require decoded source text. The text and hex views share the same
+        buffer identity, dirty state, history, and close/quit guards.
+      </p>
+    </section>
+  </div>
+</DocsLayout>
+
+<style>
+  section p,
+  section ul {
+    max-width: 75ch;
+    color: var(--fg-muted);
+    line-height: 1.65;
+  }
+  .note {
+    padding: var(--space-2) var(--space-3);
+    border-left: 3px solid var(--accent);
+    background: var(--surface-2);
+  }
+</style>

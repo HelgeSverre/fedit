@@ -1,6 +1,8 @@
 ---
 import DocsLayout from "../../layouts/DocsLayout.astro";
 import { docsNav } from "../../data/docs-nav";
+
+const groups = [...new Set(docsNav.map((entry) => entry.group))];
 ---
 
 <DocsLayout
@@ -11,21 +13,37 @@ import { docsNav } from "../../data/docs-nav";
     <h1>docs</h1>
     <p class="section__lede">Reference for using and extending fedit.</p>
   </div>
-  <ul class="doc-cards">
-    {
-      docsNav.map((d) => (
-        <li>
-          <a href={d.href}>
-            <strong>{d.label}</strong>
-            <span>{d.summary}</span>
-          </a>
-        </li>
-      ))
-    }
-  </ul>
+  {
+    groups.map((group) => (
+      <section class="doc-group">
+        <h2>{group}</h2>
+        <ul class="doc-cards">
+          {docsNav
+            .filter((entry) => entry.group === group)
+            .map((entry) => (
+              <li>
+                <a href={entry.href}>
+                  <strong>{entry.label}</strong>
+                  <span>{entry.summary}</span>
+                </a>
+              </li>
+            ))}
+        </ul>
+      </section>
+    ))
+  }
 </DocsLayout>
 
 <style>
+  .doc-group h2 {
+    margin-bottom: var(--space-2);
+    color: var(--fg-subtle);
+    font-family: var(--font-jetbrains-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
   .doc-cards {
     list-style: none;
     margin: 0;
