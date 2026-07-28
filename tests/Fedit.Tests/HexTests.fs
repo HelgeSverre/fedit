@@ -127,6 +127,32 @@ let ``writeAllBytesAtomic round-trips raw bytes`` () =
         System.IO.File.Delete path
 
 [<Fact>]
+let ``backupOnce copies the original once and never overwrites the backup`` () =
+    let path =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName())
+
+    let bakPath = path + ".bak"
+    let original = [| 0x00uy; 0x1Auy; 0xFFuy |]
+
+    try
+        // No file on disk yet (a fresh :writeas target): nothing to back up.
+        File.backupOnce path |> should equal false
+        System.IO.File.Exists bakPath |> should equal false
+
+        System.IO.File.WriteAllBytes(path, original)
+        File.backupOnce path |> should equal true
+        System.IO.File.ReadAllBytes bakPath |> should equal original
+
+        // A later save must not clobber the first backup.
+        System.IO.File.WriteAllBytes(path, [| 0x42uy |])
+        File.backupOnce path |> should equal false
+        System.IO.File.ReadAllBytes bakPath |> should equal original
+    finally
+        for p in [ path; bakPath ] do
+            if System.IO.File.Exists p then
+                System.IO.File.Delete p
+
+[<Fact>]
 let ``a binary file survives open → projection → save byte-for-byte`` () =
     let path =
         System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName())
@@ -275,6 +301,15 @@ let ``saving a hex view emits a binary SaveBuffer with the projection intact`` (
         | SaveBuffer(_, "/root/save.dat", _, contents, true) -> contents = "A" + ff
         | _ -> false)
     |> should equal true
+
+[<Fact>]
+let ``a backed-up save says so in the notification`` () =
+    let saved, _ =
+        Editor.update (BufferSaved(1, "/root/save.dat", 0, Result.Ok true)) (initModel ())
+
+    match saved.Notification with
+    | Some n -> n.Message |> should equal "Saved save.dat (original kept as save.dat.bak)"
+    | None -> failwith "expected a save notification"
 
 [<Fact>]
 let ``search prompt typing in a hex view emits a hex-flagged RunSearch`` () =

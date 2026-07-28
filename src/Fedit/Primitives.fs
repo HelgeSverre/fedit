@@ -108,6 +108,20 @@ module File =
 
             reraise ()
 
+    /// Safety net for binary overwrites: copy `path` to `path + ".bak"`
+    /// unless a backup already exists, so the first hex-view save keeps
+    /// the original bytes recoverable. Never clobbers an existing `.bak`.
+    /// Returns true when a backup was created by this call.
+    let backupOnce (path: string) =
+        let fullPath = Path.GetFullPath path
+        let bakPath = fullPath + ".bak"
+
+        if File.Exists fullPath && not (File.Exists bakPath) then
+            File.Copy(fullPath, bakPath)
+            true
+        else
+            false
+
     /// Byte-exact sibling of `writeAllTextAtomic` — hex-view buffers save
     /// through here so binary files round-trip without an encoding pass.
     let writeAllBytesAtomic (path: string) (bytes: byte[]) =

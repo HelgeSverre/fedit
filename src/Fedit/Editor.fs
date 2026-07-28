@@ -3541,17 +3541,21 @@ module Editor =
                 notify (Some(Notification.error $"Failed to open {path}: {message}")) model, []
         | BufferSaved(bufferId, path, revision, result) ->
             match result with
-            | Result.Ok() ->
+            | Result.Ok backedUp ->
                 match Map.tryFind bufferId model.Editors.Buffers with
                 | None -> model, []
                 | Some buffer ->
                     let updated = Buffer.markSaved revision path buffer
 
                     let note =
-                        if updated.Dirty then
-                            $"Saved {Path.GetFileName path} (continued editing)"
+                        let name = Path.GetFileName path
+
+                        if backedUp then
+                            $"Saved {name} (original kept as {name}.bak)"
+                        elif updated.Dirty then
+                            $"Saved {name} (continued editing)"
                         else
-                            $"Saved {Path.GetFileName path}"
+                            $"Saved {name}"
 
                     // Saving the keybinds or macros file through fedit
                     // reloads it (the implicit counterpart to `:keybind

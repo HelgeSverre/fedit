@@ -283,8 +283,10 @@ for any buffer and `:hex` again (or `:hex off`) returns to text. The
   buffers, where both arguments are literal, exact-match text.
 
 Saving writes the bytes exactly — no encoding pass, no newline
-normalization. The status bar reads `HEX` with the caret's byte offset
-and value (`0x0000001a:4f`).
+normalization. The first save over an existing file keeps the original
+as `<name>.bak` (never overwritten once it exists), so a bad hex edit
+stays recoverable. The status bar reads `HEX` with the caret's byte
+offset and value (`0x0000001a:4f`).
 
 ## Plugins
 

@@ -432,7 +432,7 @@ let ``a file path change reschedules highlighting without an edit`` () =
     // flips the detected language without an edit, so the chokepoint must
     // reschedule on the FilePath diff alone.
     let _, effects =
-        Editor.update (BufferSaved(1, "/root/scratch.fs", 0, Result.Ok())) (initModel ())
+        Editor.update (BufferSaved(1, "/root/scratch.fs", 0, Result.Ok false)) (initModel ())
 
     effects
     |> List.exists (fun e ->
@@ -454,7 +454,7 @@ let ``a rename to an unsupported extension clears stored spans`` () =
             HighlightStates = Map.ofList [ 1, dummySpans ] }
 
     let next, effects =
-        Editor.update (BufferSaved(1, "/root/x.xyz", 0, Result.Ok())) seeded
+        Editor.update (BufferSaved(1, "/root/x.xyz", 0, Result.Ok false)) seeded
 
     next.HighlightStates.ContainsKey 1 |> should equal false
 
@@ -2259,7 +2259,7 @@ let ``a replayed save fences until BufferSaved lands`` () =
         // The write completion clears Dirty and pumps the close, which
         // now closes cleanly instead of arming the discard confirmation.
         let landed, landedEffects =
-            Editor.update (BufferSaved(bufferId, path, revision, Result.Ok())) saved
+            Editor.update (BufferSaved(bufferId, path, revision, Result.Ok false)) saved
 
         hasPump landedEffects |> should equal true
 
@@ -3656,7 +3656,7 @@ let ``MacrosLoaded keeps an in-flight recording untouched`` () =
 [<Fact>]
 let ``saving the macros file through fedit schedules a reload`` () =
     let saved, effects =
-        Editor.update (BufferSaved(1, MacroIO.path (), 0, Result.Ok())) (initModel ())
+        Editor.update (BufferSaved(1, MacroIO.path (), 0, Result.Ok false)) (initModel ())
 
     effects |> List.contains (LoadMacros true) |> should equal true
     saved.Registers |> should equal (Map.empty: Map<char, MacroStep list>)
@@ -3664,7 +3664,7 @@ let ``saving the macros file through fedit schedules a reload`` () =
 [<Fact>]
 let ``saving an unrelated file does not reload macros`` () =
     let _, effects =
-        Editor.update (BufferSaved(1, "/root/notes.txt", 0, Result.Ok())) (initModel ())
+        Editor.update (BufferSaved(1, "/root/notes.txt", 0, Result.Ok false)) (initModel ())
 
     effects
     |> List.exists (function
