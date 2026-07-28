@@ -91,13 +91,20 @@ module File =
         let tempPath = Path.Combine(directory, $".{fileName}.{Guid.NewGuid():N}.tmp")
 
         try
-            use stream =
-                new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)
+            // The write gets its own scope so the handle is closed before the
+            // move. `use` disposes at the end of its enclosing block, so writing
+            // and moving in one block would rename a file we still hold open —
+            // which POSIX permits but Windows rejects with "used by another
+            // process" (doubly so at FileShare.None).
+            do
+                use stream =
+                    new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)
 
-            use writer = new StreamWriter(stream, UTF8Encoding false)
-            writer.Write contents
-            writer.Flush()
-            stream.Flush true
+                use writer = new StreamWriter(stream, UTF8Encoding false)
+                writer.Write contents
+                writer.Flush()
+                stream.Flush true
+
             File.Move(tempPath, fullPath, overwrite = true)
         with _ ->
             try
@@ -140,11 +147,15 @@ module File =
         let tempPath = Path.Combine(directory, $".{fileName}.{Guid.NewGuid():N}.tmp")
 
         try
-            use stream =
-                new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)
+            // Own scope so the handle closes before the move — see
+            // `writeAllTextAtomic` for why Windows requires it.
+            do
+                use stream =
+                    new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)
 
-            stream.Write(bytes, 0, bytes.Length)
-            stream.Flush true
+                stream.Write(bytes, 0, bytes.Length)
+                stream.Flush true
+
             File.Move(tempPath, fullPath, overwrite = true)
         with _ ->
             try
