@@ -133,11 +133,13 @@ module Editor =
         | LoadKeybinds
         | LoadMacros _
         | SaveMacros _
-        // Fire-and-forget: document sync, restarts, and log fetches have
-        // no result the next replay step could depend on.
+        // Fire-and-forget: document sync, restarts, log fetches, and the
+        // status-bar CSV stats have no result the next replay step could
+        // depend on.
         | LspSyncDocuments _
         | LspRestart _
         | LspFetchLog _
+        | ComputeCsvStats _
         | ReplayPump -> None
 
     /// The completion message that clears each replay fence. `FileFence`
@@ -242,18 +244,58 @@ module Editor =
         then
             None
         else
-            let lineIndex = buffer.ViewportTop + mouseY
-            let columnIndex = buffer.ViewportLeft + (mouseX - contentX)
+            match Map.tryFind buffer.Id model.CsvViews with
+            | Some csv ->
+                // Grid rows: screen row 0 is the pinned header (line 0);
+                // content rows below start at `max 1 ViewportTop` so line 0
+                // never repeats — walking the filter's visible-row snapshot
+                // when one is active (the renderer's `lineForRow` scheme).
+                // Columns map through the padded-cell layout.
+                let contentTop = max 1 buffer.ViewportTop
 
-            if lineIndex >= Buffer.lineCount buffer then
-                None
-            else
-                let lineLength = (Buffer.line lineIndex buffer).Length
-                let clampedCol = max 0 (min columnIndex lineLength)
+                let lineIndex =
+                    if mouseY = 0 then
+                        Some 0
+                    else
+                        match csv.Filter with
+                        | None ->
+                            let lineIndex = contentTop + mouseY - 1
 
-                Some
-                    { Line = lineIndex
-                      Column = clampedCol }
+                            if lineIndex < Buffer.lineCount buffer then
+                                Some lineIndex
+                            else
+                                None
+                        | Some filter ->
+                            let rank = Csv.rankAtOrAbove filter.VisibleRows contentTop + mouseY - 1
+
+                            if rank < filter.VisibleRows.Length then
+                                Some filter.VisibleRows[rank]
+                            else
+                                None
+
+                match lineIndex with
+                | None -> None
+                | Some lineIndex ->
+                    let line = Buffer.line lineIndex buffer
+                    let renderedCol = buffer.ViewportLeft + (mouseX - contentX)
+
+                    Some
+                        { Line = lineIndex
+                          Column = Csv.textColAt csv.Widths csv.Separator line renderedCol }
+            | None ->
+
+                let lineIndex = buffer.ViewportTop + mouseY
+                let columnIndex = buffer.ViewportLeft + (mouseX - contentX)
+
+                if lineIndex >= Buffer.lineCount buffer then
+                    None
+                else
+                    let lineLength = (Buffer.line lineIndex buffer).Length
+                    let clampedCol = max 0 (min columnIndex lineLength)
+
+                    Some
+                        { Line = lineIndex
+                          Column = clampedCol }
 
     /// Map a mouse event to the sidebar entry under it. `None` when the
     /// sidebar is hidden, the event is outside it, or the row is past the
@@ -290,8 +332,9 @@ module Editor =
 
         LanguageServers.serverForFile enabledServers path
 
-    let private updateActiveBuffer transform model =
+    let private updateActiveBuffer (transform: BufferState -> BufferState) (model: Model) =
         let transformed = activeBufferState model |> transform
+        let csvView = Map.tryFind transformed.Id model.CsvViews
 
         let sidebarOffset =
             if model.Panels.SidebarVisible then
@@ -302,11 +345,57 @@ module Editor =
         let viewportWidth =
             max 1 (model.Terminal.Width - sidebarOffset - Buffer.gutterWidth transformed)
 
-        let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
+        // The CSV grid pins line 0 as a header row, so content rows get
+        // one less line of viewport.
+        let viewportHeight =
+            max
+                1
+                (model.Terminal.Height
+                 - model.Panels.DockHeight
+                 - 2
+                 - (if csvView.IsSome then 1 else 0))
 
         let updated =
             transformed
             |> Buffer.ensureViewport model.Config.ScrollOff viewportHeight viewportWidth
+
+        // A CSV grid scrolls horizontally in rendered (padded) space —
+        // re-follow the cursor's rendered x, which cell padding can push
+        // right of the text column `ensureViewport` just followed.
+        let updated =
+            match csvView with
+            | Some view ->
+                let line = Buffer.line updated.Cursor.Line updated
+                let cursorX = Csv.renderedX view.Widths view.Separator line updated.Cursor.Column
+
+                // Bring the WHOLE current column into view first — a
+                // column revealed one character at a time ("B" of
+                // "Balance") is unreadable — then let the caret override
+                // when a single column is wider than the screen.
+                let spanStart, spanEnd =
+                    Csv.cellSpanX view.Widths view.Separator line updated.Cursor.Column
+
+                let left =
+                    if spanStart < updated.ViewportLeft then
+                        spanStart
+                    elif spanEnd > updated.ViewportLeft + viewportWidth then
+                        max spanStart (spanEnd - viewportWidth)
+                    else
+                        updated.ViewportLeft
+
+                let left =
+                    if cursorX < left then
+                        cursorX
+                    elif cursorX >= left + viewportWidth then
+                        cursorX - viewportWidth + 1
+                    else
+                        left
+
+                if left = updated.ViewportLeft then
+                    updated
+                else
+                    { updated with ViewportLeft = left }
+            | None -> updated
 
         { model with
             Editors =
@@ -755,8 +844,12 @@ module Editor =
     /// canonical `/` path. Avoids Path.GetFullPath — its OS separator and
     /// drive-anchoring would diverge from the `/`-canonical tree on Windows.
     let private resolvePath (rootPath: string) (path: string) =
-        if Path.IsPathRooted path then
-            Paths.norm path
+        // `IsPathRooted` misses drive anchors on Unix (`C:\x` reads as
+        // relative there) — check both so a Windows path handed to a WSL
+        // build still resolves absolutely via `Paths.fromUser`'s mount
+        // rewrite.
+        if Path.IsPathRooted path || Paths.isDriveRooted path then
+            Paths.fromUser path
         else
             Paths.norm (Path.Combine(rootPath, path))
 
@@ -993,6 +1086,7 @@ module Editor =
                 CloseArmed = None
                 HighlightStates = model.HighlightStates |> Map.remove bufferId
                 HexViews = model.HexViews |> Map.remove bufferId
+                CsvViews = model.CsvViews |> Map.remove bufferId
                 MouseDrag = model.MouseDrag |> Option.filter (fun drag -> drag.AnchorBufferId <> bufferId) }
             |> notify (Some(Notification.info $"Closed {buffer.Name}")),
             []
@@ -1492,10 +1586,326 @@ module Editor =
                 Editors =
                     { model.Editors with
                         Buffers = model.Editors.Buffers |> Map.add rebuilt.Id rebuilt }
-                HexViews = nextHexViews }
+                HexViews = nextHexViews
+                // The projections are mutually exclusive, and the byte
+                // offsets shift across the flip anyway — drop any CSV grid.
+                CsvViews = Map.remove buffer.Id model.CsvViews }
             |> updateActiveBuffer id
             |> notify (Some note),
             []
+
+    /// Flip the active buffer's CSV grid on or off. Unlike the hex flip
+    /// this is projection-only — the text (real separators, quoting,
+    /// newlines) is untouched, so undo history survives and the save path
+    /// is the ordinary text save. Toggling on detects the separator and
+    /// samples column widths from the first `Csv.sampleLimit` lines: O(1)
+    /// in the file size, so a huge export can't hang the toggle.
+    let private setCsvViewMode (enable: bool) (model: Model) : Model * Effect list =
+        let buffer = activeBufferState model
+        let isCsv = Map.containsKey buffer.Id model.CsvViews
+
+        if enable && Map.containsKey buffer.Id model.HexViews then
+            model
+            |> notify (Some(Notification.error "csv can't stack on a hex view — run :hex off first.")),
+            []
+        elif enable = isCsv then
+            let word = if isCsv then "CSV" else "text"
+            model |> notify (Some(Notification.info $"Already in {word} view.")), []
+        elif enable then
+            let rows = Buffer.lines buffer
+            let sep = Csv.detectSeparator rows
+            let widths = Csv.sampleWidths sep rows
+
+            { model with
+                CsvViews =
+                    Map.add
+                        buffer.Id
+                        { Separator = sep
+                          Widths = widths
+                          Filter = None }
+                        model.CsvViews }
+            // ViewportLeft flips into rendered (padded) space; restart at 0.
+            |> updateActiveBuffer (fun b -> { b with ViewportLeft = 0 })
+            |> notify (Some(Notification.info $"CSV grid — {widths.Length} column(s), {Csv.sepName sep} separated")),
+            []
+        else
+            { model with
+                CsvViews = Map.remove buffer.Id model.CsvViews }
+            |> updateActiveBuffer (fun b -> { b with ViewportLeft = 0 })
+            |> notify (Some(Notification.info "Text view.")),
+            []
+
+    /// The CSV grid column under the active buffer's cursor.
+    let private csvCursorColumn (view: CsvViewState) (buffer: BufferState) : int =
+        fst (Csv.cellIndexAt view.Separator (Buffer.line buffer.Cursor.Line buffer) buffer.Cursor.Column)
+
+    /// `:sort [asc|desc]` — reorder the CSV grid's data rows by the
+    /// cursor's column as ONE text edit (one undo entry restores the
+    /// original order, which is why there is no `off`). The header and a
+    /// trailing newline stay put; comparison is numeric when both cells
+    /// parse as numbers, ordinal otherwise; the sort is stable. This
+    /// deliberately mutates the buffer — a sort you can save is the point
+    /// — unlike `:filter`, which is display-only.
+    let private csvSortRows (ascending: bool) (model: Model) : Model * Effect list =
+        let buffer = activeBufferState model
+
+        match Map.tryFind buffer.Id model.CsvViews with
+        | None ->
+            model
+            |> notify (Some(Notification.error "sort works on CSV grids — run :csv first.")),
+            []
+        | Some view ->
+            let rows = Buffer.lines buffer
+
+            if rows.Length < 3 then
+                model |> notify (Some(Notification.info "Nothing to sort.")), []
+            else
+                let column = csvCursorColumn view buffer
+                let sorted = Csv.sortedLines view.Separator column ascending rows
+
+                let next =
+                    model
+                    |> updateActiveBuffer (fun b ->
+                        let length = PieceTable.length b.Document
+
+                        Buffer.replaceRange 0 length (String.concat "\n" sorted) b
+                        |> fun edited ->
+                            { edited with
+                                Cursor =
+                                    { Line = min 1 (Buffer.lineCount edited - 1)
+                                      Column = 0 }
+                                PreferredColumn = None })
+
+                // Row indices moved under the filter's feet; poison the
+                // line count so `refreshCsvFilter` recomputes this dispatch.
+                let next =
+                    match view.Filter with
+                    | Some filter ->
+                        { next with
+                            CsvViews =
+                                Map.add
+                                    buffer.Id
+                                    { view with
+                                        Filter = Some { filter with LineCount = -1 } }
+                                    next.CsvViews }
+                    | None -> next
+
+                let direction = if ascending then "ascending" else "descending"
+
+                next
+                |> notify (
+                    Some(
+                        Notification.info $"Sorted by column {column + 1} ({direction}) — undo restores the file order."
+                    )
+                ),
+                []
+
+    /// `:filter <value>` / `:filter off` — display-only row filter on the
+    /// cursor's column. The buffer text is untouched: saving always
+    /// writes every row, and clearing the filter brings the hidden rows
+    /// straight back.
+    let private csvFilterCommand (rawValue: string) (model: Model) : Model * Effect list =
+        let buffer = activeBufferState model
+
+        match Map.tryFind buffer.Id model.CsvViews with
+        | None ->
+            model
+            |> notify (Some(Notification.error "filter works on CSV grids — run :csv first.")),
+            []
+        | Some view ->
+            if rawValue.Trim().ToLowerInvariant() = "off" then
+                match view.Filter with
+                | None -> model |> notify (Some(Notification.info "No filter active.")), []
+                | Some _ ->
+                    { model with
+                        CsvViews = Map.add buffer.Id { view with Filter = None } model.CsvViews }
+                    |> updateActiveBuffer id
+                    |> notify (Some(Notification.info "Filter off — all rows visible.")),
+                    []
+            else
+                let rows = Buffer.lines buffer
+                let column = csvCursorColumn view buffer
+                let value = rawValue.Trim()
+                let visible = Csv.filterRows view.Separator column value rows
+
+                if visible.Length = 0 then
+                    model
+                    |> notify (
+                        Some(
+                            Notification.warning
+                                $"No rows where column {column + 1} matches '{value}' — filter not applied."
+                        )
+                    ),
+                    []
+                else
+                    let filtered =
+                        { model with
+                            CsvViews =
+                                Map.add
+                                    buffer.Id
+                                    { view with
+                                        Filter =
+                                            Some
+                                                { Column = column
+                                                  Value = value
+                                                  VisibleRows = visible
+                                                  LineCount = rows.Length } }
+                                    model.CsvViews }
+
+                    // Snap the cursor onto a visible row so motion and the
+                    // painted caret agree from the first frame.
+                    let snapped =
+                        if buffer.Cursor.Line = 0 || Array.contains buffer.Cursor.Line visible then
+                            filtered |> updateActiveBuffer id
+                        else
+                            filtered
+                            |> updateActiveBuffer (fun b ->
+                                { b with
+                                    Cursor = { Line = visible[0]; Column = 0 }
+                                    PreferredColumn = None }
+                                |> Buffer.clearSelection)
+
+                    snapped
+                    |> notify (
+                        Some(
+                            Notification.info
+                                $"Showing {visible.Length} row(s) where column {column + 1} matches '{value}'."
+                        )
+                    ),
+                    []
+
+    /// CSV grids remap Tab / Shift+Tab to cell navigation — next /
+    /// previous cell start, wrapping to the neighbor line at the row
+    /// edges (the spreadsheet convention). Vertical motion moves by grid
+    /// cell — same column index, offset clamped into the target cell —
+    /// not by text column, so stepping from a wide cell onto a narrow one
+    /// can't land the caret in the wrong column; with a row filter active
+    /// it also skips hidden rows. Everything else falls through: a CSV
+    /// grid is ordinary text editing under a different projection.
+    let private csvInterceptAction (action: Fedit.Action) (model: Model) : (Model * Effect list) option =
+        match action with
+        | NoOp
+        | Chain _
+        | When _ -> None
+        | _ when model.Focus <> Editor -> None
+        | _ ->
+            match Map.tryFind model.Editors.ActiveBufferId model.CsvViews with
+            | None -> None
+            | Some view ->
+                let buffer = activeBufferState model
+                let cursor = buffer.Cursor
+                let line = Buffer.line cursor.Line buffer
+
+                let jumpTo pos =
+                    Some(
+                        moveCursor
+                            (fun b ->
+                                { b with
+                                    Cursor = pos
+                                    PreferredColumn = None })
+                            model
+                    )
+
+                // The neighbor row `delta` away, skipping filtered-out
+                // rows. The header (line 0) is always reachable going up.
+                let visibleNeighbor delta =
+                    match view.Filter with
+                    | None ->
+                        let target = cursor.Line + delta
+
+                        if target >= 0 && target < Buffer.lineCount buffer then
+                            Some target
+                        else
+                            None
+                    | Some filter ->
+                        if delta < 0 then
+                            match Csv.prevIn filter.VisibleRows cursor.Line with
+                            | Some previous -> Some previous
+                            | None when cursor.Line > 0 -> Some 0
+                            | None -> None
+                        else
+                            Csv.nextIn filter.VisibleRows cursor.Line
+
+                // Same grid column on the target row, offset clamped into
+                // the target cell — cell-index-based, never text-column-
+                // based, so stepping from "3.33" onto "0" stays in the
+                // same column instead of jumping into the neighbor cell.
+                let verticalTo extend delta =
+                    match visibleNeighbor delta with
+                    | None -> Some(model, [])
+                    | Some targetLine ->
+                        let cellIndex, offset = Csv.cellIndexAt view.Separator line cursor.Column
+                        let targetText = Buffer.line targetLine buffer
+                        let targetCells = Csv.cellRanges view.Separator targetText
+
+                        let (struct (start, length)) = targetCells[min cellIndex (targetCells.Length - 1)]
+
+                        let place (b: BufferState) =
+                            { b with
+                                Cursor =
+                                    { Line = targetLine
+                                      Column = start + min offset length }
+                                PreferredColumn = None }
+
+                        if extend then
+                            Some(extendCursor place model)
+                        else
+                            Some(moveCursor place model)
+
+                // Horizontal motion clamps at the row edges — a
+                // spreadsheet row never wraps into the neighbor record
+                // the way a text line wraps into the next line.
+                let horizontalTo extend delta =
+                    let target = cursor.Column + delta
+
+                    if target < 0 || target > line.Length then
+                        Some(model, [])
+                    else
+                        let place (b: BufferState) =
+                            { b with
+                                Cursor = { cursor with Column = target }
+                                PreferredColumn = None }
+
+                        if extend then
+                            Some(extendCursor place model)
+                        else
+                            Some(moveCursor place model)
+
+                match action with
+                | MoveUp -> verticalTo false -1
+                | MoveDown -> verticalTo false 1
+                | ExtendUp -> verticalTo true -1
+                | ExtendDown -> verticalTo true 1
+                | MoveLeft -> horizontalTo false -1
+                | MoveRight -> horizontalTo false 1
+                | ExtendLeft -> horizontalTo true -1
+                | ExtendRight -> horizontalTo true 1
+                | Indent ->
+                    match Csv.nextCellStart view.Separator line cursor.Column with
+                    | Some col -> jumpTo { Line = cursor.Line; Column = col }
+                    | None ->
+                        match visibleNeighbor 1 with
+                        | Some nextLine -> jumpTo { Line = nextLine; Column = 0 }
+                        | None -> Some(model, [])
+                | Unindent ->
+                    match Csv.previousCellStart view.Separator line cursor.Column with
+                    | Some col -> jumpTo { Line = cursor.Line; Column = col }
+                    | None ->
+                        match visibleNeighbor -1 with
+                        | Some previousRow ->
+                            let previousLine = Buffer.line previousRow buffer
+
+                            let lastCellStart =
+                                Csv.cellRanges view.Separator previousLine
+                                |> Array.tryLast
+                                |> Option.map (fun (struct (start, _)) -> start)
+                                |> Option.defaultValue 0
+
+                            jumpTo
+                                { Line = previousRow
+                                  Column = lastCellStart }
+                        | None -> Some(model, [])
+                | _ -> None
 
     /// `:replace <from> <to>` — replace every occurrence in the active
     /// buffer as ONE edit (one undo entry), landing the cursor on the
@@ -2091,6 +2501,15 @@ module Editor =
 
         | Command.Replace(needle, replacement) -> replaceAll needle replacement model
 
+        | Command.CsvView verb ->
+            match verb with
+            | "on" -> setCsvViewMode true model
+            | "off" -> setCsvViewMode false model
+            | _ -> setCsvViewMode (not (Map.containsKey (activeBufferState model).Id model.CsvViews)) model
+
+        | Command.CsvSort direction -> csvSortRows (direction <> "desc") model
+        | Command.CsvFilterRows value -> csvFilterCommand value model
+
         | Plugin("list", _)
         | Command.Plugins -> openPromptSession PromptSessionKind.PluginsSession model
         | Command.Macros -> openPromptSession PromptSessionKind.MacrosSession model
@@ -2236,7 +2655,10 @@ module Editor =
     and runAction (action: Fedit.Action) (model: Model) : Model * Effect list =
         match hexInterceptAction action model with
         | Some result -> result
-        | None -> runDefaultAction action model
+        | None ->
+            match csvInterceptAction action model with
+            | Some result -> result
+            | None -> runDefaultAction action model
 
     and private runDefaultAction (action: Fedit.Action) (model: Model) : Model * Effect list =
         match action with
@@ -2550,6 +2972,7 @@ module Editor =
         | Goto(line, col) -> executeCommand (Command.Goto(line, col)) model
         | OpenConfig -> executeCommand Command.OpenConfig model
         | ToggleHexView -> executeCommand (Command.HexView "toggle") model
+        | ToggleCsvView -> executeCommand (Command.CsvView "toggle") model
         | RunPlugin(source, name, arg) -> executeCommand (Command.PluginInvoke(source, name, arg)) model
 
         | ReloadKeybinds -> model, [ LoadKeybinds ]
@@ -3248,6 +3671,8 @@ module Editor =
           Plugins = PluginRegistry.empty
           HighlightStates = Map.empty
           HexViews = Map.empty
+          CsvViews = Map.empty
+          CsvStats = None
           SelectionLadder = None
           QuitArmed = false
           CloseArmed = None
@@ -3376,7 +3801,16 @@ module Editor =
 
                 match model.Config.ScrollMode with
                 | ScrollViewport ->
-                    let viewportHeight = max 1 (model.Terminal.Height - model.Panels.DockHeight - 2)
+                    // Same height `updateActiveBuffer` clamps with — a CSV
+                    // grid's pinned header costs one content row.
+                    let csvHeader =
+                        if Map.containsKey model.Editors.ActiveBufferId model.CsvViews then
+                            1
+                        else
+                            0
+
+                    let viewportHeight =
+                        max 1 (model.Terminal.Height - model.Panels.DockHeight - 2 - csvHeader)
 
                     updateActiveBuffer (Buffer.scrollViewport model.Config.ScrollOff viewportHeight delta) model, []
                 | ScrollLine ->
@@ -3411,12 +3845,16 @@ module Editor =
                     | LoadedBinary latin1 -> latin1, "\n", true
 
                 let setHexEntry bufferId (m: Model) =
+                    // Fresh content invalidates any CSV grid's sampled
+                    // widths either way — drop the entry alongside.
                     if isBinary then
                         { m with
-                            HexViews = Map.add bufferId Hex.initialView m.HexViews }
+                            HexViews = Map.add bufferId Hex.initialView m.HexViews
+                            CsvViews = Map.remove bufferId m.CsvViews }
                     else
                         { m with
-                            HexViews = Map.remove bufferId m.HexViews }
+                            HexViews = Map.remove bufferId m.HexViews
+                            CsvViews = Map.remove bufferId m.CsvViews }
 
                 let displayName = Path.GetFileName path |> Option.ofObj |> Option.defaultValue path
 
@@ -3729,6 +4167,19 @@ module Editor =
                             { model.Lsp with
                                 Panel = Some { Title = "Hover"; Lines = lines } } },
                     []
+            | _ -> model, []
+        | CsvStatsReady(bufferId, editTick, column, stats) ->
+            // Fill the pending request; drop anything stale (the buffer
+            // moved on, the cursor left the column, or the grid closed).
+            match model.CsvStats with
+            | Some pending when
+                pending.BufferId = bufferId
+                && pending.EditTick = editTick
+                && pending.Column = column
+                ->
+                { model with
+                    CsvStats = Some { pending with Stats = stats } },
+                []
             | _ -> model, []
         | LspLogFetched(title, lines) ->
             // Keep the tail: DockInfo paints top-down, and the newest log
@@ -4489,6 +4940,74 @@ module Editor =
                 { model with
                     HexViews = Map.add bufferId { view with Top = clamped } model.HexViews }
 
+    /// Rebuild a stale CSV row filter: `VisibleRows` indices shift when
+    /// lines are added or removed (and `:sort` poisons `LineCount` after
+    /// reordering), so any line-count mismatch on the active grid
+    /// recomputes the set. O(1) when nothing changed; cell edits that
+    /// change membership deliberately keep the snapshot (the spreadsheet
+    /// convention) until a structural change lands.
+    let private refreshCsvFilter (model: Model) : Model =
+        let buffer = activeBufferState model
+
+        match Map.tryFind buffer.Id model.CsvViews with
+        | Some({ Filter = Some filter } as view) when filter.LineCount <> Buffer.lineCount buffer ->
+            let rows = Buffer.lines buffer
+            let visible = Csv.filterRows view.Separator filter.Column filter.Value rows
+
+            { model with
+                CsvViews =
+                    Map.add
+                        buffer.Id
+                        { view with
+                            Filter =
+                                Some
+                                    { filter with
+                                        VisibleRows = visible
+                                        LineCount = rows.Length } }
+                        model.CsvViews }
+        | _ -> model
+
+    /// Column-stats chokepoint (the `highlightEffects` shape): whenever
+    /// the active CSV grid's (buffer, edit tick, cursor column) key moves
+    /// off the stored one, store the new key and ask the interpreter to
+    /// compute count/sum/avg off the UI thread. No grid → stats clear.
+    let private csvStatsEffects (model: Model) : Model * Effect list =
+        let buffer = activeBufferState model
+
+        match Map.tryFind buffer.Id model.CsvViews with
+        | None ->
+            (if model.CsvStats.IsSome then
+                 { model with CsvStats = None }
+             else
+                 model),
+            []
+        | Some view ->
+            let column = csvCursorColumn view buffer
+
+            let alreadyRequested =
+                match model.CsvStats with
+                | Some s -> s.BufferId = buffer.Id && s.EditTick = buffer.EditTick && s.Column = column
+                | None -> false
+
+            if alreadyRequested then
+                model, []
+            else
+                { model with
+                    CsvStats =
+                        Some
+                            { BufferId = buffer.Id
+                              EditTick = buffer.EditTick
+                              Column = column
+                              Stats = None } },
+                [ ComputeCsvStats(
+                      buffer.Id,
+                      buffer.EditTick,
+                      column,
+                      view.Separator,
+                      view.Filter |> Option.map (fun f -> f.Column, f.Value),
+                      buffer.Document
+                  ) ]
+
     let update msg model =
         let next, effects = updateCore msg model
         let next, effects = settleReplayFences msg next effects
@@ -4496,6 +5015,8 @@ module Editor =
         let next = recordBufferActivation model next
         let next = promoteDirtyPreview next
         let next = ensureHexViewport next
+        let next = refreshCsvFilter next
+        let next, csvStatsFx = csvStatsEffects next
         let next, highlightFx = highlightEffects model next
         let lspFx = lspSyncEffects model next
-        next, effects @ highlightFx @ lspFx
+        next, effects @ csvStatsFx @ highlightFx @ lspFx

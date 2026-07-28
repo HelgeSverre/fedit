@@ -231,6 +231,7 @@
     <Compile Include="PieceTable.fs" />
     <Compile Include="Buffer.fs" />
     <Compile Include="Hex.fs" />
+    <Compile Include="Csv.fs" />
     <Compile Include="Workspace.fs" />
     <Compile Include="Screen.fs" />
     <Compile Include="Color.fs" />

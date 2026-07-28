@@ -69,6 +69,16 @@ type Command =
     /// arguments literally; hex views read each as a hex byte sequence
     /// when it parses as one, else as literal bytes (the search rule).
     | Replace of needle: string * replacement: string
+    /// `:csv [on|off|toggle]` — flip the active buffer between text and a
+    /// CSV grid (pinned header, aligned columns). Bare `:csv` toggles.
+    | CsvView of verb: string
+    /// `:sort [asc|desc]` — reorder the CSV grid's data rows by the
+    /// cursor's column as one undoable edit. Bare `:sort` sorts ascending.
+    | CsvSort of direction: string
+    /// `:filter <value>` / `:filter off` — hide CSV grid rows whose
+    /// cursor-column cell differs from `value` (display-only; saving
+    /// always writes every row).
+    | CsvFilterRows of value: string
 
 type ParsedCommand =
     | Empty
@@ -367,6 +377,39 @@ module Commands =
                   | "off"
                   | "toggle" as verb -> Ready(HexView verb)
                   | other -> Invalid $"Unknown hex verb '{other}'." }
+          { Name = "csv"
+            Usage = "csv [on|off|toggle]"
+            Summary = "View the active buffer as a CSV grid (pinned header, aligned columns). Bare `csv` toggles."
+            Hidden = false
+            Constructor =
+              fun argument ->
+                  match argument.Trim().ToLowerInvariant() with
+                  | "" -> Ready(CsvView "toggle")
+                  | "on"
+                  | "off"
+                  | "toggle" as verb -> Ready(CsvView verb)
+                  | other -> Invalid $"Unknown csv verb '{other}'." }
+          { Name = "sort"
+            Usage = "sort [asc|desc]"
+            Summary = "Sort the CSV grid's rows by the cursor's column (one undo step). Bare `sort` is ascending."
+            Hidden = false
+            Constructor =
+              fun argument ->
+                  match argument.Trim().ToLowerInvariant() with
+                  | "" -> Ready(CsvSort "asc")
+                  | "asc"
+                  | "desc" as direction -> Ready(CsvSort direction)
+                  | other -> Invalid $"Unknown sort direction '{other}' (asc or desc)." }
+          { Name = "filter"
+            Usage = "filter <value>|off"
+            Summary =
+              "Show only CSV grid rows whose cursor-column cell equals a value or matches `>N`/`>=N`/`<N`/`<=N` (display-only). `filter off` clears."
+            Hidden = false
+            Constructor =
+              fun argument ->
+                  match argument.Trim() with
+                  | "" -> Pending "Filter value required (or `off`)."
+                  | value -> Ready(CsvFilterRows value) }
           { Name = "replace"
             Usage = "replace <from> <to>"
             Summary =

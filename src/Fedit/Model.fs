@@ -383,6 +383,17 @@ type SelectionLadder =
       Ranges: (int * int)[]
       Index: int }
 
+/// One column-stats request/result for a CSV grid, keyed by (buffer,
+/// edit tick, cursor column) — the `HighlightParsed` stale-guard shape.
+/// `Stats` aggregates the column's numeric cells (filtered rows only
+/// when a row filter is active); None while the interpreter is computing
+/// or when the column has no numeric cells.
+type CsvStatsState =
+    { BufferId: int
+      EditTick: int
+      Column: int
+      Stats: Csv.ColumnStats option }
+
 type Model =
     {
         Workspace: WorkspaceState
@@ -412,6 +423,20 @@ type Model =
         /// text buffer. Entries follow the `HighlightStates` lifecycle —
         /// set on open/toggle, removed on close.
         HexViews: Map<int, HexViewState>
+        /// Per-buffer CSV grid state, keyed by `BufferState.Id`. Presence
+        /// means the buffer renders as an aligned-column grid (pinned
+        /// header, padded cells, rule separators); the text underneath is
+        /// untouched — the projection is display-only. Same lifecycle as
+        /// `HexViews`: set by `:csv`, removed on close/reload, and mutually
+        /// exclusive with a hex view of the same buffer.
+        CsvViews: Map<int, CsvViewState>
+        /// Column statistics for the CSV grid the cursor is in — the
+        /// Excel status-bar sum/avg. Requested by the `csvStatsEffects`
+        /// chokepoint whenever (buffer, edit tick, cursor column) moves;
+        /// `Stats = None` while the interpreter is computing (or when the
+        /// column has no numeric cells). Cleared when no CSV grid is
+        /// active.
+        CsvStats: CsvStatsState option
         /// The active expand/shrink-selection chain, or `None` when no
         /// expansion is in progress. See `SelectionLadder`.
         SelectionLadder: SelectionLadder option
@@ -647,6 +672,10 @@ type Msg =
     /// The recent stderr/log ring fetched from the Runtime's client
     /// registry for `:lsp log` — shown as a transient dock panel.
     | LspLogFetched of title: string * lines: string list
+    /// A `ComputeCsvStats` request resolved. The echo of (buffer, edit
+    /// tick, column) lets the handler drop stale results the same way
+    /// `HighlightParsed` does.
+    | CsvStatsReady of bufferId: int * editTick: int * column: int * stats: Csv.ColumnStats option
 
 type Effect =
     | ScanWorkspace of string
@@ -668,6 +697,18 @@ type Effect =
     /// through `Hex.searchNeedle` (hex byte sequences like "1a 2c 78") and
     /// matches byte-exactly instead of case-insensitively.
     | RunSearch of bufferId: int * query: string * document: PieceTable * hex: bool
+    /// Compute count/sum/avg of a CSV column's numeric cells off the UI
+    /// thread (the Excel status-bar aggregate). Carries the immutable
+    /// piece table like `RunSearch`; `filter` restricts to rows matching
+    /// the active `:filter`. Posts `CsvStatsReady` tagged with the
+    /// request key.
+    | ComputeCsvStats of
+        bufferId: int *
+        editTick: int *
+        column: int *
+        separator: char *
+        filter: (int * string) option *
+        document: PieceTable
     /// Parse syntax spans off the UI thread. Carries the piece table
     /// (immutable, cheap to share); the interpreter materializes the text,
     /// parses, and posts `HighlightParsed` tagged with `editTick`.

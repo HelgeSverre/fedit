@@ -178,6 +178,13 @@ module Runtime =
         | PastedText text -> $"PastedText(<len={text.Length}>)"
         | SearchCompleted(bufferId, query, matches) ->
             $"SearchCompleted(buffer={bufferId}, queryLen={query.Length}, matches={matches.Length})"
+        | CsvStatsReady(bufferId, editTick, column, stats) ->
+            let rendered =
+                match stats with
+                | Some s -> $"count={s.Count}, sum={s.Sum}, avg={s.Avg}, min={s.Min}, max={s.Max}"
+                | None -> "no numeric cells"
+
+            $"CsvStatsReady(buffer={bufferId}, tick={editTick}, col={column}, {rendered})"
         | WorkspaceChangedExternally -> "WorkspaceChangedExternally"
         | ReplayStepReady -> "ReplayStepReady"
         | ReplayFenceTimeout -> "ReplayFenceTimeout"
@@ -224,6 +231,10 @@ module Runtime =
         | ClipboardPaste -> "ClipboardPaste"
         | RunSearch(bufferId, query, document, hex) ->
             $"RunSearch(buffer={bufferId}, queryLen={query.Length}, haystackLen={PieceTable.length document}, hex={hex})"
+        | ComputeCsvStats(bufferId, editTick, column, separator, filter, document) ->
+            let filtered = if filter.IsSome then "yes" else "no"
+
+            $"ComputeCsvStats(buffer={bufferId}, tick={editTick}, col={column}, sep={int separator}, filtered={filtered}, docLen={PieceTable.length document})"
         | ParseHighlight(bufferId, language, document, editTick) ->
             $"ParseHighlight(buffer={bufferId}, lang={language}, tick={editTick}, docLen={PieceTable.length document})"
         | ComputeSelectionLadder(bufferId, language, _, editTick, selStart, selEnd) ->
@@ -427,6 +438,7 @@ module Runtime =
         let bufferSaveChains = System.Collections.Generic.Dictionary<string, Task>()
         // Cancel previous incremental search before starting the next.
         let mutable searchCts: CancellationTokenSource option = None
+        let mutable csvStatsCts: CancellationTokenSource option = None
         // Latest-wins highlight parse per buffer: a keystroke during a parse
         // cancels the stale one; `update` also drops stale results by tick.
         let highlightCts =
@@ -819,6 +831,27 @@ module Runtime =
                             Buffer.findAllMatches query haystack
 
                     enqueueUnlessCancelled token (SearchCompleted(bufferId, query, matches)))
+                |> ignore
+            | ComputeCsvStats(bufferId, editTick, column, separator, filter, document) ->
+                // Cancel any in-flight computation (or its debounce nap);
+                // the latest column wins.
+                let cts = cancelAndReplace csvStatsCts
+                csvStatsCts <- Some cts
+                let token = cts.Token
+
+                Task.Run(fun () ->
+                    // Debounce before materializing: the chokepoint fires
+                    // per keystroke, and a huge file costs a full document
+                    // pass — typing cancels the nap, so only a pause pays
+                    // for the scan. WaitOne returns true on cancellation.
+                    if not (token.WaitHandle.WaitOne 250) then
+                        // Materialize off the UI thread (the `RunSearch`
+                        // pattern); `Csv.columnStats` is the same pure core
+                        // the tests call, so the status bar and tests can't
+                        // disagree on the numbers.
+                        let lines = (PieceTable.toString document).Split '\n'
+                        let stats = Csv.columnStats separator column filter lines
+                        enqueueUnlessCancelled token (CsvStatsReady(bufferId, editTick, column, stats)))
                 |> ignore
             | ClipboardPaste ->
                 Task.Run(fun () ->

@@ -9,12 +9,38 @@ open System
 /// file APIs accept `/` on Windows, so normalized paths still do real I/O.
 [<RequireQualifiedAccess>]
 module Paths =
+    /// True when the path starts with a Windows drive anchor
+    /// (`C:`, `C:\`, `C:/`).
+    let isDriveRooted (path: string) =
+        path.Length >= 2
+        && Char.IsAsciiLetter path[0]
+        && path[1] = ':'
+        && (path.Length = 2 || path[2] = '/' || path[2] = '\\')
+
     /// Canonical separator: collapse `\` to `/`. A no-op on Unix.
     let norm (path: string) : string =
         if String.IsNullOrEmpty path then
             path
         else
             path.Replace('\\', '/')
+
+    /// `norm` for user-supplied paths (CLI argument, `:open`, `:writeas`):
+    /// on Unix a Windows drive path additionally maps onto the WSL drvfs
+    /// mount (`C:\temp\x` → `/mnt/c/temp/x`) — the common case is a WSL
+    /// shell handed a Windows-side path, which no Unix file API could open
+    /// verbatim. Internal canonical paths (and LSP URIs, which round-trip
+    /// drive paths on any OS) must keep using plain `norm`.
+    let fromUser (path: string) : string =
+        let slashed = norm path
+
+        if
+            not (String.IsNullOrEmpty slashed)
+            && not (OperatingSystem.IsWindows())
+            && isDriveRooted slashed
+        then
+            "/mnt/" + string (Char.ToLowerInvariant slashed[0]) + slashed.Substring 2
+        else
+            slashed
 
     /// Parent directory using the canonical `/` separator (unlike
     /// Path.GetDirectoryName, which emits the OS separator). None at the root.

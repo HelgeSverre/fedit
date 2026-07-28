@@ -288,6 +288,47 @@ as `<name>.bak` (never overwritten once it exists), so a bad hex edit
 stays recoverable. The status bar reads `HEX` with the caret's byte
 offset and value (`0x0000001a:4f`).
 
+## CSV grid
+
+`:csv` turns the active buffer into a spreadsheet-style grid: the first
+line pins as a header row, cells align into padded columns with rule
+separators, and the separator (comma, semicolon, tab, or pipe — with
+double-quoted cells respected) is detected from the first lines.
+`:csv` again (or `:csv off`) returns to plain text; `toggle-csv-view`
+is the bindable action. The status bar reads `CSV comma` (or whichever
+separator was detected).
+
+The grid is a projection — the text underneath is untouched, so every
+edit is an ordinary text edit and the file's real separators, quoting,
+and newlines round-trip byte-for-byte. Undo history survives the
+toggle, search and selection work unchanged, and `Tab`/`Shift+Tab` hop
+between cells (wrapping at row edges). Arrows move by grid cell
+vertically — stepping from a wide cell onto a narrow one stays in the
+same column — and clamp at the row edges horizontally (a row never
+wraps into the neighbor record). The column under the cursor always
+scrolls fully into view. Column widths are sampled from the first 1000 lines, and
+rendering only ever touches the visible rows, so huge exports open and
+toggle without a pause; a cell wider than its sampled column pushes
+only its own row right.
+
+When the cursor sits in a column with numeric cells, the status bar
+shows its aggregates — `sum`, `avg`, `min`, `max`, and the row count —
+computed on a background pass (debounced, cancellable, never blocking
+the UI), the spreadsheet status-bar convention.
+
+- `:sort [asc|desc]` reorders the data rows by the cursor's column as
+  one undoable edit — numeric when the cells are numbers, stable, with
+  the header pinned. There is no `sort off`: undo restores the file
+  order, because a sort you can save is the point.
+- `:filter <value>` shows only rows whose cursor-column cell equals the
+  value; on numeric columns `:filter >30`, `>=30`, `<30`, and `<=30`
+  compare numerically (cells that aren't numbers are hidden).
+  `:filter off` clears. Filtering is display-only — saving always
+  writes every row. Cursor motion, Tab, clicks, and the column stats
+  all skip hidden rows. The filter is a snapshot (spreadsheet
+  convention): editing a cell doesn't re-run it, but adding or removing
+  lines — and `:sort` — recomputes it.
+
 ## Plugins
 
 `fedit` supports third-party plugins written in F#. Plugins register

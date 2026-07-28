@@ -216,7 +216,11 @@ module Program =
                         let rootPath, initialFile =
                             match parsed.Workspace with
                             | Some path ->
-                                let fullPath = Path.GetFullPath path
+                                // Normalize before GetFullPath: a Windows
+                                // drive path in a WSL shell rewrites to its
+                                // /mnt/<drive> mount here; GetFullPath alone
+                                // would anchor it under the cwd.
+                                let fullPath = Path.GetFullPath(Paths.fromUser path)
 
                                 if File.Exists fullPath then
                                     let parent =
