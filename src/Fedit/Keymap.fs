@@ -151,9 +151,21 @@ module Keymap =
           single (chord [ Ctrl ] (Key.Char 'b')) GotoDefinition
           single (chord [ Ctrl; Shift ] (Key.Char 'b')) FindReferences
           single (chord [ Ctrl ] (Key.Char 'k')) Hover
-          // ── tree-sitter structural selection (matches NppTreeSitter) ──
+          // ── tree-sitter structural selection ──
+          // Shift+Alt+Up/Down (Fleet, Eclipse, JetBrains-macOS, Helix's
+          // arrow aliases): "up" climbs out to the parent node. Modified
+          // arrows encode in legacy terminals (CSI 1;4A) and every
+          // one-modifier slip lands on something harmless. Shift+Alt+
+          // Left/Right stay free for future sibling-node navigation.
+          // Ctrl+Alt+W stays as an expand secondary (NppTreeSitter /
+          // JetBrains lineage); its Shift shrink pair is deliberately NOT
+          // bound — legacy encoding drops Shift on Ctrl+letter chords
+          // (identical bytes to Ctrl+Alt+W), and a sticky-Alt slip is
+          // Ctrl+Shift+W, the close-tab chord in most Linux/Windows
+          // terminals.
+          single (chord [ Alt; Shift ] (Named Up)) ExpandSelection
+          single (chord [ Alt; Shift ] (Named Down)) ShrinkSelection
           single (chord [ Ctrl; Alt ] (Key.Char 'w')) ExpandSelection
-          single (chord [ Ctrl; Alt; Shift ] (Key.Char 'w')) ShrinkSelection
           single (chord [ Ctrl; Alt ] (Named Left)) JumpBack
           single (chord [] (Fn 12)) GotoDefinition
           single (chord [ Shift ] (Fn 12)) FindReferences

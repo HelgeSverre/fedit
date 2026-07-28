@@ -345,10 +345,10 @@ let ``ExpandSelection and ShrinkSelection step the live ladder`` () =
     let seeded, _ =
         Editor.update (SelectionLadderReady(bufferId, editTick, 0, 0, ranges)) opened
 
-    // Ctrl+Alt+W → ExpandSelection: step (0,3) → (0,9).
+    // Shift+Alt+Up → ExpandSelection: step (0,3) → (0,9).
     let expandChord =
-        { Mods = Set.ofList [ Ctrl; Alt ]
-          Key = Key.Char 'w' }
+        { Mods = Set.ofList [ Alt; Shift ]
+          Key = Named Up }
 
     let expanded, _ = Editor.update (KeyPressed expandChord) seeded
 
@@ -357,10 +357,10 @@ let ``ExpandSelection and ShrinkSelection step the live ladder`` () =
 
     expanded.SelectionLadder.Value.Index |> should equal 1
 
-    // Ctrl+Alt+Shift+W → ShrinkSelection: step (0,9) → (0,3).
+    // Shift+Alt+Down → ShrinkSelection: step (0,9) → (0,3).
     let shrinkChord =
-        { Mods = Set.ofList [ Ctrl; Alt; Shift ]
-          Key = Key.Char 'w' }
+        { Mods = Set.ofList [ Alt; Shift ]
+          Key = Named Down }
 
     let shrunk, _ = Editor.update (KeyPressed shrinkChord) expanded
 
@@ -380,6 +380,8 @@ let ``ExpandSelection with no live ladder emits a ComputeSelectionLadder effect`
         { opened with
             Focus = FocusTarget.Editor }
 
+    // Deliberately the Ctrl+Alt+W secondary (not the Shift+Alt+Up
+    // primary) so both bindings keep coverage.
     let expandChord =
         { Mods = Set.ofList [ Ctrl; Alt ]
           Key = Key.Char 'w' }

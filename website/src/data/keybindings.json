@@ -416,7 +416,7 @@
     "bound": true
   },
   {
-    "stroke": "ctrl+alt+w",
+    "stroke": "alt+shift+up",
     "action": "expand-selection",
     "context": "editor",
     "category": "selection",
@@ -424,11 +424,19 @@
     "bound": true
   },
   {
-    "stroke": "ctrl+alt+shift+w",
+    "stroke": "alt+shift+down",
     "action": "shrink-selection",
     "context": "editor",
     "category": "selection",
     "description": "Shrink the selection to the previous syntax node",
+    "bound": true
+  },
+  {
+    "stroke": "ctrl+alt+w",
+    "action": "expand-selection",
+    "context": "editor",
+    "category": "selection",
+    "description": "Grow the selection to the enclosing syntax node",
     "bound": true
   },
   {
@@ -725,6 +733,14 @@
     "context": "",
     "category": "config",
     "description": "Open the config directory",
+    "bound": false
+  },
+  {
+    "stroke": "",
+    "action": "toggle-hex-view",
+    "context": "",
+    "category": "view",
+    "description": "Toggle hex view of the active buffer",
     "bound": false
   },
   {
