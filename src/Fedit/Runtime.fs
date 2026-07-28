@@ -167,6 +167,8 @@ module Runtime =
         | ReplayFenceTimeout -> "ReplayFenceTimeout"
         | HighlightParsed(bufferId, editTick, spans) ->
             $"HighlightParsed(buffer={bufferId}, tick={editTick}, spans={spans.Length})"
+        | SelectionLadderReady(bufferId, editTick, ranges) ->
+            $"SelectionLadderReady(buffer={bufferId}, tick={editTick}, steps={ranges.Length})"
         | PluginsScanned(Result.Ok _) -> "PluginsScanned(Ok)"
         | PluginsScanned(Result.Error error) -> $"PluginsScanned(Error({error}))"
         | PluginActionsReady(source, Result.Ok actions) ->
@@ -207,6 +209,8 @@ module Runtime =
             $"RunSearch(buffer={bufferId}, queryLen={query.Length}, haystackLen={PieceTable.length document})"
         | ParseHighlight(bufferId, language, document, editTick) ->
             $"ParseHighlight(buffer={bufferId}, lang={language}, tick={editTick}, docLen={PieceTable.length document})"
+        | ComputeSelectionLadder(bufferId, language, _, editTick, selStart, selEnd) ->
+            $"ComputeSelectionLadder(buffer={bufferId}, lang={language}, tick={editTick}, sel={selStart}..{selEnd})"
         | ScanPlugins disabled -> $"ScanPlugins(disabled={disabled.Count})"
         | RunPluginCommand(source, command, _) -> $"RunPluginCommand(source={source}, command={command})"
         | InstallPluginFromSource _ -> "InstallPluginFromSource(<source>)"
@@ -766,6 +770,28 @@ module Runtime =
                                     enqueueUnlessCancelled token (HighlightParsed(bufferId, editTick, [||]))
                             with ex ->
                                 log $"highlight: parse failed for buffer {bufferId} ({language}): {ex.Message}")
+                    |> ignore
+            | ComputeSelectionLadder(bufferId, language, document, editTick, selStart, selEnd) ->
+                // Discrete user action, not a hot path: no debounce or
+                // cancellation. A stale result (buffer edited before it lands)
+                // is dropped by the `SelectionLadderReady` editTick guard.
+                let grammar =
+                    highlightRegistry
+                    |> Option.filter (fun registry -> (registry.TryGetLanguage language).IsSome)
+
+                match grammar with
+                | None -> ()
+                | Some registry ->
+                    Task.Run(fun () ->
+                        try
+                            let source = PieceTable.toString document
+
+                            match Highlight.selectionLadder registry language source selStart selEnd with
+                            | Some ranges when ranges.Length > 0 ->
+                                queue.Enqueue(SelectionLadderReady(bufferId, editTick, ranges))
+                            | _ -> ()
+                        with ex ->
+                            log $"selection-ladder: parse failed for buffer {bufferId} ({language}): {ex.Message}")
                     |> ignore
             | ScanPlugins disabledPlugins ->
                 Task.Run(fun () ->

@@ -151,6 +151,9 @@ module Keymap =
           single (chord [ Ctrl ] (Key.Char 'b')) GotoDefinition
           single (chord [ Ctrl; Shift ] (Key.Char 'b')) FindReferences
           single (chord [ Ctrl ] (Key.Char 'k')) Hover
+          // ── tree-sitter structural selection (matches NppTreeSitter) ──
+          single (chord [ Ctrl; Alt ] (Key.Char 'w')) ExpandSelection
+          single (chord [ Ctrl; Alt; Shift ] (Key.Char 'w')) ShrinkSelection
           single (chord [ Ctrl; Alt ] (Named Left)) JumpBack
           single (chord [] (Fn 12)) GotoDefinition
           single (chord [ Shift ] (Fn 12)) FindReferences
@@ -450,6 +453,8 @@ module Keymap =
         | "paste" -> Ok Paste
         | "select-all" -> Ok SelectAll
         | "clear-selection" -> Ok ClearSelection
+        | "expand-selection" -> Ok ExpandSelection
+        | "shrink-selection" -> Ok ShrinkSelection
         | "move-left" -> Ok MoveLeft
         | "move-right" -> Ok MoveRight
         | "move-up" -> Ok MoveUp

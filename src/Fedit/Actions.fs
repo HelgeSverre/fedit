@@ -37,6 +37,11 @@ type Action =
     | SelectAll
     /// Drop the selection, leaving the cursor where it is.
     | ClearSelection
+    /// Grow the selection to the smallest enclosing tree-sitter node; repeat
+    /// to climb the syntax tree one level at a time.
+    | ExpandSelection
+    /// Step the tree-sitter selection expansion back down one level.
+    | ShrinkSelection
     // editing
     /// Insert literal text at the cursor, replacing any selection. Multi-char
     /// payloads (including embedded newlines) insert as one bulk edit — one
@@ -170,6 +175,8 @@ module Action =
         | ExtendEnd -> "extend-end"
         | SelectAll -> "select-all"
         | ClearSelection -> "clear-selection"
+        | ExpandSelection -> "expand-selection"
+        | ShrinkSelection -> "shrink-selection"
         | InsertText _ -> "insert-text"
         | DeleteBackward -> "delete-backward"
         | DeleteForward -> "delete-forward"

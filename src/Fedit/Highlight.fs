@@ -421,6 +421,61 @@ module Highlight =
                 None
         | _ -> None
 
+    /// Char-index ranges of the tree-sitter nodes spanning `[selStart, selEnd)`,
+    /// innermost first and each strictly larger than the previous (a node that
+    /// merely wraps a same-span child is collapsed). This is the expand-selection
+    /// ladder: `update` picks the first range strictly larger than the live
+    /// selection, then steps up (expand) or down (shrink) the array. Only the
+    /// grammar is needed — no highlight query — so it works for every loaded
+    /// language. `None` when the language isn't in the registry or the parse
+    /// failed; an empty array only for an empty document.
+    let selectionLadder
+        (registry: HighlightRegistry)
+        (language: string)
+        (source: string)
+        (selStart: int)
+        (selEnd: int)
+        : (int * int)[] option =
+        match registry.TryGetLanguage language with
+        | Some lang ->
+            try
+                use parser = new TreeSitter.Parser(lang)
+
+                match parser.Parse source with
+                | null -> Some [||]
+                | tree ->
+                    use tree = tree
+
+                    let contains (n: TreeSitter.Node) =
+                        n.StartIndex <= selStart && n.EndIndex >= selEnd
+
+                    // Descend from the root to the smallest node still spanning
+                    // the selection, recording every ancestor's range on the way
+                    // down; the leaf terminates the walk (empty `Children`).
+                    let path = ResizeArray<int * int>()
+
+                    let rec descend (node: TreeSitter.Node) =
+                        path.Add(node.StartIndex, node.EndIndex)
+
+                        match node.Children |> Seq.tryFind contains with
+                        | Some child -> descend child
+                        | None -> ()
+
+                    descend tree.RootNode
+
+                    // Reverse to innermost→outermost, collapsing consecutive
+                    // identical ranges (single-child wrapper nodes).
+                    let ladder = ResizeArray<int * int>()
+
+                    for i in path.Count - 1 .. -1 .. 0 do
+                        if ladder.Count = 0 || ladder[ladder.Count - 1] <> path[i] then
+                            ladder.Add path[i]
+
+                    Some(ladder.ToArray())
+            with _ ->
+                None
+        | _ -> None
+
     /// Binary search the sorted `spans` for the one containing
     /// `charIndex`. First hit wins on nested captures.
     let spanAt (spans: HighlightSpan array) (charIndex: int) : HighlightSpan option =

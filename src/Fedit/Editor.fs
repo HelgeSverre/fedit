@@ -125,6 +125,7 @@ module Editor =
         | LspRequestReferences _ -> Some LspReferencesFence
         | SaveConfig _
         | ParseHighlight _
+        | ComputeSelectionLadder _
         | InstallPluginFromSource _
         | RemovePluginDir _
         | BuildPlugin _
@@ -319,6 +320,34 @@ module Editor =
     /// Shifted motion that extends the selection through the new cursor.
     let private extendCursor transform model =
         updateActiveBuffer (Buffer.extendWith transform) model, []
+
+    /// The active selection as a normalized char-index range, or the caret
+    /// index twice when nothing is selected. The basis for the tree-sitter
+    /// expand-selection ladder.
+    let private selectionRange (buffer: BufferState) : int * int =
+        match buffer.Selection with
+        | Some span -> min span.Anchor span.Head, max span.Anchor span.Head
+        | None ->
+            let idx = Buffer.positionToIndex buffer.Cursor buffer
+            idx, idx
+
+    /// True when the live selection still equals the ladder's current step —
+    /// i.e. the user hasn't edited or moved since the last expand/shrink, so
+    /// stepping the cached ladder (rather than reparsing) is valid.
+    let private ladderStepIsLive (ladder: SelectionLadder) (buffer: BufferState) : bool =
+        ladder.BufferId = buffer.Id
+        && ladder.EditTick = buffer.EditTick
+        && ladder.Index < ladder.Ranges.Length
+        && selectionRange buffer = ladder.Ranges[ladder.Index]
+
+    /// Apply ladder step `index` to the active buffer: select that range and
+    /// store the ladder position so the next expand/shrink steps from here.
+    let private applyLadderStep (ladder: SelectionLadder) (index: int) (model: Model) : Model =
+        let (s, e) = ladder.Ranges[index]
+        let updated = updateActiveBuffer (Buffer.selectRange s e) model
+
+        { updated with
+            SelectionLadder = Some { ladder with Index = index } }
 
     /// Build file-picker completion items from recent + workspace files
     /// matching the query. Recent items appear first.
@@ -1833,6 +1862,35 @@ module Editor =
         | SelectAll -> updateActiveBuffer Buffer.selectAll model, []
         | ClearSelection -> updateActiveBuffer Buffer.clearSelection model, []
 
+        | ExpandSelection ->
+            let buffer = activeBufferState model
+
+            match model.SelectionLadder with
+            | Some ladder when ladderStepIsLive ladder buffer ->
+                // Live ladder: step up one level, or stay put at the root.
+                if ladder.Index + 1 < ladder.Ranges.Length then
+                    applyLadderStep ladder (ladder.Index + 1) model, []
+                else
+                    model, []
+            | _ ->
+                // No live ladder: parse to build one off the UI thread. The
+                // interpreter posts `SelectionLadderReady`, which applies the
+                // first step. Oversized buffers are left alone (same cap as
+                // highlighting), so expand is a silent no-op there.
+                match languageFor buffer with
+                | Some language when PieceTable.length buffer.Document <= Highlight.maxParseChars ->
+                    let (s, e) = selectionRange buffer
+                    model, [ ComputeSelectionLadder(buffer.Id, language, buffer.Document, buffer.EditTick, s, e) ]
+                | _ -> model, []
+
+        | ShrinkSelection ->
+            let buffer = activeBufferState model
+
+            match model.SelectionLadder with
+            | Some ladder when ladderStepIsLive ladder buffer && ladder.Index > 0 ->
+                applyLadderStep ladder (ladder.Index - 1) model, []
+            | _ -> model, []
+
         // editing
         | InsertText text ->
             // One bulk insert (one undo entry), replacing any selection —
@@ -2752,6 +2810,7 @@ module Editor =
           UserThemes = userThemes
           Plugins = PluginRegistry.empty
           HighlightStates = Map.empty
+          SelectionLadder = None
           QuitArmed = false
           CloseArmed = None
           ShouldQuit = false
@@ -3056,6 +3115,30 @@ module Editor =
                 { model with
                     HighlightStates = Map.add bufferId spans model.HighlightStates },
                 []
+            | _ -> model, []
+        | SelectionLadderReady(bufferId, editTick, ranges) ->
+            // Apply the first expand step: the smallest node strictly larger
+            // than the live selection. Stale-tick / non-active results are
+            // dropped (same guard as HighlightParsed / LspDefinitionResolved),
+            // and later steps come from the cached ladder in `runAction`.
+            match Map.tryFind bufferId model.Editors.Buffers with
+            | Some buffer when buffer.EditTick = editTick && model.Editors.ActiveBufferId = bufferId ->
+                let (s, e) = selectionRange buffer
+
+                let firstLarger =
+                    ranges
+                    |> Array.tryFindIndex (fun (rs, re) -> rs <= s && re >= e && (rs < s || re > e))
+
+                match firstLarger with
+                | Some index ->
+                    let ladder =
+                        { BufferId = bufferId
+                          EditTick = editTick
+                          Ranges = ranges
+                          Index = index }
+
+                    applyLadderStep ladder index model, []
+                | None -> model, []
             | _ -> model, []
         | LspServerStatusChanged(clientKey, status) ->
             { model with
