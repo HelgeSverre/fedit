@@ -543,7 +543,7 @@ let ``a definition in another file loads it with the target position`` () =
     effects
     |> List.exists (fun effect ->
         match effect with
-        | LoadFile("/root/lib.sema", OpenPermanent, Some { Line = 4; Column = 2 }, ViewAuto) -> true
+        | LoadFile("/root/lib.sema", OpenPermanent, Some { Line = 4; Column = 2 }) -> true
         | _ -> false)
     |> should equal true
 

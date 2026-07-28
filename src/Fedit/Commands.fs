@@ -64,9 +64,11 @@ type Command =
     /// `:hex [on|off|toggle]` — flip the active buffer between text and
     /// hex views (offset column | hex bytes | ASCII). Bare `:hex` toggles.
     | HexView of verb: string
-    /// `:replace <from-hex> <to-hex>` — replace every occurrence of a byte
-    /// sequence in the active hex-view buffer.
-    | Replace of fromHex: string * toHex: string
+    /// `:replace <from> <to>` — replace every occurrence in the active
+    /// buffer, exact-match, as one undo step. Text buffers take the
+    /// arguments literally; hex views read each as a hex byte sequence
+    /// when it parses as one, else as literal bytes (the search rule).
+    | Replace of needle: string * replacement: string
 
 type ParsedCommand =
     | Empty
@@ -366,24 +368,19 @@ module Commands =
                   | "toggle" as verb -> Ready(HexView verb)
                   | other -> Invalid $"Unknown hex verb '{other}'." }
           { Name = "replace"
-            Usage = "replace <from-hex> <to-hex>"
-            Summary = "Replace every occurrence of a byte sequence, e.g. `replace 1a2c78 ffffff` (hex view)."
+            Usage = "replace <from> <to>"
+            Summary =
+              "Replace every occurrence, exact-match — `replace foo bar`, or `replace 1a2c78 ffffff` in a hex view."
             Hidden = false
             Constructor =
               fun argument ->
                   let tokens = argument.Split([| ' '; '\t' |], StringSplitOptions.RemoveEmptyEntries)
 
                   match tokens with
-                  | [||] -> Pending "From and to byte sequences required."
-                  | [| _ |] -> Pending "Replacement byte sequence required."
-                  | [| fromHex; toHex |] ->
-                      if (Hex.tryParseBytes fromHex).IsNone then
-                          Invalid $"'{fromHex}' is not a hex byte sequence."
-                      elif (Hex.tryParseBytes toHex).IsNone then
-                          Invalid $"'{toHex}' is not a hex byte sequence."
-                      else
-                          Ready(Replace(fromHex, toHex))
-                  | _ -> Invalid "replace takes exactly two byte sequences." } ]
+                  | [||] -> Pending "From and to values required."
+                  | [| _ |] -> Pending "Replacement value required."
+                  | [| needle; replacement |] -> Ready(Replace(needle, replacement))
+                  | _ -> Invalid "replace takes exactly two values." } ]
 
     /// Specs synthesized from currently-loaded plugin commands. Each tuple
     /// is `(commandName, summary, sourcePluginName)`. Plugin specs sit

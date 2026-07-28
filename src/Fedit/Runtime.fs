@@ -75,20 +75,16 @@ module Runtime =
     /// can treat a permanent open of a nonexistent path as creating a new
     /// file. Other failures (permissions, the path is a directory) surface
     /// verbatim as `FileOpenFailed`. Reads raw bytes so the view decision
-    /// is byte-accurate: `ViewAuto` runs the binary heuristic, `ViewHex`
-    /// forces the latin1 hex projection, `ViewText` forces the historical
-    /// BOM-aware UTF-8 decode.
-    let readFileForOpen (view: OpenView) (path: string) : Result<LoadedFile, FileOpenError> =
+    /// is byte-accurate: `Hex.looksBinary` (a NUL in the first 8000 bytes)
+    /// picks the latin1 hex projection, everything else gets the
+    /// historical BOM-aware UTF-8 decode. The in-editor `:hex` flip
+    /// re-projects the open buffer instead of reloading, so this is the
+    /// only view decision point.
+    let readFileForOpen (path: string) : Result<LoadedFile, FileOpenError> =
         try
             let bytes = File.ReadAllBytes path
 
-            let binary =
-                match view with
-                | ViewHex -> true
-                | ViewText -> false
-                | ViewAuto -> Hex.looksBinary bytes
-
-            if binary then
+            if Hex.looksBinary bytes then
                 Result.Ok(LoadedBinary(Hex.bytesToText bytes))
             else
                 Result.Ok(LoadedText(Hex.decodeText bytes))
@@ -113,12 +109,6 @@ module Runtime =
         | Result.Ok(LoadedBinary latin1) -> $"Ok(binary, <len={latin1.Length}>)"
         | Result.Error FileNotFound -> "Error(FileNotFound)"
         | Result.Error(FileOpenFailed error) -> $"Error({error})"
-
-    let private renderView view =
-        match view with
-        | ViewAuto -> "auto"
-        | ViewText -> "text"
-        | ViewHex -> "hex"
 
     let private renderTarget (target: Position option) =
         match target with
@@ -188,8 +178,8 @@ module Runtime =
         | ReplayFenceTimeout -> "ReplayFenceTimeout"
         | HighlightParsed(bufferId, editTick, spans) ->
             $"HighlightParsed(buffer={bufferId}, tick={editTick}, spans={spans.Length})"
-        | SelectionLadderReady(bufferId, editTick, ranges) ->
-            $"SelectionLadderReady(buffer={bufferId}, tick={editTick}, steps={ranges.Length})"
+        | SelectionLadderReady(bufferId, editTick, selStart, selEnd, ranges) ->
+            $"SelectionLadderReady(buffer={bufferId}, tick={editTick}, sel={selStart}..{selEnd}, steps={ranges.Length})"
         | PluginsScanned(Result.Ok _) -> "PluginsScanned(Ok)"
         | PluginsScanned(Result.Error error) -> $"PluginsScanned(Error({error}))"
         | PluginActionsReady(source, Result.Ok actions) ->
@@ -219,8 +209,7 @@ module Runtime =
     let private renderEffect effect =
         match effect with
         | ScanWorkspace path -> $"ScanWorkspace({path})"
-        | LoadFile(path, intent, target, view) ->
-            $"LoadFile({path}, {renderIntent intent}, target={renderTarget target}, view={renderView view})"
+        | LoadFile(path, intent, target) -> $"LoadFile({path}, {renderIntent intent}, target={renderTarget target})"
         | SaveBuffer(bufferId, path, revision, contents, binary) ->
             $"SaveBuffer(buffer={bufferId}, path={path}, revision={revision}, contentsLen={contents.Length}, binary={binary})"
         | SaveConfig _ -> "SaveConfig(<config>)"
@@ -640,13 +629,13 @@ module Runtime =
 
                     enqueueUnlessCancelled token msg)
                 |> ignore
-            | LoadFile(path, intent, target, view) ->
+            | LoadFile(path, intent, target) ->
                 let cts = cancelAndReplace loadCts
                 loadCts <- Some cts
                 let token = cts.Token
 
                 Task.Run(fun () ->
-                    enqueueUnlessCancelled token (FileOpened(path, intent, target, readFileForOpen view path)))
+                    enqueueUnlessCancelled token (FileOpened(path, intent, target, readFileForOpen path)))
                 |> ignore
             | SaveBuffer(bufferId, path, revision, contents, binary) ->
                 let key =
@@ -808,8 +797,9 @@ module Runtime =
                     |> ignore
             | ComputeSelectionLadder(bufferId, language, document, editTick, selStart, selEnd) ->
                 // Discrete user action, not a hot path: no debounce or
-                // cancellation. A stale result (buffer edited before it lands)
-                // is dropped by the `SelectionLadderReady` editTick guard.
+                // cancellation. A stale result (buffer edited or caret moved
+                // before it lands) is dropped by the `SelectionLadderReady`
+                // edit-tick + requested-selection guards.
                 let grammar =
                     highlightRegistry
                     |> Option.filter (fun registry -> (registry.TryGetLanguage language).IsSome)
@@ -823,7 +813,7 @@ module Runtime =
 
                             match Highlight.selectionLadder registry language source selStart selEnd with
                             | Some ranges when ranges.Length > 0 ->
-                                queue.Enqueue(SelectionLadderReady(bufferId, editTick, ranges))
+                                queue.Enqueue(SelectionLadderReady(bufferId, editTick, selStart, selEnd, ranges))
                             | _ -> ()
                         with ex ->
                             log $"selection-ladder: parse failed for buffer {bufferId} ({language}): {ex.Message}")

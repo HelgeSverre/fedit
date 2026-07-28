@@ -278,7 +278,9 @@ for any buffer and `:hex` again (or `:hex off`) returns to text. The
 - `/` searches byte sequences: `1a 2c 78` (or `1a2c78`) matches bytes;
   a query that isn't hex matches as literal text, byte-exactly.
 - `:replace 1a2c78 ffffff` replaces every occurrence of a byte
-  sequence in one undo step.
+  sequence in one undo step. Like search, an argument that isn't hex
+  matches as literal bytes — and `:replace` also works in text
+  buffers, where both arguments are literal, exact-match text.
 
 Saving writes the bytes exactly — no encoding pass, no newline
 normalization. The status bar reads `HEX` with the caret's byte offset

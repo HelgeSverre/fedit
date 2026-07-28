@@ -63,7 +63,7 @@ let ``initWithInitialFile queues the file open after startup effects`` () =
 
     effects
     |> List.last
-    |> should equal (LoadFile("/root/file.fs", OpenPermanent, None, ViewAuto))
+    |> should equal (LoadFile("/root/file.fs", OpenPermanent, None))
 
 [<Fact>]
 let ``keybind command opens the keybinding prompt session`` () =
@@ -282,7 +282,7 @@ let ``SelectionLadderReady selects the smallest range larger than the caret`` ()
     let ranges = [| (0, 3); (0, 9); (0, 14) |]
 
     let next, _ =
-        Editor.update (SelectionLadderReady(bufferId, editTick, ranges)) opened
+        Editor.update (SelectionLadderReady(bufferId, editTick, 0, 0, ranges)) opened
 
     next.Editors.Buffers[bufferId].Selection
     |> should equal (Some { Anchor = 0; Head = 3 })
@@ -299,10 +299,32 @@ let ``SelectionLadderReady ignores a stale edit tick`` () =
 
     let bufferId = opened.Editors.ActiveBufferId
     let ranges = [| (0, 3); (0, 14) |]
-    let stale, _ = Editor.update (SelectionLadderReady(bufferId, 99, ranges)) opened
+
+    let stale, _ =
+        Editor.update (SelectionLadderReady(bufferId, 99, 0, 0, ranges)) opened
 
     stale.Editors.Buffers[bufferId].Selection |> should equal None
     stale.SelectionLadder |> should equal None
+
+[<Fact>]
+let ``SelectionLadderReady is dropped when the caret moved during the parse`` () =
+    let opened, _ =
+        Editor.update
+            (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok(LoadedText "let value = 42")))
+            (initModel ())
+
+    let bufferId = opened.Editors.ActiveBufferId
+    let editTick = opened.Editors.Buffers[bufferId].EditTick
+    let ranges = [| (0, 3); (0, 9); (0, 14) |]
+
+    // The ladder was requested for a caret at 5, but the live caret is at
+    // 0 — motion doesn't bump the edit tick, so only the selection echo
+    // can catch this. No selection may appear.
+    let next, _ =
+        Editor.update (SelectionLadderReady(bufferId, editTick, 5, 5, ranges)) opened
+
+    next.Editors.Buffers[bufferId].Selection |> should equal None
+    next.SelectionLadder |> should equal None
 
 [<Fact>]
 let ``ExpandSelection and ShrinkSelection step the live ladder`` () =
@@ -321,7 +343,7 @@ let ``ExpandSelection and ShrinkSelection step the live ladder`` () =
 
     // Seed selection (0,3) at index 0, as the interpreter's result would.
     let seeded, _ =
-        Editor.update (SelectionLadderReady(bufferId, editTick, ranges)) opened
+        Editor.update (SelectionLadderReady(bufferId, editTick, 0, 0, ranges)) opened
 
     // Ctrl+Alt+W → ExpandSelection: step (0,3) → (0,9).
     let expandChord =
@@ -1126,7 +1148,7 @@ let ``readFileForOpen classifies a missing file as FileNotFound`` () =
     let missing =
         System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName())
 
-    Runtime.readFileForOpen ViewAuto missing
+    Runtime.readFileForOpen missing
     |> should equal (Result.Error FileNotFound: Result<LoadedFile, FileOpenError>)
 
 [<Fact>]
@@ -1134,7 +1156,7 @@ let ``readFileForOpen classifies a missing parent directory as FileNotFound`` ()
     let missing =
         System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName(), "nested", "file.txt")
 
-    Runtime.readFileForOpen ViewAuto missing
+    Runtime.readFileForOpen missing
     |> should equal (Result.Error FileNotFound: Result<LoadedFile, FileOpenError>)
 
 [<Fact>]
@@ -1145,7 +1167,7 @@ let ``readFileForOpen reports a directory path as FileOpenFailed`` () =
     System.IO.Directory.CreateDirectory directory |> ignore
 
     try
-        match Runtime.readFileForOpen ViewAuto directory with
+        match Runtime.readFileForOpen directory with
         | Result.Error(FileOpenFailed _) -> ()
         | other -> failwithf "expected FileOpenFailed, got %A" other
     finally
@@ -1159,7 +1181,7 @@ let ``readFileForOpen reads an existing file`` () =
     System.IO.File.WriteAllText(path, "hello")
 
     try
-        Runtime.readFileForOpen ViewAuto path
+        Runtime.readFileForOpen path
         |> should equal (Result.Ok(LoadedText "hello"): Result<LoadedFile, FileOpenError>)
     finally
         System.IO.File.Delete path
@@ -1956,7 +1978,7 @@ let ``a load-file fence parks the queue until FileOpened pumps it`` () =
 
     openEffects
     |> List.exists (function
-        | LoadFile("/root/new.txt", OpenPermanent, None, ViewAuto) -> true
+        | LoadFile("/root/new.txt", OpenPermanent, None) -> true
         | _ -> false)
     |> should equal true
 
@@ -2394,8 +2416,7 @@ let ``ConfigFileReady Ok focuses the editor and loads the config file`` () =
 
     next.Focus |> should equal Editor
 
-    effects
-    |> should equal [ LoadFile("/root/config.json", OpenPermanent, None, ViewAuto) ]
+    effects |> should equal [ LoadFile("/root/config.json", OpenPermanent, None) ]
 
 [<Fact>]
 let ``ConfigFileReady Error surfaces a warning notification`` () =
@@ -2755,7 +2776,7 @@ let private sidebarModelWithFiles (files: string list) =
 let ``space on a sidebar file emits a preview load`` () =
     let model = sidebarModelWithFiles [ "a.fs" ]
     let _, effects = Editor.update (KeyPressed(nk Space)) model
-    effects |> should equal [ LoadFile("/root/a.fs", OpenPreview, None, ViewAuto) ]
+    effects |> should equal [ LoadFile("/root/a.fs", OpenPreview, None) ]
 
 [<Fact>]
 let ``space with a type-ahead query stays a search character`` () =
@@ -2969,7 +2990,7 @@ let ``click on the selected file row opens it as a preview`` () =
     let next, effects =
         Editor.update (MousePressed(mouseEvent LeftButton Press row 1, 1)) model
 
-    effects |> should equal [ LoadFile("/root/a.fs", OpenPreview, None, ViewAuto) ]
+    effects |> should equal [ LoadFile("/root/a.fs", OpenPreview, None) ]
     next.Focus |> should equal Sidebar
 
 [<Fact>]
@@ -3679,7 +3700,7 @@ let ``MacrosFileReady opens the macros file in a buffer`` () =
     next.Focus |> should equal Editor
 
     effects
-    |> List.contains (LoadFile("/tmp/fedit-macros", OpenPermanent, None, ViewAuto))
+    |> List.contains (LoadFile("/tmp/fedit-macros", OpenPermanent, None))
     |> should equal true
 
 [<Fact>]

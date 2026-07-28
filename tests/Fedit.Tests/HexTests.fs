@@ -138,7 +138,7 @@ let ``a binary file survives open → projection → save byte-for-byte`` () =
     try
         System.IO.File.WriteAllBytes(path, bytes)
 
-        match Runtime.readFileForOpen ViewAuto path with
+        match Runtime.readFileForOpen path with
         | Result.Ok(LoadedBinary latin1) -> Hex.textToBytes latin1 |> should equal bytes
         | other -> failwithf "expected a binary load, got %A" other
     finally
@@ -311,6 +311,29 @@ let ``hex toggle keeps the dirty flag but resets undo`` () =
     (activeBuffer toHex).Undo |> List.isEmpty |> should equal true
 
 [<Fact>]
+let ``a lossy hex-to-text flip marks the buffer modified and warns`` () =
+    // 0xFF alone is invalid UTF-8: the text view decodes it to U+FFFD, so
+    // a save from that view would rewrite the byte. The flip must not
+    // leave the buffer reading as clean.
+    let model = openBinary ff
+    let toText = model |> press (ck 'p') |> typeLine "hex off" |> press (nk Enter)
+
+    toText.HexViews.IsEmpty |> should equal true
+    (activeBuffer toText).Dirty |> should equal true
+
+    match toText.Notification with
+    | Some { Severity = Severity.Warning } -> ()
+    | other -> failwithf "expected a warning notification, got %A" other
+
+[<Fact>]
+let ``a lossless hex-to-text flip keeps a clean buffer clean`` () =
+    let model = openBinary "hi"
+    let toText = model |> press (ck 'p') |> typeLine "hex off" |> press (nk Enter)
+
+    toText.HexViews.IsEmpty |> should equal true
+    (activeBuffer toText).Dirty |> should equal false
+
+[<Fact>]
 let ``replace command rewrites every occurrence as one undo step`` () =
     let model = openBinary (nul + "A" + nul + "B" + nul)
 
@@ -336,17 +359,58 @@ let ``replace with a longer sequence grows the document`` () =
     activeText replaced |> should equal (ff + ff + ff + ff)
 
 [<Fact>]
-let ``replace refuses to run on a text buffer`` () =
-    let model = initModel () |> typeLine "hi"
+let ``replace works on a text buffer with exact literal matching`` () =
+    let model = initModel () |> typeLine "aA aA"
 
-    let attempted =
+    let replaced =
+        model |> press (ck 'p') |> typeLine "replace aA bb" |> press (nk Enter)
+
+    activeText replaced |> should equal "bb bb"
+
+    // One undo step restores the whole rewrite.
+    activeText (replaced |> press (ck 'z')) |> should equal "aA aA"
+
+[<Fact>]
+let ``replace on a text buffer is case-sensitive unlike search`` () =
+    // Search is deliberately case-insensitive; replace-all is destructive,
+    // so it matches ordinally.
+    let model = initModel () |> typeLine "aA"
+    let replaced = model |> press (ck 'p') |> typeLine "replace a b" |> press (nk Enter)
+    activeText replaced |> should equal "bA"
+
+[<Fact>]
+let ``replace on a text buffer takes hex-looking arguments literally`` () =
+    let model = initModel () |> typeLine "hi 68"
+
+    let replaced =
         model |> press (ck 'p') |> typeLine "replace 68 69" |> press (nk Enter)
 
-    activeText attempted |> should equal "hi"
+    activeText replaced |> should equal "hi 69"
 
-    match attempted.Notification with
-    | Some { Severity = Severity.Error } -> ()
-    | other -> failwithf "expected an error notification, got %A" other
+[<Fact>]
+let ``replace in a hex view falls back to literal bytes like search`` () =
+    // "cash" is not a hex byte sequence, so it matches literally; "00" is,
+    // so it writes a NUL — the `/` search rule applied to both arguments.
+    let model = openBinary "cash"
+
+    let replaced =
+        model |> press (ck 'p') |> typeLine "replace cash 00" |> press (nk Enter)
+
+    activeText replaced |> should equal nul
+
+[<Fact>]
+let ``replace reports the non-overlapping count`` () =
+    // "aaa" holds two overlapping "aa" matches but only one rewrite.
+    let model = openBinary "aaa"
+
+    let replaced =
+        model |> press (ck 'p') |> typeLine "replace 6161 6262" |> press (nk Enter)
+
+    activeText replaced |> should equal "bba"
+
+    match replaced.Notification with
+    | Some notification -> notification.Message |> should equal "Replaced 1 occurrence(s)."
+    | None -> failwith "expected a notification"
 
 [<Fact>]
 let ``closing a hex buffer drops its view state`` () =
@@ -361,6 +425,26 @@ let ``line-reordering actions are inert in a hex view`` () =
     let before = activeText model
     let after, _ = Editor.runAction (MoveLinesDown 1) model
     activeText after |> should equal before
+
+[<Fact>]
+let ``expand-selection is inert in a hex view even for a source file`` () =
+    // A hex view of an .fs file must not feed its byte projection to the
+    // tree-sitter parser: languageFor still matches the extension, so only
+    // the hex intercept keeps the ladder out.
+    let opened, _ =
+        Editor.update (FileOpened("/root/x.fs", OpenPermanent, None, Result.Ok(LoadedText "let x = 1"))) (initModel ())
+
+    let toHex = opened |> press (ck 'p') |> typeLine "hex" |> press (nk Enter)
+    toHex.HexViews.ContainsKey toHex.Editors.ActiveBufferId |> should equal true
+
+    let after, effects = Editor.runAction ExpandSelection toHex
+    activeText after |> should equal (activeText toHex)
+
+    effects
+    |> List.exists (function
+        | ComputeSelectionLadder _ -> true
+        | _ -> false)
+    |> should equal false
 
 [<Fact>]
 let ``rendered hex view shows offset, hex cells, and ASCII column`` () =

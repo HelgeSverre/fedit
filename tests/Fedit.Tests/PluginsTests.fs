@@ -827,7 +827,7 @@ let ``OpenFileAt emits LoadFile with target for a new path`` () =
     let _, effects =
         dispatchProbe setup (fun _ -> [ Fedit.PluginApi.OpenFileAt("src/a.fs", { Line = 2; Column = 3 }, false) ])
 
-    Assert.Contains(LoadFile("/root/src/a.fs", OpenPermanent, Some { Line = 1; Column = 2 }, ViewAuto), effects)
+    Assert.Contains(LoadFile("/root/src/a.fs", OpenPermanent, Some { Line = 1; Column = 2 }), effects)
 
 [<Fact>]
 let ``OpenFileAt activates an existing buffer and applies the target`` () =
@@ -857,7 +857,7 @@ let ``OpenFileAt preview opens into the preview slot`` () =
     let _, effects =
         dispatchProbe setup (fun _ -> [ Fedit.PluginApi.OpenFileAt("src/a.fs", { Line = 1; Column = 1 }, true) ])
 
-    Assert.Contains(LoadFile("/root/src/a.fs", OpenPreview, Some { Line = 0; Column = 0 }, ViewAuto), effects)
+    Assert.Contains(LoadFile("/root/src/a.fs", OpenPreview, Some { Line = 0; Column = 0 }), effects)
 
 [<Fact>]
 let ``Enter in an activated buffer runs the registered plugin command`` () =
@@ -939,7 +939,7 @@ let ``OpenFilePreview emits LoadFile with preview intent for a new path`` () =
     let _, effects =
         dispatchProbe setup (fun _ -> [ Fedit.PluginApi.OpenFilePreview "src/a.fs" ])
 
-    Assert.Contains(LoadFile("/root/src/a.fs", OpenPreview, None, ViewAuto), effects)
+    Assert.Contains(LoadFile("/root/src/a.fs", OpenPreview, None), effects)
 
 [<Fact>]
 let ``OpenFilePreview activates an already-open buffer without loading`` () =

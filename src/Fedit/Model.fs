@@ -448,14 +448,6 @@ type OpenIntent =
     | OpenPermanent
     | OpenPreview
 
-/// How a `LoadFile` should interpret the bytes on disk. `ViewAuto` runs
-/// the binary heuristic (`Hex.looksBinary`); the forced forms back the
-/// text↔hex view flip.
-type OpenView =
-    | ViewAuto
-    | ViewText
-    | ViewHex
-
 /// What `readFileForOpen` produced: decoded text (BOM-aware UTF-8, the
 /// historical `File.ReadAllText` behaviour) or the latin1 projection of
 /// the raw bytes for a hex-view buffer.
@@ -563,10 +555,13 @@ type Msg =
     /// Spans for `bufferId` as of `editTick`. Stale ticks are dropped —
     /// a newer `ParseHighlight` is already in flight for the newer text.
     | HighlightParsed of bufferId: int * editTick: int * spans: HighlightSpan array
-    /// The expand-selection ladder computed for `bufferId` as of `editTick`.
-    /// Ranges run innermost→outermost. Stale ticks are dropped (the buffer
-    /// was edited before the parse landed). Posted by `ComputeSelectionLadder`.
-    | SelectionLadderReady of bufferId: int * editTick: int * ranges: (int * int)[]
+    /// The expand-selection ladder computed for `bufferId` as of `editTick`,
+    /// requested for the selection `[selStart, selEnd)`. Ranges run
+    /// innermost→outermost. Stale results are dropped — a newer edit tick,
+    /// or a live selection that no longer equals the requested one (the
+    /// caret moved while the parse ran; motion does not bump the edit
+    /// tick). Posted by `ComputeSelectionLadder`.
+    | SelectionLadderReady of bufferId: int * editTick: int * selStart: int * selEnd: int * ranges: (int * int)[]
     | PluginsScanned of Result<PluginRegistry, string>
     /// A plugin command finished in the host: its PluginAction list to apply,
     /// or an error to surface. Posted by the `RunPluginCommand` interpreter.
@@ -620,7 +615,7 @@ type Msg =
 
 type Effect =
     | ScanWorkspace of string
-    | LoadFile of path: string * intent: OpenIntent * target: Position option * view: OpenView
+    | LoadFile of path: string * intent: OpenIntent * target: Position option
     /// `binary` routes the write through `writeAllBytesAtomic` with the
     /// latin1 projection decoded back to raw bytes — a hex-view save is
     /// byte-exact, never a UTF-8 encoding pass.

@@ -1061,7 +1061,7 @@ module Editor =
         | _ ->
             match tryActivateExisting path model with
             | Some activated -> { activated with Focus = model.Focus } |> applyTarget target, []
-            | None -> model, [ LoadFile(path, OpenPreview, target, ViewAuto) ]
+            | None -> model, [ LoadFile(path, OpenPreview, target) ]
 
     let private openPreview (path: string) (model: Model) : Model * Effect list = openPreviewAt None path model
 
@@ -1092,7 +1092,7 @@ module Editor =
         else
             match tryActivateExisting path model with
             | Some activated -> applyTarget (Some position) activated, []
-            | None -> { model with Focus = Editor }, [ LoadFile(path, OpenPermanent, Some position, ViewAuto) ]
+            | None -> { model with Focus = Editor }, [ LoadFile(path, OpenPermanent, Some position) ]
 
     let private severityLabel (severity: LspDiagnosticSeverity) =
         match severity with
@@ -1388,9 +1388,15 @@ module Editor =
                     Some(rearmHighNibble next, [])
                 | Undo -> Some(updateActiveBuffer Buffer.undo model |> rearmHighNibble, [])
                 | Redo -> Some(updateActiveBuffer Buffer.redo model |> rearmHighNibble, [])
-                // Line reordering has no byte-space meaning.
+                // Line reordering has no byte-space meaning, and neither
+                // does the tree-sitter selection ladder — a latin1 byte
+                // projection is not source text, so expanding over it would
+                // parse garbage (the highlight/LSP chokepoints already skip
+                // hex views for the same reason).
                 | MoveLinesUp _
-                | MoveLinesDown _ -> Some(model, [])
+                | MoveLinesDown _
+                | ExpandSelection
+                | ShrinkSelection -> Some(model, [])
 
                 // Clipboard carries the spaced hex form ("74 68 69") so a
                 // selection can round-trip through the search prompt and
@@ -1436,35 +1442,50 @@ module Editor =
             let word = if isHex then "hex" else "text"
             model |> notify (Some(Notification.info $"Already in {word} view.")), []
         else
-            let rebuilt, nextHexViews, note =
+            let rebuilt, nextHexViews, note, lossy =
                 if enable then
+                    // Text→hex re-projects exactly what a text save would
+                    // write (serialize → UTF-8), so it is never lossy
+                    // relative to fedit's own save semantics.
                     let bytes = System.Text.Encoding.UTF8.GetBytes(Buffer.serialize buffer)
 
                     Buffer.fromText buffer.Id buffer.FilePath buffer.Name (Hex.bytesToText bytes) "\n",
                     Map.add buffer.Id Hex.initialView model.HexViews,
-                    Notification.info $"Hex view — {bytes.Length} byte(s)"
+                    Notification.info $"Hex view — {bytes.Length} byte(s)",
+                    false
                 else
                     let bytes = Hex.textToBytes (Buffer.text buffer)
                     let decoded, newline = normalizeNewlines (Hex.decodeText bytes)
 
+                    // Hex→text is lossy whenever a text save of the decoded
+                    // view would not reproduce the bytes: UTF-16/BOM
+                    // transcodes, invalid UTF-8 (U+FFFD), lone-CR newline
+                    // normalization. Compare against exactly what that save
+                    // would write.
+                    let reEncoded = System.Text.Encoding.UTF8.GetBytes(decoded.Replace("\n", newline))
+
+                    let lossy = reEncoded <> bytes
+
                     Buffer.fromText buffer.Id buffer.FilePath buffer.Name decoded newline,
                     Map.remove buffer.Id model.HexViews,
-                    if Hex.looksBinary bytes then
-                        Notification.warning "Text view of binary data — edits may not round-trip."
-                    else
-                        Notification.info "Text view."
+                    (if lossy then
+                         Notification.warning
+                             "Text view re-encodes this data — marked modified; a save rewrites the bytes."
+                     else
+                         Notification.info "Text view."),
+                    lossy
 
             // EditTick moves so the highlight/LSP chokepoints see the flip;
-            // Dirty carries over so unsaved edits stay flagged across it.
+            // Dirty carries over so unsaved edits stay flagged across it —
+            // and a lossy flip forces it, so the buffer can't read as clean
+            // while its content no longer round-trips to the bytes on disk.
+            let dirty = buffer.Dirty || lossy
+
             let rebuilt =
                 { rebuilt with
                     EditTick = buffer.EditTick + 1
-                    SavedTick =
-                        (if buffer.Dirty then
-                             buffer.SavedTick
-                         else
-                             buffer.EditTick + 1)
-                    Dirty = buffer.Dirty }
+                    SavedTick = (if dirty then buffer.SavedTick else buffer.EditTick + 1)
+                    Dirty = dirty }
 
             { model with
                 Editors =
@@ -1475,37 +1496,51 @@ module Editor =
             |> notify (Some note),
             []
 
-    /// `:replace <from-hex> <to-hex>` — replace every occurrence in the
-    /// active hex-view buffer as ONE edit (one undo entry), landing the
-    /// cursor on the first replacement.
-    let private hexReplaceAll (fromHex: string) (toHex: string) (model: Model) : Model * Effect list =
+    /// `:replace <from> <to>` — replace every occurrence in the active
+    /// buffer as ONE edit (one undo entry), landing the cursor on the
+    /// first replacement. Matching is exact everywhere: hex views
+    /// translate both arguments through `Hex.searchNeedle` (a hex byte
+    /// sequence like `1a2c78` when it parses as one, else literal bytes —
+    /// the `/` search rule); text buffers match the literal text
+    /// ordinally, deliberately stricter than the case-insensitive search
+    /// because replace-all is destructive.
+    let private replaceAll (fromArgument: string) (toArgument: string) (model: Model) : Model * Effect list =
         let buffer = activeBufferState model
 
-        if not (Map.containsKey buffer.Id model.HexViews) then
-            notify (Some(Notification.error "replace works on hex views — run :hex first.")) model, []
-        else
-            match Hex.tryParseBytes fromHex, Hex.tryParseBytes toHex with
-            | Some needle, Some replacement ->
-                let haystack = Buffer.text buffer
+        let needle, replacement =
+            if Map.containsKey buffer.Id model.HexViews then
+                Hex.searchNeedle fromArgument, Hex.searchNeedle toArgument
+            else
+                fromArgument, toArgument
 
-                match Hex.findAllExact needle haystack with
-                | [] -> notify (Some(Notification.info $"No matches for {fromHex}.")) model, []
-                | matches ->
-                    let replaced = haystack.Replace(needle, replacement, StringComparison.Ordinal)
+        let haystack = Buffer.text buffer
 
-                    updateActiveBuffer
-                        (Buffer.clearSelection
-                         >> Buffer.replaceRange 0 haystack.Length replaced
-                         >> Buffer.moveToOffset (List.head matches))
-                        model
-                    |> rearmHighNibble
-                    |> notify (Some(Notification.info $"Replaced {matches.Length} occurrence(s).")),
-                    []
-            | _ ->
-                notify
-                    (Some(Notification.error "replace needs two hex byte sequences, e.g. :replace 1a2c78 ffffff"))
-                    model,
-                []
+        // Non-overlapping scan — `String.Replace` semantics — so the
+        // reported count can never overstate the rewrite (an overlapping
+        // scan counts 2 for `aa` in `aaa`; Replace rewrites 1).
+        let matches =
+            let found = ResizeArray<int>()
+            let mutable index = haystack.IndexOf(needle, StringComparison.Ordinal)
+
+            while index >= 0 do
+                found.Add index
+                index <- haystack.IndexOf(needle, index + needle.Length, StringComparison.Ordinal)
+
+            List.ofSeq found
+
+        match matches with
+        | [] -> notify (Some(Notification.info $"No matches for {fromArgument}.")) model, []
+        | first :: _ ->
+            let replaced = haystack.Replace(needle, replacement, StringComparison.Ordinal)
+
+            updateActiveBuffer
+                (Buffer.clearSelection
+                 >> Buffer.replaceRange 0 haystack.Length replaced
+                 >> Buffer.moveToOffset first)
+                model
+            |> rearmHighNibble
+            |> notify (Some(Notification.info $"Replaced {matches.Length} occurrence(s).")),
+            []
 
     /// Translate a plugin's `PluginAction list` return into core model
     /// updates + effects. Each action is applied in declaration order;
@@ -1569,7 +1604,7 @@ module Editor =
                         current
             | Fedit.PluginApi.OpenFile path ->
                 let absolutePath = resolvePath current.Workspace.RootPath path
-                effects.Add(LoadFile(absolutePath, OpenPermanent, None, ViewAuto))
+                effects.Add(LoadFile(absolutePath, OpenPermanent, None))
             | Fedit.PluginApi.SaveActiveBuffer ->
                 let nextModel, fx = saveActiveBuffer None current
                 current <- nextModel
@@ -1677,7 +1712,7 @@ module Editor =
                 else
                     match tryActivateExisting absolutePath current with
                     | Some activated -> current <- applyTarget target activated
-                    | None -> effects.Add(LoadFile(absolutePath, OpenPermanent, target, ViewAuto))
+                    | None -> effects.Add(LoadFile(absolutePath, OpenPermanent, target))
             | Fedit.PluginApi.MoveLinesUp count -> current <- updateActiveBuffer (Buffer.moveLinesUp count) current
             | Fedit.PluginApi.MoveLinesDown count -> current <- updateActiveBuffer (Buffer.moveLinesDown count) current
 
@@ -1922,7 +1957,7 @@ module Editor =
                 activated
                 |> notify (Some(Notification.info $"Activated {Path.GetFileName absolutePath}")),
                 []
-            | None -> { model with Focus = Editor }, [ LoadFile(absolutePath, OpenPermanent, None, ViewAuto) ]
+            | None -> { model with Focus = Editor }, [ LoadFile(absolutePath, OpenPermanent, None) ]
         | Write -> runAction Save model
         | WriteAs path -> runAction (SaveAs path) model
         | Command.OpenConfig ->
@@ -1967,7 +2002,7 @@ module Editor =
                 activated
                 |> notify (Some(Notification.info $"Activated {Path.GetFileName absolute}")),
                 []
-            | None -> { model with Focus = Editor }, [ LoadFile(absolute, OpenPermanent, None, ViewAuto) ]
+            | None -> { model with Focus = Editor }, [ LoadFile(absolute, OpenPermanent, None) ]
         | SwitchBuffer bufferRef ->
             match resolveBufferRef bufferRef model.Editors.Buffers with
             | Some id ->
@@ -2053,7 +2088,7 @@ module Editor =
             | "off" -> setHexViewMode false model
             | _ -> setHexViewMode (not (Map.containsKey (activeBufferState model).Id model.HexViews)) model
 
-        | Command.Replace(fromHex, toHex) -> hexReplaceAll fromHex toHex model
+        | Command.Replace(needle, replacement) -> replaceAll needle replacement model
 
         | Plugin("list", _)
         | Command.Plugins -> openPromptSession PromptSessionKind.PluginsSession model
@@ -2505,7 +2540,7 @@ module Editor =
 
                 match tryActivateExisting path withWorkspace with
                 | Some activated -> activated, []
-                | None -> withWorkspace, [ LoadFile(path, OpenPermanent, None, ViewAuto) ]
+                | None -> withWorkspace, [ LoadFile(path, OpenPermanent, None) ]
             | SidebarNoOp -> { model with Workspace = workspace }, []
 
         // verbs whose canonical body stays in executeCommand (prompt-only).
@@ -3179,7 +3214,7 @@ module Editor =
               LoadKeybinds
               LoadMacros false ]
             @ (initialFile
-               |> Option.map (fun path -> LoadFile(path, OpenPermanent, None, ViewAuto))
+               |> Option.map (fun path -> LoadFile(path, OpenPermanent, None))
                |> Option.toList)
 
         let startupHint =
@@ -3568,13 +3603,20 @@ module Editor =
                     HighlightStates = Map.add bufferId spans model.HighlightStates },
                 []
             | _ -> model, []
-        | SelectionLadderReady(bufferId, editTick, ranges) ->
+        | SelectionLadderReady(bufferId, editTick, selStart, selEnd, ranges) ->
             // Apply the first expand step: the smallest node strictly larger
-            // than the live selection. Stale-tick / non-active results are
-            // dropped (same guard as HighlightParsed / LspDefinitionResolved),
-            // and later steps come from the cached ladder in `runAction`.
+            // than the live selection. Stale results are dropped (the
+            // HighlightParsed / LspDefinitionResolved guard) — including a
+            // live selection that no longer equals the requested one: caret
+            // motion does not bump the edit tick, so without this check a
+            // slow parse would land a surprise selection around wherever
+            // the caret is now.
             match Map.tryFind bufferId model.Editors.Buffers with
-            | Some buffer when buffer.EditTick = editTick && model.Editors.ActiveBufferId = bufferId ->
+            | Some buffer when
+                buffer.EditTick = editTick
+                && model.Editors.ActiveBufferId = bufferId
+                && selectionRange buffer = (selStart, selEnd)
+                ->
                 let (s, e) = selectionRange buffer
 
                 let firstLarger =
