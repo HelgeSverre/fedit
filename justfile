@@ -45,6 +45,57 @@ aot rid="osx-arm64" out="dist-aot":
     cp src/Fedit.PluginApi/bin/Release/net10.0/Fedit.PluginApi.dll {{out}}/
     @echo "→ AOT bundle in {{out}}/ (fedit + Fedit.PluginHost + Fedit.PluginApi.dll)"
 
+# Assert every grammar fedit can highlight actually shipped in a publish tree.
+#
+# A missing grammar is invisible at run time: detection still resolves the
+# language, the parse just returns zero spans and the file renders unstyled.
+# That is how all 13 TreeSitter.DotNet-bundled grammars shipped dead — they
+# sat at the publish root, where single-file self-extract put them somewhere
+# the loader never probes. Unit tests can't catch it (they run against the
+# Debug tree, which has every grammar), so the check has to be on publish
+# output. Wired into `install` and release CI.
+#
+# Keep this list in sync with `bundled` + `externalGrammars` in Highlight.fs.
+[unix]
+[group('build')]
+verify-dist dir="bin/dist" rid="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rid="{{rid}}"
+    if [ -z "$rid" ]; then
+      case "$(uname -s)/$(uname -m)" in
+        Darwin/arm64)  rid=osx-arm64 ;;
+        Darwin/x86_64) rid=osx-x64 ;;
+        Linux/x86_64)  rid=linux-x64 ;;
+        Linux/aarch64) rid=linux-arm64 ;;
+        *) echo "verify-dist: cannot infer RID for $(uname -s)/$(uname -m)" >&2; exit 1 ;;
+      esac
+    fi
+    case "$rid" in
+      osx-*)   ext=dylib ;;
+      linux-*) ext=so ;;
+      win-*)   ext=dll ;;
+      *) echo "verify-dist: unknown RID '$rid'" >&2; exit 1 ;;
+    esac
+    native="{{dir}}/runtimes/$rid/native"
+    [ -d "$native" ] || { echo "verify-dist: no such directory: $native" >&2; exit 1; }
+    missing=0
+    total=0
+    for g in javascript typescript tsx python json c-sharp go rust html css c php bash \
+             fsharp markdown xml dart just make astro toml sema applescript rescript zig; do
+      total=$((total + 1))
+      # macOS/Linux emit `lib` prefixes; Windows does not.
+      if [ ! -f "$native/libtree-sitter-$g.$ext" ] && [ ! -f "$native/tree-sitter-$g.$ext" ]; then
+        echo "  missing grammar: $g"
+        missing=$((missing + 1))
+      fi
+    done
+    if [ "$missing" -gt 0 ]; then
+      echo "verify-dist: $missing of $total grammars missing from $native" >&2
+      exit 1
+    fi
+    echo "verify-dist: all $total grammars present in $native"
+
 # Format sources (F# via fantomas, markdown via oxfmt).
 [group('format')]
 format:
@@ -94,7 +145,7 @@ coverage open="":
 
 # Pre-commit gate.
 [group('test')]
-check: lint build test
+check: lint build test website::verify-generated
 
 # Micro benchmarks (BenchmarkDotNet, ShortRun, in-process). Full run ~4 min;
 # filter to a class, e.g. `just bench '*PieceTable*'` (~1 min). Results land
@@ -114,6 +165,7 @@ bench-manual scope="":
 [group('install')]
 install dest="~/.local/bin":
     {{dotnet}} publish {{project}} -c Release -o bin/dist
+    just verify-dist bin/dist
     mkdir -p {{dest}}
     install -m 0755 bin/dist/fedit {{dest}}/fedit
     install -m 0644 bin/dist/Fedit.PluginApi.dll {{dest}}/Fedit.PluginApi.dll

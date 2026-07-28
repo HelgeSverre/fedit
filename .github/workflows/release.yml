@@ -120,7 +120,13 @@ jobs:
             linux-*) ext="so"; pfx="lib" ;;
             *) ext="dylib"; pfx="lib" ;;
           esac
-          for grammar in fsharp markdown xml dart just make astro toml sema applescript rescript zig; do
+          # Both halves of the grammar set: the ones we cross-build ourselves
+          # and the ones TreeSitter.DotNet bundles (relocated into runtimes/ by
+          # the publish target). This list used to cover only the former, which
+          # is how 13 dead grammars shipped unnoticed — keep it in sync with
+          # `bundled` + `externalGrammars` in Highlight.fs.
+          for grammar in fsharp markdown xml dart just make astro toml sema applescript rescript zig \
+                         javascript typescript tsx python json c-sharp go rust html css c php bash; do
             test -f "dist/${{ matrix.rid }}/runtimes/${{ matrix.rid }}/native/${pfx}tree-sitter-${grammar}.${ext}"
           done
 
@@ -242,7 +248,14 @@ jobs:
           [ -f "$d/fedit.exe" ] && bin="$d/fedit.exe" && host="$d/Fedit.PluginHost.exe"
           "$bin" --version
           "$bin" __plugin-wire-selftest
+          # One file per grammar family: a vendored cross-build (fsharp) and two
+          # TreeSitter.DotNet-bundled grammars. __render-smoke now exits non-zero
+          # when a detected language yields no spans, so these catch a grammar
+          # that ships but fails to load — previously only fsharp was covered,
+          # and every bundled grammar was dead without CI noticing.
           "$bin" __render-smoke "$PWD/src/Fedit/Highlight.fs"
+          "$bin" __render-smoke "$PWD/brand/palette.css"
+          "$bin" __render-smoke "$PWD/brand/palette.json"
           # The Homebrew formula runs `fedit completions {bash,zsh,fish}` at
           # install time (generate_completions_from_executable). If that path
           # reflected under AOT every brew install would break — guard it here:
