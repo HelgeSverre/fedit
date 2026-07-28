@@ -483,9 +483,9 @@ type LspDocumentSync =
         /// Canonical forward-slash file path (`BufferState.FilePath`).
         Path: string
         Server: LanguageServerConfig
-        /// v1 decision: the server config's first FileType extension
-        /// (falling back to the server name) stands in for a real
-        /// languageId table — "sema" for sema, "ts" for typescript.
+        /// The LSP languageId, derived from this document's extension by
+        /// `LanguageServers.languageIdFor` — not from the server, which may
+        /// own several languages at once.
         LanguageId: string
         /// The buffer's `EditTick` — already monotonic per document, so it
         /// doubles as the LSP document version.
