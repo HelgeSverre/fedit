@@ -174,7 +174,12 @@ module Runtime =
         | FileOpened(path, intent, target, result) ->
             $"FileOpened({path}, {renderIntent intent}, target={renderTarget target}, {renderFileOpenResult result})"
         | BufferSaved(bufferId, path, revision, result) ->
-            $"BufferSaved(buffer={bufferId}, path={path}, revision={revision}, {renderUnitResult result})"
+            let rendered =
+                match result with
+                | Result.Ok backedUp -> $"Ok(backedUp={backedUp})"
+                | Result.Error error -> $"Error({error})"
+
+            $"BufferSaved(buffer={bufferId}, path={path}, revision={revision}, {rendered})"
         | ConfigSaved result -> $"ConfigSaved({renderUnitResult result})"
         | ConfigFileReady(Result.Ok path) -> $"ConfigFileReady(Ok({path}))"
         | ConfigFileReady(Result.Error error) -> $"ConfigFileReady(Error({error}))"
@@ -667,11 +672,15 @@ module Runtime =
                                 let msg =
                                     try
                                         if binary then
+                                            // Hex edits are easy to get wrong; keep the
+                                            // original bytes recoverable before the first
+                                            // overwrite. A failed copy fails the save.
+                                            let backedUp = File.backupOnce path
                                             File.writeAllBytesAtomic path (Hex.textToBytes contents)
+                                            BufferSaved(bufferId, path, revision, Result.Ok backedUp)
                                         else
                                             File.writeAllTextAtomic path contents
-
-                                        BufferSaved(bufferId, path, revision, Result.Ok())
+                                            BufferSaved(bufferId, path, revision, Result.Ok false)
                                     with ex ->
                                         BufferSaved(bufferId, path, revision, Result.Error ex.Message)
 

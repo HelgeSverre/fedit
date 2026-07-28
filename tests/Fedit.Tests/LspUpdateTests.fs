@@ -147,7 +147,7 @@ let ``a scratch buffer gaining a path on save emits Opened`` () =
     // BufferSaved with the current EditTick is how save-as lands: markSaved
     // assigns the FilePath, and the path-diff sees a document appear.
     let _, effects =
-        Editor.update (BufferSaved(1, "/root/fresh.sema", 0, Result.Ok())) (initModel ())
+        Editor.update (BufferSaved(1, "/root/fresh.sema", 0, Result.Ok false)) (initModel ())
 
     match lspSyncsOf effects with
     | [ sync ] ->

@@ -540,7 +540,9 @@ type Msg =
     /// buffer exists (plugin `OpenFileAt`): it travels with the LoadFile
     /// effect and returns here so the jump survives the async load.
     | FileOpened of path: string * intent: OpenIntent * target: Position option * Result<LoadedFile, FileOpenError>
-    | BufferSaved of bufferId: int * path: string * revision: int * Result<unit, string>
+    /// Ok carries whether a first-save `.bak` backup of the original file
+    /// was created alongside the write (binary/hex-view saves only).
+    | BufferSaved of bufferId: int * path: string * revision: int * Result<bool, string>
     | ConfigSaved of Result<unit, string>
     /// The config file is on disk (written if missing): Ok carries its path
     /// for the follow-up open; Error carries the write failure.
