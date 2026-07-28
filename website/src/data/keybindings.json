@@ -416,6 +416,22 @@
     "bound": true
   },
   {
+    "stroke": "ctrl+alt+w",
+    "action": "expand-selection",
+    "context": "editor",
+    "category": "selection",
+    "description": "Grow the selection to the enclosing syntax node",
+    "bound": true
+  },
+  {
+    "stroke": "ctrl+alt+shift+w",
+    "action": "shrink-selection",
+    "context": "editor",
+    "category": "selection",
+    "description": "Shrink the selection to the previous syntax node",
+    "bound": true
+  },
+  {
     "stroke": "ctrl+alt+left",
     "action": "jump-back",
     "context": "editor",
