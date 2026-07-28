@@ -1,6 +1,7 @@
-## Next
+## v1.9.0 — 2026-07-29
 
 - Added language-server configuration, diagnostics, hover, definition and reference navigation, jump-back, and the `lsp` manager.
+- Added `pyright` to the built-in language-server registry, and python shebang detection for highlighting.
 - Reworked macros around semantic actions, persistent registers, safe replay fencing, and an editable macros file.
 - Added binary-file hex editing: byte-exact saves with a one-time `.bak` backup, nibble and ASCII overwrite typing, byte search, and `replace` over byte sequences.
 - Added syntax-tree expand and shrink selection on `Shift+Alt+Up` and `Shift+Alt+Down`.
