@@ -53,6 +53,8 @@ let ``detectLanguage maps F# extensions`` () =
 [<InlineData("foo.cjs", "javascript")>]
 [<InlineData("bar.ts", "typescript")>]
 [<InlineData("baz.py", "python")>]
+[<InlineData("stub.pyi", "python")>]
+[<InlineData("gui.pyw", "python")>]
 [<InlineData("data.json", "json")>]
 [<InlineData("Program.cs", "c-sharp")>]
 [<InlineData("main.go", "go")>]
@@ -123,10 +125,20 @@ let ``detectLanguage detects shell scripts by shebang`` () =
     Assert.Equal(Some "bash", Highlight.detectLanguage (Some "run") "#!/usr/bin/env bash\n")
     Assert.Equal(Some "bash", Highlight.detectLanguage None "#!/usr/bin/env zsh\n")
     Assert.Equal(Some "bash", Highlight.detectLanguage (Some "task") "#! /bin/bash -eu\n")
-    // Non-shell shebang and plain text must not resolve to bash.
-    Assert.Equal(None, Highlight.detectLanguage (Some "app") "#!/usr/bin/env python\nprint(1)")
+    // Shebangs we have no grammar for, and plain text, stay unresolved.
     Assert.Equal(None, Highlight.detectLanguage (Some "main") "#!/usr/bin/node\n")
     Assert.Equal(None, Highlight.detectLanguage (Some "notes") "just some text\n")
+
+[<Fact>]
+let ``detectLanguage detects python scripts by shebang`` () =
+    Assert.Equal(Some "python", Highlight.detectLanguage (Some "app") "#!/usr/bin/env python\nprint(1)")
+    Assert.Equal(Some "python", Highlight.detectLanguage (Some "tool") "#!/usr/bin/env python3\n")
+    Assert.Equal(Some "python", Highlight.detectLanguage (Some "legacy") "#!/usr/bin/python2\n")
+    Assert.Equal(Some "python", Highlight.detectLanguage (Some "pinned") "#!/usr/bin/env python3.12\n")
+    Assert.Equal(Some "python", Highlight.detectLanguage (Some "flagged") "#! /usr/bin/python3 -u\n")
+    // The version suffix is digits-and-dots only — a longer name is a different
+    // program, not a python interpreter.
+    Assert.Equal(None, Highlight.detectLanguage (Some "app") "#!/usr/bin/env pythonista\n")
 
 [<Theory>]
 [<InlineData("tsx")>]

@@ -283,12 +283,6 @@ module Editor =
 
         LanguageServers.serverForFile enabledServers path
 
-    /// v1 languageId decision: the server config's first FileType extension
-    /// (fallback: the server name). Documented on
-    /// `LspDocumentSync.LanguageId`.
-    let private languageIdFor (server: LanguageServerConfig) =
-        server.FileTypes |> List.tryHead |> Option.defaultValue server.Name
-
     let private updateActiveBuffer transform model =
         let transformed = activeBufferState model |> transform
 
@@ -1159,7 +1153,7 @@ module Editor =
                     |> Option.map (fun server ->
                         { Path = path
                           Server = server
-                          LanguageId = languageIdFor server
+                          LanguageId = LanguageServers.languageIdFor path server
                           Version = buffer.EditTick
                           Kind = LspDocumentSyncKind.Opened buffer.Document })))
 
@@ -4296,7 +4290,7 @@ module Editor =
         let syncFor path (server: LanguageServerConfig) (buffer: BufferState) kind =
             { Path = path
               Server = server
-              LanguageId = languageIdFor server
+              LanguageId = LanguageServers.languageIdFor path server
               Version = buffer.EditTick
               Kind = kind }
 

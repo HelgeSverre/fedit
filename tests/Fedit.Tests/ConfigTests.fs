@@ -32,7 +32,7 @@ let private serverNames (config: Config) =
 let ``built-in language servers are present when config has no languageServers key`` () =
     let config = loadJson "{}"
 
-    serverNames config |> should equal [ "sema"; "typescript"; "rust" ]
+    serverNames config |> should equal [ "sema"; "typescript"; "rust"; "pyright" ]
 
     let sema = config.LanguageServers |> List.find (fun server -> server.Name = "sema")
     sema.Command |> should equal "sema"
@@ -46,7 +46,7 @@ let ``a user languageServers entry named like a default replaces it entirely`` (
         loadJson
             """{ "languageServers": { "sema": { "command": "/opt/sema/bin/sema", "args": ["lsp", "--verbose"], "fileTypes": ["sema", "sm"], "roots": ["sema.toml", ".git"] } } }"""
 
-    serverNames config |> should equal [ "sema"; "typescript"; "rust" ]
+    serverNames config |> should equal [ "sema"; "typescript"; "rust"; "pyright" ]
 
     let sema = config.LanguageServers |> List.find (fun server -> server.Name = "sema")
     sema.Command |> should equal "/opt/sema/bin/sema"
@@ -72,7 +72,8 @@ let ``an extra user language server extends the built-in set`` () =
         loadJson
             """{ "languageServers": { "gopls": { "command": "gopls", "fileTypes": ["go"], "roots": ["go.mod"] } } }"""
 
-    serverNames config |> should equal [ "sema"; "typescript"; "rust"; "gopls" ]
+    serverNames config
+    |> should equal [ "sema"; "typescript"; "rust"; "pyright"; "gopls" ]
 
     let gopls =
         config.LanguageServers |> List.find (fun server -> server.Name = "gopls")
@@ -88,13 +89,14 @@ let ``malformed languageServers entries are skipped`` () =
         loadJson
             """{ "languageServers": { "broken": "not an object", "nocommand": { "args": ["x"] }, "blankcommand": { "command": "  " }, "good": { "command": "good-ls", "fileTypes": ["g"] } } }"""
 
-    serverNames config |> should equal [ "sema"; "typescript"; "rust"; "good" ]
+    serverNames config
+    |> should equal [ "sema"; "typescript"; "rust"; "pyright"; "good" ]
 
 [<Fact>]
 let ``a languageServers value that is not an object leaves the defaults intact`` () =
     let config = loadJson """{ "languageServers": [ "sema" ] }"""
 
-    serverNames config |> should equal [ "sema"; "typescript"; "rust" ]
+    serverNames config |> should equal [ "sema"; "typescript"; "rust"; "pyright" ]
 
 // -- disabledLanguageServers persistence ------------------------------------
 
@@ -135,7 +137,9 @@ let ``save preserves a user's languageServers block`` () =
         let reloaded, error = ConfigIO.loadFrom configPath []
 
         error |> should equal None
-        serverNames reloaded |> should equal [ "sema"; "typescript"; "rust"; "gopls" ]
+
+        serverNames reloaded
+        |> should equal [ "sema"; "typescript"; "rust"; "pyright"; "gopls" ]
     finally
         File.Delete configPath
 
@@ -161,6 +165,55 @@ let ``serverForFile is None for unknown or missing extensions`` () =
     // A dotfile's name is not an extension.
     LanguageServers.serverForFile LanguageServers.defaults "/work/.sema"
     |> should equal (None: LanguageServerConfig option)
+
+[<Theory>]
+[<InlineData("/work/app.py")>]
+[<InlineData("/work/stub.pyi")>]
+[<InlineData("/work/gui.pyw")>]
+let ``serverForFile routes python sources to pyright`` (path: string) =
+    LanguageServers.serverForFile LanguageServers.defaults path
+    |> Option.map (fun server -> server.Name)
+    |> should equal (Some "pyright")
+
+// -- languageIdFor ----------------------------------------------------------
+
+[<Theory>]
+// Python: every extension the server owns reports the one spec id, not `py`.
+[<InlineData("/work/app.py", "python")>]
+[<InlineData("/work/stub.pyi", "python")>]
+[<InlineData("/work/gui.pyw", "python")>]
+// The id follows the document, so a multi-language server labels each file
+// correctly rather than tagging them all with its first configured extension.
+[<InlineData("/work/util.js", "javascript")>]
+[<InlineData("/work/mod.mjs", "javascript")>]
+[<InlineData("/work/main.ts", "typescript")>]
+[<InlineData("/work/View.tsx", "typescriptreact")>]
+[<InlineData("/work/View.jsx", "javascriptreact")>]
+[<InlineData("/work/lib.rs", "rust")>]
+// Extensions with no mapping pass through unchanged — what a user-configured
+// server for an unknown language expects.
+[<InlineData("/work/main.sema", "sema")>]
+[<InlineData("/work/query.nim", "nim")>]
+let ``languageIdFor derives the id from the document`` (path: string) (expected: string) =
+    let server =
+        { Name = "irrelevant"
+          Command = "irrelevant"
+          Args = []
+          FileTypes = [ "zz" ]
+          RootMarkers = [] }
+
+    LanguageServers.languageIdFor path server |> should equal expected
+
+[<Fact>]
+let ``languageIdFor falls back to the server name without an extension`` () =
+    let server =
+        { Name = "somelang"
+          Command = "somelang-lsp"
+          Args = []
+          FileTypes = [ "sl" ]
+          RootMarkers = [] }
+
+    LanguageServers.languageIdFor "/work/README" server |> should equal "somelang"
 
 // -- findWorkspaceRoot ------------------------------------------------------
 

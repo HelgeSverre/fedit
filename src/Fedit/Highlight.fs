@@ -285,7 +285,22 @@ module Highlight =
     let private shellInterpreters =
         set [ "sh"; "bash"; "dash"; "zsh"; "ksh"; "mksh"; "ash" ]
 
-    /// Detect a shell script from its `#!` line when the path gives no
+    /// Map a `#!` interpreter basename onto a grammar. Python interpreters are
+    /// routinely version-suffixed (`python3`, `python3.12`), so they match on
+    /// the stem plus a digits-and-dots tail rather than an exhaustive set —
+    /// which keeps `pythonista` and friends from matching.
+    let private languageForInterpreter (name: string) : string option =
+        if Set.contains name shellInterpreters then
+            Some "bash"
+        elif
+            name.StartsWith("python", StringComparison.Ordinal)
+            && name.Substring 6 |> Seq.forall (fun c -> Char.IsDigit c || c = '.')
+        then
+            Some "python"
+        else
+            None
+
+    /// Detect a script's language from its `#!` line when the path gives no
     /// hint (extensionless scripts). Resolves `/usr/bin/env <interp>` to
     /// the real interpreter and ignores flags / env-var assignments.
     let private detectShebang (source: string) : string option =
@@ -306,6 +321,8 @@ module Highlight =
             match tokens with
             | [] -> None
             | first :: more ->
+                // `Path.GetFileName` is nullable — `Option.ofObj` drops that at
+                // the boundary so the interpreter is a plain string from here on.
                 let interp =
                     match Path.GetFileName first with
                     | "env" ->
@@ -313,12 +330,10 @@ module Highlight =
                         more
                         |> List.tryFind (fun t ->
                             not (t.StartsWith("-", StringComparison.Ordinal)) && not (t.Contains "="))
-                        |> Option.map Path.GetFileName
-                    | other -> Some other
+                        |> Option.bind (Path.GetFileName >> Option.ofObj)
+                    | other -> Option.ofObj other
 
-                match interp with
-                | Some name when Set.contains name shellInterpreters -> Some "bash"
-                | _ -> None
+                interp |> Option.bind languageForInterpreter
 
     let detectLanguage (path: string option) (source: string) : string option =
         let byPath =
@@ -362,7 +377,9 @@ module Highlight =
                     | ".cjs" -> Some "javascript"
                     | ".ts" -> Some "typescript"
                     | ".tsx" -> Some "tsx"
-                    | ".py" -> Some "python"
+                    | ".py"
+                    | ".pyi"
+                    | ".pyw" -> Some "python"
                     | ".json" -> Some "json"
                     | ".cs" -> Some "c-sharp"
                     | ".go" -> Some "go"

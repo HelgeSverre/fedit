@@ -105,7 +105,15 @@ module LanguageServers =
             Command = "rust-analyzer"
             Args = []
             FileTypes = [ "rs" ]
-            RootMarkers = [ "Cargo.toml" ] } ]
+            RootMarkers = [ "Cargo.toml" ] }
+          // `pyproject.toml` first: it is the modern marker and the one most
+          // likely to sit at the true project root when a repo has both it and
+          // a legacy `setup.py` in a subdirectory.
+          { Name = "pyright"
+            Command = "pyright-langserver"
+            Args = [ "--stdio" ]
+            FileTypes = [ "py"; "pyi"; "pyw" ]
+            RootMarkers = [ "pyproject.toml"; "setup.py"; "setup.cfg"; "requirements.txt" ] } ]
 
     /// Merge user-configured servers over the defaults: a user entry whose
     /// name matches a default replaces it wholesale (no per-field fallback);
@@ -126,10 +134,11 @@ module LanguageServers =
 
         replaced @ extras
 
-    /// The first configured server whose FileTypes contains the file's
-    /// extension (without the dot, case-insensitive). None for files
-    /// without an extension.
-    let serverForFile (servers: LanguageServerConfig list) (filePath: string) : LanguageServerConfig option =
+    /// The file's extension without the dot, lowercased. `None` when there is
+    /// no extension, and for dotfiles — a leading dot names the file (`.sema`
+    /// is a config file, not a sema document), so the `i > 0` guard is load-
+    /// bearing.
+    let private extensionOf (filePath: string) : string option =
         let normalized = Paths.norm filePath
 
         let fileName =
@@ -138,14 +147,63 @@ module LanguageServers =
             | i -> normalized.Substring(i + 1)
 
         match fileName.LastIndexOf '.' with
-        | i when i > 0 && i < fileName.Length - 1 ->
-            let extension = fileName.Substring(i + 1)
+        | i when i > 0 && i < fileName.Length - 1 -> Some(fileName.Substring(i + 1).ToLowerInvariant())
+        | _ -> None
 
+    /// The first configured server whose FileTypes contains the file's
+    /// extension (without the dot, case-insensitive). None for files
+    /// without an extension.
+    let serverForFile (servers: LanguageServerConfig list) (filePath: string) : LanguageServerConfig option =
+        match extensionOf filePath with
+        | Some extension ->
             servers
             |> List.tryFind (fun server ->
                 server.FileTypes
                 |> List.exists (fun fileType -> String.Equals(fileType, extension, StringComparison.OrdinalIgnoreCase)))
-        | _ -> None
+        | None -> None
+
+    /// The LSP `languageId` for a document, using the spec's well-known
+    /// identifiers.
+    ///
+    /// Derived from the file, not from the server: one server routinely owns
+    /// several languages — the typescript server also handles `.js` — so an id
+    /// taken from the server's config mislabels every file type but the first.
+    /// Unmapped extensions pass through as themselves, which is what a
+    /// user-configured server for a language we don't know about wants.
+    ///
+    /// Deliberately not derived from `Highlight.detectLanguage`: those are
+    /// tree-sitter grammar names, and they disagree with LSP ids often enough
+    /// (`c-sharp` vs `csharp`, `bash` vs `shellscript`, `tsx` vs
+    /// `typescriptreact`) that bridging them would just be a second lossy table.
+    let languageIdFor (filePath: string) (server: LanguageServerConfig) : string =
+        match extensionOf filePath with
+        | Some extension ->
+            match extension with
+            | "py"
+            | "pyi"
+            | "pyw" -> "python"
+            | "ts" -> "typescript"
+            | "tsx" -> "typescriptreact"
+            | "js"
+            | "mjs"
+            | "cjs" -> "javascript"
+            | "jsx" -> "javascriptreact"
+            | "rs" -> "rust"
+            | "cs" -> "csharp"
+            | "fs"
+            | "fsi"
+            | "fsx" -> "fsharp"
+            | "h" -> "c"
+            | "cc"
+            | "hpp" -> "cpp"
+            | "htm" -> "html"
+            | "md"
+            | "markdown" -> "markdown"
+            | "sh"
+            | "bash"
+            | "zsh" -> "shellscript"
+            | other -> other
+        | None -> server.Name
 
     /// Walk up from the file's directory looking for any root marker; the
     /// nearest match wins, the workspace root is the fallback. `markerExists`

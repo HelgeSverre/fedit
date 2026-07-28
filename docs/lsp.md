@@ -9,13 +9,31 @@ the server set.
 
 ## Built-in servers
 
-Three servers are configured out of the box:
+Four servers are configured out of the box:
 
-| Name         | Command                              | File types               | Root markers                    |
-| ------------ | ------------------------------------ | ------------------------ | ------------------------------- |
-| `sema`       | `sema lsp`                           | `sema`                   | `sema.toml`                     |
-| `typescript` | `typescript-language-server --stdio` | `ts`, `tsx`, `js`, `jsx` | `tsconfig.json`, `package.json` |
-| `rust`       | `rust-analyzer`                      | `rs`                     | `Cargo.toml`                    |
+| Name         | Command                              | File types               | Root markers                                                  |
+| ------------ | ------------------------------------ | ------------------------ | ------------------------------------------------------------- |
+| `sema`       | `sema lsp`                           | `sema`                   | `sema.toml`                                                   |
+| `typescript` | `typescript-language-server --stdio` | `ts`, `tsx`, `js`, `jsx` | `tsconfig.json`, `package.json`                               |
+| `rust`       | `rust-analyzer`                      | `rs`                     | `Cargo.toml`                                                  |
+| `pyright`    | `pyright-langserver --stdio`         | `py`, `pyi`, `pyw`       | `pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt` |
+
+Install pyright with `npm install -g pyright` (or `pip install pyright`).
+To use a different Python server, replace the entry by name — see
+[Configuration](#configuration). For example, `basedpyright`:
+
+```json
+{
+    "languageServers": {
+        "pyright": {
+            "command": "basedpyright-langserver",
+            "args": ["--stdio"],
+            "fileTypes": ["py", "pyi", "pyw"],
+            "roots": ["pyproject.toml", "setup.py"]
+        }
+    }
+}
+```
 
 A server only ever starts if its binary is on `PATH` and a matching file
 opens. The workspace root passed to the server is found by walking up
