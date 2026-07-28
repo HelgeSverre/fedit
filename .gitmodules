@@ -12,7 +12,7 @@
 	url = https://github.com/UserNobody14/tree-sitter-dart
 [submodule "vendor/tree-sitter-just"]
 	path = vendor/tree-sitter-just
-	url = https://github.com/IndianBoy42/tree-sitter-just
+	url = https://github.com/HelgeSverre/tree-sitter-just
 [submodule "vendor/tree-sitter-make"]
 	path = vendor/tree-sitter-make
 	url = https://github.com/tree-sitter-grammars/tree-sitter-make
