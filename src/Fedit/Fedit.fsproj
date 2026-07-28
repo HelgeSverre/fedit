@@ -166,7 +166,7 @@
     <ItemGroup>
       <_BundledGrammars
         Include="@(ResolvedFileToPublish)"
-        Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(ResolvedFileToPublish.RelativePath)', '^(lib)?tree-sitter-[a-z][a-z0-9_-]+\.(so|dylib|dll)$'))" />
+        Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(ResolvedFileToPublish.RelativePath)', '^(lib)?tree-sitter-[a-z][a-z0-9_-]*\.(so|dylib|dll)$'))" />
       <_KeepGrammars
         Include="@(_BundledGrammars)"
         Condition="'%(Filename)' == 'libtree-sitter-fsharp' or '%(Filename)' == 'tree-sitter-fsharp'
@@ -195,8 +195,30 @@
         Include="@(ResolvedFileToPublish)"
         Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(ResolvedFileToPublish.RelativePath)', '^runtimes[\\/][^\\/]+[\\/]native[\\/].+$')) and !$([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('runtimes$([System.IO.Path]::DirectorySeparatorChar)$(RuntimeIdentifier)$([System.IO.Path]::DirectorySeparatorChar)'))" />
       <ResolvedFileToPublish Remove="@(_OtherRidNatives)" />
+
+      <!-- Relocate the kept bundled grammars from the publish root into
+           `runtimes/<rid>/native/`, beside our own cross-built grammars.
+
+           At the publish root they are swept into the single-file bundle by
+           `IncludeNativeLibrariesForSelfExtract` and self-extract to a temp
+           directory at run time — but TreeSitter.DotNet probes relative to the
+           executable's directory, so `new TreeSitter.Language("python")` never
+           finds them and every bundled grammar silently yields zero spans.
+           (Only the vendored grammars survived, because they ride along inside
+           `runtimes/` as loose `None` items.) `ExcludeFromSingleFile` keeps
+           these loose for the same reason, and `just install` then picks them
+           up through its existing `cp -R bin/dist/runtimes`.
+
+           Runs after the `_OtherRidNatives` sweep above so the freshly
+           rewritten paths aren't re-examined by it — that check compares with
+           the platform separator, and matching it here would be fragile. -->
+      <ResolvedFileToPublish Remove="@(_KeepGrammars)" />
+      <ResolvedFileToPublish Include="@(_KeepGrammars)">
+        <RelativePath>runtimes$([System.IO.Path]::DirectorySeparatorChar)$(RuntimeIdentifier)$([System.IO.Path]::DirectorySeparatorChar)native$([System.IO.Path]::DirectorySeparatorChar)%(Filename)%(Extension)</RelativePath>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
     </ItemGroup>
-    <Message Text="Trimmed @(_DropGrammars->Count()) bundled tree-sitter grammars (kept libtree-sitter core + 14 languages)." Importance="high" />
+    <Message Text="Trimmed @(_DropGrammars->Count()) bundled tree-sitter grammars (kept libtree-sitter core + 14 languages); relocated @(_KeepGrammars->Count()) into runtimes/$(RuntimeIdentifier)/native/." Importance="high" />
   </Target>
   <ItemGroup>
     <Compile Include="Primitives.fs" />
@@ -246,6 +268,7 @@
     <Compile Include="Cli\Commands\Completions.fs" />
     <Compile Include="Cli\Commands\Keybinds.fs" />
     <Compile Include="Cli\Commands\Themes.fs" />
+    <Compile Include="Cli\Commands\CommandReference.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 </Project>

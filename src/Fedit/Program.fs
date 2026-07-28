@@ -35,7 +35,11 @@ module Program =
           { Name = "themes"
             Aliases = []
             HiddenAliases = []
-            Summary = "Print the bundled themes" } ]
+            Summary = "Print the bundled themes" }
+          { Name = "commands"
+            Aliases = []
+            HiddenAliases = []
+            Summary = "Print the built-in command-palette reference" } ]
 
     let private app: CliApp<ProgramOption> =
         { Name = "fedit"
@@ -103,7 +107,8 @@ module Program =
             [ Plugins.descriptor
               Completions.descriptor
               Keybinds.descriptor
-              Themes.descriptor ] }
+              Themes.descriptor
+              CommandReference.descriptor ] }
 
     [<EntryPoint>]
     let main argv =
@@ -139,32 +144,47 @@ module Program =
 
                 let screen = Layout.render model
                 let cells = screen.Cells.Length
+                let text = File.ReadAllText argv.[1]
 
-                let spans =
+                let language, spans =
                     match HighlightRegistry.tryCreate () with
                     | Some registry ->
                         use registry = registry
-                        let text = File.ReadAllText argv.[1]
 
                         match Highlight.detectLanguage (Some argv.[1]) text with
                         | Some lang ->
+                            Some lang,
                             Highlight.parseSpans registry lang text
                             |> Option.map Array.length
                             |> Option.defaultValue 0
-                        | None -> 0
-                    | None -> 0
+                        | None -> None, 0
+                    | None -> None, 0
 
-                Console.Error.WriteLine(
-                    "render-smoke OK: "
-                    + string screen.Width
-                    + " wide, "
-                    + string cells
-                    + " cells, "
-                    + string spans
-                    + " highlight spans"
-                )
+                // A language we recognized but couldn't paint means its grammar
+                // never loaded. That failure is silent in the TUI — the file just
+                // renders unstyled — and is exactly how the bundled grammars once
+                // shipped dead for a whole release. Fail loudly instead.
+                match language with
+                | Some lang when spans = 0 && text.Length > 0 ->
+                    Console.Error.WriteLine(
+                        "render-smoke FAIL: detected "
+                        + lang
+                        + " but produced 0 highlight spans (grammar failed to load?)"
+                    )
 
-                0
+                    1
+                | _ ->
+                    Console.Error.WriteLine(
+                        "render-smoke OK: "
+                        + string screen.Width
+                        + " wide, "
+                        + string cells
+                        + " cells, "
+                        + string spans
+                        + " highlight spans"
+                    )
+
+                    0
             with ex ->
                 Console.Error.WriteLine("render-smoke FAIL: " + ex.Message)
                 1
@@ -175,6 +195,7 @@ module Program =
             | Some("completions", rest) -> Completions.run rootDescriptor rest
             | Some("keybinds", rest) -> Keybinds.run rest
             | Some("themes", rest) -> Themes.run rest
+            | Some("commands", rest) -> CommandReference.run rest
             | _ ->
 
                 match Parser.parse app.Options argv with

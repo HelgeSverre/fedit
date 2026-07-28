@@ -196,7 +196,7 @@ module Commands =
             Constructor = simple PreviousBuffer }
           { Name = "theme"
             Usage = "theme <name>"
-            Summary = "Switch accent color. Bundled palettes plus any user themes from ~/.config/fedit/themes/*.json."
+            Summary = "Switch theme. Bundled palettes plus any user themes from ~/.config/fedit/themes/*.json."
             Hidden = false
             Constructor =
               fun argument ->
