@@ -35,7 +35,9 @@ type private QueuedDocument =
 /// redirected stdio, speaking JSON-RPC under Content-Length framing. One
 /// instance per server name + workspace root pair (`LspClient.key`);
 /// Runtime owns creation and restart policy — this layer never restarts.
-type LspClient(config: LanguageServerConfig, rootPath: string, callbacks: LspClientCallbacks) =
+type LspClient
+    (config: LanguageServerConfig, rootPath: string, callbacks: LspClientCallbacks, maxIncomingMessageBytes: int option)
+    =
     let gate = obj ()
     let pending = ConcurrentDictionary<int, Result<JsonElement, string> -> unit>()
     let queuedDocuments = Dictionary<string, QueuedDocument>()
@@ -115,45 +117,48 @@ type LspClient(config: LanguageServerConfig, rootPath: string, callbacks: LspCli
 
     // Runs on the reader thread when the initialize response arrives:
     // store capabilities, send initialized, flush deferred didOpens, go
-    // Running. The flush and the status flip are ONE gate section so a
-    // concurrent Notify* either sees Starting (and folds into the queue
-    // drained here) or sees Running strictly after every queued didOpen is
-    // on the wire — a didChange can never outrun its didOpen. Monitor is
-    // reentrant, so writeMessage's inner `lock gate` is safe, and
-    // LspTransport's per-stream writer lock never wraps the gate, so there
-    // is no lock-order inversion.
+    // Running. Keep the status at Starting while draining: concurrent
+    // Notify* calls continue folding into queuedDocuments, and no blocking
+    // pipe write happens while holding gate.
     let onInitializeResponse (outcome: Result<JsonElement, string>) =
         match outcome with
         | Result.Error e -> setStatus (LspServerStatus.Failed("initialize failed: " + e))
         | Result.Ok result ->
             let parsed = LspWire.readInitializeResult result
 
-            let becameRunning =
-                lock gate (fun () ->
-                    capabilities <- parsed
-                    writeMessage LspWire.initializedNotification |> ignore
+            lock gate (fun () -> capabilities <- parsed)
+            writeMessage LspWire.initializedNotification |> ignore
 
-                    let queued = [ for KeyValue(path, document) in queuedDocuments -> path, document ]
+            let mutable draining = true
+            let mutable becameRunning = false
 
-                    queuedDocuments.Clear()
+            while draining do
+                let queued =
+                    lock gate (fun () ->
+                        if status <> LspServerStatus.Starting then
+                            draining <- false
+                            []
+                        elif queuedDocuments.Count = 0 then
+                            status <- LspServerStatus.Running
+                            becameRunning <- true
+                            draining <- false
+                            []
+                        else
+                            let documents =
+                                [ for KeyValue(path, document) in queuedDocuments -> path, document ]
 
-                    for path, document in queued do
-                        writeMessage (
-                            LspWire.didOpenNotification
-                                (LspUri.fromPath path)
-                                document.LanguageId
-                                document.Version
-                                document.Text
-                        )
-                        |> ignore
+                            queuedDocuments.Clear()
+                            documents)
 
-                    // Only Starting flips to Running: a concurrent Shutdown
-                    // may already have moved the client to Stopped.
-                    if status = LspServerStatus.Starting then
-                        status <- LspServerStatus.Running
-                        true
-                    else
-                        false)
+                for path, document in queued do
+                    writeMessage (
+                        LspWire.didOpenNotification
+                            (LspUri.fromPath path)
+                            document.LanguageId
+                            document.Version
+                            document.Text
+                    )
+                    |> ignore
 
             if becameRunning then
                 callbacks.OnStatusChanged LspServerStatus.Running
@@ -188,8 +193,9 @@ type LspClient(config: LanguageServerConfig, rootPath: string, callbacks: LspCli
         while running do
             match
                 (try
-                    LspTransport.readFrame stdout
-                 with _ ->
+                    LspTransport.readFrameWithLimit maxIncomingMessageBytes stdout
+                 with ex ->
+                     appendLog ("invalid LSP frame: " + ex.Message)
                      None)
             with
             | None -> running <- false
@@ -390,8 +396,12 @@ type LspClient(config: LanguageServerConfig, rootPath: string, callbacks: LspCli
         | None -> setStatus LspServerStatus.Stopped
         | Some p ->
             if not p.HasExited then
-                writeMessage (LspWire.shutdownRequest (allocateRequestId ())) |> ignore
-                writeMessage LspWire.exitNotification |> ignore
+                // A server may stop consuming stdin. Keep the polite writes
+                // best-effort and independent from the kill fallback.
+                ThreadPool.QueueUserWorkItem(fun _ ->
+                    writeMessage (LspWire.shutdownRequest (allocateRequestId ())) |> ignore
+                    writeMessage LspWire.exitNotification |> ignore)
+                |> ignore
 
                 if not (p.WaitForExit 250) then
                     try
@@ -415,7 +425,14 @@ module LspClient =
 
     /// Construct and immediately spawn/handshake. Status flows through
     /// callbacks.OnStatusChanged (Starting, then Running or Failed).
-    let create (config: LanguageServerConfig) (rootPath: string) (callbacks: LspClientCallbacks) : LspClient =
-        let client = new LspClient(config, Paths.norm rootPath, callbacks)
+    let create
+        (config: LanguageServerConfig)
+        (rootPath: string)
+        (callbacks: LspClientCallbacks)
+        (maxIncomingMessageBytes: int option)
+        : LspClient =
+        let client =
+            new LspClient(config, Paths.norm rootPath, callbacks, maxIncomingMessageBytes)
+
         client.Start()
         client

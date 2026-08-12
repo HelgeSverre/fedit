@@ -90,3 +90,29 @@ let ``readFrame returns None when the body is truncated`` () =
 let ``readFrame returns None when the header block is cut off`` () =
     use stream = streamOf "Content-Le"
     Assert.True(LspTransport.readFrame stream |> Option.isNone)
+
+[<Fact>]
+let ``readFrame rejects a body above its configured limit before allocation`` () =
+    use stream = streamOf "Content-Length: 2\r\n\r\n{}"
+
+    Assert.Throws<InvalidDataException>(fun () -> LspTransport.readFrameWithLimit (Some 1) stream |> ignore)
+    |> ignore
+
+[<Fact>]
+let ``readFrame rejects duplicate Content-Length headers`` () =
+    use stream = streamOf "Content-Length: 2\r\nContent-Length: 2\r\n\r\n{}"
+
+    Assert.Throws<InvalidDataException>(fun () -> LspTransport.readFrame stream |> ignore)
+    |> ignore
+
+[<Fact>]
+let ``readFrame rejects an oversized header line`` () =
+    use stream =
+        streamOf (
+            "X-Test: "
+            + String.replicate (LspTransport.maxHeaderLineBytes + 1) "x"
+            + "\r\n\r\n"
+        )
+
+    Assert.Throws<InvalidDataException>(fun () -> LspTransport.readFrame stream |> ignore)
+    |> ignore

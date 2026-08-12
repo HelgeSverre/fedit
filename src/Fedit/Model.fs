@@ -77,6 +77,28 @@ type ScrollMode =
     /// Wheel moves the viewport; the cursor is dragged only to honour scrolloff.
     | ScrollViewport
 
+/// Resource budgets for data received from language servers and optional
+/// editor enrichments. `None` means the user explicitly chose no limit.
+type ResourceLimits =
+    { LspIncomingMessageBytes: int option
+      LspDocumentChars: int option
+      LspLocationCount: int option
+      LspPreviewScanBytes: int option
+      LspPreviewChars: int
+      LspPreviewConcurrency: int
+      LspPreviewTimeoutMs: int option }
+
+[<RequireQualifiedAccess>]
+module ResourceLimits =
+    let defaults =
+        { LspIncomingMessageBytes = Some(64 * 1024 * 1024)
+          LspDocumentChars = Some(16 * 1024 * 1024)
+          LspLocationCount = Some 20_000
+          LspPreviewScanBytes = Some(4 * 1024 * 1024)
+          LspPreviewChars = 512
+          LspPreviewConcurrency = 2
+          LspPreviewTimeoutMs = Some 250 }
+
 type Config =
     {
         Theme: Theme
@@ -89,6 +111,7 @@ type Config =
         /// Server names the user has switched off. Persisted as
         /// `disabledLanguageServers`, exactly like `disabledPlugins`.
         DisabledLanguageServers: Set<string>
+        ResourceLimits: ResourceLimits
         CompletionLimit: int
         SidebarIndent: int
         SidebarWidth: int
@@ -142,6 +165,7 @@ module Config =
           DisabledPlugins = Set.empty
           LanguageServers = LanguageServers.defaults
           DisabledLanguageServers = Set.empty
+          ResourceLimits = ResourceLimits.defaults
           CompletionLimit = 8
           SidebarIndent = 2
           SidebarWidth = 30
@@ -229,6 +253,9 @@ type ReplayFence =
 /// expansion is still open) is refused.
 type ReplayQueueItem =
     | ReplayStep of MacroStep
+    /// Lazy continuation for a nested replay. Expands one iteration at a
+    /// time so a large count never allocates `count * steps` queue items.
+    | RepeatExpansion of register: char * steps: MacroStep list * remaining: int
     | CloseExpansion of register: char
 
 /// In-flight macro replay, driven one queue item per `ReplayStepReady`
@@ -465,6 +492,11 @@ type FileOpenError =
     /// Any other I/O failure, carrying the exception message.
     | FileOpenFailed of message: string
 
+type BackupStatus =
+    | BackupNotNeeded
+    | BackupCreated
+    | BackupSkippedSymlink
+
 /// One document transition for the `LspSyncDocuments` effect. Opened and
 /// Changed carry the immutable piece table, never a materialized string —
 /// the interpreter does `PieceTable.toString` off the update thread.
@@ -534,7 +566,7 @@ type Msg =
     | FileOpened of path: string * intent: OpenIntent * target: Position option * Result<LoadedFile, FileOpenError>
     /// Ok carries whether a first-save `.bak` backup of the original file
     /// was created alongside the write (binary/hex-view saves only).
-    | BufferSaved of bufferId: int * path: string * revision: int * Result<bool, string>
+    | BufferSaved of bufferId: int * path: string * revision: int * Result<BackupStatus, string>
     | ConfigSaved of Result<unit, string>
     /// The config file is on disk (written if missing): Ok carries its path
     /// for the follow-up open; Error carries the write failure.
@@ -594,6 +626,7 @@ type Msg =
     /// can run several clients, one per resolved workspace root, and each
     /// reports independently.
     | LspServerStatusChanged of clientKey: string * status: LspServerStatus
+    | LspDocumentSyncSkipped of path: string * chars: int * limit: int
     /// A server pushed textDocument/publishDiagnostics: the full set for
     /// one canonical file path, replacing any previous set for that path.
     | LspDiagnosticsPublished of path: string * diagnostics: LspDiagnostic list

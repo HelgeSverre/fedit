@@ -432,7 +432,7 @@ let ``a file path change reschedules highlighting without an edit`` () =
     // flips the detected language without an edit, so the chokepoint must
     // reschedule on the FilePath diff alone.
     let _, effects =
-        Editor.update (BufferSaved(1, "/root/scratch.fs", 0, Result.Ok false)) (initModel ())
+        Editor.update (BufferSaved(1, "/root/scratch.fs", 0, Result.Ok BackupNotNeeded)) (initModel ())
 
     effects
     |> List.exists (fun e ->
@@ -454,7 +454,7 @@ let ``a rename to an unsupported extension clears stored spans`` () =
             HighlightStates = Map.ofList [ 1, dummySpans ] }
 
     let next, effects =
-        Editor.update (BufferSaved(1, "/root/x.xyz", 0, Result.Ok false)) seeded
+        Editor.update (BufferSaved(1, "/root/x.xyz", 0, Result.Ok BackupNotNeeded)) seeded
 
     next.HighlightStates.ContainsKey 1 |> should equal false
 
@@ -2046,6 +2046,26 @@ let ``nested replay splices the inner register's steps`` () =
     replayed.Replay |> should equal (None: ReplayState option)
 
 [<Fact>]
+let ``large nested replay count expands only one iteration at a time`` () =
+    let model =
+        { initModel () with
+            Registers =
+                Map.ofList
+                    [ 'a', [ RunAction(ReplayMacro('b', System.Int32.MaxValue)) ]
+                      'b', [ RunAction(InsertText "x") ] ] }
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    let expanded, _ = Editor.update ReplayStepReady started
+    let state = expanded.Replay |> Option.get
+    state.Queue.Length |> should be (lessThanOrEqualTo 3)
+
+    state.Queue
+    |> List.exists (function
+        | RepeatExpansion('b', _, remaining) -> remaining = System.Int32.MaxValue - 1
+        | _ -> false)
+    |> should equal true
+
+[<Fact>]
 let ``a nested replay cycle cancels with an error`` () =
     let model =
         { initModel () with
@@ -2259,7 +2279,7 @@ let ``a replayed save fences until BufferSaved lands`` () =
         // The write completion clears Dirty and pumps the close, which
         // now closes cleanly instead of arming the discard confirmation.
         let landed, landedEffects =
-            Editor.update (BufferSaved(bufferId, path, revision, Result.Ok false)) saved
+            Editor.update (BufferSaved(bufferId, path, revision, Result.Ok BackupNotNeeded)) saved
 
         hasPump landedEffects |> should equal true
 
@@ -3656,7 +3676,7 @@ let ``MacrosLoaded keeps an in-flight recording untouched`` () =
 [<Fact>]
 let ``saving the macros file through fedit schedules a reload`` () =
     let saved, effects =
-        Editor.update (BufferSaved(1, MacroIO.path (), 0, Result.Ok false)) (initModel ())
+        Editor.update (BufferSaved(1, MacroIO.path (), 0, Result.Ok BackupNotNeeded)) (initModel ())
 
     effects |> List.contains (LoadMacros true) |> should equal true
     saved.Registers |> should equal (Map.empty: Map<char, MacroStep list>)
@@ -3664,7 +3684,7 @@ let ``saving the macros file through fedit schedules a reload`` () =
 [<Fact>]
 let ``saving an unrelated file does not reload macros`` () =
     let _, effects =
-        Editor.update (BufferSaved(1, "/root/notes.txt", 0, Result.Ok false)) (initModel ())
+        Editor.update (BufferSaved(1, "/root/notes.txt", 0, Result.Ok BackupNotNeeded)) (initModel ())
 
     effects
     |> List.exists (function

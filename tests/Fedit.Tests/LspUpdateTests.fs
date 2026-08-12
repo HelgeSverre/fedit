@@ -147,7 +147,7 @@ let ``a scratch buffer gaining a path on save emits Opened`` () =
     // BufferSaved with the current EditTick is how save-as lands: markSaved
     // assigns the FilePath, and the path-diff sees a document appear.
     let _, effects =
-        Editor.update (BufferSaved(1, "/root/fresh.sema", 0, Result.Ok false)) (initModel ())
+        Editor.update (BufferSaved(1, "/root/fresh.sema", 0, Result.Ok BackupNotNeeded)) (initModel ())
 
     match lspSyncsOf effects with
     | [ sync ] ->
@@ -988,3 +988,20 @@ let ``escape dismisses the error, then the panel, then the selection`` () =
     // Third Escape resolves through the keymap: the selection clears.
     let third, _ = Editor.update (KeyPressed escapeKey) second
     (activeBuffer third).Selection.IsSome |> should equal false
+
+[<Fact>]
+let ``oversized LSP document notification leaves editing available`` () =
+    let next, effects =
+        Editor.update (LspDocumentSyncSkipped("/root/huge.ts", 200, 100)) (initModel ())
+
+    effects |> should equal List.empty<Effect>
+
+    next.Notification
+    |> Option.map (fun note -> note.Message)
+    |> Option.get
+    |> should haveSubstring "huge.ts"
+
+    next.Notification
+    |> Option.map (fun note -> note.Message)
+    |> Option.get
+    |> should haveSubstring "100"

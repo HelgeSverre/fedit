@@ -96,7 +96,8 @@ let ``sema lsp end to end: running, definition, hover, diagnostics, shutdown`` (
                   FileTypes = [ "sema" ]
                   RootMarkers = [ "sema.toml" ] }
 
-            use client = LspClient.create config root callbacks
+            use client =
+                LspClient.create config root callbacks ResourceLimits.defaults.LspIncomingMessageBytes
 
             Assert.True(
                 pollUntil (TimeSpan.FromSeconds 10.0) (fun () -> client.Status = LspServerStatus.Running),
@@ -253,7 +254,8 @@ let ``sema lsp cross file: references across files, diagnostics clear on fix`` (
                   FileTypes = [ "sema" ]
                   RootMarkers = [ "sema.toml" ] }
 
-            use client = LspClient.create config root callbacks
+            use client =
+                LspClient.create config root callbacks ResourceLimits.defaults.LspIncomingMessageBytes
 
             Assert.True(
                 pollUntil (TimeSpan.FromSeconds 10.0) (fun () -> client.Status = LspServerStatus.Running),
@@ -394,7 +396,8 @@ let ``built-in server handshake: initialize, didOpen, clean shutdown`` (serverNa
                   OnStatusChanged = fun status -> statuses.Enqueue status
                   OnLog = ignore }
 
-            use client = LspClient.create config root callbacks
+            use client =
+                LspClient.create config root callbacks ResourceLimits.defaults.LspIncomingMessageBytes
 
             Assert.True(
                 pollUntil (TimeSpan.FromSeconds 15.0) (fun () -> client.Status = LspServerStatus.Running),
@@ -508,7 +511,8 @@ let ``shutdown completes quickly even when the server dawdles on exit`` () =
                   FileTypes = [ "sema" ]
                   RootMarkers = [ "sema.toml" ] }
 
-            let client = LspClient.create config root callbacks
+            let client =
+                LspClient.create config root callbacks ResourceLimits.defaults.LspIncomingMessageBytes
 
             Assert.True(
                 pollUntil (TimeSpan.FromSeconds 10.0) (fun () -> client.Status = LspServerStatus.Running),

@@ -30,6 +30,19 @@ module ConfigIO =
         | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.Number -> Some(elem.GetInt32())
         | _ -> None
 
+    let private getOptionalPositiveIntProp
+        (root: System.Text.Json.JsonElement)
+        (name: string)
+        (fallback: int option)
+        : int option =
+        match root.TryGetProperty name with
+        | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.Null -> None
+        | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.Number ->
+            match elem.TryGetInt32() with
+            | true, value when value > 0 -> Some value
+            | _ -> fallback
+        | _ -> fallback
+
     let private clampInt low high value = max low (min high value)
 
     /// The default `statusFormat` before the LSP phase added
@@ -133,6 +146,78 @@ module ConfigIO =
                     |> Option.map Set.ofList
                     |> Option.defaultValue defaults.DisabledLanguageServers
 
+                let resourceLimits =
+                    match root.TryGetProperty "resourceLimits" with
+                    | true, limits when limits.ValueKind = System.Text.Json.JsonValueKind.Object ->
+                        { LspIncomingMessageBytes =
+                            getOptionalPositiveIntProp
+                                limits
+                                "lspIncomingMessageBytes"
+                                defaults.ResourceLimits.LspIncomingMessageBytes
+                          LspDocumentChars =
+                            getOptionalPositiveIntProp
+                                limits
+                                "lspDocumentChars"
+                                defaults.ResourceLimits.LspDocumentChars
+                          LspLocationCount =
+                            getOptionalPositiveIntProp
+                                limits
+                                "lspLocationCount"
+                                defaults.ResourceLimits.LspLocationCount
+                          LspPreviewScanBytes =
+                            getOptionalPositiveIntProp
+                                limits
+                                "lspPreviewScanBytes"
+                                defaults.ResourceLimits.LspPreviewScanBytes
+                          LspPreviewChars =
+                            getIntProp limits "lspPreviewChars"
+                            |> Option.filter (fun value -> value > 0)
+                            |> Option.defaultValue defaults.ResourceLimits.LspPreviewChars
+                          LspPreviewConcurrency =
+                            getIntProp limits "lspPreviewConcurrency"
+                            |> Option.map (clampInt 1 16)
+                            |> Option.defaultValue defaults.ResourceLimits.LspPreviewConcurrency
+                          LspPreviewTimeoutMs =
+                            getOptionalPositiveIntProp
+                                limits
+                                "lspPreviewTimeoutMs"
+                                defaults.ResourceLimits.LspPreviewTimeoutMs }
+                    | _ -> defaults.ResourceLimits
+
+                let resourceLimitWarning =
+                    match root.TryGetProperty "resourceLimits" with
+                    | true, limits when limits.ValueKind = System.Text.Json.JsonValueKind.Object ->
+                        let positiveOrNull (name: string) (allowNull: bool) =
+                            match limits.TryGetProperty name with
+                            | false, _ -> true
+                            | true, value when allowNull && value.ValueKind = System.Text.Json.JsonValueKind.Null ->
+                                true
+                            | true, value when value.ValueKind = System.Text.Json.JsonValueKind.Number ->
+                                match value.TryGetInt32() with
+                                | true, number -> number > 0
+                                | _ -> false
+                            | _ -> false
+
+                        [ "lspIncomingMessageBytes", true
+                          "lspDocumentChars", true
+                          "lspLocationCount", true
+                          "lspPreviewScanBytes", true
+                          "lspPreviewChars", false
+                          "lspPreviewConcurrency", false
+                          "lspPreviewTimeoutMs", true ]
+                        |> List.choose (fun (name, allowNull) ->
+                            if positiveOrNull name allowNull then None else Some name)
+                        |> function
+                            | [] -> None
+                            | invalid ->
+                                Some(
+                                    "config.json: invalid positive resource limit(s): "
+                                    + String.concat ", " invalid
+                                    + "; using defaults for those fields"
+                                )
+                    | true, _ -> Some "config.json: resourceLimits must be an object; using defaults"
+                    | _ -> None
+
                 let completionLimit =
                     getIntProp root "completionLimit"
                     |> Option.defaultValue defaults.CompletionLimit
@@ -220,6 +305,7 @@ module ConfigIO =
                       DisabledPlugins = disabledPlugins
                       LanguageServers = LanguageServers.merge userLanguageServers
                       DisabledLanguageServers = disabledLanguageServers
+                      ResourceLimits = resourceLimits
                       CompletionLimit = completionLimit
                       SidebarIndent = sidebarIndent
                       SidebarWidth = sidebarWidth
@@ -236,7 +322,7 @@ module ConfigIO =
                       MouseScrollLines = mouseScrollLines
                       AutoReveal = autoReveal }
 
-                config, None
+                config, resourceLimitWarning
             else
                 defaults, None
         with ex ->
@@ -425,6 +511,7 @@ module ConfigIO =
         root["recent"] <- recentArray
         root["disabledPlugins"] <- disabledPluginsArray
         root["disabledLanguageServers"] <- disabledLanguageServersArray
+
         root["completionLimit"] <- System.Text.Json.Nodes.JsonValue.Create config.CompletionLimit
         root["sidebarIndent"] <- System.Text.Json.Nodes.JsonValue.Create config.SidebarIndent
         root["sidebarWidth"] <- System.Text.Json.Nodes.JsonValue.Create config.SidebarWidth

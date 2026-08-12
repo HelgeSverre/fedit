@@ -187,8 +187,15 @@ module Editor =
         else
             match model.Registers |> Map.tryFind register with
             | Some steps when not (List.isEmpty steps) && count > 0 ->
+                let continuation =
+                    if count > 1 then
+                        [ RepeatExpansion(register, steps, count - 1) ]
+                    else
+                        []
+
                 let spliced =
-                    (List.replicate count steps |> List.concat |> List.map ReplayStep)
+                    (steps |> List.map ReplayStep)
+                    @ continuation
                     @ (CloseExpansion register :: state.Queue)
 
                 { model with
@@ -2742,6 +2749,19 @@ module Editor =
                                 ActiveExpansions = state.ActiveExpansions |> Set.remove register
                                 ExpansionDepth = state.ExpansionDepth - 1 } },
                 [ ReplayPump ]
+            | RepeatExpansion(register, steps, remaining) :: rest ->
+                let continuation =
+                    if remaining > 1 then
+                        RepeatExpansion(register, steps, remaining - 1) :: rest
+                    else
+                        rest
+
+                { model with
+                    Replay =
+                        Some
+                            { state with
+                                Queue = (steps |> List.map ReplayStep) @ continuation } },
+                [ ReplayPump ]
             | ReplayStep step :: rest ->
                 let popped =
                     { model with
@@ -3535,7 +3555,7 @@ module Editor =
                 notify (Some(Notification.error $"Failed to open {path}: {message}")) model, []
         | BufferSaved(bufferId, path, revision, result) ->
             match result with
-            | Result.Ok backedUp ->
+            | Result.Ok backupStatus ->
                 match Map.tryFind bufferId model.Editors.Buffers with
                 | None -> model, []
                 | Some buffer ->
@@ -3544,8 +3564,10 @@ module Editor =
                     let note =
                         let name = Path.GetFileName path
 
-                        if backedUp then
+                        if backupStatus = BackupCreated then
                             $"Saved {name} (original kept as {name}.bak)"
+                        elif backupStatus = BackupSkippedSymlink then
+                            $"Saved {name} (backup skipped: source is a symbolic link)"
                         elif updated.Dirty then
                             $"Saved {name} (continued editing)"
                         else
@@ -3637,6 +3659,16 @@ module Editor =
                 Lsp =
                     { model.Lsp with
                         Servers = Map.add clientKey status model.Lsp.Servers } },
+            []
+        | LspDocumentSyncSkipped(path, chars, limit) ->
+            let name = System.IO.Path.GetFileName path
+
+            notify
+                (Some(
+                    Notification.warning
+                        $"LSP disabled for {name}: {chars} characters exceeds the {limit} character limit"
+                ))
+                model,
             []
         | LspDiagnosticsPublished(path, diagnostics) ->
             // Last publish wins per path; an empty set removes the entry so

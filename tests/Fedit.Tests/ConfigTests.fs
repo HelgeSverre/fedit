@@ -98,6 +98,54 @@ let ``a languageServers value that is not an object leaves the defaults intact``
 
     serverNames config |> should equal [ "sema"; "typescript"; "rust"; "pyright" ]
 
+[<Fact>]
+let ``resource limits use defaults and allow explicit unlimited values`` () =
+    let defaults = loadJson "{}"
+    defaults.ResourceLimits |> should equal ResourceLimits.defaults
+
+    let configured =
+        loadJson
+            """{ "resourceLimits": { "lspIncomingMessageBytes": null, "lspDocumentChars": 123, "lspLocationCount": null, "lspPreviewScanBytes": 456, "lspPreviewChars": 789, "lspPreviewConcurrency": 99, "lspPreviewTimeoutMs": null } }"""
+
+    configured.ResourceLimits.LspIncomingMessageBytes |> should equal None
+    configured.ResourceLimits.LspDocumentChars |> should equal (Some 123)
+    configured.ResourceLimits.LspLocationCount |> should equal None
+    configured.ResourceLimits.LspPreviewScanBytes |> should equal (Some 456)
+    configured.ResourceLimits.LspPreviewChars |> should equal 789
+    configured.ResourceLimits.LspPreviewConcurrency |> should equal 16
+    configured.ResourceLimits.LspPreviewTimeoutMs |> should equal None
+
+[<Fact>]
+let ``save preserves the user's resource limits block`` () =
+    let configPath = tempConfigPath ()
+    Directory.CreateDirectory(Path.GetDirectoryName configPath) |> ignore
+    File.WriteAllText(configPath, """{ "resourceLimits": { "lspDocumentChars": null } }""")
+
+    try
+        let loaded, _ = ConfigIO.loadFrom configPath []
+        ConfigIO.saveTo configPath loaded
+        let reloaded, error = ConfigIO.loadFrom configPath []
+        error |> should equal None
+        reloaded.ResourceLimits.LspDocumentChars |> should equal None
+    finally
+        File.Delete configPath
+
+[<Fact>]
+let ``invalid resource limits warn and fall back to defaults`` () =
+    let configPath = tempConfigPath ()
+    Directory.CreateDirectory(Path.GetDirectoryName configPath) |> ignore
+    File.WriteAllText(configPath, """{ "resourceLimits": { "lspDocumentChars": -1 } }""")
+
+    try
+        let loaded, warning = ConfigIO.loadFrom configPath []
+
+        loaded.ResourceLimits.LspDocumentChars
+        |> should equal ResourceLimits.defaults.LspDocumentChars
+
+        warning |> Option.get |> should haveSubstring "lspDocumentChars"
+    finally
+        File.Delete configPath
+
 // -- disabledLanguageServers persistence ------------------------------------
 
 [<Fact>]

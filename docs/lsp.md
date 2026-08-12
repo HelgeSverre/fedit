@@ -75,6 +75,30 @@ fedit writes this key when you toggle a server (`:lsp enable/disable`);
 the `languageServers` block itself is yours — the editor never rewrites
 it.
 
+### Resource limits
+
+`resourceLimits` provides generous safety budgets for malformed servers and
+exceptionally large documents. Omitted fields use the defaults below; `null`
+means unlimited for nullable fields.
+
+```json
+{
+    "resourceLimits": {
+        "lspIncomingMessageBytes": 67108864,
+        "lspDocumentChars": 16777216,
+        "lspLocationCount": 20000,
+        "lspPreviewScanBytes": 4194304,
+        "lspPreviewChars": 512,
+        "lspPreviewConcurrency": 2,
+        "lspPreviewTimeoutMs": 250
+    }
+}
+```
+
+These limits affect only LSP synchronization and optional location previews;
+they never prevent opening, editing, or saving a file. Protocol headers retain
+non-configurable framing limits because legitimate LSP headers are tiny.
+
 ## Navigation
 
 | Chord           | Secondary   | Action            | What it does                                                 |

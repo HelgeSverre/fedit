@@ -166,7 +166,7 @@ module Runtime =
         | BufferSaved(bufferId, path, revision, result) ->
             let rendered =
                 match result with
-                | Result.Ok backedUp -> $"Ok(backedUp={backedUp})"
+                | Result.Ok backupStatus -> $"Ok(backup={backupStatus})"
                 | Result.Error error -> $"Error({error})"
 
             $"BufferSaved(buffer={bufferId}, path={path}, revision={revision}, {rendered})"
@@ -202,6 +202,7 @@ module Runtime =
         | MacrosFileReady(Result.Ok path) -> $"MacrosFileReady(Ok({path}))"
         | MacrosFileReady(Result.Error error) -> $"MacrosFileReady(Error({error}))"
         | LspServerStatusChanged(name, status) -> $"LspServerStatusChanged({name}, {renderLspServerStatus status})"
+        | LspDocumentSyncSkipped(path, chars, limit) -> $"LspDocumentSyncSkipped({path}, chars={chars}, limit={limit})"
         | LspDiagnosticsPublished(path, diagnostics) -> $"LspDiagnosticsPublished({path}, count={diagnostics.Length})"
         | LspDefinitionResolved(outcome, requestedEditTick, bufferId) ->
             $"LspDefinitionResolved(buffer={bufferId}, tick={requestedEditTick}, {renderLocationsResult outcome})"
@@ -450,6 +451,14 @@ module Runtime =
         let lspClients = System.Collections.Generic.Dictionary<string, LspClient>()
         let mutable lspSyncChain: Task = Task.CompletedTask
 
+        let lspPendingDocuments =
+            System.Collections.Generic.Dictionary<string, string * LspDocumentSync>()
+
+        let lspSyncedDocuments = System.Collections.Generic.HashSet<string>()
+        let lspSkippedDocuments = System.Collections.Generic.HashSet<string>()
+        let mutable lspDocumentDrainScheduled = false
+        let mutable resourceLimits = ResourceLimits.defaults
+
         let lspMarkerExists (path: string) =
             File.Exists path || Directory.Exists path
 
@@ -554,7 +563,9 @@ module Runtime =
                           OnStatusChanged = fun status -> queue.Enqueue(LspServerStatusChanged(key, status))
                           OnLog = fun line -> log $"lsp[{server.Name}]: {line}" }
 
-                    let client = LspClient.create server rootPath callbacks
+                    let client =
+                        LspClient.create server rootPath callbacks resourceLimits.LspIncomingMessageBytes
+
                     lspClients[key] <- client
                     client)
 
@@ -569,17 +580,49 @@ module Runtime =
         /// this covers everything else (unopened files, indexed workspace).
         let lspPreviewLine (path: string) (lineIndex: int) : string =
             try
-                use reader = new StreamReader(path)
-                let mutable current = reader.ReadLine()
-                let mutable index = 0
+                let canonicalPath = canonicalizePath path
+                let info = FileInfo canonicalPath
 
-                while index < lineIndex && current <> null do
-                    current <- reader.ReadLine()
-                    index <- index + 1
+                // Devices and FIFOs conventionally report zero length. Empty
+                // regular files have no preview either, so avoid opening both.
+                if not info.Exists || info.Length = 0L || lineIndex < 0 then
+                    ""
+                else
+                    use stream =
+                        new FileStream(canonicalPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)
 
-                match current with
-                | null -> ""
-                | line -> line.Trim()
+                    use reader = new StreamReader(stream, detectEncodingFromByteOrderMarks = true)
+                    let preview = StringBuilder(min resourceLimits.LspPreviewChars 1024)
+                    let stopwatch = System.Diagnostics.Stopwatch.StartNew()
+                    let mutable line = 0
+                    let mutable doneReading = false
+
+                    let withinBudget () =
+                        let withinBytes =
+                            match resourceLimits.LspPreviewScanBytes with
+                            | Some limit -> stream.Position <= int64 limit
+                            | None -> true
+
+                        let withinTime =
+                            match resourceLimits.LspPreviewTimeoutMs with
+                            | Some limit -> stopwatch.ElapsedMilliseconds <= int64 limit
+                            | None -> true
+
+                        withinBytes && withinTime
+
+                    while not doneReading && withinBudget () do
+                        match reader.Read() with
+                        | -1 -> doneReading <- true
+                        | value when char value = '\n' ->
+                            if line = lineIndex then
+                                doneReading <- true
+                            else
+                                line <- line + 1
+                        | value when line = lineIndex && preview.Length < resourceLimits.LspPreviewChars ->
+                            preview.Append(char value) |> ignore
+                        | _ -> ()
+
+                    if line = lineIndex then preview.ToString().Trim() else ""
             with _ ->
                 ""
 
@@ -589,16 +632,40 @@ module Runtime =
         /// a duplicate under the server's resolved spelling. Involves disk
         /// reads, so callers run it off the reader thread.
         let lspResolveLocations (locations: LspLocation list) : LspResolvedLocation list =
-            locations
+            let boundedLocations =
+                match resourceLimits.LspLocationCount with
+                | Some limit -> locations |> List.truncate limit
+                | None -> locations
+
+            boundedLocations
             |> List.choose (fun location ->
                 LspUri.toPath location.Uri
                 |> Option.map (fun serverPath ->
                     let path = lspTranslateServerPath serverPath
                     let position = LspPosition.toPosition location.Range.Start
+                    path, position))
+            |> List.toArray
+            |> fun targets ->
+                let resolved = Array.zeroCreate<LspResolvedLocation> targets.Length
 
-                    { Path = path
-                      Position = position
-                      Preview = lspPreviewLine path position.Line }))
+                let options =
+                    ParallelOptions(MaxDegreeOfParallelism = resourceLimits.LspPreviewConcurrency)
+
+                Parallel.For(
+                    0,
+                    targets.Length,
+                    options,
+                    fun index ->
+                        let path, position = targets[index]
+
+                        resolved[index] <-
+                            { Path = path
+                              Position = position
+                              Preview = lspPreviewLine path position.Line }
+                )
+                |> ignore
+
+                List.ofArray resolved
 
         let cancelAndReplace (existing: CancellationTokenSource option) =
             existing
@@ -664,12 +731,19 @@ module Runtime =
                                             // Hex edits are easy to get wrong; keep the
                                             // original bytes recoverable before the first
                                             // overwrite. A failed copy fails the save.
+                                            let sourceIsLink = (FileInfo(Path.GetFullPath path)).LinkTarget <> null
                                             let backedUp = File.backupOnce path
                                             File.writeAllBytesAtomic path (Hex.textToBytes contents)
-                                            BufferSaved(bufferId, path, revision, Result.Ok backedUp)
+
+                                            let backupStatus =
+                                                if backedUp then BackupCreated
+                                                elif sourceIsLink then BackupSkippedSymlink
+                                                else BackupNotNeeded
+
+                                            BufferSaved(bufferId, path, revision, Result.Ok backupStatus)
                                         else
                                             File.writeAllTextAtomic path contents
-                                            BufferSaved(bufferId, path, revision, Result.Ok false)
+                                            BufferSaved(bufferId, path, revision, Result.Ok BackupNotNeeded)
                                     with ex ->
                                         BufferSaved(bufferId, path, revision, Result.Error ex.Message)
 
@@ -966,31 +1040,113 @@ module Runtime =
                 // running ahead of them.
                 queue.Enqueue ReplayStepReady
             | LspSyncDocuments(workspaceRoot, documents) ->
-                // Serialized on the LSP chain (dispatch order preserved by
-                // construction). Text is materialized here, off the update
-                // thread — the effect carries only the shared piece table.
-                lspContinueWith (fun () ->
-                    for document in documents do
-                        try
-                            lspRegisterPathAlias document.Path
-                            let rootPath = lspRootFor document.Server document.Path workspaceRoot
-                            let client = lspClientFor document.Server rootPath
+                // Latest wins per path before any PieceTable is materialized.
+                // This bounds rapid-edit amplification while preserving the
+                // serialized protocol order for the final state.
+                let scheduleDrain =
+                    lock lspLock (fun () ->
+                        for document in documents do
+                            lspPendingDocuments[document.Path] <- workspaceRoot, document
 
-                            match document.Kind with
-                            | LspDocumentSyncKind.Opened text ->
-                                client.NotifyOpened(
-                                    document.Path,
-                                    document.LanguageId,
-                                    document.Version,
-                                    PieceTable.toString text
-                                )
-                            | LspDocumentSyncKind.Changed text ->
-                                client.NotifyChanged(document.Path, document.Version, PieceTable.toString text)
-                            | LspDocumentSyncKind.Closed ->
-                                client.NotifyClosed document.Path
-                                lock lspLock (fun () -> lspDocumentRoots.Remove document.Path |> ignore)
-                        with ex ->
-                            log $"lsp: sync failed for {document.Path}: {ex.Message}")
+                        if lspDocumentDrainScheduled then
+                            false
+                        else
+                            lspDocumentDrainScheduled <- true
+                            true)
+
+                if scheduleDrain then
+                    lspContinueWith (fun () ->
+                        let mutable draining = true
+
+                        while draining do
+                            let pending =
+                                lock lspLock (fun () ->
+                                    if lspPendingDocuments.Count = 0 then
+                                        lspDocumentDrainScheduled <- false
+                                        draining <- false
+                                        []
+                                    else
+                                        let batch = List.ofSeq lspPendingDocuments.Values
+                                        lspPendingDocuments.Clear()
+                                        batch)
+
+                            for pendingRoot, document in pending do
+                                try
+                                    lspRegisterPathAlias document.Path
+                                    let rootPath = lspRootFor document.Server document.Path pendingRoot
+
+                                    let withinDocumentLimit text =
+                                        match resourceLimits.LspDocumentChars with
+                                        | Some limit -> PieceTable.length text <= limit
+                                        | None -> true
+
+                                    match document.Kind with
+                                    | LspDocumentSyncKind.Opened text when withinDocumentLimit text ->
+                                        lock lspLock (fun () -> lspSkippedDocuments.Remove document.Path |> ignore)
+                                        let client = lspClientFor document.Server rootPath
+
+                                        client.NotifyOpened(
+                                            document.Path,
+                                            document.LanguageId,
+                                            document.Version,
+                                            PieceTable.toString text
+                                        )
+
+                                        lock lspLock (fun () -> lspSyncedDocuments.Add document.Path |> ignore)
+                                    | LspDocumentSyncKind.Changed text when withinDocumentLimit text ->
+                                        lock lspLock (fun () -> lspSkippedDocuments.Remove document.Path |> ignore)
+                                        let client = lspClientFor document.Server rootPath
+
+                                        let wasSynced =
+                                            lock lspLock (fun () -> lspSyncedDocuments.Contains document.Path)
+
+                                        if wasSynced then
+                                            client.NotifyChanged(
+                                                document.Path,
+                                                document.Version,
+                                                PieceTable.toString text
+                                            )
+                                        else
+                                            client.NotifyOpened(
+                                                document.Path,
+                                                document.LanguageId,
+                                                document.Version,
+                                                PieceTable.toString text
+                                            )
+
+                                            lock lspLock (fun () -> lspSyncedDocuments.Add document.Path |> ignore)
+                                    | LspDocumentSyncKind.Opened text
+                                    | LspDocumentSyncKind.Changed text ->
+                                        let length = PieceTable.length text
+
+                                        let wasSynced =
+                                            lock lspLock (fun () -> lspSyncedDocuments.Remove document.Path)
+
+                                        if wasSynced then
+                                            let client = lspClientFor document.Server rootPath
+                                            client.NotifyClosed document.Path
+
+                                        if lock lspLock (fun () -> lspSkippedDocuments.Add document.Path) then
+                                            queue.Enqueue(
+                                                LspDocumentSyncSkipped(
+                                                    document.Path,
+                                                    length,
+                                                    resourceLimits.LspDocumentChars.Value
+                                                )
+                                            )
+
+                                        log
+                                            $"lsp: skipped {document.Path}: document has {length} chars (limit {resourceLimits.LspDocumentChars.Value})"
+                                    | LspDocumentSyncKind.Closed ->
+                                        lock lspLock (fun () -> lspSkippedDocuments.Remove document.Path |> ignore)
+
+                                        if lock lspLock (fun () -> lspSyncedDocuments.Remove document.Path) then
+                                            let client = lspClientFor document.Server rootPath
+                                            client.NotifyClosed document.Path
+
+                                        lock lspLock (fun () -> lspDocumentRoots.Remove document.Path |> ignore)
+                                with ex ->
+                                    log $"lsp: sync failed for {document.Path}: {ex.Message}")
             | LspRestart name ->
                 // Also on the chain so a restart cannot race an in-flight
                 // notification. Removed clients respawn lazily on the next
@@ -1016,6 +1172,8 @@ module Runtime =
                             // that follows the restart re-resolves against
                             // the current filesystem.
                             lspDocumentRoots.Clear()
+                            lspSyncedDocuments.Clear()
+                            lspSkippedDocuments.Clear()
 
                             matching |> List.map snd)
 
@@ -1194,6 +1352,7 @@ module Runtime =
 
         let userThemes, themeErrors = ConfigIO.loadUserThemes ()
         let config, configError = ConfigIO.load userThemes
+        resourceLimits <- config.ResourceLimits
 
         match highlightRegistry with
         | None -> log "highlight: failed to load tree-sitter — F# files will render plain"

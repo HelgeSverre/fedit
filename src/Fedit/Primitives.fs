@@ -122,8 +122,15 @@ module File =
     let backupOnce (path: string) =
         let fullPath = Path.GetFullPath path
         let bakPath = fullPath + ".bak"
+        let sourceIsLink = (FileInfo fullPath).LinkTarget <> null
+        let backupIsLink = (FileInfo bakPath).LinkTarget <> null
 
-        if File.Exists fullPath && not (File.Exists bakPath) then
+        if
+            File.Exists fullPath
+            && not sourceIsLink
+            && not backupIsLink
+            && not (File.Exists bakPath)
+        then
             File.Copy(fullPath, bakPath)
             true
         else

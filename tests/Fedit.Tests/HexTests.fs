@@ -153,6 +153,25 @@ let ``backupOnce copies the original once and never overwrites the backup`` () =
                 System.IO.File.Delete p
 
 [<Fact>]
+let ``backupOnce never copies a symbolic-link target into the link directory`` () =
+    let directory =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName())
+
+    System.IO.Directory.CreateDirectory directory |> ignore
+    let target = System.IO.Path.Combine(directory, "target.bin")
+    let linkDirectory = System.IO.Path.Combine(directory, "workspace")
+    System.IO.Directory.CreateDirectory linkDirectory |> ignore
+    let link = System.IO.Path.Combine(linkDirectory, "asset.bin")
+
+    try
+        System.IO.File.WriteAllBytes(target, [| 0x41uy; 0x42uy |])
+        System.IO.File.CreateSymbolicLink(link, target) |> ignore
+        File.backupOnce link |> should equal false
+        System.IO.File.Exists(link + ".bak") |> should equal false
+    finally
+        System.IO.Directory.Delete(directory, recursive = true)
+
+[<Fact>]
 let ``a binary file survives open → projection → save byte-for-byte`` () =
     let path =
         System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.IO.Path.GetRandomFileName())
@@ -305,11 +324,20 @@ let ``saving a hex view emits a binary SaveBuffer with the projection intact`` (
 [<Fact>]
 let ``a backed-up save says so in the notification`` () =
     let saved, _ =
-        Editor.update (BufferSaved(1, "/root/save.dat", 0, Result.Ok true)) (initModel ())
+        Editor.update (BufferSaved(1, "/root/save.dat", 0, Result.Ok BackupCreated)) (initModel ())
 
     match saved.Notification with
     | Some n -> n.Message |> should equal "Saved save.dat (original kept as save.dat.bak)"
     | None -> failwith "expected a save notification"
+
+[<Fact>]
+let ``a symlink save warns that its backup was skipped`` () =
+    let saved, _ =
+        Editor.update (BufferSaved(1, "/root/save.dat", 0, Result.Ok BackupSkippedSymlink)) (initModel ())
+
+    saved.Notification
+    |> Option.get
+    |> fun note -> note.Message |> should haveSubstring "symbolic link"
 
 [<Fact>]
 let ``search prompt typing in a hex view emits a hex-flagged RunSearch`` () =
