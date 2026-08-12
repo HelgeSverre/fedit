@@ -11,19 +11,39 @@ mod website
 default:
     @just --list --list-submodules
 
+# Ensure an SDK matching global.json is available, installing one into .dotnet/
+# if not. `dotnet --version` honours global.json and exits non-zero when no
+# matching SDK exists, so it doubles as the check — a system SDK that already
+# satisfies the pin is used as-is and nothing is downloaded. Mirrors CI, which
+# uses actions/setup-dotnet with global-json-file.
+[private]
+[unix]
+_sdk:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if PATH="$PWD/.dotnet:$PATH" dotnet --version >/dev/null 2>&1; then exit 0; fi
+    echo "No SDK satisfying global.json found — installing into .dotnet/"
+    curl -fsSL https://dot.net/v1/dotnet-install.sh -o "${TMPDIR:-/tmp}/dotnet-install.sh"
+    bash "${TMPDIR:-/tmp}/dotnet-install.sh" --jsonfile global.json --install-dir "$PWD/.dotnet"
+
+[private]
+[windows]
+_sdk:
+    @dotnet --version >nul 2>&1 || echo "No SDK satisfying global.json. Install it: https://dot.net/v1/dotnet-install.ps1 -JSonFile global.json -InstallDir .dotnet"
+
 # Watch and run.
 [group('run')]
-dev path=".":
+dev path=".": _sdk
     {{dotnet}} watch --project {{project}} run -- "{{path}}"
 
 # Run the editor.
 [group('run')]
-run path=".":
+run path=".": _sdk
     {{dotnet}} run --project {{project}} -- "{{path}}"
 
 # Build the solution.
 [group('build')]
-build:
+build: _sdk
     {{dotnet}} build {{solution}}
 
 # Remove build output.
@@ -112,7 +132,7 @@ lint:
 
 # Run tests.
 [group('test')]
-test:
+test: _sdk
     {{dotnet}} test {{tests}} --nologo
 
 # Verify generated shell completions in Docker (nu/elvish/xonsh load + complete;
