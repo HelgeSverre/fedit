@@ -192,3 +192,36 @@ let ``clearSearch resets the buffer`` () =
     ws.SearchBuffer |> should equal ""
     // Selection is intentionally preserved on clear (cursor stays at last match).
     ws.SelectedPath |> should equal (Some "/root/a.fs")
+
+// ─────────────────────────────────────────────────────────────────────
+// Paths: canonical normalization and the WSL drive-path rewrite.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``isDriveRooted recognizes drive anchors and nothing else`` () =
+    Paths.isDriveRooted "C:\\temp\\x.csv" |> should equal true
+    Paths.isDriveRooted "c:/temp/x.csv" |> should equal true
+    Paths.isDriveRooted "D:" |> should equal true
+    Paths.isDriveRooted "/root/c.txt" |> should equal false
+    Paths.isDriveRooted "notes:x" |> should equal false
+    Paths.isDriveRooted "x" |> should equal false
+    Paths.isDriveRooted "" |> should equal false
+
+[<Fact>]
+let ``fromUser maps a Windows drive path onto the WSL mount on Unix`` () =
+    if not (System.OperatingSystem.IsWindows()) then
+        Paths.fromUser "C:\\temp\\test.csv" |> should equal "/mnt/c/temp/test.csv"
+        Paths.fromUser "d:/data/x.bin" |> should equal "/mnt/d/data/x.bin"
+        Paths.fromUser "C:" |> should equal "/mnt/c"
+    else
+        Paths.fromUser "C:\\temp\\test.csv" |> should equal "C:/temp/test.csv"
+
+[<Fact>]
+let ``fromUser leaves canonical and relative paths alone`` () =
+    Paths.fromUser "/root/a.fs" |> should equal "/root/a.fs"
+    Paths.fromUser "sub\\a.fs" |> should equal "sub/a.fs"
+    Paths.fromUser "" |> should equal ""
+
+[<Fact>]
+let ``norm never rewrites drive paths — LSP URIs round-trip them`` () =
+    Paths.norm "C:\\proj\\a.sema" |> should equal "C:/proj/a.sema"

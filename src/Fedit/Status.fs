@@ -141,7 +141,40 @@ module Status =
                 if Map.containsKey model.Editors.ActiveBufferId model.HexViews then
                     "HEX"
                 else
-                    "EDIT"
+                    match Map.tryFind model.Editors.ActiveBufferId model.CsvViews with
+                    | Some view ->
+                        let buffer = model.Editors.Buffers[model.Editors.ActiveBufferId]
+
+                        let filterPart =
+                            match view.Filter with
+                            | Some filter -> $"  filter:{filter.Value} ({filter.VisibleRows.Length})"
+                            | None -> ""
+
+                        // The Excel status-bar aggregate: shown only when
+                        // the computed stats still describe this buffer,
+                        // revision, and the cursor's current column.
+                        let statsPart =
+                            match model.CsvStats with
+                            | Some stats when stats.BufferId = buffer.Id && stats.EditTick = buffer.EditTick ->
+                                let cursorColumn =
+                                    fst (
+                                        Csv.cellIndexAt
+                                            view.Separator
+                                            (Buffer.line buffer.Cursor.Line buffer)
+                                            buffer.Cursor.Column
+                                    )
+
+                                match stats.Stats with
+                                | Some s when stats.Column = cursorColumn ->
+                                    let fmt (value: float) =
+                                        value.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)
+
+                                    $"  sum {fmt s.Sum}  avg {fmt s.Avg}  min {fmt s.Min}  max {fmt s.Max}  n {s.Count}"
+                                | _ -> ""
+                            | _ -> ""
+
+                        $"CSV {Csv.sepName view.Separator}{filterPart}{statsPart}"
+                    | None -> "EDIT"
             | Prompt -> promptModeLabel model.Prompt.Mode
 
         recording + pending + label

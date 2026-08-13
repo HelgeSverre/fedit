@@ -528,6 +528,7 @@ module Keymap =
         | "reload-keybinds" -> Ok ReloadKeybinds
         | "open-config" -> Ok OpenConfig
         | "toggle-hex-view" -> Ok ToggleHexView
+        | "toggle-csv-view" -> Ok ToggleCsvView
         | "toggle-sidebar" -> Ok ToggleSidebar
         | "reveal-sidebar" -> Ok RevealSidebar
         | "hide-sidebar" -> Ok HideSidebar

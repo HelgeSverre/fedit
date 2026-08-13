@@ -12,6 +12,7 @@
     <Compile Include="PieceTableTests.fs" />
     <Compile Include="BufferTests.fs" />
     <Compile Include="HexTests.fs" />
+    <Compile Include="CsvTests.fs" />
     <Compile Include="ColorTests.fs" />
     <Compile Include="ThemesTests.fs" />
     <Compile Include="ScreenTests.fs" />

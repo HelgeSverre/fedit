@@ -314,6 +314,223 @@ module Layout =
         else
             screen
 
+    /// CSV grid: screen row 0 pins line 0 as a styled header; content
+    /// rows below paint cells padded to the sampled column widths with
+    /// rule separators between them. Geometry comes from `Csv.renderLine`
+    /// / `Csv.renderedX` — the same functions Editor uses for cursor
+    /// placement and mouse hit-testing, so paint and input can't drift.
+    /// The text underneath is untouched; selection and search overlays
+    /// map text columns through the same layout.
+    let private renderCsvEditor x width height screen (view: CsvViewState) model =
+        let buffer = Editor.activeBufferState model
+        let theme = effectiveTheme model
+        let selected = selectedOf theme
+        let surface = surfaceOf theme
+        let lineNumber = lineNumberOf theme
+        let currentLineNumber = currentLineOf theme
+        let currentLineBg = activeLineOf theme
+
+        let headerStyle =
+            { Style.withColors theme.Accent theme.SurfaceBg with
+                Bold = true }
+
+        let gutterWidth = Buffer.gutterWidth buffer
+        let digits = gutterWidth - 2
+        let rows = Buffer.lines buffer
+        let contentWidth = max 1 (width - gutterWidth)
+
+        // Content rows start below the pinned header and never re-show
+        // line 0. `updateActiveBuffer` sizes the viewport one row short
+        // for CSV grids, so the cursor always lands in this window.
+        let contentTop = max 1 buffer.ViewportTop
+
+        Screen.fillRect x 0 width height surface ' ' screen
+
+        let selection = Buffer.selectionRange buffer
+
+        let searchInfo =
+            match model.Prompt.SearchPreview with
+            | Some preview when preview.Matches.Length > 0 ->
+                let query = Prompt.argumentOf model.Prompt.Text
+                Some(query.Length, preview.Matches)
+            | _ -> None
+
+        let highlightStyle =
+            { Style.defaultStyle with
+                Inverted = true }
+
+        // Which line each content screen row (1..height-1) paints:
+        // contiguous from `contentTop`, or the row filter's visible-row
+        // snapshot. Mouse hit-testing in `Editor` maps through the same
+        // scheme, so clicks land on the row that was painted.
+        let lineForRow =
+            match view.Filter with
+            | None ->
+                fun screenRow ->
+                    let lineIndex = contentTop + screenRow - 1
+                    if lineIndex < rows.Length then Some lineIndex else None
+            | Some filter ->
+                let startRank = Csv.rankAtOrAbove filter.VisibleRows contentTop
+
+                fun screenRow ->
+                    let rank = startRank + screenRow - 1
+
+                    if rank >= 0 && rank < filter.VisibleRows.Length then
+                        Some filter.VisibleRows[rank]
+                    else
+                        None
+
+        // Line-start offsets down to the deepest painted line, for the
+        // char-offset-based overlays (same scheme as the text editor —
+        // with a filter the deepest painted line can sit well past the
+        // viewport-top line, so the walk is bounded by it, not by height).
+        let deepestPainted =
+            let mutable deepest = 0
+
+            for screenRow in 1 .. height - 1 do
+                match lineForRow screenRow with
+                | Some lineIndex -> deepest <- max deepest lineIndex
+                | None -> ()
+
+            deepest
+
+        let lastVisible = min (rows.Length - 1) deepestPainted
+        let lineStarts = Array.zeroCreate (lastVisible + 1)
+        let mutable accum = 0
+
+        for i in 0..lastVisible do
+            lineStarts[i] <- accum
+            accum <- accum + rows[i].Length + 1
+
+        let paintRow screenRow lineIndex =
+            let isHeader = lineIndex = 0
+            let activeLine = lineIndex = buffer.Cursor.Line
+            let lineText = rows[lineIndex]
+
+            let textStyle =
+                if isHeader then headerStyle
+                elif activeLine && model.Focus = Editor then currentLineBg
+                else surface
+
+            Screen.writeText
+                x
+                screenRow
+                (if activeLine then currentLineNumber else lineNumber)
+                gutterWidth
+                ($"{lineIndex + 1}".PadLeft(digits) + " ")
+                screen
+
+            let rendered, sepCols = Csv.renderLine view.Widths view.Separator lineText
+
+            Screen.writeText
+                (x + gutterWidth)
+                screenRow
+                textStyle
+                contentWidth
+                (pad contentWidth (crop buffer.ViewportLeft contentWidth rendered))
+                screen
+
+            let sepStyle =
+                { textStyle with
+                    Foreground = theme.LineNumberFg }
+
+            for sepCol in sepCols do
+                let displayCol = sepCol - buffer.ViewportLeft
+
+                if displayCol >= 0 && displayCol < contentWidth then
+                    Screen.setCell
+                        (x + gutterWidth + displayCol)
+                        screenRow
+                        sepStyle
+                        (Csv.displaySep view.Separator)
+                        screen
+
+            if lineIndex < lineStarts.Length then
+                let lineStart = lineStarts[lineIndex]
+                let lineEnd = lineStart + lineText.Length
+
+                let toX col =
+                    Csv.renderedX view.Widths view.Separator lineText col
+
+                let overlay style colStart colEnd =
+                    for col in colStart .. colEnd - 1 do
+                        let displayCol = toX col - buffer.ViewportLeft
+
+                        if displayCol >= 0 && displayCol < contentWidth then
+                            Screen.setCell (x + gutterWidth + displayCol) screenRow style lineText[col] screen
+
+                match selection with
+                | Some(selStart, selEnd) when selEnd > selStart && selStart < lineEnd && selEnd > lineStart ->
+                    overlay selected (max 0 (selStart - lineStart)) (min lineText.Length (selEnd - lineStart))
+                | _ -> ()
+
+                match searchInfo with
+                | Some(qLen, matches) ->
+                    for matchStart in matches do
+                        let matchEnd = matchStart + qLen
+
+                        if matchStart < lineEnd && matchEnd > lineStart then
+                            overlay
+                                highlightStyle
+                                (max 0 (matchStart - lineStart))
+                                (min lineText.Length (matchEnd - lineStart))
+                | None -> ()
+
+        paintRow 0 0
+
+        for screenRow in 1 .. height - 1 do
+            match lineForRow screenRow with
+            | Some lineIndex -> paintRow screenRow lineIndex
+            | None -> Screen.writeText x screenRow lineNumber gutterWidth (pad gutterWidth "~") screen
+
+        if model.Focus = Editor then
+            let blockPos =
+                match selection with
+                | Some(selStart, selEnd) when selEnd > selStart && Buffer.positionToIndex buffer.Cursor buffer = selEnd ->
+                    Buffer.indexToPosition (selEnd - 1) buffer
+                | _ -> buffer.Cursor
+
+            // Find the screen row actually painting the cursor's line —
+            // with a filter the line↔row mapping is no longer arithmetic,
+            // and a cursor on a hidden line simply doesn't paint.
+            let cursorRow =
+                if blockPos.Line = 0 then
+                    Some 0
+                else
+                    let mutable found = None
+
+                    for screenRow in 1 .. height - 1 do
+                        if found.IsNone && lineForRow screenRow = Some blockPos.Line then
+                            found <- Some screenRow
+
+                    found
+
+            match cursorRow with
+            | Some cursorY ->
+                let lineText =
+                    if blockPos.Line < rows.Length then
+                        rows[blockPos.Line]
+                    else
+                        ""
+
+                let cursorX =
+                    x
+                    + gutterWidth
+                    + Csv.renderedX view.Widths view.Separator lineText blockPos.Column
+                    - buffer.ViewportLeft
+
+                if cursorX >= x + gutterWidth && cursorX < x + width then
+                    Screen.withCursor
+                        { Left = cursorX
+                          Top = cursorY
+                          Visible = true }
+                        screen
+                else
+                    screen
+            | None -> screen
+        else
+            screen
+
     let private renderTextEditor x width height screen model =
         let buffer = Editor.activeBufferState model
         let theme = effectiveTheme model
@@ -497,12 +714,15 @@ module Layout =
             screen
 
     /// The editor rectangle: hex views (an entry in `Model.HexViews` for
-    /// the active buffer) take the hex branch; everything else paints as
-    /// text.
+    /// the active buffer) take the hex branch, CSV grids (`Model.CsvViews`)
+    /// the grid branch; everything else paints as text.
     let private renderEditor x width height screen model =
         match Map.tryFind model.Editors.ActiveBufferId model.HexViews with
         | Some hexView -> renderHexEditor x width height screen hexView model
-        | None -> renderTextEditor x width height screen model
+        | None ->
+            match Map.tryFind model.Editors.ActiveBufferId model.CsvViews with
+            | Some csvView -> renderCsvEditor x width height screen csvView model
+            | None -> renderTextEditor x width height screen model
 
     // ── Picker dock ─────────────────────────────────────────────────────
     // Renders a `PickerView` — semantic, layout-agnostic data — into the dock.

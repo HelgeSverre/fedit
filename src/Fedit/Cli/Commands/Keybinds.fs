@@ -80,6 +80,7 @@ let actionMeta (action: Action) : string * string =
     | ReloadWorkspace -> "workspace", "Reload the workspace from disk"
     | OpenConfig -> "config", "Open the config directory"
     | ToggleHexView -> "view", "Toggle hex view of the active buffer"
+    | ToggleCsvView -> "view", "Toggle the CSV grid view of the active buffer"
     | ReloadKeybinds -> "config", "Reload the user keybinds file"
     | RunPlugin _ -> "plugin", "Run a plugin command"
     | GotoDefinition -> "lsp", "Jump to the symbol's definition"
@@ -167,6 +168,7 @@ let allActions: Action list =
       ReloadWorkspace
       OpenConfig
       ToggleHexView
+      ToggleCsvView
       ReloadKeybinds
       RunPlugin("", "", "")
       GotoDefinition

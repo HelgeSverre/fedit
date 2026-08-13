@@ -1,0 +1,688 @@
+module Fedit.Tests.CsvTests
+
+open Fedit
+open Xunit
+open FsUnit.Xunit
+
+// ─────────────────────────────────────────────────────────────────────
+// Pure geometry: quote-aware splitting, separator detection, widths,
+// and the text-column ↔ rendered-x mapping.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``cellRanges splits on the separator and keeps offsets`` () =
+    Csv.cellRanges ',' "a,bb,ccc"
+    |> should equal [| struct (0, 1); struct (2, 2); struct (5, 3) |]
+
+    Csv.cellRanges ',' "" |> should equal [| struct (0, 0) |]
+
+    Csv.cellRanges ',' ",x,"
+    |> should equal [| struct (0, 0); struct (1, 1); struct (3, 0) |]
+
+[<Fact>]
+let ``cellRanges ignores separators inside quotes`` () =
+    // "a,b" is one cell, quotes kept verbatim (structure-preserving).
+    Csv.cellRanges ',' "\"a,b\",c"
+    |> should equal [| struct (0, 5); struct (6, 1) |]
+    // RFC 4180 escaped quote: "" toggles twice, still one cell.
+    Csv.cellRanges ',' "\"a\"\",b\",c"
+    |> should equal [| struct (0, 7); struct (8, 1) |]
+
+[<Fact>]
+let ``detectSeparator picks the consistent splitter`` () =
+    Csv.detectSeparator [| "a,b,c"; "1,2,3" |] |> should equal ','
+    Csv.detectSeparator [| "a;b;c"; "1;2;3" |] |> should equal ';'
+    Csv.detectSeparator [| "a\tb"; "1\t2" |] |> should equal '\t'
+    // Quoted commas don't fool a semicolon file.
+    Csv.detectSeparator [| "x;\"a,b,c\";z"; "1;2;3" |] |> should equal ';'
+    // Nothing splits: fall back to comma.
+    Csv.detectSeparator [| "plain"; "text" |] |> should equal ','
+
+[<Fact>]
+let ``sampleWidths takes the widest cell per column`` () =
+    Csv.sampleWidths ',' [| "id,name"; "1,Bobby"; "1234,x" |]
+    |> should equal [| 4; 5 |]
+
+[<Fact>]
+let ``renderedX and textColAt are inverse over every cursor position`` () =
+    let widths = Csv.sampleWidths ',' [| "id,name,z"; "1,Bobby,42" |]
+
+    for line in [ "id,name,z"; "1,Bobby,42"; "longer-than-sampled,x,y" ] do
+        for col in 0 .. line.Length do
+            let x = Csv.renderedX widths ',' line col
+            Csv.textColAt widths ',' line x |> should equal col
+
+[<Fact>]
+let ``renderLine pads cells to shared widths and reports rule columns`` () =
+    let widths = [| 4; 5 |]
+    let rendered, seps = Csv.renderLine widths ',' "1,ab"
+    rendered |> should equal "1   │ab"
+    seps |> should equal [ 4 ]
+
+    // Same rule column on a different line: the grid aligns.
+    let rendered2, seps2 = Csv.renderLine widths ',' "1234,Bobby"
+    rendered2 |> should equal "1234│Bobby"
+    seps2 |> should equal [ 4 ]
+
+[<Fact>]
+let ``an overlong cell pushes only its own row right`` () =
+    let widths = [| 2; 2 |]
+    let rendered, seps = Csv.renderLine widths ',' "wide-cell,x"
+    rendered |> should equal "wide-cell│x"
+    seps |> should equal [ 9 ]
+    // The mapping agrees with the paint.
+    Csv.renderedX widths ',' "wide-cell,x" 10 |> should equal 10
+
+[<Fact>]
+let ``cell navigation finds neighbor cell starts`` () =
+    Csv.nextCellStart ',' "a,bb,c" 0 |> should equal (Some 2)
+    Csv.nextCellStart ',' "a,bb,c" 3 |> should equal (Some 5)
+    Csv.nextCellStart ',' "a,bb,c" 5 |> should equal None
+    Csv.previousCellStart ',' "a,bb,c" 5 |> should equal (Some 2)
+    Csv.previousCellStart ',' "a,bb,c" 0 |> should equal None
+
+// ─────────────────────────────────────────────────────────────────────
+// Editor integration: toggling, Tab navigation, plain-text editing,
+// hex exclusion, lifecycle.
+// ─────────────────────────────────────────────────────────────────────
+
+let private initModel () =
+    let model, _ =
+        Editor.init "/root" { Width = 80; Height = 24 } (Config.defaults Themes.defaultTheme) []
+
+    model
+
+let private press chord m =
+    fst (Editor.update (KeyPressed chord) m)
+
+let private ck c : Chord =
+    { Mods = Set.ofList [ Ctrl ]
+      Key = Key.Char c }
+
+let private chr c : Chord = { Mods = Set.empty; Key = Key.Char c }
+let private nk n : Chord = { Mods = Set.empty; Key = Named n }
+
+let private shiftTab: Chord =
+    { Mods = Set.ofList [ Shift ]
+      Key = Named Tab }
+
+let private typeLine (text: string) m =
+    text
+    |> Seq.fold (fun acc c -> press (if c = ' ' then nk Space else chr c) acc) m
+
+let private command (text: string) m =
+    m |> press (ck 'p') |> typeLine text |> press (nk Enter)
+
+/// Open CSV text as /root/data.csv and flip the grid on.
+let private openCsv (contents: string) =
+    Editor.update (FileOpened("/root/data.csv", OpenPermanent, None, Result.Ok(LoadedText contents))) (initModel ())
+    |> fst
+    |> command "csv"
+
+let private activeBuffer (model: Model) =
+    model.Editors.Buffers[model.Editors.ActiveBufferId]
+
+let private activeText model = Buffer.text (activeBuffer model)
+
+[<Fact>]
+let ``the csv command registers a grid with the detected separator`` () =
+    let model = openCsv "id;name\n1;Bobby"
+    let view = model.CsvViews[model.Editors.ActiveBufferId]
+    view.Separator |> should equal ';'
+    view.Widths |> should equal [| 2; 5 |]
+
+[<Fact>]
+let ``csv again returns to the text view`` () =
+    let model = openCsv "a,b\n1,2" |> command "csv"
+    model.CsvViews.IsEmpty |> should equal true
+
+[<Fact>]
+let ``Tab and Shift+Tab hop cells and wrap at row edges`` () =
+    let model = openCsv "id,name\n1,Bobby"
+
+    let atName = model |> press (nk Tab)
+    (activeBuffer atName).Cursor |> should equal { Line = 0; Column = 3 }
+
+    let nextRow = atName |> press (nk Tab)
+    (activeBuffer nextRow).Cursor |> should equal { Line = 1; Column = 0 }
+
+    let backUp = nextRow |> press shiftTab
+    (activeBuffer backUp).Cursor |> should equal { Line = 0; Column = 3 }
+
+[<Fact>]
+let ``typing in a csv grid edits the underlying text verbatim`` () =
+    let model = openCsv "a,b\n1,2" |> press (chr 'x')
+    activeText model |> should equal "xa,b\n1,2"
+    // Still a grid afterwards.
+    model.CsvViews.IsEmpty |> should equal false
+
+[<Fact>]
+let ``saving a csv grid emits a plain text save`` () =
+    let model = openCsv "a,b\n1,2"
+    let _, effects = Editor.update (KeyPressed(ck 's')) model
+
+    effects
+    |> List.exists (fun e ->
+        match e with
+        | SaveBuffer(_, "/root/data.csv", _, contents, false) -> contents = "a,b\n1,2"
+        | _ -> false)
+    |> should equal true
+
+[<Fact>]
+let ``csv refuses to stack on a hex view`` () =
+    let model =
+        Editor.update
+            (FileOpened("/root/save.dat", OpenPermanent, None, Result.Ok(LoadedBinary "\000AB")))
+            (initModel ())
+        |> fst
+        |> command "csv"
+
+    model.CsvViews.IsEmpty |> should equal true
+
+    match model.Notification with
+    | Some { Severity = Severity.Error } -> ()
+    | other -> failwithf "expected an error notification, got %A" other
+
+[<Fact>]
+let ``entering hex view drops the csv grid`` () =
+    let model = openCsv "a,b\n1,2" |> command "hex"
+    model.CsvViews.IsEmpty |> should equal true
+    model.HexViews.IsEmpty |> should equal false
+
+[<Fact>]
+let ``closing a csv buffer drops its grid state`` () =
+    let model = openCsv "a,b\n1,2"
+    let bufferId = model.Editors.ActiveBufferId
+    let closed = model |> press (ck 'w')
+    closed.CsvViews.ContainsKey bufferId |> should equal false
+
+// ─────────────────────────────────────────────────────────────────────
+// Spreadsheet semantics: cell-aware vertical motion, column stats,
+// sort, filter.
+// ─────────────────────────────────────────────────────────────────────
+
+[<Fact>]
+let ``cellSpanX spans the whole rendered column including its rule`` () =
+    let widths = [| 4; 5; 6 |]
+    Csv.cellSpanX widths ',' "1,ab,x" 0 |> should equal (0, 5)
+    Csv.cellSpanX widths ',' "1,ab,x" 3 |> should equal (5, 11)
+    Csv.cellSpanX widths ',' "1,ab,x" 5 |> should equal (11, 17)
+
+[<Fact>]
+let ``entering a right-edge column scrolls the whole column into view`` () =
+    // Three 40-wide columns: the third starts past the 80-col terminal,
+    // so a caret-only follow would reveal just its first character.
+    let wide (c: char) = System.String(c, 40)
+    let model = openCsv $"{wide 'a'},{wide 'b'},{wide 'c'}\n1,100.34,0"
+
+    let hopped = model |> press (nk Tab) |> press (nk Tab)
+    let buffer = activeBuffer hopped
+    let view = hopped.CsvViews[buffer.Id]
+
+    let viewportWidth =
+        let sidebarOffset =
+            if hopped.Panels.SidebarVisible then
+                hopped.Panels.SidebarWidth + 1
+            else
+                0
+
+        max 1 (hopped.Terminal.Width - sidebarOffset - Buffer.gutterWidth buffer)
+
+    let line = Buffer.line buffer.Cursor.Line buffer
+
+    let spanStart, spanEnd =
+        Csv.cellSpanX view.Widths view.Separator line buffer.Cursor.Column
+
+    // The full column is on screen: start not scrolled off, end inside.
+    buffer.ViewportLeft |> should be (lessThanOrEqualTo spanStart)
+    spanEnd |> should be (lessThanOrEqualTo (buffer.ViewportLeft + viewportWidth))
+    // And we actually scrolled (the column starts past the first screen).
+    buffer.ViewportLeft |> should be (greaterThan 0)
+
+[<Fact>]
+let ``cellIndexAt reports the cell and offset under a column`` () =
+    Csv.cellIndexAt ',' "ab,cd" 0 |> should equal (0, 0)
+    Csv.cellIndexAt ',' "ab,cd" 2 |> should equal (0, 2) // on the separator
+    Csv.cellIndexAt ',' "ab,cd" 3 |> should equal (1, 0)
+    Csv.cellIndexAt ',' "ab,cd" 5 |> should equal (1, 2) // end of line
+
+[<Fact>]
+let ``horizontal motion clamps at the row edges`` () =
+    // A spreadsheet row never wraps into the neighbor record: Left at
+    // column 0 and Right at line end are no-ops (text views wrap).
+    let model = openCsv "a,b\n1,2"
+
+    let atStart = model |> press (nk Down) |> press (nk Left)
+    (activeBuffer atStart).Cursor |> should equal { Line = 1; Column = 0 }
+
+    let atEnd = atStart |> press (nk End) |> press (nk Right)
+
+    (activeBuffer atEnd).Cursor |> should equal { Line = 1; Column = 3 }
+
+[<Fact>]
+let ``vertical motion stays in the same grid column`` () =
+    // "3.33" is wider than "0": moving down from inside the first cell
+    // must land inside the first cell below, never in the neighbor.
+    let model =
+        openCsv "a,b\n3.33,x\n0,y"
+        |> press (nk Down)
+        |> press (nk Right)
+        |> press (nk Right)
+        |> press (nk Right)
+
+    (activeBuffer model).Cursor |> should equal { Line = 1; Column = 3 }
+
+    let below = model |> press (nk Down)
+    (activeBuffer below).Cursor |> should equal { Line = 2; Column = 1 }
+
+    let back = below |> press (nk Up)
+    (activeBuffer back).Cursor |> should equal { Line = 1; Column = 1 }
+
+[<Fact>]
+let ``columnStats aggregates numeric cells and respects the filter`` () =
+    let lines = [| "id,v"; "1,2"; "2,4"; "1,\"6\"" |]
+
+    match Csv.columnStats ',' 1 None lines with
+    | Some s -> (s.Count, s.Sum, s.Avg, s.Min, s.Max) |> should equal (3L, 12.0, 4.0, 2.0, 6.0)
+    | None -> failwith "expected stats"
+
+    match Csv.columnStats ',' 1 (Some(0, "1")) lines with
+    | Some s -> (s.Count, s.Sum) |> should equal (2L, 8.0)
+    | None -> failwith "expected filtered stats"
+
+    Csv.columnStats ',' 0 None [| "h"; "x"; "y" |] |> should equal None
+
+[<Fact>]
+let ``the stats chokepoint requests and stores column stats`` () =
+    let model = openCsv "id,v\n1,2\n2,4"
+    let buffer = activeBuffer model
+
+    match model.CsvStats with
+    | Some pending ->
+        (pending.BufferId, pending.Column, pending.Stats)
+        |> should equal (buffer.Id, 0, (None: Csv.ColumnStats option))
+
+        let stats =
+            { Csv.Count = 2L
+              Csv.Sum = 3.0
+              Csv.Avg = 1.5
+              Csv.Min = 1.0
+              Csv.Max = 2.0 }
+
+        let filled, _ =
+            Editor.update (CsvStatsReady(buffer.Id, pending.EditTick, 0, Some stats)) model
+
+        filled.CsvStats |> Option.bind (fun s -> s.Stats) |> should equal (Some stats)
+
+        // A stale tick is dropped.
+        let stale, _ =
+            Editor.update (CsvStatsReady(buffer.Id, pending.EditTick + 99, 0, Some stats)) model
+
+        stale.CsvStats
+        |> Option.bind (fun s -> s.Stats)
+        |> should equal (None: Csv.ColumnStats option)
+    | None -> failwith "expected a pending stats request"
+
+[<Fact>]
+let ``entering another column requests fresh stats`` () =
+    let model = openCsv "id,v\n1,2"
+    let _, effects = Editor.update (KeyPressed(nk Tab)) model
+
+    effects
+    |> List.exists (fun e ->
+        match e with
+        | ComputeCsvStats(_, _, 1, ',', None, _) -> true
+        | _ -> false)
+    |> should equal true
+
+[<Fact>]
+let ``comparison filters match numerically and hide non-numeric cells`` () =
+    let lines = [| "id,v"; "10,a"; "31,b"; "30,c"; "x,d" |]
+    Csv.filterRows ',' 0 ">30" lines |> should equal [| 2 |]
+    Csv.filterRows ',' 0 ">=30" lines |> should equal [| 2; 3 |]
+    Csv.filterRows ',' 0 "<30" lines |> should equal [| 1 |]
+    Csv.filterRows ',' 0 "<=30" lines |> should equal [| 1; 3 |]
+    // Plain values keep exact-match semantics.
+    Csv.filterRows ',' 0 "30" lines |> should equal [| 3 |]
+    // An operator without a number falls back to exact match.
+    Csv.filterRows ',' 0 ">x" lines |> should equal ([||]: int[])
+
+[<Fact>]
+let ``column stats respect a comparison filter`` () =
+    let lines = [| "id,v"; "10,1"; "31,2"; "30,4" |]
+
+    match Csv.columnStats ',' 1 (Some(0, ">=30")) lines with
+    | Some s -> (s.Count, s.Sum) |> should equal (2L, 6.0)
+    | None -> failwith "expected filtered stats"
+
+[<Fact>]
+let ``a comparison filter drives the grid end to end`` () =
+    let model = openCsv "id,n\n10,x\n31,y\n30,z" |> command "filter >10"
+
+    model.CsvViews[model.Editors.ActiveBufferId].Filter
+    |> Option.map (fun f -> f.VisibleRows)
+    |> should equal (Some [| 2; 3 |])
+
+[<Fact>]
+let ``sortedLines orders numerically and pins header and trailing newline`` () =
+    Csv.sortedLines ',' 0 true [| "h"; "9"; "10"; "2" |]
+    |> should equal [| "h"; "2"; "9"; "10" |]
+
+    Csv.sortedLines ',' 0 false [| "h"; "b"; "a"; "" |]
+    |> should equal [| "h"; "b"; "a"; "" |]
+
+    Csv.sortedLines ',' 0 true [| "h"; "b"; "a"; "" |]
+    |> should equal [| "h"; "a"; "b"; "" |]
+
+[<Fact>]
+let ``sortedLines gives a mixed column a total order — numbers first, text after`` () =
+    // Per-pair mode selection was non-transitive: 10 > 2 numerically,
+    // 2 > "11x" and "11x" > 10 lexically — a cycle Array.sortWith may
+    // punish with an arbitrary order. Numeric cells now sort together
+    // ahead of text cells, both directions.
+    Csv.sortedLines ',' 0 true [| "h"; "10"; "2"; "11x"; "abc"; "3" |]
+    |> should equal [| "h"; "2"; "3"; "10"; "11x"; "abc" |]
+
+    Csv.sortedLines ',' 0 false [| "h"; "10"; "2"; "11x"; "abc"; "3" |]
+    |> should equal [| "h"; "abc"; "11x"; "10"; "3"; "2" |]
+
+[<Fact>]
+let ``sortedLines keeps equal keys in file order`` () =
+    Csv.sortedLines ',' 0 true [| "h"; "1,b"; "1,a"; "0,c" |]
+    |> should equal [| "h"; "0,c"; "1,b"; "1,a" |]
+
+[<Fact>]
+let ``sort reorders rows as one undoable edit`` () =
+    let sorted = openCsv "id,n\n3,c\n1,a\n2,b" |> command "sort"
+    activeText sorted |> should equal "id,n\n1,a\n2,b\n3,c"
+
+    let restored = sorted |> press (ck 'z')
+    activeText restored |> should equal "id,n\n3,c\n1,a\n2,b"
+
+[<Fact>]
+let ``filter hides rows from motion but never from the file`` () =
+    let model = openCsv "id,n\n1,x\n2,y\n1,z" |> command "filter 1"
+
+    let view = model.CsvViews[model.Editors.ActiveBufferId]
+
+    view.Filter
+    |> Option.map (fun f -> f.VisibleRows)
+    |> should equal (Some [| 1; 3 |])
+
+    // Down from the header skips the hidden row 2.
+    let hopped = model |> press (nk Down) |> press (nk Down)
+    (activeBuffer hopped).Cursor.Line |> should equal 3
+
+    // The buffer text is untouched — saving writes every row.
+    activeText model |> should equal "id,n\n1,x\n2,y\n1,z"
+
+    let cleared = model |> command "filter off"
+    cleared.CsvViews[cleared.Editors.ActiveBufferId].Filter |> should equal None
+
+[<Fact>]
+let ``sorting under a filter recomputes the visible rows`` () =
+    // Filter and sort both act on the cursor's column (0 here). After the
+    // sort reorders the rows, the filter's row snapshot must follow.
+    let model = openCsv "id,n\n3,b\n1,a\n1,c" |> command "filter 1"
+
+    model.CsvViews[model.Editors.ActiveBufferId].Filter
+    |> Option.map (fun f -> f.VisibleRows)
+    |> should equal (Some [| 2; 3 |])
+
+    let sorted = model |> command "sort"
+    activeText sorted |> should equal "id,n\n1,a\n1,c\n3,b"
+
+    sorted.CsvViews[sorted.Editors.ActiveBufferId].Filter
+    |> Option.map (fun f -> f.VisibleRows)
+    |> should equal (Some [| 1; 2 |])
+
+[<Fact>]
+let ``undoing a sort under a filter recomputes the visible rows`` () =
+    // Undo restores the row order without changing the line count, so
+    // the count-based staleness check alone would keep the sorted-order
+    // snapshot and show rows the filter should hide.
+    let model = openCsv "id,n\n3,b\n1,a\n1,c" |> command "filter 1" |> command "sort"
+
+    model.CsvViews[model.Editors.ActiveBufferId].Filter
+    |> Option.map (fun f -> f.VisibleRows)
+    |> should equal (Some [| 1; 2 |])
+
+    let restored = model |> press (ck 'z')
+    activeText restored |> should equal "id,n\n3,b\n1,a\n1,c"
+
+    restored.CsvViews[restored.Editors.ActiveBufferId].Filter
+    |> Option.map (fun f -> f.VisibleRows)
+    |> should equal (Some [| 2; 3 |])
+
+[<Fact>]
+let ``a structural edit that hides the caret's row snaps to the nearest visible row`` () =
+    let model = openCsv "id,n\n1,x\n2,y\n1,z" |> command "filter 1"
+
+    // Onto the last visible row (3), then join it into hidden row 2:
+    // the refreshed filter hides the merged row, so the caret must land
+    // on the nearest surviving row instead of a row that paints nothing.
+    let joined = model |> press (nk Down) |> press (nk Down) |> press (nk Backspace)
+    activeText joined |> should equal "id,n\n1,x\n2,y1,z"
+
+    joined.CsvViews[joined.Editors.ActiveBufferId].Filter
+    |> Option.map (fun f -> f.VisibleRows)
+    |> should equal (Some [| 1 |])
+
+    (activeBuffer joined).Cursor |> should equal { Line = 1; Column = 0 }
+
+[<Fact>]
+let ``a filter left with no matching rows parks the caret on the header`` () =
+    let model = openCsv "id,n\n1,x\n2,y" |> command "filter 1"
+
+    // Delete the only matching row's text, then the newline join: the
+    // recomputed filter matches nothing, and the header is the one row
+    // that always stays visible.
+    let emptied =
+        model
+        |> press (nk Down)
+        |> press (nk Delete)
+        |> press (nk Delete)
+        |> press (nk Delete)
+        |> press (nk Delete)
+
+    activeText emptied |> should equal "id,n\n2,y"
+
+    emptied.CsvViews[emptied.Editors.ActiveBufferId].Filter
+    |> Option.map (fun f -> f.VisibleRows)
+    |> should equal (Some([||]: int[]))
+
+    (activeBuffer emptied).Cursor |> should equal { Line = 0; Column = 0 }
+
+[<Fact>]
+let ``undo history survives the csv toggle`` () =
+    // Type before toggling; undo after toggling still works because the
+    // grid never rebuilds the buffer (unlike the hex flip).
+    let model =
+        Editor.update (FileOpened("/root/data.csv", OpenPermanent, None, Result.Ok(LoadedText "a,b"))) (initModel ())
+        |> fst
+        |> press (chr 'x')
+        |> command "csv"
+        |> press (ck 'z')
+
+    activeText model |> should equal "a,b"
+    model.CsvViews.IsEmpty |> should equal false
+
+// ─────────────────────────────────────────────────────────────────────
+// Rendering & status bar: the grid projection on screen — pinned
+// header, padded cells with rules, filter-aware rows, cursor mapping —
+// and the CSV status segment (separator, filter, column stats).
+// ─────────────────────────────────────────────────────────────────────
+
+let private editorRowText (screen: Screen) (metrics: DockMetrics) (row: int) =
+    System.String(
+        [| for col in metrics.EditorX .. metrics.EditorX + metrics.EditorWidth - 1 -> screen.Cells[row, col].Glyph |]
+    )
+
+[<Fact>]
+let ``rendered grid pads cells to shared widths with rules between`` () =
+    let model = openCsv "id,name\n1,Bobby"
+    let screen = Layout.render model
+    let metrics = Dock.metrics model
+
+    (editorRowText screen metrics 0).Contains "id│name" |> should equal true
+    (editorRowText screen metrics 1).Contains "1 │Bobby" |> should equal true
+
+[<Fact>]
+let ``scrolling a grid keeps the header pinned on the first row`` () =
+    let contents =
+        "id,n\n" + ([ 1..40 ] |> List.map (fun i -> $"r{i},x") |> String.concat "\n")
+
+    let model = openCsv contents
+    let scrolled = [ 1..30 ] |> List.fold (fun m _ -> press (nk Down) m) model
+    let screen = Layout.render scrolled
+    let metrics = Dock.metrics scrolled
+
+    (editorRowText screen metrics 0).Contains "id │n" |> should equal true
+
+    // The first content row's gutter shows a scrolled-past line number,
+    // never line 2 — the viewport moved but the header did not.
+    let gutterWidth = Buffer.gutterWidth (activeBuffer scrolled)
+
+    (editorRowText screen metrics 1).Substring(0, gutterWidth).Trim()
+    |> int
+    |> should be (greaterThan 2)
+
+[<Fact>]
+let ``a filtered grid paints only the visible rows`` () =
+    let model = openCsv "id,n\n10,x\n31,y\n30,z" |> command "filter >10"
+    let screen = Layout.render model
+    let metrics = Dock.metrics model
+
+    let frame =
+        String.concat "\n" [ for row in 0..4 -> editorRowText screen metrics row ]
+
+    frame.Contains "31│y" |> should equal true
+    frame.Contains "30│z" |> should equal true
+    frame.Contains "10│x" |> should equal false
+
+[<Fact>]
+let ``the screen cursor lands on the grid cell, not the text column`` () =
+    // Column 3 of "id,name" is the 'n' — rendered past the padded cell
+    // and its rule, so text x and rendered x differ. The painted cursor
+    // must sit on the rendered glyph.
+    let model = openCsv "id,name\n1,Bobby" |> press (nk Tab)
+    let screen = Layout.render model
+
+    match screen.Cursor with
+    | Some cursor -> screen.Cells[cursor.Top, cursor.Left].Glyph |> should equal 'n'
+    | None -> failwith "expected a visible cursor"
+
+[<Fact>]
+let ``status line reads CSV with the separator name`` () =
+    let model = openCsv "a;b\n1;2"
+    (Status.render 120 model).Contains "CSV semicolon" |> should equal true
+
+[<Fact>]
+let ``status line shows the active filter and its row count`` () =
+    let model = openCsv "id,n\n10,x\n31,y\n30,z" |> command "filter >10"
+    (Status.render 120 model).Contains "filter:>10 (2)" |> should equal true
+
+[<Fact>]
+let ``status line shows column stats for the cursor's column`` () =
+    let model = openCsv "id,v\n1,2\n2,4"
+    let buffer = activeBuffer model
+
+    match model.CsvStats with
+    | Some pending ->
+        let stats =
+            { Csv.Count = 2L
+              Csv.Sum = 3.0
+              Csv.Avg = 1.5
+              Csv.Min = 1.0
+              Csv.Max = 2.0 }
+
+        let filled, _ =
+            Editor.update (CsvStatsReady(buffer.Id, pending.EditTick, 0, Some stats)) model
+
+        let status = Status.render 120 filled
+        status.Contains "sum 3  avg 1.5  min 1  max 2  n 2" |> should equal true
+    | None -> failwith "expected a pending stats request"
+
+// ─────────────────────────────────────────────────────────────────────
+// Command edges: wrong-context errors, degenerate inputs, verbs.
+// ─────────────────────────────────────────────────────────────────────
+
+let private notificationText (model: Model) =
+    model.Notification
+    |> Option.map (fun n -> n.Message)
+    |> Option.defaultValue "(none)"
+
+let private openPlain (contents: string) =
+    Editor.update (FileOpened("/root/plain.txt", OpenPermanent, None, Result.Ok(LoadedText contents))) (initModel ())
+    |> fst
+
+[<Fact>]
+let ``sort outside a grid errors instead of touching the text`` () =
+    let model = openPlain "b\na" |> command "sort"
+    activeText model |> should equal "b\na"
+
+    notificationText model
+    |> should equal "sort works on CSV grids — run :csv first."
+
+[<Fact>]
+let ``filter outside a grid errors`` () =
+    let model = openPlain "b\na" |> command "filter b"
+
+    notificationText model
+    |> should equal "filter works on CSV grids — run :csv first."
+
+[<Fact>]
+let ``csv on twice and csv off in text view both report the current state`` () =
+    let ongrid = openCsv "a,b\n1,2" |> command "csv on"
+    notificationText ongrid |> should equal "Already in CSV view."
+    ongrid.CsvViews.IsEmpty |> should equal false
+
+    let plain = openPlain "a,b" |> command "csv off"
+    notificationText plain |> should equal "Already in text view."
+
+[<Fact>]
+let ``sort with no data rows is a no-op`` () =
+    let model = openCsv "a,b\n1,2" |> command "sort"
+    activeText model |> should equal "a,b\n1,2"
+    notificationText model |> should equal "Nothing to sort."
+
+[<Fact>]
+let ``sort desc reverses the comparison`` () =
+    let model = openCsv "id,n\n1,a\n3,b\n2,c" |> command "sort desc"
+    activeText model |> should equal "id,n\n3,b\n2,c\n1,a"
+
+[<Fact>]
+let ``a filter matching nothing warns and stays off`` () =
+    let model = openCsv "id,n\n1,a" |> command "filter zzz"
+    model.CsvViews[model.Editors.ActiveBufferId].Filter |> should equal None
+
+    (notificationText model).Contains "filter not applied" |> should equal true
+
+[<Fact>]
+let ``filter off clears an active filter and reports when there is none`` () =
+    let filtered = openCsv "id,n\n1,a\n2,b" |> command "filter 1"
+
+    let cleared = filtered |> command "filter off"
+    cleared.CsvViews[cleared.Editors.ActiveBufferId].Filter |> should equal None
+    notificationText cleared |> should equal "Filter off — all rows visible."
+
+    let noop = cleared |> command "filter off"
+    notificationText noop |> should equal "No filter active."
+
+[<Fact>]
+let ``csv, sort, and filter parse their verbs and reject the rest`` () =
+    Commands.parse "csv" |> should equal (Ready(Command.CsvView "toggle"))
+    Commands.parse "csv off" |> should equal (Ready(Command.CsvView "off"))
+
+    Commands.parse "csv sideways"
+    |> should equal (Invalid "Unknown csv verb 'sideways'.")
+
+    Commands.parse "sort" |> should equal (Ready(Command.CsvSort "asc"))
+
+    Commands.parse "sort north"
+    |> should equal (Invalid "Unknown sort direction 'north' (asc or desc).")
+
+    Commands.parse "filter"
+    |> should equal (Pending "Filter value required (or `off`).")
+
+    Commands.parse "filter >10" |> should equal (Ready(Command.CsvFilterRows ">10"))
