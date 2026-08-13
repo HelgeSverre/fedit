@@ -436,29 +436,48 @@ module Csv =
                   Max = high }
 
     /// The full line array with the data rows stably sorted by column
-    /// `col`: numeric when both cells parse as numbers, ordinal
-    /// case-insensitive otherwise. The header (line 0) and a trailing
-    /// empty line (the closing newline) stay put.
+    /// `col`. The order is total even when the column mixes content:
+    /// numeric cells sort together first (numerically), non-numeric cells
+    /// after them (ordinal, case-insensitive) — picking the mode per PAIR
+    /// would be non-transitive (`10 > 2` numerically, `2 > "11x"` and
+    /// `"11x" > 10` lexically form a cycle), which `Array.sortWith` is
+    /// free to punish with an arbitrary order. The original row index is
+    /// the final tie-breaker (in file order for BOTH directions), so the
+    /// sort is stable regardless of the underlying algorithm. Each row's
+    /// key is parsed once up front, so the sort costs O(n) parses, not
+    /// O(n log n). The header (line 0) and a trailing empty line (the
+    /// closing newline) stay put.
     let sortedLines (sep: char) (col: int) (ascending: bool) (lines: string[]) : string[] =
         let last = lastDataRow lines
 
         if last < 1 then
             lines
         else
-            let compareRows (a: string) (b: string) =
-                let ka = cellTextAt sep col a
-                let kb = cellTextAt sep col b
+            let keyed =
+                lines[1..last]
+                |> Array.mapi (fun index line ->
+                    let text = cellTextAt sep col line
+                    struct (tryNumber text, text, index, line))
 
+            let compareKeys
+                (struct (numA, textA, indexA, _): struct (float voption * string * int * string))
+                (struct (numB, textB, indexB, _))
+                =
                 let ordered =
-                    match tryNumber ka, tryNumber kb with
+                    match numA, numB with
                     | ValueSome x, ValueSome y -> compare x y
-                    | _ -> String.Compare(ka, kb, StringComparison.OrdinalIgnoreCase)
+                    | ValueSome _, ValueNone -> -1
+                    | ValueNone, ValueSome _ -> 1
+                    | ValueNone, ValueNone -> String.Compare(textA, textB, StringComparison.OrdinalIgnoreCase)
 
-                if ascending then ordered else -ordered
+                let directed = if ascending then ordered else -ordered
+                if directed <> 0 then directed else compare indexA indexB
 
             Array.concat
                 [ lines[0..0]
-                  lines[1..last] |> Array.sortWith compareRows
+                  keyed
+                  |> Array.sortWith compareKeys
+                  |> Array.map (fun (struct (_, _, _, line)) -> line)
                   lines[last + 1 ..] ]
 
     /// Text column of the next cell's first character after `textCol`,

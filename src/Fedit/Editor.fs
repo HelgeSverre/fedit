@@ -1774,6 +1774,25 @@ module Editor =
                     ),
                     []
 
+    /// Force the next `refreshCsvFilter` pass to rebuild the active
+    /// grid's row filter. Undo/redo can reorder rows WITHOUT changing the
+    /// line count (undoing `:sort`), which the count-based staleness
+    /// check can't see — the snapshot would keep indexing rows by their
+    /// pre-undo positions, showing rows the filter should hide.
+    let private poisonCsvFilter (model: Model) : Model =
+        let bufferId = model.Editors.ActiveBufferId
+
+        match Map.tryFind bufferId model.CsvViews with
+        | Some({ Filter = Some filter } as view) ->
+            { model with
+                CsvViews =
+                    Map.add
+                        bufferId
+                        { view with
+                            Filter = Some { filter with LineCount = -1 } }
+                        model.CsvViews }
+        | _ -> model
+
     /// CSV grids remap Tab / Shift+Tab to cell navigation — next /
     /// previous cell start, wrapping to the neighbor line at the row
     /// edges (the spreadsheet convention). Vertical motion moves by grid
@@ -2779,8 +2798,8 @@ module Editor =
                 updateActiveBuffer Buffer.deleteSelection model, []
             else
                 updateActiveBuffer (Buffer.deleteForwardWord model.Config.WordMotion) model, []
-        | Undo -> updateActiveBuffer Buffer.undo model, []
-        | Redo -> updateActiveBuffer Buffer.redo model, []
+        | Undo -> updateActiveBuffer Buffer.undo model |> poisonCsvFilter, []
+        | Redo -> updateActiveBuffer Buffer.redo model |> poisonCsvFilter, []
         | Copy ->
             let buffer = activeBufferState model
             let text = Buffer.selectionText buffer
@@ -4954,17 +4973,43 @@ module Editor =
             let rows = Buffer.lines buffer
             let visible = Csv.filterRows view.Separator filter.Column filter.Value rows
 
-            { model with
-                CsvViews =
-                    Map.add
-                        buffer.Id
-                        { view with
-                            Filter =
-                                Some
-                                    { filter with
-                                        VisibleRows = visible
-                                        LineCount = rows.Length } }
-                        model.CsvViews }
+            let refreshed =
+                { model with
+                    CsvViews =
+                        Map.add
+                            buffer.Id
+                            { view with
+                                Filter =
+                                    Some
+                                        { filter with
+                                            VisibleRows = visible
+                                            LineCount = rows.Length } }
+                            model.CsvViews }
+
+            // The structural edit may have deleted the row under the caret
+            // or changed which rows pass the filter — a cursor on a hidden
+            // row paints no caret and strands motion. Land on the nearest
+            // visible row at-or-below, else the nearest above, else the
+            // header (always visible).
+            let cursorLine = buffer.Cursor.Line
+
+            if cursorLine = 0 || Array.contains cursorLine visible then
+                refreshed
+            else
+                let target =
+                    match Csv.nextIn visible (cursorLine - 1) with
+                    | Some row -> row
+                    | None ->
+                        match Csv.prevIn visible cursorLine with
+                        | Some row -> row
+                        | None -> 0
+
+                refreshed
+                |> updateActiveBuffer (fun b ->
+                    { b with
+                        Cursor = { Line = target; Column = 0 }
+                        PreferredColumn = None }
+                    |> Buffer.clearSelection)
         | _ -> model
 
     /// Column-stats chokepoint (the `highlightEffects` shape): whenever
