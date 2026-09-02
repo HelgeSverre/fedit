@@ -942,10 +942,22 @@ module Runtime =
             | ScanPlugins disabledPlugins ->
                 Task.Run(fun () ->
                     let pluginsRoot = Path.Combine(ConfigIO.directory (), "plugins")
-                    queue.Enqueue(PluginsScanned(pluginHost.Scan(pluginsRoot, disabledPlugins))))
+                    // `attempt`: a host reply the editor cannot parse (a newer
+                    // host's action tag, a truncated frame) must surface as an
+                    // error, not vanish inside an unobserved task.
+                    queue.Enqueue(
+                        PluginsScanned(
+                            attempt (fun () -> pluginHost.Scan(pluginsRoot, disabledPlugins))
+                            |> Result.bind id
+                        )
+                    ))
                 |> ignore
             | RunPluginCommand(source, command, context) ->
-                post (fun () -> PluginActionsReady(source, pluginHost.Invoke(command, context)))
+                post (fun () ->
+                    PluginActionsReady(
+                        source,
+                        attempt (fun () -> pluginHost.Invoke(command, context)) |> Result.bind id
+                    ))
             | InstallPluginFromSource source ->
                 post (fun () ->
                     let pluginsRoot = Path.Combine(ConfigIO.directory (), "plugins")

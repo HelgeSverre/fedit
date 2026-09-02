@@ -3849,39 +3849,58 @@ module Editor =
             // user's own entry of the same name wins); plugin grammars are
             // appended to the language table and registered with the
             // highlighter, and open buffers of those languages reparse.
-            let userServerNames =
-                model.Config.LanguageServers |> List.map (fun s -> s.Name) |> Set.ofList
+            let serverOf (s: Fedit.PluginApi.LanguageServerSpec) : LanguageServerConfig =
+                { Name = s.Name
+                  Command = s.Command
+                  Args = s.Args
+                  FileTypes = s.FileTypes
+                  RootMarkers = s.RootMarkers }
+
+            let languageOf (g: Fedit.PluginApi.GrammarSpec) : LanguageSpec =
+                { Name = g.Name
+                  Extensions = g.Extensions
+                  Library = Some g.Library
+                  Symbol = g.Symbol
+                  Queries = g.Queries }
+
+            // The previous scan's contributions come out first (a disabled or
+            // removed plugin must not keep its server or grammar); user
+            // entries are never touched because a plugin entry only ever
+            // gets in when no user entry has its name.
+            let previousServers =
+                model.Plugins.LanguageServers |> List.map serverOf |> Set.ofList
+
+            let previousLanguages = model.Plugins.Languages |> List.map languageOf |> Set.ofList
+
+            let userServers =
+                model.Config.LanguageServers
+                |> List.filter (fun s -> not (Set.contains s previousServers))
+
+            let userLanguages =
+                model.Config.Languages
+                |> List.filter (fun l -> not (Set.contains l previousLanguages))
+
+            let userServerNames = userServers |> List.map (fun s -> s.Name) |> Set.ofList
 
             let pluginServers =
                 registry.LanguageServers
                 |> List.filter (fun s -> not (Set.contains s.Name userServerNames))
-                |> List.map (fun s ->
-                    { Name = s.Name
-                      Command = s.Command
-                      Args = s.Args
-                      FileTypes = s.FileTypes
-                      RootMarkers = s.RootMarkers })
+                |> List.map serverOf
 
-            let userLanguageNames =
-                model.Config.Languages |> List.map (fun l -> l.Name) |> Set.ofList
+            let userLanguageNames = userLanguages |> List.map (fun l -> l.Name) |> Set.ofList
 
-            let pluginLanguages: LanguageSpec list =
+            let pluginLanguages =
                 registry.Languages
                 |> List.filter (fun g -> not (Set.contains g.Name userLanguageNames))
-                |> List.map (fun g ->
-                    { Name = g.Name
-                      Extensions = g.Extensions
-                      Library = Some g.Library
-                      Symbol = g.Symbol
-                      Queries = g.Queries })
+                |> List.map languageOf
 
             let nextModel =
                 { model with
                     Plugins = registry
                     Config =
                         { model.Config with
-                            LanguageServers = model.Config.LanguageServers @ pluginServers
-                            Languages = model.Config.Languages @ pluginLanguages } }
+                            LanguageServers = userServers @ pluginServers
+                            Languages = userLanguages @ pluginLanguages } }
 
             let nextModel =
                 match registry.Conflicts with
@@ -3889,7 +3908,7 @@ module Editor =
                 | conflicts -> nextModel |> notify (Some(Notification.warning (String.concat "; " conflicts)))
 
             let languageEffects =
-                match pluginLanguages with
+                match pluginLanguages |> List.filter (fun l -> not (Set.contains l previousLanguages)) with
                 | [] -> []
                 | specs ->
                     let added = specs |> List.map (fun l -> l.Name) |> Set.ofList
@@ -4621,13 +4640,34 @@ module Editor =
 
                           RunPluginCommand(hook.Source, hook.Command, context) ]
 
+    /// Hook runs are async plugin effects like any other: during a macro
+    /// replay they open a `PluginFence` so the next step waits for the
+    /// hook's actions. A pump emitted by the step (or by a fence that just
+    /// cleared) is withheld until the hook's response clears its fence.
+    let private fenceHookRuns (model: Model) (effects: Effect list) (hookRuns: Effect list) =
+        match model.Replay, hookRuns |> List.choose fenceOfEffect with
+        | Some state, (_ :: _ as opened) ->
+            let pending =
+                opened
+                |> List.fold
+                    (fun fences fence ->
+                        let count = fences |> Map.tryFind fence |> Option.defaultValue 0
+                        fences |> Map.add fence (count + 1))
+                    state.PendingFences
+
+            { model with
+                Replay = Some { state with PendingFences = pending } },
+            (effects |> List.filter ((<>) ReplayPump)) @ hookRuns
+        | _ -> model, effects @ hookRuns
+
     let update msg model =
         let next, effects = updateCore msg model
         let next, effects = settleReplayFences msg next effects
+        let next, effects = fenceHookRuns next effects (hookEffects msg model next)
         let next = disarmStaleConfirmations msg model next
         let next = recordBufferActivation model next
         let next = promoteDirtyPreview next
         let next = ensureHexViewport next
         let next, highlightFx = highlightEffects model next
         let lspFx = lspSyncEffects model next
-        next, effects @ highlightFx @ lspFx @ hookEffects msg model next
+        next, effects @ highlightFx @ lspFx

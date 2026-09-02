@@ -4268,3 +4268,72 @@ let ``a plugin scan merges its language servers and grammars and reparses open b
     again.Config.Languages.Length |> should equal 1
     again.Config.LanguageServers.Length |> should equal 2
     againEffects |> should be Empty
+
+[<Fact>]
+let ``hook-fired plugin commands are fenced during macro replay`` () =
+    let model =
+        { initModel () with
+            Registers = Map.ofList [ 'a', [ RunAction(InsertText "x") ] ] }
+        |> withHook Fedit.PluginApi.BufferSaved
+
+    let started, _ = Editor.runAction (ReplayMacro('a', 1)) model
+    started.Replay.IsSome |> should equal true
+
+    let saved, effects =
+        Editor.update (BufferSaved(1, "/root/a.txt", 0, Result.Ok BackupNotNeeded)) started
+
+    hookRuns effects |> List.length |> should equal 1
+
+    (match saved.Replay with
+     | Some state -> Map.tryFind PluginFence state.PendingFences
+     | None -> failwith "replay vanished")
+    |> should equal (Some 1)
+
+[<Fact>]
+let ``a rescan without the plugin drops its language server and grammar but keeps the user's`` () =
+    let user =
+        { Name = "showcase-ls"
+          Command = "user-ls"
+          Args = []
+          FileTypes = [ "showcase" ]
+          RootMarkers = [] }
+
+    let model =
+        { initModel () with
+            Config =
+                { (initModel ()).Config with
+                    LanguageServers = [ user ] } }
+
+    let registry =
+        { PluginRegistry.empty with
+            LanguageServers =
+                [ { Name = "showcase-ls"
+                    Command = "plugin-ls"
+                    Args = []
+                    FileTypes = [ "showcase" ]
+                    RootMarkers = [] }
+                  { Name = "other-ls"
+                    Command = "other"
+                    Args = []
+                    FileTypes = [ "other" ]
+                    RootMarkers = [] } ]
+            Languages =
+                [ { Name = "showcase"
+                    Extensions = [ ".showcase" ]
+                    Library = "/p/lib.dylib"
+                    Symbol = None
+                    Queries = None } ] }
+
+    let scanned, _ = Editor.update (PluginsScanned(Result.Ok registry)) model
+
+    scanned.Config.LanguageServers
+    |> List.map (fun s -> s.Name, s.Command)
+    |> should equal [ "showcase-ls", "user-ls"; "other-ls", "other" ]
+
+    // The plugin is disabled: the next scan carries nothing of it.
+    let gone, effects =
+        Editor.update (PluginsScanned(Result.Ok PluginRegistry.empty)) scanned
+
+    gone.Config.LanguageServers |> should equal [ user ]
+    gone.Config.Languages |> should be Empty
+    effects |> should be Empty
