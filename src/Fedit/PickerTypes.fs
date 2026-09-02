@@ -14,6 +14,9 @@ type PickerKind =
     | LocationPicker
     /// The `:lsp` manager: one row per configured language server.
     | LanguageServerPicker
+    /// A plugin's `ShowPicker` rows (`Model.PluginPicker`); Enter runs the
+    /// plugin's `onSelect` command with the row id as the argument.
+    | PluginItemsPicker
 
 /// Presentation style for a picker kind.
 type PickerLayout =
@@ -66,6 +69,7 @@ type PickerActionId =
     | LanguageServerRestart
     | LanguageServerToggle
     | LanguageServerLog
+    | PluginItemSelect
     | PickerClose
 
 /// Semantic role for a picker action, determining its styling.

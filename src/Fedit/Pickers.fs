@@ -15,6 +15,7 @@ module Pickers =
         | MessagePicker -> ListWithInspector
         | LocationPicker -> SearchResults
         | LanguageServerPicker -> ListWithInspector
+        | PluginItemsPicker -> SearchResults
 
     /// Map from PickerKind to its title. The location picker's real title
     /// (Definitions / References / Diagnostics) lives on the model's
@@ -27,6 +28,7 @@ module Pickers =
         | MessagePicker -> "Messages"
         | LocationPicker -> "Locations"
         | LanguageServerPicker -> "Language servers"
+        | PluginItemsPicker -> "Plugin"
 
     /// Default empty text for each picker kind.
     let defaultEmptyText =
@@ -37,6 +39,7 @@ module Pickers =
         | MessagePicker -> "No messages yet."
         | LocationPicker -> "No locations."
         | LanguageServerPicker -> "No language servers configured."
+        | PluginItemsPicker -> "No items."
 
     /// Case-insensitive substring matching
     let private containsIgnoreCase (needle: string) (haystack: string) =
@@ -188,6 +191,9 @@ module Pickers =
 
     let private locationActions: PickerAction list =
         [ action PickerActionId.LocationJump (Chord.bareNamed Enter) "Jump" PickerActionRole.Primary ]
+
+    let private pluginItemActions: PickerAction list =
+        [ action PickerActionId.PluginItemSelect (Chord.bareNamed Enter) "Select" PickerActionRole.Primary ]
 
     let private languageServerActions (model: Model) (server: LanguageServerConfig) : PickerAction list =
         let disabled = Set.contains server.Name model.Config.DisabledLanguageServers
@@ -404,6 +410,21 @@ module Pickers =
         else
             path
 
+    let private pluginPickerItems (model: Model) : PickerItem list =
+        match model.PluginPicker with
+        | None -> []
+        | Some picker ->
+            picker.Items
+            |> List.map (fun entry ->
+                { Id = entry.Id
+                  Title = entry.Title
+                  Subtitle = entry.Subtitle
+                  Badge = None
+                  Accessories = []
+                  Inspector = None
+                  SearchTerms = [ entry.Title; defaultArg entry.Subtitle "" ]
+                  Actions = pluginItemActions })
+
     let private locationItems (model: Model) : PickerItem list =
         match model.Lsp.Locations with
         | None -> []
@@ -483,6 +504,7 @@ module Pickers =
         | PickerKind.KeyBindingPicker -> keybindingItems model
         | PickerKind.MessagePicker -> messageItems model
         | PickerKind.LocationPicker -> locationItems model
+        | PickerKind.PluginItemsPicker -> pluginPickerItems model
         | PickerKind.LanguageServerPicker -> languageServerItems model
 
     /// Build a complete PickerView from model and picker state
@@ -495,6 +517,10 @@ module Pickers =
             | PickerKind.LocationPicker ->
                 model.Lsp.Locations
                 |> Option.map (fun set -> set.Title)
+                |> Option.defaultValue (titleForKind kind)
+            | PickerKind.PluginItemsPicker ->
+                model.PluginPicker
+                |> Option.map (fun picker -> picker.Title)
                 |> Option.defaultValue (titleForKind kind)
             | _ -> titleForKind kind
 
@@ -521,7 +547,8 @@ module Pickers =
                     | PickerKind.MacroPicker
                     | PickerKind.MessagePicker
                     | PickerKind.LocationPicker
-                    | PickerKind.LanguageServerPicker ->
+                    | PickerKind.LanguageServerPicker
+                    | PickerKind.PluginItemsPicker ->
                         filteredItems
                         |> List.tryItem selectedIndex
                         |> Option.map (fun item -> item.Actions)

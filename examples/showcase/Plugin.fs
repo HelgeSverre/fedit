@@ -73,6 +73,46 @@ module Plugin =
 
         host.RegisterHook(BufferSaved, "showcase-on-save")
 
+        // A picker: choosing a row runs `showcase-picked` with the row id.
+        host.RegisterCommand
+            { Name = "showcase-pick"
+              Usage = "showcase-pick"
+              Summary = "Open a picker of the open buffers."
+              Run =
+                fun ctx ->
+                    let rows =
+                        [ for buffer in ctx.AllBuffers ->
+                              { Id = string buffer.Id
+                                Title = buffer.Name
+                                Subtitle = buffer.FilePath } ]
+
+                    [ ShowPicker("Buffers", rows, "showcase-picked") ] }
+
+        host.RegisterCommand
+            { Name = "showcase-picked"
+              Usage = "showcase-picked <id>"
+              Summary = "Report the chosen picker row (or the typed argument)."
+              Run =
+                fun ctx ->
+                    let picked = defaultArg ctx.Argument "nothing"
+                    [ Notify(Info, $"picked {picked}") ] }
+
+        // A text prompt: Enter runs `showcase-answer` with the typed text.
+        host.RegisterCommand
+            { Name = "showcase-ask"
+              Usage = "showcase-ask"
+              Summary = "Ask for a name."
+              Run = fun _ -> [ PromptInput("Name", "", "showcase-answer") ] }
+
+        host.RegisterCommand
+            { Name = "showcase-answer"
+              Usage = "showcase-answer <text>"
+              Summary = "Greet the submitted name."
+              Run =
+                fun ctx ->
+                    let name = defaultArg ctx.Argument "stranger"
+                    [ Notify(Info, $"hello {name}") ] }
+
         // The enriched snapshot: language, dirty flag, diagnostics, and the
         // plugin's own `plugins.showcase` settings from config.json.
         host.RegisterCommand

@@ -24,7 +24,8 @@ module Editor =
         | PromptSessionKind.KeybindingsSession
         | PromptSessionKind.MessagesSession
         | PromptSessionKind.LocationsSession
-        | PromptSessionKind.LanguageServersSession -> true
+        | PromptSessionKind.LanguageServersSession
+        | PromptSessionKind.PluginItemsSession -> true
         | _ -> false
 
     let private emptyPrompt =
@@ -651,7 +652,10 @@ module Editor =
     let private refreshPrompt model : Model * Effect list =
         let prompt = model.Prompt
 
-        if isPromptListSession prompt.Session then
+        if
+            isPromptListSession prompt.Session
+            || prompt.Session = PromptSessionKind.PluginInputSession
+        then
             model, []
         else
             let mode = Prompt.modeOf prompt.Text
@@ -1351,7 +1355,8 @@ module Editor =
               SelectedPath = model.Workspace.SelectedPath
               Files = model.Workspace.Files }
           Event = None
-          Config = Map.tryFind source model.Config.PluginSettings |> Option.defaultValue Map.empty }
+          Config = Map.tryFind source model.Config.PluginSettings |> Option.defaultValue Map.empty
+          Argument = None }
 
     let private toPluginContext (source: string) (model: Model) : Fedit.PluginApi.PluginContext =
         toPluginContextAs source model.Editors.ActiveBufferId model
@@ -1787,6 +1792,35 @@ module Editor =
                              | Some value when not (String.IsNullOrWhiteSpace value) ->
                                  Map.add source value current.PluginStatus
                              | _ -> Map.remove source current.PluginStatus) }
+            | Fedit.PluginApi.ShowPicker(title, items, onSelect) ->
+                let withRows =
+                    { current with
+                        PluginPicker =
+                            Some
+                                { Source = source
+                                  Title = title
+                                  Items = items
+                                  OnSelect = onSelect } }
+
+                let opened, fx = openPromptSession PromptSessionKind.PluginItemsSession withRows
+                current <- opened
+                effects.AddRange fx
+            | Fedit.PluginApi.PromptInput(label, initial, onSubmit) ->
+                current <-
+                    { current with
+                        PluginPrompt =
+                            Some
+                                { Source = source
+                                  Label = label
+                                  OnSubmit = onSubmit }
+                        Focus = Prompt
+                        Prompt =
+                            { emptyPrompt with
+                                Active = true
+                                Session = PromptSessionKind.PluginInputSession
+                                Text = initial
+                                Cursor = initial.Length
+                                History = current.Prompt.History } }
 
         current, List.ofSeq effects
 
@@ -1906,6 +1940,17 @@ module Editor =
                 |> Pickers.clampSelection nextModel
 
             nextModel, Some nextPicker, []
+        | PluginItemsPicker, PickerActionId.PluginItemSelect ->
+            // Enter on a row: run the plugin's onSelect command with the
+            // row id as the argument, and close the picker.
+            match model.PluginPicker, trySelectedItem model pickerState with
+            | Some picker, Some item ->
+                let context =
+                    { toPluginContext picker.Source model with
+                        Argument = Some item.Id }
+
+                { model with PluginPicker = None }, None, [ RunPluginCommand(picker.Source, picker.OnSelect, context) ]
+            | _ -> model, Some pickerState, []
         | LocationPicker, PickerActionId.LocationJump ->
             // The item Id is the entry's index into the model's location
             // set; resolve it back to a path + position and jump, pushing
@@ -2275,12 +2320,20 @@ module Editor =
 
                     openLocationPicker "Diagnostics" entries model
 
-        | PluginInvoke(source, name, _argument) ->
+        | PluginInvoke(source, name, argument) ->
             match model.Plugins.Commands.TryFind name with
             | Some binding when binding.Source = source ->
                 // Run the command in the out-of-process host; its PluginActions
                 // come back asynchronously as `PluginActionsReady`.
-                model, [ RunPluginCommand(source, name, toPluginContext source model) ]
+                let context =
+                    { toPluginContext source model with
+                        Argument =
+                            (if String.IsNullOrWhiteSpace argument then
+                                 None
+                             else
+                                 Some(argument.Trim())) }
+
+                model, [ RunPluginCommand(source, name, context) ]
             | Some _ ->
                 notify (Some(Notification.error $"Plugin '{name}' is not provided by '{source}' anymore.")) model, []
             | None -> notify (Some(Notification.error $"Plugin command '{name}' missing.")) model, []
@@ -3018,6 +3071,7 @@ module Editor =
                 // Enter-only: typed characters stay filter input.
                 | PickerKind.LocationPicker -> Set.empty
                 | PickerKind.LanguageServerPicker -> Set.ofList [ 'r'; 'e'; 'l' ]
+                | PickerKind.PluginItemsPicker -> Set.empty
 
             let hasActions =
                 match kind with
@@ -3137,6 +3191,16 @@ module Editor =
                 | _ -> cycleCompletion 1 model, []
             | c when c = kAltUp -> applyHistory -1 model
             | c when c = kAltDown -> applyHistory 1 model
+            | c when c = kEnter && prompt.Session = PromptSessionKind.PluginInputSession ->
+                match model.PluginPrompt with
+                | Some input ->
+                    let context =
+                        { toPluginContext input.Source model with
+                            Argument = Some prompt.Text }
+
+                    closePrompt { model with PluginPrompt = None },
+                    [ RunPluginCommand(input.Source, input.OnSubmit, context) ]
+                | None -> closePrompt model, []
             | c when c = kEnter ->
                 // Macro capture happens HERE, at accept time: the typed
                 // prompt keys are never steps — only the outcome is (a
@@ -3241,6 +3305,8 @@ module Editor =
           Plugins = PluginRegistry.empty
           PluginPanel = None
           PluginStatus = Map.empty
+          PluginPicker = None
+          PluginPrompt = None
           HighlightStates = Map.empty
           HexViews = Map.empty
           SelectionLadder = None

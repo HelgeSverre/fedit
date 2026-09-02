@@ -56,6 +56,11 @@ module PluginWire =
         w.WritePropertyName name
         writeCursor w c
 
+    let private writeOptString (w: Utf8JsonWriter) (name: string) (value: string option) =
+        match value with
+        | Some s -> w.WriteString(name, s)
+        | None -> w.WriteNull name
+
     /// Write one PluginAction as a tagged object. Tags mirror the DU case
     /// names (camelCase); payload fields match the case fields.
     let writeAction (w: Utf8JsonWriter) (action: PluginAction) =
@@ -146,13 +151,27 @@ module PluginWire =
             match text with
             | Some value -> w.WriteString("text", value)
             | None -> w.WriteNull "text"
+        | ShowPicker(title, items, onSelect) ->
+            w.WriteString("tag", "showPicker")
+            w.WriteString("title", title)
+            w.WriteString("onSelect", onSelect)
+            w.WriteStartArray "items"
+
+            for item in items do
+                w.WriteStartObject()
+                w.WriteString("id", item.Id)
+                w.WriteString("title", item.Title)
+                writeOptString w "subtitle" item.Subtitle
+                w.WriteEndObject()
+
+            w.WriteEndArray()
+        | PromptInput(label, initial, onSubmit) ->
+            w.WriteString("tag", "promptInput")
+            w.WriteString("label", label)
+            w.WriteString("initial", initial)
+            w.WriteString("onSubmit", onSubmit)
 
         w.WriteEndObject()
-
-    let private writeOptString (w: Utf8JsonWriter) (name: string) (value: string option) =
-        match value with
-        | Some s -> w.WriteString(name, s)
-        | None -> w.WriteNull name
 
     let private writeBufferView (w: Utf8JsonWriter) (b: BufferView) =
         w.WriteStartObject()
@@ -211,6 +230,7 @@ module PluginWire =
             w.WriteString(key, value)
 
         w.WriteEndObject()
+        writeOptString w "argument" ctx.Argument
         w.WritePropertyName "workspace"
         w.WriteStartObject()
         w.WriteString("rootPath", ctx.Workspace.RootPath)
@@ -246,6 +266,11 @@ module PluginWire =
           Column = e.GetProperty("column").GetInt32() }
 
     let private str (e: JsonElement) (name: string) : string = e.GetProperty(name).GetString()
+
+    let private optString (e: JsonElement) (name: string) : string option =
+        match e.TryGetProperty name with
+        | true, v when v.ValueKind = JsonValueKind.String -> Some(v.GetString())
+        | _ -> None
 
     let readAction (e: JsonElement) : PluginAction =
         match str e "tag" with
@@ -295,6 +320,16 @@ module PluginWire =
                 else
                     Some(text.GetString())
             )
+        | "showPicker" ->
+            ShowPicker(
+                str e "title",
+                [ for item in e.GetProperty("items").EnumerateArray() ->
+                      { Id = str item "id"
+                        Title = str item "title"
+                        Subtitle = optString item "subtitle" } ],
+                str e "onSelect"
+            )
+        | "promptInput" -> PromptInput(str e "label", str e "initial", str e "onSubmit")
         | other -> failwith ("unknown PluginAction tag: " + other)
 
     let actionsFromJson (json: string) : PluginAction list =
@@ -302,11 +337,6 @@ module PluginWire =
         [ for e in doc.RootElement.EnumerateArray() -> readAction e ]
 
     // ---- context reader (the host parses what the editor wrote) ------------
-
-    let private optString (e: JsonElement) (name: string) : string option =
-        match e.TryGetProperty name with
-        | true, v when v.ValueKind = JsonValueKind.String -> Some(v.GetString())
-        | _ -> None
 
     let private readBufferView (e: JsonElement) : BufferView =
         let selection =
@@ -368,7 +398,8 @@ module PluginWire =
             match e.TryGetProperty "config" with
             | true, c when c.ValueKind = JsonValueKind.Object ->
                 [ for p in c.EnumerateObject() -> p.Name, p.Value.GetString() ] |> Map.ofList
-            | _ -> Map.empty }
+            | _ -> Map.empty
+          Argument = optString e "argument" }
 
     let contextFromJson (json: string) : PluginContext =
         use doc = JsonDocument.Parse json
@@ -409,7 +440,18 @@ module PluginWire =
                     [] ]
               )
               SetStatusItem(Some "3 todos")
-              SetStatusItem None ]
+              SetStatusItem None
+              ShowPicker(
+                  "Pick",
+                  [ { Id = "a"
+                      Title = "A"
+                      Subtitle = None }
+                    { Id = "b"
+                      Title = "B"
+                      Subtitle = Some "second" } ],
+                  "picked"
+              )
+              PromptInput("Name", "draft", "answer") ]
 
         let json1 = actionsToJson sample
         let round = actionsFromJson json1

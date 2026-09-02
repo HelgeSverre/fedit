@@ -103,8 +103,18 @@ module Layout =
     let private effectiveTheme model =
         previewTheme model |> Option.defaultValue model.Config.Theme
 
-    let private promptDisplayPrefix =
+    let private promptDisplayPrefix (model: Model) =
         function
+        | PromptSessionKind.PluginItemsSession ->
+            (model.PluginPicker
+             |> Option.map (fun p -> p.Title)
+             |> Option.defaultValue "Plugin")
+            + ": "
+        | PromptSessionKind.PluginInputSession ->
+            (model.PluginPrompt
+             |> Option.map (fun p -> p.Label)
+             |> Option.defaultValue "Input")
+            + ": "
         | PromptSessionKind.PluginsSession -> "Plugins: "
         | PromptSessionKind.MacrosSession -> "Macros: "
         | PromptSessionKind.KeybindingsSession -> "Keybindings: "
@@ -838,7 +848,7 @@ module Layout =
 
         let lineText =
             if prompt.Active then
-                let displayPrefix = promptDisplayPrefix prompt.Session
+                let displayPrefix = promptDisplayPrefix model prompt.Session
 
                 let suffix =
                     match prompt.Mode, prompt.SearchPreview with
@@ -853,7 +863,7 @@ module Layout =
         Screen.writeText 0 commandY commandBar width (pad width lineText) current
 
         if prompt.Active then
-            let displayPrefix = promptDisplayPrefix prompt.Session
+            let displayPrefix = promptDisplayPrefix model prompt.Session
 
             current <-
                 Screen.withCursor

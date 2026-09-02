@@ -337,6 +337,19 @@ type PluginPanel =
       Title: string
       Lines: Fedit.PluginApi.Segment list list }
 
+/// The rows behind an open `PluginItemsPicker` session (`ShowPicker`).
+type PluginPickerState =
+    { Source: string
+      Title: string
+      Items: Fedit.PluginApi.PickerEntry list
+      OnSelect: string }
+
+/// An open `PromptInput` session: where the submitted text goes.
+type PluginPromptState =
+    { Source: string
+      Label: string
+      OnSubmit: string }
+
 /// Language-server state surfaced to the UI. Minimal by design: per-client
 /// status (keyed by `LspClient.key`, `name@root` — one server name can run
 /// several clients, one per resolved workspace root) for the status line and
@@ -436,6 +449,10 @@ type Model =
         PluginPanel: PluginPanel option
         /// Per-plugin status-bar text (`SetStatusItem`), keyed by source.
         PluginStatus: Map<string, string>
+        /// Rows of the open plugin picker, if a `PluginItemsSession` is up.
+        PluginPicker: PluginPickerState option
+        /// The open plugin text prompt, if a `PluginInputSession` is up.
+        PluginPrompt: PluginPromptState option
         /// Per-buffer syntax spans, keyed by `BufferState.Id`. Pure data —
         /// produced by the `ParseHighlight` effect interpreter (which owns
         /// the native tree-sitter objects); stale completions are dropped

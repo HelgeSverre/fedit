@@ -4070,3 +4070,132 @@ let ``the plugin snapshot carries language, dirty state, diagnostics, and the pl
 
         ctx.Config |> should equal (Map.ofList [ "greeting", "hi" ])
         ctx.Event |> should equal None
+
+// ── plugin picker / prompt input / argument ───────────────────────────────
+
+let private probeRegistry model =
+    { model with
+        Plugins =
+            { model.Plugins with
+                Commands =
+                    Map.ofList
+                        [ for name in [ "pick"; "picked"; "ask"; "answer" ] ->
+                              name,
+                              { Source = "probe"
+                                Spec =
+                                  { Name = name
+                                    Usage = ""
+                                    Summary = ""
+                                    Run = fun _ -> [] }
+                                Invoke = fun _ _ -> System.Threading.Tasks.Task.FromResult [] } ] } }
+
+let private pluginRuns effects =
+    effects
+    |> List.choose (function
+        | RunPluginCommand(source, command, context) -> Some(source, command, context.Argument)
+        | _ -> None)
+
+[<Fact>]
+let ``ShowPicker opens a filterable picker and Enter runs onSelect with the row id`` () =
+    let model = initModel () |> probeRegistry
+
+    let rows: Fedit.PluginApi.PickerEntry list =
+        [ { Id = "alpha"
+            Title = "Alpha"
+            Subtitle = None }
+          { Id = "beta"
+            Title = "Beta"
+            Subtitle = Some "second" } ]
+
+    let opened =
+        pluginActions "probe" [ Fedit.PluginApi.ShowPicker("Choose", rows, "picked") ] model
+
+    opened.Focus |> should equal Prompt
+    opened.Prompt.Session |> should equal PromptSessionKind.PluginItemsSession
+
+    match Dock.metrics opened with
+    | metrics ->
+        match metrics.PickerView with
+        | Some view ->
+            view.Title |> should equal "Choose"
+            view.Items |> List.map _.Title |> should equal [ "Alpha"; "Beta" ]
+        | None -> failwith "picker should be visible"
+
+    // Filter narrows, Down/Enter picks the remaining row.
+    let filtered =
+        "be" |> Seq.fold (fun m c -> fst (Editor.update (KeyPressed(chr c)) m)) opened
+
+    let chosen, effects = Editor.update (KeyPressed(nk Enter)) filtered
+    pluginRuns effects |> should equal [ "probe", "picked", Some "beta" ]
+    chosen.Prompt.Active |> should equal false
+    chosen.PluginPicker |> should equal None
+
+[<Fact>]
+let ``Escape closes a plugin picker without running anything`` () =
+    let model = initModel () |> probeRegistry
+
+    let opened =
+        pluginActions
+            "probe"
+            [ Fedit.PluginApi.ShowPicker(
+                  "Choose",
+                  [ { Id = "a"
+                      Title = "A"
+                      Subtitle = None } ],
+                  "picked"
+              ) ]
+            model
+
+    let closed, effects = Editor.update (KeyPressed(nk Escape)) opened
+    pluginRuns effects |> should be Empty
+    closed.Prompt.Active |> should equal false
+
+[<Fact>]
+let ``PromptInput takes free text and Enter submits it as the argument`` () =
+    let model = initModel () |> probeRegistry
+
+    let opened =
+        pluginActions "probe" [ Fedit.PluginApi.PromptInput("Name", "Jo", "answer") ] model
+
+    opened.Focus |> should equal Prompt
+    opened.Prompt.Text |> should equal "Jo"
+
+    Dock.panel opened
+    |> should equal (DockInfo("Name", [ "Enter submits; Escape cancels." ]))
+
+    // Typing a colon must not flip the prompt into command mode.
+    let typed =
+        ":x" |> Seq.fold (fun m c -> fst (Editor.update (KeyPressed(chr c)) m)) opened
+
+    typed.Prompt.Session |> should equal PromptSessionKind.PluginInputSession
+    typed.Prompt.Completions |> should be Empty
+
+    let done_, effects = Editor.update (KeyPressed(nk Enter)) typed
+    pluginRuns effects |> should equal [ "probe", "answer", Some "Jo:x" ]
+    done_.Prompt.Active |> should equal false
+    done_.PluginPrompt |> should equal None
+
+    let cancelled, none = Editor.update (KeyPressed(nk Escape)) opened
+    pluginRuns none |> should be Empty
+    cancelled.Prompt.Active |> should equal false
+
+[<Fact>]
+let ``the text after a plugin command in the prompt reaches the plugin as the argument`` () =
+    let model = initModel () |> probeRegistry
+
+    let press chord m =
+        fst (Editor.update (KeyPressed chord) m)
+
+    let prompted =
+        "picked  hello world "
+        |> Seq.fold (fun m c -> press (if c = ' ' then nk Space else chr c) m) (press (ck 'p') model)
+
+    let _, effects = Editor.update (KeyPressed(nk Enter)) prompted
+    pluginRuns effects |> should equal [ "probe", "picked", Some "hello world" ]
+
+    let bare = "picked" |> Seq.fold (fun m c -> press (chr c) m) (press (ck 'p') model)
+    let _, bareEffects = Editor.update (KeyPressed(nk Enter)) bare
+
+    pluginRuns bareEffects
+    |> List.map (fun (source, command, argument) -> source, command, defaultArg argument "<none>")
+    |> should equal [ "probe", "picked", "<none>" ]

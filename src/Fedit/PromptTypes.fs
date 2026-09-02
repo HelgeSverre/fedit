@@ -14,6 +14,11 @@ type PromptSessionKind =
     | MessagesSession
     | LocationsSession
     | LanguageServersSession
+    /// A plugin picker (`ShowPicker`).
+    | PluginItemsSession
+    /// A plugin's free-text prompt (`PromptInput`): no completions, no
+    /// mode switching; Enter submits the text to the plugin.
+    | PluginInputSession
 
 type PromptPendingConfirmation =
     { ItemId: string option

@@ -63,7 +63,8 @@ let private wordcountContext (text: string) : PluginContext =
           SelectedPath = None
           Files = [] }
       Event = None
-      Config = Map.empty }
+      Config = Map.empty
+      Argument = None }
 
 // End-to-end acceptance gate for the out-of-process plugin path: the editor
 // (via PluginHostClient) spawns the host child, which builds + loads the real
@@ -210,4 +211,40 @@ let ``the enriched snapshot reaches a real plugin`` () =
 
     match client.Invoke("showcase-context", context) with
     | Result.Ok [ Notify(Info, message) ] -> Assert.Equal("hey: markdown dirty=True tick=3 diagnostics=0", message)
+    | other -> Assert.Fail $"unexpected: %A{other}"
+
+[<Fact>]
+let ``picker rows, prompt input, and arguments cross the wire from a real plugin`` () =
+    use client = showcaseClient ()
+
+    let two =
+        { wordcountContext "" with
+            AllBuffers = [ (wordcountContext "x").ActiveBuffer ] }
+
+    match client.Invoke("showcase-pick", two) with
+    | Result.Ok [ ShowPicker("Buffers", [ row ], "showcase-picked") ] -> Assert.Equal("a.txt", row.Title)
+    | other -> Assert.Fail $"unexpected: %A{other}"
+
+    match
+        client.Invoke(
+            "showcase-picked",
+            { wordcountContext "" with
+                Argument = Some "7" }
+        )
+    with
+    | Result.Ok [ Notify(Info, "picked 7") ] -> ()
+    | other -> Assert.Fail $"unexpected: %A{other}"
+
+    match client.Invoke("showcase-ask", wordcountContext "") with
+    | Result.Ok [ PromptInput("Name", "", "showcase-answer") ] -> ()
+    | other -> Assert.Fail $"unexpected: %A{other}"
+
+    match
+        client.Invoke(
+            "showcase-answer",
+            { wordcountContext "" with
+                Argument = Some "Ada" }
+        )
+    with
+    | Result.Ok [ Notify(Info, "hello Ada") ] -> ()
     | other -> Assert.Fail $"unexpected: %A{other}"

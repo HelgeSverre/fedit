@@ -31,6 +31,7 @@ module Dock =
         | PromptSessionKind.MessagesSession -> Some PickerKind.MessagePicker
         | PromptSessionKind.LocationsSession -> Some PickerKind.LocationPicker
         | PromptSessionKind.LanguageServersSession -> Some PickerKind.LanguageServerPicker
+        | PromptSessionKind.PluginItemsSession -> Some PickerKind.PluginItemsPicker
         | _ -> None
 
     let pickerPendingOfPrompt (pending: PromptPendingConfirmation option) : PickerPendingConfirmation option =
@@ -74,7 +75,14 @@ module Dock =
     let panel model =
         let prompt = model.Prompt
 
-        if prompt.Active then
+        if prompt.Active && prompt.Session = PromptSessionKind.PluginInputSession then
+            let label =
+                model.PluginPrompt
+                |> Option.map (fun p -> p.Label)
+                |> Option.defaultValue "Input"
+
+            DockInfo(label, [ "Enter submits; Escape cancels." ])
+        elif prompt.Active then
             match prompt.Mode with
             | FilePicker when not prompt.Completions.IsEmpty ->
                 DockCompletions("Files", prompt.Completions, prompt.SelectedCompletion)

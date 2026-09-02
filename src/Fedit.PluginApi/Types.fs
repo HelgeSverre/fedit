@@ -78,7 +78,18 @@ type PluginContext =
         /// This plugin's own settings: the `plugins.<name>` object in
         /// config.json, values as strings (numbers and booleans stringified).
         Config: Map<string, string>
+        /// Input for this run: the text after the command name in the prompt
+        /// (`:mycmd foo bar` gives `Some "foo bar"`), the id of the entry
+        /// chosen from a `ShowPicker`, or the text submitted to a
+        /// `PromptInput`. None when the command ran bare.
+        Argument: string option
     }
+
+/// One row of a plugin picker (`PluginAction.ShowPicker`).
+type PickerEntry =
+    { Id: string
+      Title: string
+      Subtitle: string option }
 
 /// A theme slot for panel text. The host maps it onto the active theme so
 /// plugin output follows the user's palette instead of hardcoding colors.
@@ -175,6 +186,13 @@ type PluginAction =
     /// Set (or with None clear) this plugin's status-bar text, rendered by
     /// the `[PLUGINS]` status token. One item per plugin; the latest wins.
     | SetStatusItem of text: string option
+    /// Open a filterable picker of `items`. Choosing one runs `onSelect`
+    /// (a command this plugin registered) with `PluginContext.Argument`
+    /// set to the entry's `Id`; Escape closes without running anything.
+    | ShowPicker of title: string * items: PickerEntry list * onSelect: string
+    /// Ask the user for a line of text. Enter runs `onSubmit` with the text
+    /// as `PluginContext.Argument`; Escape cancels.
+    | PromptInput of label: string * initial: string * onSubmit: string
 
 /// A command definition a plugin registers with the host. `Run` is invoked
 /// synchronously when the command fires; it should be fast (< 50ms).

@@ -232,7 +232,8 @@ module PluginHostClient =
                       SelectedPath = None
                       Files = [] }
                   Event = None
-                  Config = Map.empty }
+                  Config = Map.empty
+                  Argument = None }
 
             match client.Invoke("wc", ctx) with
             | Result.Error e ->

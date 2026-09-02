@@ -47,7 +47,18 @@ let private sampleActions =
             [] ]
       )
       SetStatusItem(Some "3 todos")
-      SetStatusItem None ]
+      SetStatusItem None
+      ShowPicker(
+          "Pick",
+          [ { Id = "a"
+              Title = "A"
+              Subtitle = None }
+            { Id = "b"
+              Title = "B"
+              Subtitle = Some "second" } ],
+          "picked"
+      )
+      PromptInput("Name", "draft", "answer") ]
 
 [<Fact>]
 let ``every PluginAction case round-trips through the wire unchanged`` () =
@@ -101,7 +112,8 @@ let ``PluginContext round-trips with options present and absent`` () =
               SelectedPath = None
               Files = [ "a.fs"; "b/c.fs" ] }
           Event = Some BufferSaved
-          Config = Map.ofList [ "indent", "4"; "strict", "true" ] }
+          Config = Map.ofList [ "indent", "4"; "strict", "true" ]
+          Argument = Some "foo bar" }
 
     // The host reads what the editor wrote: full round trip, every field.
     let json = PluginWire.contextToJson ctx
