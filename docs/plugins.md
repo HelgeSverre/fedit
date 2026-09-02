@@ -483,7 +483,7 @@ declared `name`. Zip and folder sources work the same way.
 
 ## Limitations and roadmap
 
-This is the MVP. Concretely deferred to v2:
+Concretely deferred:
 
 - **Workspace mutation** — no create/delete file API. The workaround
   is to create or modify the file yourself, then `RunCommand "open <path>"`

@@ -1,7 +1,15 @@
 # Extension surface: plugin UI, LSP, and syntax
 
-Status: proposal, 2026-09-02. Phase A shipped the same day (config-driven
-grammars). Phases B–D are designs, not code.
+Status: shipped 2026-09-03 on `feature/extension-surface`. Phase A landed
+2026-09-02; Phases B–D landed the next day in six commits, each with tests
+that drive the `examples/showcase` plugin through the real out-of-process
+host, plus a pty run of the editor itself. Deviations from the plan below:
+`ShowPanel` uses `TextStyle` theme slots (not free colors); hooks are derived
+in the update wrapper rather than from a message list; `PluginContext`
+also gained `Argument`, which fixed a pre-existing bug where the text typed
+after a plugin command in the prompt was dropped; read-back requests were
+not built (no plugin needed them yet); the cancel request exists on the
+wire but the editor does not send it yet.
 
 This folds the deferred Tier 2 list in
 [`docs/plans/2026-06-04-plugin-action-expansion.md`](../plans/2026-06-04-plugin-action-expansion.md)

@@ -258,6 +258,7 @@ of the code lives in 13 numbered files under `namespace Fedit`:
 |    12 | `Input.fs`      | `Input.tryMap`                                                                                                                                |
 |    13 | `Runtime.fs`    | Effect interpreter, main loop                                                                                                                 |
 |    14 | `Program.fs`    | `[<EntryPoint>]` only — argv parsing + `Runtime.run`                                                                                          |
+| Extension surface | Plugins can show styled dock panels and status items, run async commands concurrently (request ids on the host wire), hook save/open/change/focus events, read language, dirty state, diagnostics, per-plugin settings and the command argument, open pickers and text prompts that call back, and register language servers and tree-sitter grammars. Config-driven `languages` block, `.gitignore`-aware workspace scan with `ignoredNames`/`useGitignore`, language injection (CSS/JS in HTML, fenced code in markdown), and TypeScript queries inheriting JavaScript. |
 
 Project file is `src/Fedit/Fedit.fsproj` (post Phase 6). Verified with
 `just check` (build + 63-test suite) after the move.
