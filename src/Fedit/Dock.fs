@@ -108,9 +108,10 @@ module Dock =
             // whenever the prompt doesn't. Dismissed on the next keypress
             // (Editor's KeyPressed chokepoint); View truncates the lines to
             // the dock height.
-            match model.Lsp.Panel with
-            | Some panel -> DockInfo(panel.Title, panel.Lines)
-            | None -> NoDock
+            match model.Lsp.Panel, model.PluginPanel with
+            | Some panel, _ -> DockInfo(panel.Title, panel.Lines)
+            | None, Some panel -> DockStyled(panel.Title, panel.Lines)
+            | None, None -> NoDock
 
     /// Effective dock height cap: the configured height limited to a third
     /// of the terminal (minimum 3 rows). The prose info dock (`DockInfo`)
@@ -153,6 +154,7 @@ module Dock =
             | None, Some(_, lines), _ -> min configuredMax (1 + lines.Length)
             | None, None, DockCompletions(_, items, _) -> min configuredMax (1 + max 1 items.Length)
             | None, None, DockInfo _ -> configuredMax
+            | None, None, DockStyled(_, lines) -> min configuredMax (1 + max 1 lines.Length)
             | None, None, NoDock -> 0
 
         let statusY = max 0 (height - dockHeight - 2)

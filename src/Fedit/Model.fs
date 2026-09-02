@@ -181,7 +181,7 @@ module Config =
           TabWidth = 4
           Icons = IconsOff
           StatusFormat =
-            "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION][DIAGNOSTICS]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]"
+            "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION][DIAGNOSTICS][PLUGINS]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]"
           SyntaxHighlightingEnabled = true
           ScrollMode = ScrollViewport
           ScrollOff = 5
@@ -325,6 +325,13 @@ type LspLocationSet =
 /// keypress; Escape only dismisses.
 type LspInfoPanel = { Title: string; Lines: string list }
 
+/// A plugin's dock panel (`PluginAction.ShowPanel`). Persists until Escape,
+/// a prompt, or a replacement; unlike the LSP panel it survives keypresses.
+type PluginPanel =
+    { Source: string
+      Title: string
+      Lines: Fedit.PluginApi.Segment list list }
+
 /// Language-server state surfaced to the UI. Minimal by design: per-client
 /// status (keyed by `LspClient.key`, `name@root` — one server name can run
 /// several clients, one per resolved workspace root) for the status line and
@@ -420,6 +427,10 @@ type Model =
         Config: Config
         UserThemes: Theme list
         Plugins: PluginRegistry
+        /// The plugin panel currently shown in the dock, if any.
+        PluginPanel: PluginPanel option
+        /// Per-plugin status-bar text (`SetStatusItem`), keyed by source.
+        PluginStatus: Map<string, string>
         /// Per-buffer syntax spans, keyed by `BufferState.Id`. Pure data —
         /// produced by the `ParseHighlight` effect interpreter (which owns
         /// the native tree-sitter objects); stale completions are dropped

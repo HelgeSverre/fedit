@@ -516,6 +516,7 @@ Tokens are case-insensitive. Unknown tokens render literally so typos are visibl
 | `[BUFFER]`             | Sorted index / count (e.g. `2/5`).                                                                                         |
 | `[NOTIFICATION]`       | Active notification message, or empty.                                                                                     |
 | `[DIAGNOSTICS]`        | Compact severity counts for the active buffer (e.g. `E2 W1`, own leading spaces so it vanishes cleanly); empty when clean. |
+| `[PLUGINS]`            | Status items set by plugins (`SetStatusItem`), one per plugin with its own leading spaces; empty when none are set.        |
 | `<EXPAND>`             | Flex spacer; multiple expand placeholders split remaining columns evenly.                                                  |
 
 A custom `statusFormat` only shows the segments it names — add `[DIAGNOSTICS]` to yours or language-server diagnostics never reach the status bar. Configs saved before the token existed migrate automatically when they still carry the old default string.

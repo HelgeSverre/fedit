@@ -51,8 +51,10 @@ module ConfigIO =
     /// to the current default (an exact match can only be the old default,
     /// never a hand-customized format) so upgrades surface the diagnostics
     /// segment instead of silently hiding it forever.
-    let private preLspDefaultStatusFormat =
-        "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]"
+    let private legacyDefaultStatusFormats =
+        [ "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]"
+          // Before the plugin phase added `[PLUGINS]`.
+          "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION][DIAGNOSTICS]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]" ]
 
     /// A JSON string array as trimmed, non-empty entries. None when the
     /// property is missing or not an array.
@@ -298,7 +300,7 @@ module ConfigIO =
 
                 let statusFormat =
                     match getStringProp root "statusFormat" with
-                    | Some persisted when persisted = preLspDefaultStatusFormat -> defaults.StatusFormat
+                    | Some persisted when List.contains persisted legacyDefaultStatusFormats -> defaults.StatusFormat
                     | Some persisted -> persisted
                     | None -> defaults.StatusFormat
 

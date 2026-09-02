@@ -751,6 +751,45 @@ module Layout =
                     (max 0 (width - 2))
                     (pad (max 0 (width - 2)) lineText)
                     current)
+        | DockStyled(title, lines) ->
+            Screen.writeText 0 dockY accent width (pad width $" {title} ") current
+
+            let styleFor (style: Fedit.PluginApi.TextStyle) =
+                match style with
+                | Fedit.PluginApi.TextStyle.Plain -> chrome
+                | Fedit.PluginApi.TextStyle.Accent -> accent
+                | Fedit.PluginApi.TextStyle.Muted ->
+                    { chrome with
+                        Foreground = theme.SyntaxComment }
+                | Fedit.PluginApi.TextStyle.Error ->
+                    { chrome with
+                        Foreground = theme.ErrorFg
+                        Bold = true }
+                | Fedit.PluginApi.TextStyle.Warning ->
+                    { chrome with
+                        Foreground = theme.WarningFg
+                        Bold = true }
+                | Fedit.PluginApi.TextStyle.Keyword ->
+                    { chrome with
+                        Foreground = theme.SyntaxKeyword }
+                | Fedit.PluginApi.TextStyle.String ->
+                    { chrome with
+                        Foreground = theme.SyntaxString }
+
+            lines
+            |> List.truncate (max 0 (dockHeight - 1))
+            |> List.iteri (fun index line ->
+                let rowY = dockY + index + 1
+                let mutable x = 1
+
+                for segment in line do
+                    let room = max 0 (width - 1 - x)
+
+                    if room > 0 && segment.Text.Length > 0 then
+                        let text = segment.Text.Replace('\n', ' ').Replace('\t', ' ')
+                        let shown = if text.Length > room then text.Substring(0, room) else text
+                        Screen.writeText x rowY (styleFor segment.Style) room shown current
+                        x <- x + shown.Length)
         | DockCompletions(title, items, selectedIndex) ->
             let visibleHeight = max 0 (dockHeight - 1)
             let totalCount = items.Length

@@ -27,7 +27,27 @@ let private sampleActions =
       SetBufferActivation "jump"
       OpenFileAt("f.fs", { Line = 9; Column = 2 }, true)
       MoveLinesUp 3
-      MoveLinesDown 2 ]
+      MoveLinesDown 2
+      ShowPanel(
+          "Panel",
+          [ [ { Text = "plain"
+                Style = TextStyle.Plain }
+              { Text = "accent"
+                Style = TextStyle.Accent }
+              { Text = "muted"
+                Style = TextStyle.Muted }
+              { Text = "err"
+                Style = TextStyle.Error }
+              { Text = "warn"
+                Style = TextStyle.Warning }
+              { Text = "kw"
+                Style = TextStyle.Keyword }
+              { Text = "str"
+                Style = TextStyle.String } ]
+            [] ]
+      )
+      SetStatusItem(Some "3 todos")
+      SetStatusItem None ]
 
 [<Fact>]
 let ``every PluginAction case round-trips through the wire unchanged`` () =

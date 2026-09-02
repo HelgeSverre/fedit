@@ -22,7 +22,8 @@ This page is the authoring guide. For working examples, see
 | What plugins can do                                       | What's not in scope yet                                      |
 | --------------------------------------------------------- | ------------------------------------------------------------ |
 | Register named commands (`:wc`, `:todocount`, …)          | Async handler API — handlers are synchronous inside the host |
-| Bind chords to commands (`Ctrl+T`, `Alt+x`, `F5`, …)      | Custom panels, themes, file types, LSP                       |
+| Bind chords to commands (`Ctrl+T`, `Alt+x`, `F5`, …)      | Themes, file types, LSP                                      |
+| Show a styled dock panel and a status-bar item            |                                                              |
 | Read text, cursor, file path, workspace root + file index | Plugin sandbox / capability restriction (full trust)         |
 | Emit `Notify`, `InsertText`, `MoveCursor`, `OpenFile`, …  | Cross-language plugins — F# only                             |
 | Chain into built-ins via `RunCommand "open foo.fs"`       | Per-plugin settings — no `IPluginHost.Config<T>()` yet       |
@@ -247,6 +248,8 @@ action in order. Pick the right action for the effect you want:
 | `OpenFileAt(path, pos, preview)`     | Open a file (workspace-root relative) and move the cursor to a 1-based `pos` once it loads; the target travels with the async open and applies in place if the file is already open                              | Jump to an exact line/column in source           |
 | `MoveLinesUp count`                  | Move the current line or every line containing selected text up by `count`; clamps at the top and creates one undo entry                                                                                         | Reorder statements or list items                 |
 | `MoveLinesDown count`                | Move the current line or every line containing selected text down by `count`; clamps at the bottom and creates one undo entry                                                                                    | Reorder statements or list items                 |
+| `ShowPanel(title, lines)`            | Show a titled panel in the dock; each line is a `Segment list` with a `TextStyle` theme slot (`Plain`, `Accent`, `Muted`, `Error`, `Warning`, `Keyword`, `String`). Stays until Escape or a replacement; `[]` closes it | Result lists, reports, per-file summaries        |
+| `SetStatusItem(Some "text")`         | Put text in the status bar via the `[PLUGINS]` status token (one item per plugin, latest wins); `None` clears it                                                                                                 | Live counters, mode indicators                   |
 
 Three coordination notes:
 

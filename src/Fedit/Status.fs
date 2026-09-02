@@ -223,6 +223,13 @@ module Status =
             match segments with
             | [] -> ""
             | _ -> "  " + String.concat " " segments
+        // Plugin status items (`SetStatusItem`), in source order, each with
+        // its own leading spaces so an empty set vanishes cleanly.
+        | "plugins", _ ->
+            model.PluginStatus
+            |> Map.toList
+            |> List.map (fun (_, text) -> "  " + text)
+            |> String.concat ""
         | _ ->
             // Surface typos by rendering the token literally.
             match modifier with

@@ -26,6 +26,26 @@ module PluginWire =
         | Warning -> "warning"
         | Error -> "error"
 
+    let private textStyleStr (style: TextStyle) =
+        match style with
+        | TextStyle.Plain -> "plain"
+        | TextStyle.Accent -> "accent"
+        | TextStyle.Muted -> "muted"
+        | TextStyle.Error -> "error"
+        | TextStyle.Warning -> "warning"
+        | TextStyle.Keyword -> "keyword"
+        | TextStyle.String -> "string"
+
+    let private textStyleOf (name: string) =
+        match name with
+        | "accent" -> TextStyle.Accent
+        | "muted" -> TextStyle.Muted
+        | "error" -> TextStyle.Error
+        | "warning" -> TextStyle.Warning
+        | "keyword" -> TextStyle.Keyword
+        | "string" -> TextStyle.String
+        | _ -> TextStyle.Plain
+
     let private writeCursor (w: Utf8JsonWriter) (c: CursorPosition) =
         w.WriteStartObject()
         w.WriteNumber("line", c.Line)
@@ -103,6 +123,29 @@ module PluginWire =
         | MoveLinesDown count ->
             w.WriteString("tag", "moveLinesDown")
             w.WriteNumber("count", count)
+        | ShowPanel(title, lines) ->
+            w.WriteString("tag", "showPanel")
+            w.WriteString("title", title)
+            w.WriteStartArray "lines"
+
+            for line in lines do
+                w.WriteStartArray()
+
+                for segment in line do
+                    w.WriteStartObject()
+                    w.WriteString("text", segment.Text)
+                    w.WriteString("style", textStyleStr segment.Style)
+                    w.WriteEndObject()
+
+                w.WriteEndArray()
+
+            w.WriteEndArray()
+        | SetStatusItem text ->
+            w.WriteString("tag", "setStatusItem")
+
+            match text with
+            | Some value -> w.WriteString("text", value)
+            | None -> w.WriteNull "text"
 
         w.WriteEndObject()
 
@@ -205,6 +248,23 @@ module PluginWire =
             OpenFileAt(str e "path", readCursor (e.GetProperty "position"), e.GetProperty("preview").GetBoolean())
         | "moveLinesUp" -> MoveLinesUp(e.GetProperty("count").GetInt32())
         | "moveLinesDown" -> MoveLinesDown(e.GetProperty("count").GetInt32())
+        | "showPanel" ->
+            let lines =
+                [ for line in e.GetProperty("lines").EnumerateArray() ->
+                      [ for segment in line.EnumerateArray() ->
+                            { Text = str segment "text"
+                              Style = textStyleOf (str segment "style") } ] ]
+
+            ShowPanel(str e "title", lines)
+        | "setStatusItem" ->
+            let text = e.GetProperty "text"
+
+            SetStatusItem(
+                if text.ValueKind = JsonValueKind.Null then
+                    None
+                else
+                    Some(text.GetString())
+            )
         | other -> failwith ("unknown PluginAction tag: " + other)
 
     let actionsFromJson (json: string) : PluginAction list =
@@ -273,7 +333,15 @@ module PluginWire =
               SetBufferActivation "jump"
               OpenFileAt("f.fs", { Line = 9; Column = 2 }, true)
               MoveLinesUp 3
-              MoveLinesDown 2 ]
+              MoveLinesDown 2
+              ShowPanel(
+                  "Panel",
+                  [ [ { Text = "a"; Style = TextStyle.Plain }
+                      { Text = "b"; Style = TextStyle.Accent } ]
+                    [] ]
+              )
+              SetStatusItem(Some "3 todos")
+              SetStatusItem None ]
 
         let json1 = actionsToJson sample
         let round = actionsFromJson json1

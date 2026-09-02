@@ -3787,3 +3787,129 @@ let ``a shallow workspace load paints the tree silently; the full load announces
         Editor.update (WorkspaceLoaded(true, Result.Ok(sorted, byPath, files, 0))) shallow
 
     full.Notification.IsSome |> should equal true
+
+// ── plugin UI: ShowPanel / SetStatusItem ──────────────────────────────
+
+let private pluginActions source actions model =
+    fst (Editor.update (PluginActionsReady(source, Result.Ok actions)) model)
+
+let private panelLines lines =
+    [ for text in lines ->
+          [ ({ Text = text
+               Style = Fedit.PluginApi.TextStyle.Plain }
+            : Fedit.PluginApi.Segment) ] ]
+
+[<Fact>]
+let ``ShowPanel puts a plugin panel in the dock and Escape dismisses it`` () =
+    let model = initModel ()
+
+    let shown =
+        pluginActions "todo" [ Fedit.PluginApi.ShowPanel("Todos", panelLines [ "a.fs:1 fix"; "b.fs:9 later" ]) ] model
+
+    shown.PluginPanel
+    |> Option.map (fun panel -> panel.Source, panel.Title)
+    |> should equal (Some("todo", "Todos"))
+
+    match Dock.panel shown with
+    | DockStyled("Todos", lines) -> lines.Length |> should equal 2
+    | other -> failwith $"expected a styled dock panel, got %A{other}"
+
+    // Survives an ordinary keypress (unlike the transient LSP panel)…
+    let typed, _ = Editor.update (KeyPressed(chr 'x')) shown
+    typed.PluginPanel.IsSome |> should equal true
+
+    // …and Escape closes it without touching the buffer.
+    let closed, _ = Editor.update (KeyPressed(nk Escape)) typed
+    closed.PluginPanel |> should equal None
+    Dock.panel closed |> should equal NoDock
+    Buffer.text (Editor.activeBufferState closed) |> should equal "x"
+
+[<Fact>]
+let ``ShowPanel with no lines closes the panel and the prompt takes precedence while open`` () =
+    let model = initModel ()
+
+    let shown =
+        pluginActions "todo" [ Fedit.PluginApi.ShowPanel("Todos", panelLines [ "one" ]) ] model
+
+    let prompted, _ = Editor.update (KeyPressed(ck 'p')) shown
+
+    match Dock.panel prompted with
+    | DockStyled _ -> failwith "prompt should own the dock while active"
+    | _ -> ()
+
+    let cleared = pluginActions "todo" [ Fedit.PluginApi.ShowPanel("Todos", []) ] shown
+    cleared.PluginPanel |> should equal None
+
+[<Fact>]
+let ``the LSP hover panel outranks a plugin panel and a later ShowPanel replaces the earlier one`` () =
+    let model = initModel ()
+
+    let first =
+        pluginActions "a" [ Fedit.PluginApi.ShowPanel("First", panelLines [ "1" ]) ] model
+
+    let second =
+        pluginActions "b" [ Fedit.PluginApi.ShowPanel("Second", panelLines [ "2" ]) ] first
+
+    second.PluginPanel |> Option.map _.Title |> should equal (Some "Second")
+
+    let hovered =
+        { second with
+            Lsp =
+                { second.Lsp with
+                    Panel = Some { Title = "Hover"; Lines = [ "doc" ] } } }
+
+    Dock.panel hovered |> should equal (DockInfo("Hover", [ "doc" ]))
+
+[<Fact>]
+let ``SetStatusItem renders through the PLUGINS status token per plugin`` () =
+    let model =
+        { initModel () with
+            Config =
+                { (initModel ()).Config with
+                    StatusFormat = "[MODE][PLUGINS]" } }
+
+    let one =
+        pluginActions "todo" [ Fedit.PluginApi.SetStatusItem(Some "3 todos") ] model
+
+    let two = pluginActions "wc" [ Fedit.PluginApi.SetStatusItem(Some "120w") ] one
+
+    two.PluginStatus
+    |> should equal (Map.ofList [ "todo", "3 todos"; "wc", "120w" ])
+
+    let rendered = Status.render 80 two
+    rendered.Contains "3 todos" |> should equal true
+    rendered.Contains "120w" |> should equal true
+
+    let cleared = pluginActions "todo" [ Fedit.PluginApi.SetStatusItem None ] two
+    cleared.PluginStatus |> should equal (Map.ofList [ "wc", "120w" ])
+
+    let blank = pluginActions "wc" [ Fedit.PluginApi.SetStatusItem(Some "   ") ] cleared
+    Map.isEmpty blank.PluginStatus |> should equal true
+    (Status.render 80 blank).Contains "120w" |> should equal false
+
+[<Fact>]
+let ``a plugin panel paints its title and styled segments in the dock`` () =
+    let model =
+        { initModel () with
+            Terminal = { Width = 40; Height = 12 } }
+
+    let shown =
+        pluginActions
+            "todo"
+            [ Fedit.PluginApi.ShowPanel(
+                  "Todos",
+                  [ [ { Text = "a.fs"
+                        Style = Fedit.PluginApi.TextStyle.Accent }
+                      { Text = " fix me"
+                        Style = Fedit.PluginApi.TextStyle.Plain } ] ]
+              ) ]
+            model
+
+    let screen = Layout.render shown
+
+    let rowText row =
+        String.init screen.Width (fun col -> string screen.Cells[row, col].Glyph)
+
+    let rows = [ for row in 0 .. screen.Height - 1 -> rowText row ]
+    rows |> List.exists (fun row -> row.Contains " Todos ") |> should equal true
+    rows |> List.exists (fun row -> row.Contains "a.fs fix me") |> should equal true

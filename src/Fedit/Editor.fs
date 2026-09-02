@@ -1731,6 +1731,25 @@ module Editor =
                     | None -> effects.Add(LoadFile(absolutePath, OpenPermanent, target))
             | Fedit.PluginApi.MoveLinesUp count -> current <- updateActiveBuffer (Buffer.moveLinesUp count) current
             | Fedit.PluginApi.MoveLinesDown count -> current <- updateActiveBuffer (Buffer.moveLinesDown count) current
+            | Fedit.PluginApi.ShowPanel(title, lines) ->
+                current <-
+                    { current with
+                        PluginPanel =
+                            (match lines with
+                             | [] -> None
+                             | _ ->
+                                 Some
+                                     { Source = source
+                                       Title = title
+                                       Lines = lines }) }
+            | Fedit.PluginApi.SetStatusItem text ->
+                current <-
+                    { current with
+                        PluginStatus =
+                            (match text with
+                             | Some value when not (String.IsNullOrWhiteSpace value) ->
+                                 Map.add source value current.PluginStatus
+                             | _ -> Map.remove source current.PluginStatus) }
 
         current, List.ofSeq effects
 
@@ -3183,6 +3202,8 @@ module Editor =
           Config = config
           UserThemes = userThemes
           Plugins = PluginRegistry.empty
+          PluginPanel = None
+          PluginStatus = Map.empty
           HighlightStates = Map.empty
           HexViews = Map.empty
           SelectionLadder = None
@@ -3983,7 +4004,7 @@ module Editor =
         | FocusGained -> model, []
         | FocusLost -> model, []
         | KeyPressed chord when
-            model.Lsp.Panel.IsSome
+            (model.Lsp.Panel.IsSome || model.PluginPanel.IsSome)
             && chord = kEscape
             && not model.Prompt.Active
             && model.PendingPrefix.IsNone
@@ -4000,9 +4021,11 @@ module Editor =
             // its Escape-cancels semantics, an in-flight replay's abort
             // brake stays reachable, and a visible Error's dismissal wins
             // (steps 1–2 of the precedence chain in the general arm below)
-            // — all of those fall through to the general arm.
+            // — all of those fall through to the general arm. A plugin
+            // panel is dismissed the same way; it is the only way it goes.
             { model with
-                Lsp = { model.Lsp with Panel = None } },
+                Lsp = { model.Lsp with Panel = None }
+                PluginPanel = None },
             []
         | KeyPressed chord ->
             // Escape precedence chain (deliberate; each press does exactly

@@ -45,10 +45,11 @@ module Plugin =
               ".vercel"
               ".cache" ]
 
-    /// Count `TODO:` occurrences. Returns `(occurrences, filesContainingAny)`.
+    /// Count `TODO:` occurrences. Returns the total plus a per-file
+    /// breakdown (root-relative path, count), most first.
     let private scan (root: string) =
         let mutable count = 0
-        let mutable files = 0
+        let perFile = ResizeArray<string * int>()
         let queue = System.Collections.Generic.Queue<string>()
         queue.Enqueue root
 
@@ -67,21 +68,21 @@ module Plugin =
 
                     if extensions.Contains ext then
                         try
-                            let mutable seen = false
+                            let mutable inFile = 0
 
                             for line in File.ReadLines file do
                                 if line.Contains "TODO:" then
-                                    count <- count + 1
-                                    seen <- true
+                                    inFile <- inFile + 1
 
-                            if seen then
-                                files <- files + 1
+                            if inFile > 0 then
+                                count <- count + inFile
+                                perFile.Add(Path.GetRelativePath(root, file), inFile)
                         with _ ->
                             ()
             with _ ->
                 ()
 
-        count, files
+        count, (perFile |> Seq.sortByDescending snd |> List.ofSeq)
 
     let register (host: IPluginHost) =
         host.RegisterCommand
@@ -90,13 +91,24 @@ module Plugin =
               Summary = "Count `TODO:` markers across the workspace."
               Run =
                 fun ctx ->
-                    let count, files = scan ctx.Workspace.RootPath
+                    let count, perFile = scan ctx.Workspace.RootPath
 
                     let message =
-                        match count, files with
+                        match count, perFile.Length with
                         | 0, _ -> "No TODOs found"
                         | 1, _ -> "1 TODO"
                         | n, 1 -> $"{n} TODOs in 1 file"
                         | n, f -> $"{n} TODOs across {f} files"
 
-                    [ Notify(Info, message) ] }
+                    // The panel breaks the count down per file; the status
+                    // item keeps the total visible after the panel closes.
+                    let lines =
+                        [ for path, n in perFile ->
+                              [ { Text = path
+                                  Style = TextStyle.Accent }
+                                { Text = $"  {n}"
+                                  Style = TextStyle.Muted } ] ]
+
+                    [ Notify(Info, message)
+                      ShowPanel("TODOs", lines)
+                      SetStatusItem(if count = 0 then None else Some $"TODO {count}") ] }

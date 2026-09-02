@@ -61,6 +61,8 @@ type DockPanel =
     | NoDock
     | DockInfo of title: string * lines: string list
     | DockCompletions of title: string * items: CompletionItem list * selectedIndex: int
+    /// Plugin-authored panel: theme-slot styled segments per line.
+    | DockStyled of title: string * lines: Fedit.PluginApi.Segment list list
 
 module Position =
     let zero = { Line = 0; Column = 0 }

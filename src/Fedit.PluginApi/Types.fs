@@ -42,6 +42,21 @@ type PluginContext =
       AllBuffers: BufferView list
       Workspace: WorkspaceView }
 
+/// A theme slot for panel text. The host maps it onto the active theme so
+/// plugin output follows the user's palette instead of hardcoding colors.
+[<RequireQualifiedAccess>]
+type TextStyle =
+    | Plain
+    | Accent
+    | Muted
+    | Error
+    | Warning
+    | Keyword
+    | String
+
+/// A run of text in one style. A panel line is a list of segments.
+type Segment = { Text: string; Style: TextStyle }
+
 /// Side effects a plugin can request. The host translates these into
 /// core editor effects and model changes. Closed, append-only DU — new
 /// cases append at the end so compiled plugins keep their union tags;
@@ -114,6 +129,14 @@ type PluginAction =
     /// the buffer. A selection ending at column 1 does not include that final
     /// line. Non-positive counts are a no-op.
     | MoveLinesDown of count: int
+    /// Show a titled panel in the dock (the area below the editor) with
+    /// styled lines. The panel stays until the user presses Escape, a
+    /// prompt takes the dock, or a later ShowPanel replaces it; an empty
+    /// `lines` list closes it. Lines beyond the dock height are cut.
+    | ShowPanel of title: string * lines: Segment list list
+    /// Set (or with None clear) this plugin's status-bar text, rendered by
+    /// the `[PLUGINS]` status token. One item per plugin; the latest wins.
+    | SetStatusItem of text: string option
 
 /// A command definition a plugin registers with the host. `Run` is invoked
 /// synchronously when the command fires; it should be fast (< 50ms).
