@@ -64,6 +64,9 @@ type LoadedPlugin =
         AsyncCommands: Map<string, PluginRunner>
         Keybindings: (KeyChord * string) list
         Hooks: (PluginEvent * string) list
+        LanguageServers: LanguageServerSpec list
+        /// Grammars with paths already resolved against the plugin folder.
+        Languages: GrammarSpec list
         Conflicts: string list
     }
 
@@ -76,6 +79,8 @@ type PluginRegistry =
         Keybindings: (KeyChord * string) list
         /// Every loaded plugin's hooks, in registration order.
         Hooks: PluginHook list
+        LanguageServers: LanguageServerSpec list
+        Languages: GrammarSpec list
         Conflicts: string list
     }
 
@@ -156,6 +161,8 @@ module PluginRegistry =
           Commands = Map.empty
           Keybindings = []
           Hooks = []
+          LanguageServers = []
+          Languages = []
           Conflicts = [] }
 
 // ---------------------------------------------------------------------------
@@ -333,6 +340,8 @@ module private HostCollectorImpl =
         let asyncRunners = System.Collections.Generic.Dictionary<string, PluginRunner>()
         let keys = ResizeArray<KeyChord * string>()
         let hooks = ResizeArray<PluginEvent * string>()
+        let servers = ResizeArray<LanguageServerSpec>()
+        let grammars = ResizeArray<GrammarSpec>()
         let conflicts = ResizeArray<string>()
 
         let addSpec (spec: PluginCommand) =
@@ -350,6 +359,8 @@ module private HostCollectorImpl =
 
         member _.Keybindings = List.ofSeq keys
         member _.Hooks = List.ofSeq hooks
+        member _.LanguageServers = List.ofSeq servers
+        member _.Languages = List.ofSeq grammars
         member _.Conflicts = List.ofSeq conflicts
 
         interface IPluginHost with
@@ -376,6 +387,24 @@ module private HostCollectorImpl =
             member _.Log(message) = log $"[plugin:{pluginName}] {message}"
 
             member _.RegisterHook(event, commandName) = hooks.Add(event, commandName)
+
+            member _.RegisterLanguageServer(server) =
+                if
+                    String.IsNullOrWhiteSpace server.Name
+                    || String.IsNullOrWhiteSpace server.Command
+                then
+                    conflicts.Add $"{pluginName}: language server needs a name and a command"
+                else
+                    servers.Add server
+
+            member _.RegisterLanguage(grammar) =
+                if
+                    String.IsNullOrWhiteSpace grammar.Name
+                    || String.IsNullOrWhiteSpace grammar.Library
+                then
+                    conflicts.Add $"{pluginName}: language needs a name and a library"
+                else
+                    grammars.Add grammar
 
 // ---------------------------------------------------------------------------
 // Assembly loading
@@ -478,6 +507,8 @@ module Plugins =
                               AsyncCommands = Map.empty
                               Keybindings = []
                               Hooks = []
+                              LanguageServers = []
+                              Languages = []
                               Conflicts = [] }
                     | Result.Error reason ->
                         Some
@@ -488,6 +519,8 @@ module Plugins =
                               AsyncCommands = Map.empty
                               Keybindings = []
                               Hooks = []
+                              LanguageServers = []
+                              Languages = []
                               Conflicts = [] })
             |> List.ofSeq
 
@@ -536,6 +569,20 @@ module Plugins =
                         AsyncCommands = collector.AsyncCommands
                         Keybindings = collector.Keybindings
                         Hooks = collector.Hooks
+                        LanguageServers = collector.LanguageServers
+                        Languages =
+                            // Relative library/queries paths are the plugin folder's.
+                            collector.Languages
+                            |> List.map (fun grammar ->
+                                let resolve (p: string) =
+                                    if Path.IsPathRooted p then
+                                        p
+                                    else
+                                        Path.Combine(loaded.Path, p)
+
+                                { grammar with
+                                    Library = resolve grammar.Library
+                                    Queries = grammar.Queries |> Option.map resolve })
                         Conflicts = collector.Conflicts }
                 with ex ->
                     { loaded with
@@ -610,6 +657,14 @@ module Plugins =
           Commands = commands |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
           Keybindings = List.ofSeq keys
           Hooks = List.ofSeq hooks
+          LanguageServers =
+            [ for plugin in processed do
+                  if plugin.Status = Loaded then
+                      yield! plugin.LanguageServers ]
+          Languages =
+            [ for plugin in processed do
+                  if plugin.Status = Loaded then
+                      yield! plugin.Languages ]
           Conflicts = List.ofSeq conflicts }
 
     // -----------------------------------------------------------------------

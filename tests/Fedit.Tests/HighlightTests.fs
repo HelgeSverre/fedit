@@ -579,3 +579,26 @@ let ``a missing user grammar library leaves the language unregistered`` () =
     use registry = (HighlightRegistry.tryCreateWith [ spec ]).Value
     (registry.TryGetLanguage "ghost").IsNone |> should equal true
     Highlight.parseSpans registry "ghost" "x" |> should equal None
+
+[<Fact>]
+let ``AddLanguages registers a grammar after the registry was created`` () =
+    if File.Exists(Path.Combine(nativeDir, "libtree-sitter-toml.dylib")) then
+        withGrammarDir (fun dir ->
+            let library = Path.Combine(dir, "libtree-sitter-late.dylib")
+            File.Copy(Path.Combine(nativeDir, "libtree-sitter-toml.dylib"), library)
+            let queries = Path.Combine(dir, "queries")
+            Directory.CreateDirectory queries |> ignore
+            File.WriteAllText(Path.Combine(queries, "highlights.scm"), "(bare_key) @attribute\n")
+
+            use registry = (HighlightRegistry.tryCreate ()).Value
+            Highlight.parseSpans registry "late" "a = 1" |> should equal None
+
+            registry.AddLanguages
+                [ { Name = "late"
+                    Extensions = [ ".late" ]
+                    Library = Some library
+                    Symbol = Some "tree_sitter_toml"
+                    Queries = Some queries } ]
+
+            let spans = Highlight.parseSpans registry "late" "a = 1" |> Option.defaultValue [||]
+            Assert.Contains(spans, fun (s: HighlightSpan) -> s.Capture = Attribute))

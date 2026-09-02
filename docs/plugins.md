@@ -334,6 +334,34 @@ Synchronous `RegisterCommand` handlers also run on the host's pool now, so
 they too overlap; the difference is the token and the natural `task {}`
 shape.
 
+## Language servers and grammars
+
+A plugin can offer a language server and ship a grammar; both use the
+same shapes as the `languageServers` and `languages` blocks in
+`config.json`, and a user entry of the same name always wins.
+
+```fsharp
+host.RegisterLanguageServer
+    { Name = "zls"
+      Command = "zls"
+      Args = []
+      FileTypes = [ "zig" ]
+      RootMarkers = [ "build.zig" ] }
+
+host.RegisterLanguage
+    { Name = "vue"
+      Extensions = [ ".vue" ]
+      Library = "grammars/libtree-sitter-vue.dylib"   // relative to the plugin folder
+      Symbol = None                                   // defaults to tree_sitter_vue
+      Queries = Some "grammars/vue" }                 // highlights.scm, injections.scm
+```
+
+Servers appear in `:lsp` and can be disabled like built-in ones. Grammars
+load lazily on the first file of that language; buffers already open
+reparse when the plugin scan lands. Build the shared library for each
+platform you ship (`runtimes/<rid>/native` in this repo shows the naming),
+or point `Library` at an absolute path.
+
 ## Line-activated buffers
 
 Turn a scratch buffer into a clickable listing with `SetBufferActivation`. It records the named command against the buffer that is active when the action runs, so emit it after the `NewBuffer` that produced the listing. When the user presses Enter or left-clicks a line, the host runs that command with a fresh `PluginContext` whose `ActiveBuffer.Cursor` sits on the activated line. The command name is not validated at registration time — an unknown command surfaces through the normal "command missing" error path when the line is activated. Pair it with `OpenFileAt` inside the handler to jump to a precise 1-based coordinate in another file; the `todo-list` example does exactly this (`todolist` builds the listing and registers `todo-jump`, which parses the clicked line and calls `OpenFileAt`).

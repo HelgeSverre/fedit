@@ -234,6 +234,7 @@ module Runtime =
         | RemovePluginDir name -> $"RemovePluginDir({name})"
         | BuildPlugin pluginPath -> $"BuildPlugin({pluginPath})"
         | ValidatePlugin path -> $"ValidatePlugin({path})"
+        | RegisterLanguages specs -> $"RegisterLanguages({specs.Length})"
         | LoadKeybinds -> "LoadKeybinds"
         | LoadMacros announce -> $"LoadMacros(announce={announce})"
         | SaveMacros registers -> $"SaveMacros(registers={registers.Count})"
@@ -974,10 +975,13 @@ module Runtime =
                                       AsyncCommands = Map.empty
                                       Keybindings = []
                                       Hooks = []
+                                      LanguageServers = []
+                                      Languages = []
                                       Conflicts = [] })
                             |> Result.map ignore)
 
                     PluginBuildFinished(name, Result.bind id outcome))
+            | RegisterLanguages specs -> highlightRegistry |> Option.iter (fun registry -> registry.AddLanguages specs)
             | ValidatePlugin path ->
                 post (fun () ->
                     let manifestPath = Path.Combine(path, "plugin.json")

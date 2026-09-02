@@ -748,6 +748,8 @@ type Effect =
     /// Check a plugin folder's manifest (existence + parse) and post the
     /// report as `PluginValidated`.
     | ValidatePlugin of path: string
+    /// Add plugin-shipped grammars to the highlight registry (idempotent).
+    | RegisterLanguages of LanguageSpec list
     | LoadKeybinds
     /// Read + parse the macros file, posting `MacrosLoaded` (with the
     /// same `announce` flag). Mirrors `LoadKeybinds`.

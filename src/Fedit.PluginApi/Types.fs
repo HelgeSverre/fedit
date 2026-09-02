@@ -212,6 +212,36 @@ type PluginAsyncCommand =
       Summary: string
       RunAsync: PluginContext -> System.Threading.CancellationToken -> System.Threading.Tasks.Task<PluginAction list> }
 
+/// A language server a plugin makes available, exactly the shape of a
+/// `languageServers` entry in config.json. A user entry with the same
+/// name wins.
+type LanguageServerSpec =
+    {
+        Name: string
+        Command: string
+        Args: string list
+        /// Extensions without the dot (`fs`, `ts`).
+        FileTypes: string list
+        /// Files or directories whose presence marks a workspace root.
+        RootMarkers: string list
+    }
+
+/// A tree-sitter grammar a plugin ships, exactly the shape of a
+/// `languages` entry in config.json. Relative paths resolve against the
+/// plugin's folder.
+type GrammarSpec =
+    {
+        Name: string
+        /// Extensions with or without the dot.
+        Extensions: string list
+        /// Path to the grammar shared library (`libtree-sitter-x.dylib`).
+        Library: string
+        /// Entry symbol; defaults to `tree_sitter_<library stem>`.
+        Symbol: string option
+        /// Directory holding `highlights.scm` and optionally `injections.scm`.
+        Queries: string option
+    }
+
 /// Keyboard chord a plugin can bind to a command name. MVP supports
 /// modifier+character and function keys. Plain `Char` is reserved (basic
 /// text input); the host rejects those registrations with a warning.

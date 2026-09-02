@@ -120,6 +120,10 @@ your platform and a directory holding its queries:
 Grammars load lazily on the first file of that language; a library that
 fails to load leaves those files unstyled rather than failing startup.
 
+Plugins can ship grammars the same way with `IPluginHost.RegisterLanguage`
+(see [`plugins.md`](plugins.md)); a `languages` entry in config.json with
+the same name overrides the plugin's.
+
 ## Updating the F# grammar
 
 ```bash

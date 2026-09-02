@@ -25,3 +25,13 @@ type IPluginHost =
     /// `event` happens. The command receives the usual snapshot with
     /// `PluginContext.Event = Some event`.
     abstract member RegisterHook: event: PluginEvent * commandName: string -> unit
+
+    /// Offer a language server. Merged like config.json's `languageServers`;
+    /// the user's own entry of the same name takes precedence, and the user
+    /// can disable it from `:lsp` like any other server.
+    abstract member RegisterLanguageServer: server: LanguageServerSpec -> unit
+
+    /// Ship a tree-sitter grammar and its queries. Loaded lazily on the
+    /// first file of that language; a user `languages` entry of the same
+    /// name wins.
+    abstract member RegisterLanguage: grammar: GrammarSpec -> unit

@@ -179,6 +179,73 @@ module PluginProtocol =
         [ for h in e.EnumerateArray() ->
               eventOf (h.GetProperty("event").GetString()), h.GetProperty("command").GetString() ]
 
+    let private writeStringArray (w: Utf8JsonWriter) (name: string) (xs: string list) =
+        w.WritePropertyName name
+        w.WriteStartArray()
+        xs |> List.iter w.WriteStringValue
+        w.WriteEndArray()
+
+    let private writeServers (w: Utf8JsonWriter) (name: string) (servers: LanguageServerSpec list) =
+        w.WritePropertyName name
+        w.WriteStartArray()
+
+        for server in servers do
+            w.WriteStartObject()
+            w.WriteString("name", server.Name)
+            w.WriteString("command", server.Command)
+            writeStringArray w "args" server.Args
+            writeStringArray w "fileTypes" server.FileTypes
+            writeStringArray w "rootMarkers" server.RootMarkers
+            w.WriteEndObject()
+
+        w.WriteEndArray()
+
+    let private readServers (e: JsonElement) : LanguageServerSpec list =
+        let strings (x: JsonElement) =
+            [ for s in x.EnumerateArray() -> s.GetString() ]
+
+        [ for s in e.EnumerateArray() ->
+              { Name = strp s "name"
+                Command = strp s "command"
+                Args = strings (s.GetProperty "args")
+                FileTypes = strings (s.GetProperty "fileTypes")
+                RootMarkers = strings (s.GetProperty "rootMarkers") } ]
+
+    let private writeGrammars (w: Utf8JsonWriter) (name: string) (grammars: GrammarSpec list) =
+        w.WritePropertyName name
+        w.WriteStartArray()
+
+        for grammar in grammars do
+            w.WriteStartObject()
+            w.WriteString("name", grammar.Name)
+            writeStringArray w "extensions" grammar.Extensions
+            w.WriteString("library", grammar.Library)
+
+            match grammar.Symbol with
+            | Some symbol -> w.WriteString("symbol", symbol)
+            | None -> w.WriteNull "symbol"
+
+            match grammar.Queries with
+            | Some queries -> w.WriteString("queries", queries)
+            | None -> w.WriteNull "queries"
+
+            w.WriteEndObject()
+
+        w.WriteEndArray()
+
+    let private readGrammars (e: JsonElement) : GrammarSpec list =
+        let optional (x: JsonElement) (name: string) =
+            match x.TryGetProperty name with
+            | true, v when v.ValueKind = JsonValueKind.String -> Some(v.GetString())
+            | _ -> None
+
+        [ for g in e.EnumerateArray() ->
+              { Name = strp g "name"
+                Extensions = [ for s in (g.GetProperty "extensions").EnumerateArray() -> s.GetString() ]
+                Library = strp g "library"
+                Symbol = optional g "symbol"
+                Queries = optional g "queries" } ]
+
     let private writeStrings (w: Utf8JsonWriter) (name: string) (xs: string list) =
         w.WritePropertyName name
         w.WriteStartArray()
@@ -207,6 +274,8 @@ module PluginProtocol =
                 w.WriteEndArray()
                 writeKeybindings w "keybindings" p.Keybindings
                 writeHooks w "hooks" p.Hooks
+                writeServers w "languageServers" p.LanguageServers
+                writeGrammars w "languages" p.Languages
                 writeStrings w "conflicts" p.Conflicts
                 w.WriteEndObject()
 
@@ -235,6 +304,8 @@ module PluginProtocol =
                 w.WriteEndObject()
 
             w.WriteEndArray()
+            writeServers w "languageServers" r.LanguageServers
+            writeGrammars w "languages" r.Languages
             writeStrings w "conflicts" r.Conflicts
             w.WriteEndObject())
 
@@ -251,6 +322,8 @@ module PluginProtocol =
                         AsyncCommands = Map.empty
                         Keybindings = readKeybindings (p.GetProperty "keybindings")
                         Hooks = readHooks (p.GetProperty "hooks")
+                        LanguageServers = readServers (p.GetProperty "languageServers")
+                        Languages = readGrammars (p.GetProperty "languages")
                         Conflicts = readStrings (p.GetProperty "conflicts") }
 
                   manifest.Name, lp ]
@@ -274,6 +347,8 @@ module PluginProtocol =
                   { Event = eventOf (h.GetProperty("event").GetString())
                     Command = h.GetProperty("command").GetString()
                     Source = h.GetProperty("source").GetString() } ]
+          LanguageServers = readServers (root.GetProperty "languageServers")
+          Languages = readGrammars (root.GetProperty "languages")
           Conflicts = readStrings (root.GetProperty "conflicts") }
 
     // ---- requests (editor -> host) ----------------------------------------

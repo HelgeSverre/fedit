@@ -113,6 +113,25 @@ module Plugin =
                     let name = defaultArg ctx.Argument "stranger"
                     [ Notify(Info, $"hello {name}") ] }
 
+        // A language server offered to the editor: merged like a config.json
+        // entry, so `:lsp` lists it and the user can disable it.
+        host.RegisterLanguageServer
+            { Name = "showcase-ls"
+              Command = "showcase-language-server"
+              Args = [ "--stdio" ]
+              FileTypes = [ "showcase" ]
+              RootMarkers = [ ".showcase-root" ] }
+
+        // A grammar shipped in the plugin folder (paths are folder-relative).
+        // Loads lazily on the first `.showcase` file; missing files just
+        // leave those files unstyled.
+        host.RegisterLanguage
+            { Name = "showcase"
+              Extensions = [ ".showcase" ]
+              Library = "grammars/libtree-sitter-showcase.dylib"
+              Symbol = Some "tree_sitter_toml"
+              Queries = Some "grammars/showcase" }
+
         // The enriched snapshot: language, dirty flag, diagnostics, and the
         // plugin's own `plugins.showcase` settings from config.json.
         host.RegisterCommand

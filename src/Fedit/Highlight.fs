@@ -53,7 +53,8 @@ type LanguageSpec =
 type HighlightRegistry
     private
     (
-        loaders: Map<string, unit -> unit>,
+        loaders: ConcurrentDictionary<string, unit -> unit>,
+        registerUser: LanguageSpec -> unit,
         languages: ConcurrentDictionary<string, TreeSitter.Language>,
         queries: ConcurrentDictionary<string, TreeSitter.Query>,
         injections: ConcurrentDictionary<string, TreeSitter.Query>
@@ -66,13 +67,21 @@ type HighlightRegistry
     let loaded = ConcurrentDictionary<string, Lazy<unit>>()
 
     let ensureLoaded (name: string) =
-        match loaders.TryFind name with
-        | Some loader ->
+        match loaders.TryGetValue name with
+        | true, loader ->
             // GetOrAdd may build several Lazy values under contention, but only
             // the stored winner is forced — so `loader` runs exactly once.
             let entry = loaded.GetOrAdd(name, fun _ -> lazy (loader ()))
             entry.Force()
-        | None -> ()
+        | _ -> ()
+
+    /// Add (or replace) user/plugin languages after construction — plugin
+    /// grammars arrive once the plugin scan completes. A replaced language
+    /// reloads on its next lookup.
+    member _.AddLanguages(specs: LanguageSpec list) =
+        for spec in specs do
+            registerUser spec
+            loaded.TryRemove spec.Name |> ignore
 
     member _.TryGetLanguage(name: string) : TreeSitter.Language option =
         ensureLoaded name
@@ -119,16 +128,18 @@ type HighlightRegistry
         let injections = ConcurrentDictionary<string, TreeSitter.Query>()
         let asm = Assembly.GetExecutingAssembly()
 
-        let userSpecs =
-            userLanguages |> List.map (fun spec -> spec.Name, spec) |> Map.ofList
+        let userSpecs = ConcurrentDictionary<string, LanguageSpec>()
+
+        for spec in userLanguages do
+            userSpecs[spec.Name] <- spec
 
         /// `<id>/<file>.scm`: the user's queries directory wins over the
         /// embedded resource, so a bundled language's queries can be
         /// replaced without a rebuild. Unreadable files fall through.
         let readQuery (id: string) (file: string) =
             let fromUserDir =
-                match Map.tryFind id userSpecs with
-                | Some { Queries = Some dir } ->
+                match userSpecs.TryGetValue id with
+                | true, { Queries = Some dir } ->
                     try
                         let path = Path.Combine(dir, file + ".scm")
 
@@ -228,32 +239,42 @@ type HighlightRegistry
         // until a grammar is first requested. See the `loaded` cache above.
         // User grammars (absolute library path + entry symbol) are added
         // last so a user spec can also replace a shipped grammar outright.
-        let loaders =
-            [ for id in bundled -> id, loadBundled id
-              for id, lib, func in externalGrammars -> id, loadExternal id lib func
-              for spec in userLanguages do
-                  match spec.Library with
-                  | Some library ->
-                      // Default symbol follows the grammar convention:
-                      // `libtree-sitter-vue.dylib` → `tree_sitter_vue`.
-                      let symbol =
-                          spec.Symbol
-                          |> Option.defaultWith (fun () ->
-                              let stem = Path.GetFileNameWithoutExtension library |> string
+        let loaders = ConcurrentDictionary<string, unit -> unit>()
 
-                              let stem =
-                                  (if stem.StartsWith("lib", StringComparison.Ordinal) then
-                                       stem.Substring 3
-                                   else
-                                       stem)
+        for id in bundled do
+            loaders[id] <- loadBundled id
 
-                              stem.Replace('-', '_'))
+        for id, lib, func in externalGrammars do
+            loaders[id] <- loadExternal id lib func
 
-                      yield spec.Name, loadExternal spec.Name library symbol
-                  | None -> () ]
-            |> Map.ofList
+        /// A user/plugin spec: with a library it adds (or replaces) a
+        /// grammar; either way its queries directory takes effect. Default
+        /// symbol follows the grammar convention:
+        /// `libtree-sitter-vue.dylib` → `tree_sitter_vue`.
+        let registerUser (spec: LanguageSpec) =
+            userSpecs[spec.Name] <- spec
 
-        Some(new HighlightRegistry(loaders, languages, queries, injections))
+            match spec.Library with
+            | Some library ->
+                let symbol =
+                    spec.Symbol
+                    |> Option.defaultWith (fun () ->
+                        let stem = Path.GetFileNameWithoutExtension library |> string
+
+                        let stem =
+                            (if stem.StartsWith("lib", StringComparison.Ordinal) then
+                                 stem.Substring 3
+                             else
+                                 stem)
+
+                        stem.Replace('-', '_'))
+
+                loaders[spec.Name] <- loadExternal spec.Name library symbol
+            | None -> ()
+
+        userLanguages |> List.iter registerUser
+
+        Some(new HighlightRegistry(loaders, registerUser, languages, queries, injections))
 
 [<RequireQualifiedAccess>]
 module Highlight =

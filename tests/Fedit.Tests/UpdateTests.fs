@@ -556,6 +556,8 @@ let private testPlugin name status =
       AsyncCommands = Map.empty
       Keybindings = []
       Hooks = []
+      LanguageServers = []
+      Languages = []
       Conflicts = [] }
 
 [<Fact>]
@@ -4199,3 +4201,70 @@ let ``the text after a plugin command in the prompt reaches the plugin as the ar
     pluginRuns bareEffects
     |> List.map (fun (source, command, argument) -> source, command, defaultArg argument "<none>")
     |> should equal [ "probe", "picked", "<none>" ]
+
+// ── plugin language servers and grammars ───────────────────────────────────
+
+[<Fact>]
+let ``a plugin scan merges its language servers and grammars and reparses open buffers`` () =
+    let model = initModel ()
+
+    let buffer =
+        Buffer.fromText 1 (Some "/root/notes.showcase") "notes.showcase" "a = 1" "\n"
+
+    let model =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers = Map.ofList [ 1, buffer ] }
+            Config =
+                { model.Config with
+                    LanguageServers =
+                        [ { Name = "mine"
+                            Command = "my-ls"
+                            Args = []
+                            FileTypes = [ "mine" ]
+                            RootMarkers = [] } ] } }
+
+    let registry =
+        { PluginRegistry.empty with
+            LanguageServers =
+                [ { Name = "mine"
+                    Command = "plugin-ls"
+                    Args = []
+                    FileTypes = [ "mine" ]
+                    RootMarkers = [] }
+                  { Name = "showcase-ls"
+                    Command = "showcase-language-server"
+                    Args = [ "--stdio" ]
+                    FileTypes = [ "showcase" ]
+                    RootMarkers = [] } ]
+            Languages =
+                [ { Name = "showcase"
+                    Extensions = [ ".showcase" ]
+                    Library = "/plugins/showcase/grammars/lib.dylib"
+                    Symbol = None
+                    Queries = None } ] }
+
+    let scanned, effects = Editor.update (PluginsScanned(Result.Ok registry)) model
+
+    // The user's own `mine` entry wins; the plugin's new server appends.
+    scanned.Config.LanguageServers
+    |> List.map (fun s -> s.Name, s.Command)
+    |> should equal [ "mine", "my-ls"; "showcase-ls", "showcase-language-server" ]
+
+    scanned.Config.Languages
+    |> List.map (fun l -> l.Name, l.Library)
+    |> should equal [ "showcase", Some "/plugins/showcase/grammars/lib.dylib" ]
+
+    Config.languageExtensions scanned.Config
+    |> should equal (Map.ofList [ ".showcase", "showcase" ])
+
+    match effects with
+    | [ RegisterLanguages [ spec ]; ParseHighlight(1, "showcase", _, _) ] -> spec.Name |> should equal "showcase"
+    | other -> failwith $"unexpected effects: %A{other}"
+
+    // A second scan with the same registry adds nothing twice.
+    let again, againEffects = Editor.update (PluginsScanned(Result.Ok registry)) scanned
+    again.Config.Languages.Length |> should equal 1
+    again.Config.LanguageServers.Length |> should equal 2
+    againEffects |> should be Empty

@@ -38,6 +38,8 @@ let private loadedPlugin name path status =
       AsyncCommands = Map.empty
       Keybindings = []
       Hooks = []
+      LanguageServers = []
+      Languages = []
       Conflicts = [] }
 
 let private withPlugins plugins model =

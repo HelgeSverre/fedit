@@ -131,6 +131,7 @@ module Editor =
         | RemovePluginDir _
         | BuildPlugin _
         | ValidatePlugin _
+        | RegisterLanguages _
         | LoadKeybinds
         | LoadMacros _
         | SaveMacros _
@@ -3844,12 +3845,63 @@ module Editor =
         | PluginsScanned(Result.Ok registry) ->
             // Conflict warnings surface as a notification; absent conflicts
             // leave any existing notification (startup hint) intact.
+            // Plugin language servers merge like config.json entries (the
+            // user's own entry of the same name wins); plugin grammars are
+            // appended to the language table and registered with the
+            // highlighter, and open buffers of those languages reparse.
+            let userServerNames =
+                model.Config.LanguageServers |> List.map (fun s -> s.Name) |> Set.ofList
+
+            let pluginServers =
+                registry.LanguageServers
+                |> List.filter (fun s -> not (Set.contains s.Name userServerNames))
+                |> List.map (fun s ->
+                    { Name = s.Name
+                      Command = s.Command
+                      Args = s.Args
+                      FileTypes = s.FileTypes
+                      RootMarkers = s.RootMarkers })
+
+            let userLanguageNames =
+                model.Config.Languages |> List.map (fun l -> l.Name) |> Set.ofList
+
+            let pluginLanguages: LanguageSpec list =
+                registry.Languages
+                |> List.filter (fun g -> not (Set.contains g.Name userLanguageNames))
+                |> List.map (fun g ->
+                    { Name = g.Name
+                      Extensions = g.Extensions
+                      Library = Some g.Library
+                      Symbol = g.Symbol
+                      Queries = g.Queries })
+
+            let nextModel =
+                { model with
+                    Plugins = registry
+                    Config =
+                        { model.Config with
+                            LanguageServers = model.Config.LanguageServers @ pluginServers
+                            Languages = model.Config.Languages @ pluginLanguages } }
+
             let nextModel =
                 match registry.Conflicts with
-                | [] -> { model with Plugins = registry }
-                | conflicts ->
-                    { model with Plugins = registry }
-                    |> notify (Some(Notification.warning (String.concat "; " conflicts)))
+                | [] -> nextModel
+                | conflicts -> nextModel |> notify (Some(Notification.warning (String.concat "; " conflicts)))
+
+            let languageEffects =
+                match pluginLanguages with
+                | [] -> []
+                | specs ->
+                    let added = specs |> List.map (fun l -> l.Name) |> Set.ofList
+
+                    RegisterLanguages specs
+                    :: [ for KeyValue(id, buffer) in nextModel.Editors.Buffers do
+                             match languageFor nextModel buffer with
+                             | Some language when
+                                 Set.contains language added && not (Map.containsKey id nextModel.HexViews)
+                                 ->
+                                 ParseHighlight(id, language, buffer.Document, buffer.EditTick)
+                             | _ -> () ]
 
             let nextModel =
                 if
@@ -3866,7 +3918,7 @@ module Editor =
                 else
                     nextModel
 
-            nextModel, []
+            nextModel, languageEffects
         | PluginsScanned(Result.Error message) ->
             notify (Some(Notification.error $"Plugin scan failed: {message}")) model, []
         | PluginActionsReady(source, Result.Ok actions) -> applyPluginActions source actions model

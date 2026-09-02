@@ -248,3 +248,53 @@ let ``picker rows, prompt input, and arguments cross the wire from a real plugin
     with
     | Result.Ok [ Notify(Info, "hello Ada") ] -> ()
     | other -> Assert.Fail $"unexpected: %A{other}"
+
+[<Fact>]
+let ``a plugin's language server and grammar reach the editor and the grammar highlights`` () =
+    let pluginsRoot = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())
+    let pluginDir = Path.Combine(pluginsRoot, "showcase")
+    Directory.CreateDirectory pluginsRoot |> ignore
+    copyDir (Path.Combine(repoRoot, "examples", "showcase")) pluginDir
+
+    // Plant the grammar the showcase plugin declares (folder-relative paths),
+    // standing in with the shipped toml library.
+    let native =
+        Path.Combine(AppContext.BaseDirectory, "runtimes", "osx-arm64", "native", "libtree-sitter-toml.dylib")
+
+    let grammars = Path.Combine(pluginDir, "grammars")
+    Directory.CreateDirectory(Path.Combine(grammars, "showcase")) |> ignore
+
+    if File.Exists native then
+        File.Copy(native, Path.Combine(grammars, "libtree-sitter-showcase.dylib"))
+
+    File.WriteAllText(Path.Combine(grammars, "showcase", "highlights.scm"), "(bare_key) @attribute\n")
+
+    use client = new PluginHostClient(hostDll)
+
+    match client.Scan(pluginsRoot, Set.empty) with
+    | Result.Error e -> Assert.Fail("scan failed: " + e)
+    | Result.Ok registry ->
+        Assert.Empty registry.Conflicts
+        let server = registry.LanguageServers |> List.find (fun s -> s.Name = "showcase-ls")
+        Assert.Equal("showcase-language-server", server.Command)
+        Assert.Equal<string list>([ "showcase" ], server.FileTypes)
+
+        let grammar = registry.Languages |> List.find (fun g -> g.Name = "showcase")
+        Assert.True(Path.IsPathRooted grammar.Library, "library path resolved against the plugin folder")
+        Assert.Equal(Path.Combine(grammars, "libtree-sitter-showcase.dylib"), grammar.Library)
+
+        if File.Exists native then
+            // The editor side: the spec lands in the highlight registry.
+            use highlight = (HighlightRegistry.tryCreate ()).Value
+
+            highlight.AddLanguages
+                [ { Name = grammar.Name
+                    Extensions = grammar.Extensions
+                    Library = Some grammar.Library
+                    Symbol = grammar.Symbol
+                    Queries = grammar.Queries } ]
+
+            let spans =
+                Highlight.parseSpans highlight "showcase" "key = 1" |> Option.defaultValue [||]
+
+            Assert.Contains(spans, fun (s: HighlightSpan) -> s.Capture = Attribute)
