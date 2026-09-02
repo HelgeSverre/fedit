@@ -35,6 +35,7 @@ let private loadedPlugin name path status =
       Path = path
       Status = status
       Commands = []
+      AsyncCommands = Map.empty
       Keybindings = []
       Conflicts = [] }
 

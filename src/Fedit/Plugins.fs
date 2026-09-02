@@ -10,6 +10,8 @@ open System.IO
 open System.Reflection
 open System.Runtime.Loader
 open System.Text.Json
+open System.Threading
+open System.Threading.Tasks
 open Fedit.PluginApi
 
 // `Severity` from Fedit.PluginApi has an `Error` case that would shadow
@@ -34,17 +36,29 @@ type PluginLoadStatus =
     | Failed of reason: string
     | Disabled
 
+/// How the host runs a command: sync `Run` hopped onto the pool, or the
+/// plugin's own `RunAsync`. Editor-side registries carry a stub.
+type PluginRunner = PluginContext -> CancellationToken -> Task<PluginAction list>
+
 /// Resolved command registration owned by a single plugin.
-type PluginCommandBinding = { Source: string; Spec: PluginCommand }
+type PluginCommandBinding =
+    { Source: string
+      Spec: PluginCommand
+      Invoke: PluginRunner }
 
 /// Everything the host knows about a single plugin discovered on disk.
 type LoadedPlugin =
-    { Manifest: PluginManifest
-      Path: string
-      Status: PluginLoadStatus
-      Commands: PluginCommand list
-      Keybindings: (KeyChord * string) list
-      Conflicts: string list }
+    {
+        Manifest: PluginManifest
+        Path: string
+        Status: PluginLoadStatus
+        Commands: PluginCommand list
+        /// Runners for commands registered with `RegisterAsyncCommand`, by
+        /// name. Host-only: never crosses the wire.
+        AsyncCommands: Map<string, PluginRunner>
+        Keybindings: (KeyChord * string) list
+        Conflicts: string list
+    }
 
 /// Aggregate registry of all plugins known to the host.
 type PluginRegistry =
@@ -304,19 +318,40 @@ module private HostCollectorImpl =
 
     type Collector(pluginName: string, log: string -> unit) =
         let commands = ResizeArray<PluginCommand>()
+        let asyncRunners = System.Collections.Generic.Dictionary<string, PluginRunner>()
         let keys = ResizeArray<KeyChord * string>()
         let conflicts = ResizeArray<string>()
 
+        let addSpec (spec: PluginCommand) =
+            if commands |> Seq.exists (fun c -> c.Name = spec.Name) then
+                conflicts.Add $"{pluginName}: duplicate command '{spec.Name}' ignored"
+                false
+            else
+                commands.Add spec
+                true
+
         member _.Commands = List.ofSeq commands
+
+        member _.AsyncCommands =
+            asyncRunners |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+
         member _.Keybindings = List.ofSeq keys
         member _.Conflicts = List.ofSeq conflicts
 
         interface IPluginHost with
-            member _.RegisterCommand(cmd) =
-                if commands |> Seq.exists (fun c -> c.Name = cmd.Name) then
-                    conflicts.Add $"{pluginName}: duplicate command '{cmd.Name}' ignored"
-                else
-                    commands.Add cmd
+            member _.RegisterCommand(cmd) = addSpec cmd |> ignore
+
+            member _.RegisterAsyncCommand(cmd) =
+                // The spec's Run is never called for async commands — the
+                // binding routes through RunAsync — but keep it total.
+                let spec: PluginCommand =
+                    { Name = cmd.Name
+                      Usage = cmd.Usage
+                      Summary = cmd.Summary
+                      Run = fun ctx -> (cmd.RunAsync ctx CancellationToken.None).GetAwaiter().GetResult() }
+
+                if addSpec spec then
+                    asyncRunners[cmd.Name] <- cmd.RunAsync
 
             member _.RegisterKeybinding(chord, commandName) =
                 if isReserved chord then
@@ -424,6 +459,7 @@ module Plugins =
                               Path = pluginDir
                               Status = Disabled
                               Commands = []
+                              AsyncCommands = Map.empty
                               Keybindings = []
                               Conflicts = [] }
                     | Result.Error reason ->
@@ -432,6 +468,7 @@ module Plugins =
                               Path = pluginDir
                               Status = Failed reason
                               Commands = []
+                              AsyncCommands = Map.empty
                               Keybindings = []
                               Conflicts = [] })
             |> List.ofSeq
@@ -478,6 +515,7 @@ module Plugins =
                     { loaded with
                         Status = Loaded
                         Commands = collector.Commands
+                        AsyncCommands = collector.AsyncCommands
                         Keybindings = collector.Keybindings
                         Conflicts = collector.Conflicts }
                 with ex ->
@@ -525,7 +563,11 @@ module Plugins =
                     else
                         commands[cmd.Name] <-
                             { Source = plugin.Manifest.Name
-                              Spec = cmd }
+                              Spec = cmd
+                              Invoke =
+                                match plugin.AsyncCommands.TryFind cmd.Name with
+                                | Some runAsync -> runAsync
+                                | None -> fun ctx _ -> Task.Run(fun () -> cmd.Run ctx) }
 
                 keys.AddRange plugin.Keybindings
 

@@ -553,6 +553,7 @@ let private testPlugin name status =
       Path = $"/tmp/{name}"
       Status = status
       Commands = []
+      AsyncCommands = Map.empty
       Keybindings = []
       Conflicts = [] }
 

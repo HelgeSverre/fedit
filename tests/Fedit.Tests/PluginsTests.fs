@@ -483,7 +483,10 @@ let private dispatchProbe
           Summary = ""
           Run = fun _ -> [] }
 
-    let binding: PluginCommandBinding = { Source = "probe-plugin"; Spec = spec }
+    let binding: PluginCommandBinding =
+        { Source = "probe-plugin"
+          Spec = spec
+          Invoke = fun _ _ -> System.Threading.Tasks.Task.FromResult [] }
 
     let registry =
         { PluginRegistry.empty with
@@ -884,10 +887,12 @@ let ``Enter in an activated buffer runs the registered plugin command`` () =
                 Map.ofList
                     [ "activate",
                       { Source = "test-plugin"
-                        Spec = activateSpec }
+                        Spec = activateSpec
+                        Invoke = fun _ _ -> System.Threading.Tasks.Task.FromResult [] }
                       "setup",
                       { Source = "test-plugin"
-                        Spec = setupSpec } ]
+                        Spec = setupSpec
+                        Invoke = fun _ _ -> System.Threading.Tasks.Task.FromResult [] } ]
             Keybindings = [ Fedit.PluginApi.KeyChord.Ctrl 'j', "setup" ] }
 
     let setup model = withActiveBuffer buffer model

@@ -1,8 +1,11 @@
 module Fedit.PluginHost.Program
 
 open System
+open System.Collections.Concurrent
 open System.IO
 open System.Text.Json
+open System.Threading
+open System.Threading.Tasks
 open Fedit
 open Fedit.PluginApi
 
@@ -12,6 +15,11 @@ open Fedit.PluginApi
 /// Holds the loaded PluginRegistry (with each command's `Run` closure) in this
 /// JIT process so the editor can stay NativeAOT — only command SPECS and
 /// PluginAction results cross the wire.
+///
+/// Requests carry an `id` and are served concurrently: each one runs on the
+/// pool and answers when done, so a slow command never stalls another. The
+/// response writer is the only serialized point. `cancel` fires the token
+/// of an in-flight request; `shutdown` cancels everything and exits.
 [<EntryPoint>]
 let main _argv =
     let stdin = Console.In
@@ -32,43 +40,85 @@ let main _argv =
             typeof<IPluginHost>.Assembly.Location
 
     let mutable registry = PluginRegistry.empty
+    let writeLock = obj ()
+    let inFlight = ConcurrentDictionary<int, CancellationTokenSource>()
+    let shutdown = new CancellationTokenSource()
+
+    let respond (json: string) =
+        lock writeLock (fun () -> PluginProtocol.writeFrame stdout json)
+
+    /// Serve one request to completion (may await plugin work).
+    let serve (id: int) (root: JsonElement) : Task<string> =
+        task {
+            match PluginProtocol.methodOf root with
+            | "scan" ->
+                let pluginsRoot, disabled = PluginProtocol.parseScanRequest root
+                registry <- Plugins.scanAndLoad pluginsRoot apiDll disabled log
+                return PluginProtocol.scanResultJson id registry
+            | "invoke" ->
+                let command, ctx = PluginProtocol.parseInvokeRequest root
+
+                match registry.Commands.TryFind command with
+                | Some binding ->
+                    use cts = CancellationTokenSource.CreateLinkedTokenSource shutdown.Token
+                    inFlight[id] <- cts
+
+                    try
+                        try
+                            let! actions = binding.Invoke ctx cts.Token
+                            return PluginProtocol.invokeResultJson id actions
+                        with
+                        | :? OperationCanceledException -> return PluginProtocol.errorJson id "cancelled"
+                        | ex ->
+                            return PluginProtocol.errorJson id ("plugin '" + binding.Source + "' threw: " + ex.Message)
+                    finally
+                        inFlight.TryRemove id |> ignore
+                | None -> return PluginProtocol.errorJson id ("unknown command: " + command)
+            | "cancel" ->
+                match inFlight.TryGetValue(PluginProtocol.parseCancelRequest root) with
+                | true, cts -> cts.Cancel()
+                | _ -> ()
+
+                return PluginProtocol.invokeResultJson id []
+            | other -> return PluginProtocol.errorJson id ("unknown method: " + other)
+        }
+
     let mutable running = true
-
-    let handle (line: string) : string =
-        use doc = JsonDocument.Parse line
-        let root = doc.RootElement
-
-        match PluginProtocol.methodOf root with
-        | "scan" ->
-            let pluginsRoot, disabled = PluginProtocol.parseScanRequest root
-            registry <- Plugins.scanAndLoad pluginsRoot apiDll disabled log
-            PluginProtocol.scanResultJson registry
-        | "invoke" ->
-            let command, ctx = PluginProtocol.parseInvokeRequest root
-
-            match registry.Commands.TryFind command with
-            | Some b ->
-                try
-                    PluginProtocol.invokeResultJson (b.Spec.Run ctx)
-                with ex ->
-                    PluginProtocol.errorJson ("plugin '" + b.Source + "' threw: " + ex.Message)
-            | None -> PluginProtocol.errorJson ("unknown command: " + command)
-        | "shutdown" ->
-            running <- false
-            PluginProtocol.errorJson "shutting down"
-        | other -> PluginProtocol.errorJson ("unknown method: " + other)
 
     while running do
         match PluginProtocol.readFrame stdin with
         | None -> running <- false
         | Some line ->
-            let response =
-                try
-                    handle line
-                with ex ->
-                    PluginProtocol.errorJson ("host error: " + ex.Message)
+            // Parse on the reader so a malformed frame answers immediately;
+            // the JsonDocument must outlive the served task, so no `use`.
+            match
+                (try
+                    Ok(JsonDocument.Parse line)
+                 with ex ->
+                     Result.Error ex.Message)
+            with
+            | Result.Error message -> respond (PluginProtocol.errorJson 0 ("host error: " + message))
+            | Ok doc ->
+                let root = doc.RootElement
+                let id = PluginProtocol.idOf root
 
-            if running || response <> "" then
-                PluginProtocol.writeFrame stdout response
+                if PluginProtocol.methodOf root = "shutdown" then
+                    running <- false
+                    shutdown.Cancel()
+                    respond (PluginProtocol.errorJson id "shutting down")
+                else
+                    Task.Run(fun () ->
+                        task {
+                            try
+                                try
+                                    let! response = serve id root
+                                    respond response
+                                with ex ->
+                                    respond (PluginProtocol.errorJson id ("host error: " + ex.Message))
+                            finally
+                                doc.Dispose()
+                        }
+                        :> Task)
+                    |> ignore
 
     0

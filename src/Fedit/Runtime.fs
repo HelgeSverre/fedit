@@ -971,6 +971,7 @@ module Runtime =
                                       Path = pluginPath
                                       Status = Disabled
                                       Commands = []
+                                      AsyncCommands = Map.empty
                                       Keybindings = []
                                       Conflicts = [] })
                             |> Result.map ignore)

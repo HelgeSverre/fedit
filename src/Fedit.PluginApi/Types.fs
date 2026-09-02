@@ -146,6 +146,16 @@ type PluginCommand =
       Summary: string
       Run: PluginContext -> PluginAction list }
 
+/// An asynchronous command. `RunAsync` runs on the host's thread pool and
+/// may take as long as it needs — other plugin calls proceed meanwhile.
+/// The token is cancelled when the host shuts down or the editor cancels
+/// the request; honour it in long loops and I/O.
+type PluginAsyncCommand =
+    { Name: string
+      Usage: string
+      Summary: string
+      RunAsync: PluginContext -> System.Threading.CancellationToken -> System.Threading.Tasks.Task<PluginAction list> }
+
 /// Keyboard chord a plugin can bind to a command name. MVP supports
 /// modifier+character and function keys. Plain `Char` is reserved (basic
 /// text input); the host rejects those registrations with a warning.

@@ -1,20 +1,27 @@
 namespace Fedit
 
 open System
+open System.Collections.Concurrent
 open System.IO
 open System.Diagnostics
+open System.Text.Json
+open System.Threading
+open System.Threading.Tasks
 open Fedit.PluginApi
 
 /// Editor-side handle to the out-of-process plugin host. Spawns the host child
-/// lazily, then talks newline-delimited JSON-RPC over its stdio. Requests are
-/// serialized under a lock (one outstanding request at a time), which matches
-/// how the editor drives it — from thread-pool effects, never per-frame.
+/// lazily, then talks newline-delimited JSON-RPC over its stdio. Requests
+/// carry ids and may be in flight together: a reader thread matches each
+/// response to its waiter, so the editor's thread-pool effects can call
+/// `Invoke` concurrently and a slow plugin never stalls a fast one.
 ///
 /// `hostPath` is either the host apphost binary (shipped beside an AOT editor)
 /// or its `.dll` (run via `dotnet` during development); the extension decides.
 type PluginHostClient(hostPath: string) =
     let gate = obj ()
     let mutable proc: Process option = None
+    let mutable nextId = 0
+    let pending = ConcurrentDictionary<int, TaskCompletionSource<string>>()
 
     let makeStartInfo () =
         let psi =
@@ -31,6 +38,47 @@ type PluginHostClient(hostPath: string) =
         psi.UseShellExecute <- false
         psi
 
+    /// Every pending request fails when the host goes away.
+    let failAll (reason: string) =
+        for KeyValue(_, tcs) in pending do
+            tcs.TrySetResult(PluginProtocol.errorJson 0 reason) |> ignore
+
+        pending.Clear()
+
+    /// Reader thread: match each response line to its request by id.
+    let pump (p: Process) =
+        let thread =
+            Thread(
+                (fun () ->
+                    let mutable alive = true
+
+                    while alive do
+                        match
+                            (try
+                                PluginProtocol.readFrame p.StandardOutput
+                             with _ ->
+                                 None)
+                        with
+                        | None -> alive <- false
+                        | Some line ->
+                            let id =
+                                try
+                                    use doc = JsonDocument.Parse line
+                                    PluginProtocol.idOf doc.RootElement
+                                with _ ->
+                                    0
+
+                            match pending.TryRemove id with
+                            | true, tcs -> tcs.TrySetResult line |> ignore
+                            | _ -> ()
+
+                    failAll "plugin host closed the connection"),
+                IsBackground = true,
+                Name = "fedit-plugin-host-reader"
+            )
+
+        thread.Start()
+
     /// Start the child if not already running (or if it has exited).
     let ensure () : Process =
         match proc with
@@ -40,32 +88,52 @@ type PluginHostClient(hostPath: string) =
             | null -> failwith "failed to start plugin host"
             | p ->
                 proc <- Some p
+                pump p
                 p
 
-    /// One request -> one response, serialized. Returns Error on a dead host.
-    let roundtrip (request: string) : Result<string, string> =
-        lock gate (fun () ->
-            try
-                let p = ensure ()
-                PluginProtocol.writeFrame p.StandardInput request
+    /// Send one request and wait for its response. Requests interleave —
+    /// the host serves them concurrently — so a slow plugin command never
+    /// blocks another; only the write is serialized.
+    let roundtrip (request: int -> string) : Result<string, string> =
+        let id = Interlocked.Increment &nextId
 
-                match PluginProtocol.readFrame p.StandardOutput with
-                | Some line -> Result.Ok line
-                | None -> Result.Error "plugin host closed the connection"
-            with ex ->
-                Result.Error("plugin host error: " + ex.Message))
+        let tcs =
+            TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously)
+
+        pending[id] <- tcs
+
+        let sent =
+            lock gate (fun () ->
+                try
+                    let p = ensure ()
+                    PluginProtocol.writeFrame p.StandardInput (request id)
+                    Ok()
+                with ex ->
+                    Result.Error("plugin host error: " + ex.Message))
+
+        match sent with
+        | Result.Error e ->
+            pending.TryRemove id |> ignore
+            Result.Error e
+        | Ok() ->
+            let line = tcs.Task.GetAwaiter().GetResult()
+
+            if line.Contains "\"plugin host closed the connection\"" then
+                Result.Error "plugin host closed the connection"
+            else
+                Ok line
 
     /// Discover/build/load plugins under `pluginsRoot`, returning the registry
     /// (command Run closures are stubbed editor-side; invocation goes back to
     /// the host via Invoke).
     member _.Scan(pluginsRoot: string, disabled: Set<string>) : Result<PluginRegistry, string> =
-        match roundtrip (PluginProtocol.scanRequest pluginsRoot disabled) with
+        match roundtrip (fun id -> PluginProtocol.scanRequest id pluginsRoot disabled) with
         | Result.Ok line -> PluginProtocol.parseScanResult line
         | Result.Error e -> Result.Error e
 
     /// Run a registered command against `ctx`, returning its PluginAction list.
     member _.Invoke(command: string, ctx: PluginContext) : Result<PluginAction list, string> =
-        match roundtrip (PluginProtocol.invokeRequest command ctx) with
+        match roundtrip (fun id -> PluginProtocol.invokeRequest id command ctx) with
         | Result.Ok line -> PluginProtocol.parseInvokeResult line
         | Result.Error e -> Result.Error e
 
@@ -87,7 +155,8 @@ type PluginHostClient(hostPath: string) =
                         ()
                 | _ -> ()
 
-                proc <- None)
+                proc <- None
+                failAll "plugin host stopped")
 
 /// Locate the host beside the running editor binary, preferring the native
 /// apphost (AOT/self-contained ship) and falling back to the framework dll.

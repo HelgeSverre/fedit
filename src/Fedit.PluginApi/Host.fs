@@ -16,3 +16,7 @@ type IPluginHost =
 
     /// Append a line to the plugin host's log. Useful for debugging.
     abstract member Log: message: string -> unit
+
+    /// Register an asynchronous command (see `PluginAsyncCommand`). Shares
+    /// the command namespace with `RegisterCommand`.
+    abstract member RegisterAsyncCommand: command: PluginAsyncCommand -> unit

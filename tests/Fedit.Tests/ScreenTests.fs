@@ -95,6 +95,7 @@ let ``plugin prompt session renders the selected item title, badge, version, pat
           Path = "/plugins/alpha"
           Status = Loaded
           Commands = []
+          AsyncCommands = Map.empty
           Keybindings = []
           Conflicts = [] }
 

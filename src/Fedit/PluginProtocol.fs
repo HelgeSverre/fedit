@@ -206,6 +206,7 @@ module PluginProtocol =
                         Path = strp p "path"
                         Status = readStatus (p.GetProperty "status")
                         Commands = [ for c in (p.GetProperty "commands").EnumerateArray() -> readSpec c ]
+                        AsyncCommands = Map.empty
                         Keybindings = readKeybindings (p.GetProperty "keybindings")
                         Conflicts = readStrings (p.GetProperty "conflicts") }
 
@@ -217,7 +218,8 @@ module PluginProtocol =
 
                   spec.Name,
                   ({ Source = strp b "source"
-                     Spec = spec }
+                     Spec = spec
+                     Invoke = fun _ _ -> System.Threading.Tasks.Task.FromResult [] }
                   : PluginCommandBinding) ]
 
         { Loaded = Map.ofList loaded
@@ -228,9 +230,12 @@ module PluginProtocol =
 
     // ---- requests (editor -> host) ----------------------------------------
 
-    let scanRequest (pluginsRoot: string) (disabled: Set<string>) : string =
+    /// Every request carries an `id`; the host answers out of order and the
+    /// client matches responses by it.
+    let scanRequest (id: int) (pluginsRoot: string) (disabled: Set<string>) : string =
         build (fun w ->
             w.WriteStartObject()
+            w.WriteNumber("id", id)
             w.WriteString("method", "scan")
             w.WriteString("pluginsRoot", pluginsRoot)
             w.WritePropertyName "disabled"
@@ -239,9 +244,10 @@ module PluginProtocol =
             w.WriteEndArray()
             w.WriteEndObject())
 
-    let invokeRequest (command: string) (ctx: PluginContext) : string =
+    let invokeRequest (id: int) (command: string) (ctx: PluginContext) : string =
         build (fun w ->
             w.WriteStartObject()
+            w.WriteNumber("id", id)
             w.WriteString("method", "invoke")
             w.WriteString("command", command)
             w.WritePropertyName "context"
@@ -251,10 +257,29 @@ module PluginProtocol =
     let shutdownRequest: string =
         build (fun w ->
             w.WriteStartObject()
+            w.WriteNumber("id", 0)
             w.WriteString("method", "shutdown")
             w.WriteEndObject())
 
+    /// Ask the host to cancel the in-flight request `target` (its token
+    /// fires; the request still answers, typically with an error).
+    let cancelRequest (id: int) (target: int) : string =
+        build (fun w ->
+            w.WriteStartObject()
+            w.WriteNumber("id", id)
+            w.WriteString("method", "cancel")
+            w.WriteNumber("target", target)
+            w.WriteEndObject())
+
     let methodOf (root: JsonElement) : string = root.GetProperty("method").GetString()
+
+    /// Request/response id; 0 when absent (pre-id peers).
+    let idOf (root: JsonElement) : int =
+        match root.TryGetProperty "id" with
+        | true, e when e.ValueKind = JsonValueKind.Number -> e.GetInt32()
+        | _ -> 0
+
+    let parseCancelRequest (root: JsonElement) : int = root.GetProperty("target").GetInt32()
 
     let parseScanRequest (root: JsonElement) : string * Set<string> =
         let disabled =
@@ -267,25 +292,28 @@ module PluginProtocol =
 
     // ---- responses (host -> editor) ---------------------------------------
 
-    let scanResultJson (registry: PluginRegistry) : string =
+    let scanResultJson (id: int) (registry: PluginRegistry) : string =
         build (fun w ->
             w.WriteStartObject()
+            w.WriteNumber("id", id)
             w.WriteBoolean("ok", true)
             w.WritePropertyName "registry"
             w.WriteRawValue(registryToJson registry)
             w.WriteEndObject())
 
-    let invokeResultJson (actions: PluginAction list) : string =
+    let invokeResultJson (id: int) (actions: PluginAction list) : string =
         build (fun w ->
             w.WriteStartObject()
+            w.WriteNumber("id", id)
             w.WriteBoolean("ok", true)
             w.WritePropertyName "actions"
             w.WriteRawValue(PluginWire.actionsToJson actions)
             w.WriteEndObject())
 
-    let errorJson (message: string) : string =
+    let errorJson (id: int) (message: string) : string =
         build (fun w ->
             w.WriteStartObject()
+            w.WriteNumber("id", id)
             w.WriteBoolean("ok", false)
             w.WriteString("error", message)
             w.WriteEndObject())
