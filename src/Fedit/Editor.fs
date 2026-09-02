@@ -1293,11 +1293,31 @@ module Editor =
     /// The plugin snapshot with `activeId` presented as the active buffer —
     /// hooks describe the buffer the event happened to, which need not be
     /// the focused one (a background save).
-    let private toPluginContextAs (activeId: int) (model: Model) : Fedit.PluginApi.PluginContext =
+    let private toPluginContextAs (source: string) (activeId: int) (model: Model) : Fedit.PluginApi.PluginContext =
         let toView (id: int) (buffer: BufferState) : Fedit.PluginApi.BufferView =
             let toPluginPos (pos: Position) : Fedit.PluginApi.CursorPosition =
                 { Line = pos.Line + 1 // surface 1-based
                   Column = pos.Column + 1 }
+
+            let diagnostics =
+                buffer.FilePath
+                |> Option.bind (fun path -> Map.tryFind path model.Lsp.Diagnostics)
+                |> Option.defaultValue []
+                |> List.map (fun (d: LspDiagnostic) ->
+                    ({ Severity =
+                        match d.Severity with
+                        | LspDiagnosticSeverity.Error -> Fedit.PluginApi.Error
+                        | LspDiagnosticSeverity.Warning -> Fedit.PluginApi.Warning
+                        | _ -> Fedit.PluginApi.Info
+                       Message = d.Message
+                       Source = d.Source
+                       Start =
+                         { Line = d.Range.Start.Line + 1
+                           Column = d.Range.Start.Character + 1 }
+                       End =
+                         { Line = d.Range.End.Line + 1
+                           Column = d.Range.End.Character + 1 } }
+                    : Fedit.PluginApi.Diagnostic))
 
             let selection =
                 Buffer.selectionRange buffer
@@ -1310,7 +1330,11 @@ module Editor =
               FilePath = buffer.FilePath
               Text = Buffer.text buffer
               Cursor = toPluginPos buffer.Cursor
-              Selection = selection }
+              Selection = selection
+              Language = languageFor model buffer
+              Dirty = buffer.Dirty
+              EditTick = buffer.EditTick
+              Diagnostics = diagnostics }
 
         let active =
             if Map.containsKey activeId model.Editors.Buffers then
@@ -1326,10 +1350,11 @@ module Editor =
             { RootPath = model.Workspace.RootPath
               SelectedPath = model.Workspace.SelectedPath
               Files = model.Workspace.Files }
-          Event = None }
+          Event = None
+          Config = Map.tryFind source model.Config.PluginSettings |> Option.defaultValue Map.empty }
 
-    let private toPluginContext (model: Model) : Fedit.PluginApi.PluginContext =
-        toPluginContextAs model.Editors.ActiveBufferId model
+    let private toPluginContext (source: string) (model: Model) : Fedit.PluginApi.PluginContext =
+        toPluginContextAs source model.Editors.ActiveBufferId model
 
     /// Translate the plugin API's 1-based CursorPosition to fedit's
     /// 0-based Position. Negative inputs clamp to 0 here;
@@ -2255,7 +2280,7 @@ module Editor =
             | Some binding when binding.Source = source ->
                 // Run the command in the out-of-process host; its PluginActions
                 // come back asynchronously as `PluginActionsReady`.
-                model, [ RunPluginCommand(source, name, toPluginContext model) ]
+                model, [ RunPluginCommand(source, name, toPluginContext source model) ]
             | Some _ ->
                 notify (Some(Notification.error $"Plugin '{name}' is not provided by '{source}' anymore.")) model, []
             | None -> notify (Some(Notification.error $"Plugin command '{name}' missing.")) model, []
@@ -4473,7 +4498,7 @@ module Editor =
                   for hook in hooks do
                       if hook.Event = event then
                           let context =
-                              { toPluginContextAs bufferId after with
+                              { toPluginContextAs hook.Source bufferId after with
                                   Event = Some event }
 
                           RunPluginCommand(hook.Source, hook.Command, context) ]

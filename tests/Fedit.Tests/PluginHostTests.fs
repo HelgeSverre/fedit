@@ -52,13 +52,18 @@ let private wordcountContext (text: string) : PluginContext =
           FilePath = None
           Text = text
           Cursor = { Line = 1; Column = 1 }
-          Selection = None }
+          Selection = None
+          Language = None
+          Dirty = false
+          EditTick = 0
+          Diagnostics = [] }
       AllBuffers = []
       Workspace =
         { RootPath = "/tmp"
           SelectedPath = None
           Files = [] }
-      Event = None }
+      Event = None
+      Config = Map.empty }
 
 // End-to-end acceptance gate for the out-of-process plugin path: the editor
 // (via PluginHostClient) spawns the host child, which builds + loads the real
@@ -189,3 +194,20 @@ let ``hooks registered by a plugin cross the wire and run with the event set`` (
     match client.Invoke("showcase-on-save", wordcountContext "") with
     | Result.Ok [ Notify(Info, "not a save event") ] -> ()
     | other -> Assert.Fail $"event should be absent on a direct call: %A{other}"
+
+[<Fact>]
+let ``the enriched snapshot reaches a real plugin`` () =
+    use client = showcaseClient ()
+
+    let context =
+        { wordcountContext "" with
+            ActiveBuffer =
+                { (wordcountContext "").ActiveBuffer with
+                    Language = Some "markdown"
+                    Dirty = true
+                    EditTick = 3 }
+            Config = Map.ofList [ "greeting", "hey" ] }
+
+    match client.Invoke("showcase-context", context) with
+    | Result.Ok [ Notify(Info, message) ] -> Assert.Equal("hey: markdown dirty=True tick=3 diagnostics=0", message)
+    | other -> Assert.Fail $"unexpected: %A{other}"

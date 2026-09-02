@@ -174,6 +174,28 @@ module ConfigIO =
                         |> Seq.toList
                     | _ -> []
 
+                // Optional `plugins` object: { "<plugin>": { key: scalar } }.
+                // Nested objects and arrays are skipped; scalars stringify.
+                let pluginSettings =
+                    match root.TryGetProperty "plugins" with
+                    | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.Object ->
+                        [ for plugin in elem.EnumerateObject() do
+                              if plugin.Value.ValueKind = System.Text.Json.JsonValueKind.Object then
+                                  let settings =
+                                      [ for setting in plugin.Value.EnumerateObject() do
+                                            match setting.Value.ValueKind with
+                                            | System.Text.Json.JsonValueKind.String ->
+                                                setting.Name, (setting.Value.GetString() |> string)
+                                            | System.Text.Json.JsonValueKind.Number ->
+                                                setting.Name, setting.Value.GetRawText()
+                                            | System.Text.Json.JsonValueKind.True -> setting.Name, "true"
+                                            | System.Text.Json.JsonValueKind.False -> setting.Name, "false"
+                                            | _ -> () ]
+
+                                  plugin.Name.Trim(), Map.ofList settings ]
+                        |> Map.ofList
+                    | _ -> Map.empty
+
                 let disabledLanguageServers =
                     getStringListProp root "disabledLanguageServers"
                     |> Option.map Set.ofList
@@ -365,7 +387,8 @@ module ConfigIO =
                       MouseScrollLines = mouseScrollLines
                       AutoReveal = autoReveal
                       Ignore = ignore
-                      Languages = userLanguages }
+                      Languages = userLanguages
+                      PluginSettings = pluginSettings }
 
                 config, resourceLimitWarning
             else

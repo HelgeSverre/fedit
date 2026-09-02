@@ -221,13 +221,18 @@ module PluginHostClient =
                       FilePath = None
                       Text = "one two three"
                       Cursor = { Line = 1; Column = 1 }
-                      Selection = None }
+                      Selection = None
+                      Language = None
+                      Dirty = false
+                      EditTick = 0
+                      Diagnostics = [] }
                   AllBuffers = []
                   Workspace =
                     { RootPath = "/tmp"
                       SelectedPath = None
                       Files = [] }
-                  Event = None }
+                  Event = None
+                  Config = Map.empty }
 
             match client.Invoke("wc", ctx) with
             | Result.Error e ->

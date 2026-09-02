@@ -3999,3 +3999,74 @@ let ``hooks are silent when no plugin registered one`` () =
     let model = initModel ()
     let _, typed = Editor.update (KeyPressed(chr 'a')) model
     hookRuns typed |> should be Empty
+
+[<Fact>]
+let ``the plugin snapshot carries language, dirty state, diagnostics, and the plugin's config`` () =
+    let model = initModel ()
+    let buffer = Buffer.fromText 1 (Some "/root/a.fs") "a.fs" "let x = 1" "\n"
+
+    let diagnostic: LspDiagnostic =
+        { Range =
+            { Start = { Line = 0; Character = 4 }
+              End = { Line = 0; Character = 5 } }
+          Severity = LspDiagnosticSeverity.Warning
+          Message = "unused"
+          Source = Some "fsac"
+          Code = None }
+
+    let model =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers = Map.ofList [ 1, buffer ] }
+            Lsp =
+                { model.Lsp with
+                    Diagnostics = Map.ofList [ "/root/a.fs", [ diagnostic ] ] }
+            Config =
+                { model.Config with
+                    PluginSettings = Map.ofList [ "probe", Map.ofList [ "greeting", "hi" ]; "other", Map.empty ] }
+            Plugins =
+                { model.Plugins with
+                    Commands =
+                        Map.ofList
+                            [ "peek",
+                              { Source = "probe"
+                                Spec =
+                                  { Name = "peek"
+                                    Usage = ""
+                                    Summary = ""
+                                    Run = fun _ -> [] }
+                                Invoke = fun _ _ -> System.Threading.Tasks.Task.FromResult [] } ] } }
+
+    // Type a character so the buffer is dirty, then run the plugin command
+    // through the prompt, as a user would.
+    let typed, _ = Editor.update (KeyPressed(chr 'x')) model
+
+    let press chord m =
+        fst (Editor.update (KeyPressed chord) m)
+
+    let prompted =
+        "peek" |> Seq.fold (fun m c -> press (chr c) m) (press (ck 'p') typed)
+
+    let _, effects = Editor.update (KeyPressed(nk Enter)) prompted
+
+    match
+        effects
+        |> List.tryPick (function
+            | RunPluginCommand(_, _, ctx) -> Some ctx
+            | _ -> None)
+    with
+    | None -> failwith "expected a RunPluginCommand effect"
+    | Some ctx ->
+        ctx.ActiveBuffer.Language |> should equal (Some "fsharp")
+        ctx.ActiveBuffer.Dirty |> should equal true
+
+        ctx.ActiveBuffer.EditTick
+        |> should equal (Editor.activeBufferState typed).EditTick
+
+        ctx.ActiveBuffer.Diagnostics
+        |> List.map (fun d -> d.Severity, d.Message, d.Start.Line, d.Start.Column)
+        |> should equal [ Fedit.PluginApi.Warning, "unused", 1, 5 ]
+
+        ctx.Config |> should equal (Map.ofList [ "greeting", "hi" ])
+        ctx.Event |> should equal None

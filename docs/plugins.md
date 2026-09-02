@@ -19,15 +19,15 @@ This page is the authoring guide. For working examples, see
 
 ## At a glance
 
-| What plugins can do                                       | What's not in scope yet                                |
-| --------------------------------------------------------- | ------------------------------------------------------ |
-| Register named commands (`:wc`, `:todocount`, …)          | Themes, file types, LSP                                |
-| Register async commands that run concurrently             |                                                        |
-| Bind chords to commands (`Ctrl+T`, `Alt+x`, `F5`, …)      |                                                        |
-| Show a styled dock panel and a status-bar item            |                                                        |
-| Read text, cursor, file path, workspace root + file index | Plugin sandbox / capability restriction (full trust)   |
-| Emit `Notify`, `InsertText`, `MoveCursor`, `OpenFile`, …  | Cross-language plugins — F# only                       |
-| Chain into built-ins via `RunCommand "open foo.fs"`       | Per-plugin settings — no `IPluginHost.Config<T>()` yet |
+| What plugins can do                                       | What's not in scope yet                              |
+| --------------------------------------------------------- | ---------------------------------------------------- |
+| Register named commands (`:wc`, `:todocount`, …)          | Themes, file types, LSP                              |
+| Register async commands that run concurrently             |                                                      |
+| Bind chords to commands (`Ctrl+T`, `Alt+x`, `F5`, …)      |                                                      |
+| Show a styled dock panel and a status-bar item            |                                                      |
+| Read text, cursor, file path, workspace root + file index | Plugin sandbox / capability restriction (full trust) |
+| Emit `Notify`, `InsertText`, `MoveCursor`, `OpenFile`, …  | Cross-language plugins — F# only                     |
+| Chain into built-ins via `RunCommand "open foo.fs"`       |                                                      |
 
 ## Five-minute quickstart
 
@@ -193,13 +193,24 @@ minimal, stable surface — not on the editor internals.
 ```fsharp
 type CursorPosition = { Line: int; Column: int }   // 1-based
 
+type Diagnostic =
+    { Severity: Severity
+      Message: string
+      Source: string option
+      Start: CursorPosition
+      End: CursorPosition }
+
 type BufferView =
     { Id: int
       Name: string
       FilePath: string option
       Text: string
       Cursor: CursorPosition
-      Selection: (CursorPosition * CursorPosition) option }   // (start, end) when a selection is active
+      Selection: (CursorPosition * CursorPosition) option   // (start, end) when a selection is active
+      Language: string option        // highlight language id, e.g. "fsharp"
+      Dirty: bool                    // unsaved changes
+      EditTick: int                  // bumps on every edit
+      Diagnostics: Diagnostic list } // current language-server diagnostics
 
 type WorkspaceView =
     { RootPath: string
@@ -211,7 +222,16 @@ type WorkspaceView =
 type PluginContext =
     { ActiveBuffer: BufferView
       AllBuffers: BufferView list
-      Workspace: WorkspaceView }
+      Workspace: WorkspaceView
+      Event: PluginEvent option      // set when running as an event hook
+      Config: Map<string, string> }  // this plugin's `plugins.<name>` block from config.json
+```
+
+Per-plugin settings live in `~/.config/fedit/config.json` under `plugins`,
+keyed by the plugin's manifest name; scalar values arrive as strings:
+
+```json
+{ "plugins": { "showcase": { "greeting": "hey", "limit": 3 } } }
 ```
 
 `PluginContext` is a snapshot. Plugins never see live state — the host
@@ -433,9 +453,6 @@ declared `name`. Zip and folder sources work the same way.
 
 This is the MVP. Concretely deferred to v2:
 
-- **Per-plugin settings** — no `IPluginHost.Config<T>()` yet. Plugins
-  that need configuration can read their own JSON file relative to
-  `~/.config/fedit/plugins/<name>/`.
 - **Workspace mutation** — no create/delete file API. The workaround
   is to create or modify the file yourself, then `RunCommand "open <path>"`
   to open an existing file in a buffer.

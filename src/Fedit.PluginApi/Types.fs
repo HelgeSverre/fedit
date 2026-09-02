@@ -12,14 +12,32 @@ type Severity =
 /// out-of-range coordinates to the buffer.
 type CursorPosition = { Line: int; Column: int }
 
+/// A language-server diagnostic for a buffer, 1-based positions.
+type Diagnostic =
+    { Severity: Severity
+      Message: string
+      Source: string option
+      Start: CursorPosition
+      End: CursorPosition }
+
 /// A read-only snapshot of a buffer at the moment a plugin command runs.
 type BufferView =
-    { Id: int
-      Name: string
-      FilePath: string option
-      Text: string
-      Cursor: CursorPosition
-      Selection: (CursorPosition * CursorPosition) option }
+    {
+        Id: int
+        Name: string
+        FilePath: string option
+        Text: string
+        Cursor: CursorPosition
+        Selection: (CursorPosition * CursorPosition) option
+        /// Highlight language id (`fsharp`, `markdown`, …), None when unknown.
+        Language: string option
+        /// Unsaved changes since the last write.
+        Dirty: bool
+        /// Increments on every edit; compare snapshots to detect changes.
+        EditTick: int
+        /// Current language-server diagnostics for this buffer.
+        Diagnostics: Diagnostic list
+    }
 
 /// Workspace-level metadata available to plugins. Host-constructed —
 /// plugins receive snapshots and never build one, which keeps adding
@@ -57,6 +75,9 @@ type PluginContext =
         Workspace: WorkspaceView
         /// Set when the command runs as an event hook; None for direct calls.
         Event: PluginEvent option
+        /// This plugin's own settings: the `plugins.<name>` object in
+        /// config.json, values as strings (numbers and booleans stringified).
+        Config: Map<string, string>
     }
 
 /// A theme slot for panel text. The host maps it onto the active theme so

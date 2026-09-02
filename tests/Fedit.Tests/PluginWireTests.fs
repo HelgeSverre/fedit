@@ -75,23 +75,39 @@ let ``PluginContext round-trips with options present and absent`` () =
               FilePath = Some "/tmp/a.fs"
               Text = "let x = 1\n"
               Cursor = { Line = 1; Column = 1 }
-              Selection = Some({ Line = 1; Column = 1 }, { Line = 1; Column = 4 }) }
+              Selection = Some({ Line = 1; Column = 1 }, { Line = 1; Column = 4 })
+              Language = Some "fsharp"
+              Dirty = true
+              EditTick = 7
+              Diagnostics =
+                [ { Severity = Warning
+                    Message = "unused"
+                    Source = Some "fsac"
+                    Start = { Line = 1; Column = 5 }
+                    End = { Line = 1; Column = 6 } } ] }
           AllBuffers =
             [ { Id = 2
                 Name = "scratch"
                 FilePath = None
                 Text = ""
                 Cursor = { Line = 1; Column = 1 }
-                Selection = None } ]
+                Selection = None
+                Language = None
+                Dirty = false
+                EditTick = 0
+                Diagnostics = [] } ]
           Workspace =
             { RootPath = "/tmp"
               SelectedPath = None
               Files = [ "a.fs"; "b/c.fs" ] }
-          Event = Some BufferSaved }
+          Event = Some BufferSaved
+          Config = Map.ofList [ "indent", "4"; "strict", "true" ] }
 
-    // Round-trip is one-directional today (editor only writes context), so
-    // assert it serializes to stable, parseable JSON carrying the key fields.
+    // The host reads what the editor wrote: full round trip, every field.
     let json = PluginWire.contextToJson ctx
+    use parsed = System.Text.Json.JsonDocument.Parse json
+    PluginWire.readContext parsed.RootElement |> should equal ctx
+
     use doc = System.Text.Json.JsonDocument.Parse json
     let root = doc.RootElement
 

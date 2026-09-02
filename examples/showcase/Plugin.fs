@@ -72,3 +72,20 @@ module Plugin =
                     | _ -> [ Notify(Info, "not a save event") ] }
 
         host.RegisterHook(BufferSaved, "showcase-on-save")
+
+        // The enriched snapshot: language, dirty flag, diagnostics, and the
+        // plugin's own `plugins.showcase` settings from config.json.
+        host.RegisterCommand
+            { Name = "showcase-context"
+              Usage = "showcase-context"
+              Summary = "Report what the snapshot knows about the active buffer."
+              Run =
+                fun ctx ->
+                    let buffer = ctx.ActiveBuffer
+                    let language = defaultArg buffer.Language "?"
+                    let greeting = defaultArg (Map.tryFind "greeting" ctx.Config) "hello"
+
+                    [ Notify(
+                          Info,
+                          $"{greeting}: {language} dirty={buffer.Dirty} tick={buffer.EditTick} diagnostics={buffer.Diagnostics.Length}"
+                      ) ] }

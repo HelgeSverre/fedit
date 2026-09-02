@@ -160,6 +160,10 @@ type Config =
         Ignore: IgnoreRules
         /// User grammars and query overrides from the `languages` block.
         Languages: LanguageSpec list
+        /// Per-plugin settings: the `plugins` object, keyed by plugin name,
+        /// each value's scalars stringified. Handed to the plugin as
+        /// `PluginContext.Config`.
+        PluginSettings: Map<string, Map<string, string>>
     }
 
 [<RequireQualifiedAccess>]
@@ -188,7 +192,8 @@ module Config =
           MouseScrollLines = 3
           AutoReveal = true
           Ignore = Ignore.defaults
-          Languages = [] }
+          Languages = []
+          PluginSettings = Map.empty }
 
     /// Extension → language id for `Highlight.detectLanguageWith`.
     let languageExtensions (config: Config) : Map<string, string> =

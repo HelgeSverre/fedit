@@ -391,3 +391,13 @@ let ``languageExtensions normalizes case and the leading dot`` () =
 
     Config.languageExtensions config
     |> should equal (Map.ofList [ ".vue", "vue"; ".vuex", "vue" ])
+
+[<Fact>]
+let ``plugins block gives each plugin its own stringified settings`` () =
+    let config =
+        loadJson
+            """{ "plugins": { "showcase": { "greeting": "hi", "limit": 3, "strict": true, "nested": { "x": 1 } },
+                              "bad": "not an object" } }"""
+
+    config.PluginSettings
+    |> should equal (Map.ofList [ "showcase", Map.ofList [ "greeting", "hi"; "limit", "3"; "strict", "true" ] ])

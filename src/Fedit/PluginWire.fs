@@ -161,6 +161,21 @@ module PluginWire =
         writeOptString w "filePath" b.FilePath
         w.WriteString("text", b.Text)
         writeNamedCursor w "cursor" b.Cursor
+        writeOptString w "language" b.Language
+        w.WriteBoolean("dirty", b.Dirty)
+        w.WriteNumber("editTick", b.EditTick)
+        w.WriteStartArray "diagnostics"
+
+        for d in b.Diagnostics do
+            w.WriteStartObject()
+            w.WriteString("severity", severityStr d.Severity)
+            w.WriteString("message", d.Message)
+            writeOptString w "source" d.Source
+            writeNamedCursor w "start" d.Start
+            writeNamedCursor w "end" d.End
+            w.WriteEndObject()
+
+        w.WriteEndArray()
 
         match b.Selection with
         | Some(a, c) ->
@@ -190,6 +205,12 @@ module PluginWire =
         | Some FocusChanged -> w.WriteStringValue "focusChanged"
         | None -> w.WriteNullValue()
 
+        w.WriteStartObject "config"
+
+        for KeyValue(key, value) in ctx.Config do
+            w.WriteString(key, value)
+
+        w.WriteEndObject()
         w.WritePropertyName "workspace"
         w.WriteStartObject()
         w.WriteString("rootPath", ctx.Workspace.RootPath)
@@ -299,7 +320,30 @@ module PluginWire =
           FilePath = optString e "filePath"
           Text = str e "text"
           Cursor = readCursor (e.GetProperty "cursor")
-          Selection = selection }
+          Selection = selection
+          Language = optString e "language"
+          Dirty =
+            match e.TryGetProperty "dirty" with
+            | true, d -> d.ValueKind = JsonValueKind.True
+            | _ -> false
+          EditTick =
+            match e.TryGetProperty "editTick" with
+            | true, t when t.ValueKind = JsonValueKind.Number -> t.GetInt32()
+            | _ -> 0
+          Diagnostics =
+            match e.TryGetProperty "diagnostics" with
+            | true, ds when ds.ValueKind = JsonValueKind.Array ->
+                [ for d in ds.EnumerateArray() ->
+                      { Severity =
+                          match str d "severity" with
+                          | "warning" -> Warning
+                          | "error" -> Error
+                          | _ -> Info
+                        Message = str d "message"
+                        Source = optString d "source"
+                        Start = readCursor (d.GetProperty "start")
+                        End = readCursor (d.GetProperty "end") } ]
+            | _ -> [] }
 
     let readContext (e: JsonElement) : PluginContext =
         let ws = e.GetProperty "workspace"
@@ -319,7 +363,12 @@ module PluginWire =
                 | "bufferChanged" -> Some BufferChanged
                 | "focusChanged" -> Some FocusChanged
                 | _ -> None
-            | _ -> None }
+            | _ -> None
+          Config =
+            match e.TryGetProperty "config" with
+            | true, c when c.ValueKind = JsonValueKind.Object ->
+                [ for p in c.EnumerateObject() -> p.Name, p.Value.GetString() ] |> Map.ofList
+            | _ -> Map.empty }
 
     let contextFromJson (json: string) : PluginContext =
         use doc = JsonDocument.Parse json
