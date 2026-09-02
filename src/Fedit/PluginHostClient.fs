@@ -226,7 +226,8 @@ module PluginHostClient =
                   Workspace =
                     { RootPath = "/tmp"
                       SelectedPath = None
-                      Files = [] } }
+                      Files = [] }
+                  Event = None }
 
             match client.Invoke("wc", ctx) with
             | Result.Error e ->

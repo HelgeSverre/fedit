@@ -46,6 +46,12 @@ type PluginCommandBinding =
       Spec: PluginCommand
       Invoke: PluginRunner }
 
+/// An event hook: run `Command` of plugin `Source` on `Event`.
+type PluginHook =
+    { Event: PluginEvent
+      Command: string
+      Source: string }
+
 /// Everything the host knows about a single plugin discovered on disk.
 type LoadedPlugin =
     {
@@ -57,16 +63,21 @@ type LoadedPlugin =
         /// name. Host-only: never crosses the wire.
         AsyncCommands: Map<string, PluginRunner>
         Keybindings: (KeyChord * string) list
+        Hooks: (PluginEvent * string) list
         Conflicts: string list
     }
 
 /// Aggregate registry of all plugins known to the host.
 type PluginRegistry =
-    { Loaded: Map<string, LoadedPlugin>
-      Enabled: Set<string>
-      Commands: Map<string, PluginCommandBinding>
-      Keybindings: (KeyChord * string) list
-      Conflicts: string list }
+    {
+        Loaded: Map<string, LoadedPlugin>
+        Enabled: Set<string>
+        Commands: Map<string, PluginCommandBinding>
+        Keybindings: (KeyChord * string) list
+        /// Every loaded plugin's hooks, in registration order.
+        Hooks: PluginHook list
+        Conflicts: string list
+    }
 
 /// Where a `plugin install` request is sourced from.
 type PluginSource =
@@ -144,6 +155,7 @@ module PluginRegistry =
           Enabled = Set.empty
           Commands = Map.empty
           Keybindings = []
+          Hooks = []
           Conflicts = [] }
 
 // ---------------------------------------------------------------------------
@@ -320,6 +332,7 @@ module private HostCollectorImpl =
         let commands = ResizeArray<PluginCommand>()
         let asyncRunners = System.Collections.Generic.Dictionary<string, PluginRunner>()
         let keys = ResizeArray<KeyChord * string>()
+        let hooks = ResizeArray<PluginEvent * string>()
         let conflicts = ResizeArray<string>()
 
         let addSpec (spec: PluginCommand) =
@@ -336,6 +349,7 @@ module private HostCollectorImpl =
             asyncRunners |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
 
         member _.Keybindings = List.ofSeq keys
+        member _.Hooks = List.ofSeq hooks
         member _.Conflicts = List.ofSeq conflicts
 
         interface IPluginHost with
@@ -360,6 +374,8 @@ module private HostCollectorImpl =
                     keys.Add(chord, commandName)
 
             member _.Log(message) = log $"[plugin:{pluginName}] {message}"
+
+            member _.RegisterHook(event, commandName) = hooks.Add(event, commandName)
 
 // ---------------------------------------------------------------------------
 // Assembly loading
@@ -461,6 +477,7 @@ module Plugins =
                               Commands = []
                               AsyncCommands = Map.empty
                               Keybindings = []
+                              Hooks = []
                               Conflicts = [] }
                     | Result.Error reason ->
                         Some
@@ -470,6 +487,7 @@ module Plugins =
                               Commands = []
                               AsyncCommands = Map.empty
                               Keybindings = []
+                              Hooks = []
                               Conflicts = [] })
             |> List.ofSeq
 
@@ -517,6 +535,7 @@ module Plugins =
                         Commands = collector.Commands
                         AsyncCommands = collector.AsyncCommands
                         Keybindings = collector.Keybindings
+                        Hooks = collector.Hooks
                         Conflicts = collector.Conflicts }
                 with ex ->
                     { loaded with
@@ -551,6 +570,7 @@ module Plugins =
         let commands = System.Collections.Generic.Dictionary<string, PluginCommandBinding>()
 
         let keys = ResizeArray<KeyChord * string>()
+        let hooks = ResizeArray<PluginHook>()
 
         for plugin in processed do
             plugin.Conflicts |> List.iter conflicts.Add
@@ -571,6 +591,16 @@ module Plugins =
 
                 keys.AddRange plugin.Keybindings
 
+                for event, command in plugin.Hooks do
+                    if commands.ContainsKey command && commands[command].Source = plugin.Manifest.Name then
+                        hooks.Add
+                            { Event = event
+                              Command = command
+                              Source = plugin.Manifest.Name }
+                    else
+                        conflicts.Add
+                            $"{plugin.Manifest.Name}: hook for '{command}' names a command it did not register"
+
         { Loaded = processed |> List.map (fun p -> p.Manifest.Name, p) |> Map.ofList
           Enabled =
             processed
@@ -579,6 +609,7 @@ module Plugins =
             |> Set.ofList
           Commands = commands |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
           Keybindings = List.ofSeq keys
+          Hooks = List.ofSeq hooks
           Conflicts = List.ofSeq conflicts }
 
     // -----------------------------------------------------------------------

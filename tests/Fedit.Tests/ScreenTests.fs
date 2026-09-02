@@ -97,6 +97,7 @@ let ``plugin prompt session renders the selected item title, badge, version, pat
           Commands = []
           AsyncCommands = Map.empty
           Keybindings = []
+          Hooks = []
           Conflicts = [] }
 
     let model =

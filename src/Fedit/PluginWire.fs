@@ -181,6 +181,15 @@ module PluginWire =
         w.WriteStartArray()
         ctx.AllBuffers |> List.iter (writeBufferView w)
         w.WriteEndArray()
+        w.WritePropertyName "event"
+
+        match ctx.Event with
+        | Some BufferSaved -> w.WriteStringValue "bufferSaved"
+        | Some BufferOpened -> w.WriteStringValue "bufferOpened"
+        | Some BufferChanged -> w.WriteStringValue "bufferChanged"
+        | Some FocusChanged -> w.WriteStringValue "focusChanged"
+        | None -> w.WriteNullValue()
+
         w.WritePropertyName "workspace"
         w.WriteStartObject()
         w.WriteString("rootPath", ctx.Workspace.RootPath)
@@ -300,7 +309,17 @@ module PluginWire =
           Workspace =
             { RootPath = str ws "rootPath"
               SelectedPath = optString ws "selectedPath"
-              Files = [ for f in (ws.GetProperty "files").EnumerateArray() -> f.GetString() ] } }
+              Files = [ for f in (ws.GetProperty "files").EnumerateArray() -> f.GetString() ] }
+          Event =
+            match e.TryGetProperty "event" with
+            | true, ev when ev.ValueKind = JsonValueKind.String ->
+                match ev.GetString() with
+                | "bufferSaved" -> Some BufferSaved
+                | "bufferOpened" -> Some BufferOpened
+                | "bufferChanged" -> Some BufferChanged
+                | "focusChanged" -> Some FocusChanged
+                | _ -> None
+            | _ -> None }
 
     let contextFromJson (json: string) : PluginContext =
         use doc = JsonDocument.Parse json

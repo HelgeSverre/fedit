@@ -973,6 +973,7 @@ module Runtime =
                                       Commands = []
                                       AsyncCommands = Map.empty
                                       Keybindings = []
+                                      Hooks = []
                                       Conflicts = [] })
                             |> Result.map ignore)
 

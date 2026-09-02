@@ -37,6 +37,7 @@ let private loadedPlugin name path status =
       Commands = []
       AsyncCommands = Map.empty
       Keybindings = []
+      Hooks = []
       Conflicts = [] }
 
 let private withPlugins plugins model =

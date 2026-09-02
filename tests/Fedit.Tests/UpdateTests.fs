@@ -555,6 +555,7 @@ let private testPlugin name status =
       Commands = []
       AsyncCommands = Map.empty
       Keybindings = []
+      Hooks = []
       Conflicts = [] }
 
 [<Fact>]
@@ -3914,3 +3915,87 @@ let ``a plugin panel paints its title and styled segments in the dock`` () =
     let rows = [ for row in 0 .. screen.Height - 1 -> rowText row ]
     rows |> List.exists (fun row -> row.Contains " Todos ") |> should equal true
     rows |> List.exists (fun row -> row.Contains "a.fs fix me") |> should equal true
+
+// ── plugin hooks ─────────────────────────────────────────────────────────
+
+let private withHook (event: Fedit.PluginApi.PluginEvent) model =
+    { model with
+        Plugins =
+            { model.Plugins with
+                Hooks =
+                    [ { Event = event
+                        Command = "on-event"
+                        Source = "hooked" } ] } }
+
+let private hookRuns effects =
+    effects
+    |> List.choose (function
+        | RunPluginCommand(source, command, context) -> Some(source, command, context.Event, context.ActiveBuffer.Name)
+        | _ -> None)
+
+[<Fact>]
+let ``a save fires BufferSaved hooks with the saved buffer as the context's active buffer`` () =
+    let model = initModel () |> withHook Fedit.PluginApi.BufferSaved
+    let other = Buffer.fromText 2 (Some "/root/other.txt") "other.txt" "x" "\n"
+
+    let model =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers = Map.add 2 other model.Editors.Buffers } }
+
+    // Buffer 2 saved while buffer 1 stays active.
+    let _, effects =
+        Editor.update (BufferSaved(2, "/root/other.txt", 0, Result.Ok BackupNotNeeded)) model
+
+    hookRuns effects
+    |> should equal [ "hooked", "on-event", Some Fedit.PluginApi.BufferSaved, "other.txt" ]
+
+    // A failed save is not a save.
+    let _, failed =
+        Editor.update (BufferSaved(2, "/root/other.txt", 0, Result.Error "disk full")) model
+
+    hookRuns failed |> should be Empty
+
+[<Fact>]
+let ``typing fires BufferChanged hooks but hook results never re-fire hooks`` () =
+    let model = initModel () |> withHook Fedit.PluginApi.BufferChanged
+    let _, typed = Editor.update (KeyPressed(chr 'a')) model
+
+    hookRuns typed
+    |> List.map (fun (_, _, event, _) -> event)
+    |> should equal [ Some Fedit.PluginApi.BufferChanged ]
+
+    // Cursor motion is not a change.
+    let _, moved = Editor.update (KeyPressed(nk Left)) model
+    hookRuns moved |> should be Empty
+
+    // The hook's own edit lands, but does not trigger the hook again.
+    let edited, fromHook =
+        Editor.update (PluginActionsReady("hooked", Result.Ok [ Fedit.PluginApi.InsertText "z" ])) model
+
+    Buffer.text (Editor.activeBufferState edited) |> should equal "z"
+    hookRuns fromHook |> should be Empty
+
+[<Fact>]
+let ``focus changes and file opens fire their hooks`` () =
+    let model = initModel () |> withHook Fedit.PluginApi.FocusChanged
+    let _, focused = Editor.update (KeyPressed(ck 't')) model
+
+    hookRuns focused
+    |> List.map (fun (_, _, event, _) -> event)
+    |> should equal [ Some Fedit.PluginApi.FocusChanged ]
+
+    let model = initModel () |> withHook Fedit.PluginApi.BufferOpened
+
+    let _, opened =
+        Editor.update (FileOpened("/root/a.txt", OpenPermanent, None, Result.Ok(LoadedText "hello"))) model
+
+    hookRuns opened
+    |> should equal [ "hooked", "on-event", Some Fedit.PluginApi.BufferOpened, "a.txt" ]
+
+[<Fact>]
+let ``hooks are silent when no plugin registered one`` () =
+    let model = initModel ()
+    let _, typed = Editor.update (KeyPressed(chr 'a')) model
+    hookRuns typed |> should be Empty

@@ -1290,7 +1290,10 @@ module Editor =
     /// Build a read-only snapshot of the world for a plugin command. The
     /// plugin sees text, cursor, file path, all open buffers, and the
     /// workspace root — never any mutable handle into the host's model.
-    let private toPluginContext (model: Model) : Fedit.PluginApi.PluginContext =
+    /// The plugin snapshot with `activeId` presented as the active buffer —
+    /// hooks describe the buffer the event happened to, which need not be
+    /// the focused one (a background save).
+    let private toPluginContextAs (activeId: int) (model: Model) : Fedit.PluginApi.PluginContext =
         let toView (id: int) (buffer: BufferState) : Fedit.PluginApi.BufferView =
             let toPluginPos (pos: Position) : Fedit.PluginApi.CursorPosition =
                 { Line = pos.Line + 1 // surface 1-based
@@ -1309,7 +1312,12 @@ module Editor =
               Cursor = toPluginPos buffer.Cursor
               Selection = selection }
 
-        let active = model.Editors.ActiveBufferId
+        let active =
+            if Map.containsKey activeId model.Editors.Buffers then
+                activeId
+            else
+                model.Editors.ActiveBufferId
+
         let activeBuffer = model.Editors.Buffers[active]
 
         { ActiveBuffer = toView active activeBuffer
@@ -1317,7 +1325,11 @@ module Editor =
           Workspace =
             { RootPath = model.Workspace.RootPath
               SelectedPath = model.Workspace.SelectedPath
-              Files = model.Workspace.Files } }
+              Files = model.Workspace.Files }
+          Event = None }
+
+    let private toPluginContext (model: Model) : Fedit.PluginApi.PluginContext =
+        toPluginContextAs model.Editors.ActiveBufferId model
 
     /// Translate the plugin API's 1-based CursorPosition to fedit's
     /// 0-based Position. Negative inputs clamp to 0 here;
@@ -4427,6 +4439,45 @@ module Editor =
                 { model with
                     HexViews = Map.add bufferId { view with Top = clamped } model.HexViews }
 
+    /// Plugin event hooks, derived from what `msg` did to the model: one
+    /// `RunPluginCommand` per registered hook of each event that fired,
+    /// carrying the snapshot with `Event` set and the affected buffer as
+    /// the active one. Actions returned by a hook run (`PluginActionsReady`)
+    /// never fire hooks, which is what keeps an editing hook from looping.
+    let private hookEffects (msg: Msg) (before: Model) (after: Model) : Effect list =
+        match msg, after.Plugins.Hooks with
+        | PluginActionsReady _, _
+        | _, [] -> []
+        | _, hooks ->
+            let activeId = after.Editors.ActiveBufferId
+
+            let fired =
+                [ match msg with
+                  | BufferSaved(bufferId, _, _, Result.Ok _) -> Fedit.PluginApi.BufferSaved, bufferId
+                  | FileOpened(_, _, _, Result.Ok _) when
+                      (after.Editors.Buffers.TryFind activeId
+                       |> Option.exists (fun buffer -> buffer.FilePath.IsSome))
+                      ->
+                      Fedit.PluginApi.BufferOpened, activeId
+                  | _ -> ()
+
+                  match before.Editors.Buffers.TryFind activeId, after.Editors.Buffers.TryFind activeId with
+                  | Some previous, Some current when current.EditTick <> previous.EditTick ->
+                      Fedit.PluginApi.BufferChanged, activeId
+                  | _ -> ()
+
+                  if before.Focus <> after.Focus then
+                      Fedit.PluginApi.FocusChanged, activeId ]
+
+            [ for event, bufferId in fired do
+                  for hook in hooks do
+                      if hook.Event = event then
+                          let context =
+                              { toPluginContextAs bufferId after with
+                                  Event = Some event }
+
+                          RunPluginCommand(hook.Source, hook.Command, context) ]
+
     let update msg model =
         let next, effects = updateCore msg model
         let next, effects = settleReplayFences msg next effects
@@ -4436,4 +4487,4 @@ module Editor =
         let next = ensureHexViewport next
         let next, highlightFx = highlightEffects model next
         let lspFx = lspSyncEffects model next
-        next, effects @ highlightFx @ lspFx
+        next, effects @ highlightFx @ lspFx @ hookEffects msg model next

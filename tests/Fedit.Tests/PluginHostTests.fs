@@ -57,7 +57,8 @@ let private wordcountContext (text: string) : PluginContext =
       Workspace =
         { RootPath = "/tmp"
           SelectedPath = None
-          Files = [] } }
+          Files = [] }
+      Event = None }
 
 // End-to-end acceptance gate for the out-of-process plugin path: the editor
 // (via PluginHostClient) spawns the host child, which builds + loads the real
@@ -157,3 +158,34 @@ let ``a plugin exception surfaces as an error, not a dead host`` () =
     match client.Invoke("showcase-fast", wordcountContext "") with
     | Result.Ok [ Notify(Info, "fast") ] -> ()
     | other -> Assert.Fail $"host did not recover: %A{other}"
+
+[<Fact>]
+let ``hooks registered by a plugin cross the wire and run with the event set`` () =
+    let pluginsRoot = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())
+    Directory.CreateDirectory pluginsRoot |> ignore
+    copyDir (Path.Combine(repoRoot, "examples", "showcase")) (Path.Combine(pluginsRoot, "showcase"))
+    use client = new PluginHostClient(hostDll)
+
+    match client.Scan(pluginsRoot, Set.empty) with
+    | Result.Error e -> Assert.Fail("scan failed: " + e)
+    | Result.Ok registry ->
+        Assert.Contains(
+            { Event = BufferSaved
+              Command = "showcase-on-save"
+              Source = "showcase" },
+            registry.Hooks
+        )
+
+        Assert.Empty registry.Conflicts
+
+    let saved =
+        { wordcountContext "" with
+            Event = Some BufferSaved }
+
+    match client.Invoke("showcase-on-save", saved) with
+    | Result.Ok [ SetStatusItem(Some "saved a.txt") ] -> ()
+    | other -> Assert.Fail $"unexpected: %A{other}"
+
+    match client.Invoke("showcase-on-save", wordcountContext "") with
+    | Result.Ok [ Notify(Info, "not a save event") ] -> ()
+    | other -> Assert.Fail $"event should be absent on a direct call: %A{other}"

@@ -86,7 +86,8 @@ let ``PluginContext round-trips with options present and absent`` () =
           Workspace =
             { RootPath = "/tmp"
               SelectedPath = None
-              Files = [ "a.fs"; "b/c.fs" ] } }
+              Files = [ "a.fs"; "b/c.fs" ] }
+          Event = Some BufferSaved }
 
     // Round-trip is one-directional today (editor only writes context), so
     // assert it serializes to stable, parseable JSON carrying the key fields.

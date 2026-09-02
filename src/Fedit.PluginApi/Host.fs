@@ -20,3 +20,8 @@ type IPluginHost =
     /// Register an asynchronous command (see `PluginAsyncCommand`). Shares
     /// the command namespace with `RegisterCommand`.
     abstract member RegisterAsyncCommand: command: PluginAsyncCommand -> unit
+
+    /// Run `commandName` (a command this plugin registered) whenever
+    /// `event` happens. The command receives the usual snapshot with
+    /// `PluginContext.Event = Some event`.
+    abstract member RegisterHook: event: PluginEvent * commandName: string -> unit

@@ -57,3 +57,18 @@ module Plugin =
               Usage = "showcase-fast"
               Summary = "Return immediately."
               Run = fun _ -> [ Notify(Info, "fast") ] }
+
+        // An event hook: after every save, report what was saved. The
+        // context's Event says why the command ran; ActiveBuffer is the
+        // saved buffer even when another one has focus.
+        host.RegisterCommand
+            { Name = "showcase-on-save"
+              Usage = "showcase-on-save"
+              Summary = "Hook: note the last saved file in the status bar."
+              Run =
+                fun ctx ->
+                    match ctx.Event with
+                    | Some BufferSaved -> [ SetStatusItem(Some $"saved {ctx.ActiveBuffer.Name}") ]
+                    | _ -> [ Notify(Info, "not a save event") ] }
+
+        host.RegisterHook(BufferSaved, "showcase-on-save")

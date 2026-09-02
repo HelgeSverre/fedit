@@ -149,6 +149,36 @@ module PluginProtocol =
     let private readKeybindings (e: JsonElement) : (KeyChord * string) list =
         [ for kb in e.EnumerateArray() -> readChord (kb.GetProperty "chord"), kb.GetProperty("command").GetString() ]
 
+    let private eventStr (e: PluginEvent) =
+        match e with
+        | BufferSaved -> "bufferSaved"
+        | BufferOpened -> "bufferOpened"
+        | BufferChanged -> "bufferChanged"
+        | FocusChanged -> "focusChanged"
+
+    let private eventOf (s: string) =
+        match s with
+        | "bufferSaved" -> BufferSaved
+        | "bufferOpened" -> BufferOpened
+        | "bufferChanged" -> BufferChanged
+        | _ -> FocusChanged
+
+    let private writeHooks (w: Utf8JsonWriter) (name: string) (hooks: (PluginEvent * string) list) =
+        w.WritePropertyName name
+        w.WriteStartArray()
+
+        for (event, command) in hooks do
+            w.WriteStartObject()
+            w.WriteString("event", eventStr event)
+            w.WriteString("command", command)
+            w.WriteEndObject()
+
+        w.WriteEndArray()
+
+    let private readHooks (e: JsonElement) : (PluginEvent * string) list =
+        [ for h in e.EnumerateArray() ->
+              eventOf (h.GetProperty("event").GetString()), h.GetProperty("command").GetString() ]
+
     let private writeStrings (w: Utf8JsonWriter) (name: string) (xs: string list) =
         w.WritePropertyName name
         w.WriteStartArray()
@@ -176,6 +206,7 @@ module PluginProtocol =
                 p.Commands |> List.iter (writeSpec w)
                 w.WriteEndArray()
                 writeKeybindings w "keybindings" p.Keybindings
+                writeHooks w "hooks" p.Hooks
                 writeStrings w "conflicts" p.Conflicts
                 w.WriteEndObject()
 
@@ -193,6 +224,17 @@ module PluginProtocol =
 
             w.WriteEndArray()
             writeKeybindings w "keybindings" r.Keybindings
+            w.WritePropertyName "hooks"
+            w.WriteStartArray()
+
+            for hook in r.Hooks do
+                w.WriteStartObject()
+                w.WriteString("event", eventStr hook.Event)
+                w.WriteString("command", hook.Command)
+                w.WriteString("source", hook.Source)
+                w.WriteEndObject()
+
+            w.WriteEndArray()
             writeStrings w "conflicts" r.Conflicts
             w.WriteEndObject())
 
@@ -208,6 +250,7 @@ module PluginProtocol =
                         Commands = [ for c in (p.GetProperty "commands").EnumerateArray() -> readSpec c ]
                         AsyncCommands = Map.empty
                         Keybindings = readKeybindings (p.GetProperty "keybindings")
+                        Hooks = readHooks (p.GetProperty "hooks")
                         Conflicts = readStrings (p.GetProperty "conflicts") }
 
                   manifest.Name, lp ]
@@ -226,6 +269,11 @@ module PluginProtocol =
           Enabled = set (readStrings (root.GetProperty "enabled"))
           Commands = Map.ofList commands
           Keybindings = readKeybindings (root.GetProperty "keybindings")
+          Hooks =
+            [ for h in (root.GetProperty "hooks").EnumerateArray() ->
+                  { Event = eventOf (h.GetProperty("event").GetString())
+                    Command = h.GetProperty("command").GetString()
+                    Source = h.GetProperty("source").GetString() } ]
           Conflicts = readStrings (root.GetProperty "conflicts") }
 
     // ---- requests (editor -> host) ----------------------------------------

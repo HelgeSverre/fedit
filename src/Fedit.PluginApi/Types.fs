@@ -35,12 +35,29 @@ type WorkspaceView =
         Files: string list
     }
 
+/// Editor events a plugin can hook with `IPluginHost.RegisterHook`. The
+/// hooked command runs with `PluginContext.Event` set, after the editor
+/// has applied the change; actions it returns never fire hooks again.
+type PluginEvent =
+    /// A buffer was written to disk (the active buffer in the context).
+    | BufferSaved
+    /// A file was opened into a new buffer (the active buffer).
+    | BufferOpened
+    /// The active buffer's text changed. Fires per edit; keep handlers cheap.
+    | BufferChanged
+    /// Keyboard focus moved between the editor, sidebar and prompt.
+    | FocusChanged
+
 /// The execution context handed to every plugin command. Plugins never see
 /// mutable state — the host builds this fresh per invocation.
 type PluginContext =
-    { ActiveBuffer: BufferView
-      AllBuffers: BufferView list
-      Workspace: WorkspaceView }
+    {
+        ActiveBuffer: BufferView
+        AllBuffers: BufferView list
+        Workspace: WorkspaceView
+        /// Set when the command runs as an event hook; None for direct calls.
+        Event: PluginEvent option
+    }
 
 /// A theme slot for panel text. The host maps it onto the active theme so
 /// plugin output follows the user's palette instead of hardcoding colors.
