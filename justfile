@@ -185,9 +185,13 @@ bench-manual scope="":
 [group('install')]
 install dest="~/.local/bin":
     {{dotnet}} publish {{project}} -c Release -o bin/dist
+    # The editor spawns the plugin host from beside its own binary
+    # (PluginHostClient.defaultHostPath); without it plugins silently fail.
+    {{dotnet}} publish src/Fedit.PluginHost/Fedit.PluginHost.fsproj -c Release --use-current-runtime --self-contained -p:PublishSingleFile=true -o bin/dist --nologo
     just verify-dist bin/dist
     mkdir -p {{dest}}
     install -m 0755 bin/dist/fedit {{dest}}/fedit
+    install -m 0755 bin/dist/Fedit.PluginHost {{dest}}/Fedit.PluginHost
     install -m 0644 bin/dist/Fedit.PluginApi.dll {{dest}}/Fedit.PluginApi.dll
     # Plugin builds and tree-sitter grammars resolve sidecars via
     # AppContext.BaseDirectory. Ship them next to the binary.
@@ -205,8 +209,10 @@ install dest="~/.local/bin":
 [group('install')]
 install dest="%LOCALAPPDATA%\\Programs\\fedit":
     dotnet publish {{project}} -c Release -r win-x64 -o bin\dist
+    dotnet publish src\Fedit.PluginHost\Fedit.PluginHost.fsproj -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o bin\dist --nologo
     if not exist "{{dest}}" mkdir "{{dest}}"
     copy /Y bin\dist\fedit.exe "{{dest}}\fedit.exe"
+    copy /Y bin\dist\Fedit.PluginHost.exe "{{dest}}\Fedit.PluginHost.exe"
     copy /Y bin\dist\Fedit.PluginApi.dll "{{dest}}\Fedit.PluginApi.dll"
     if exist "{{dest}}\runtimes" rmdir /S /Q "{{dest}}\runtimes"
     xcopy /E /I /Y bin\dist\runtimes "{{dest}}\runtimes"
@@ -218,7 +224,8 @@ install dest="%LOCALAPPDATA%\\Programs\\fedit":
 [unix]
 [group('install')]
 uninstall dest="~/.local/bin":
-    rm -f {{dest}}/fedit
+    rm -f {{dest}}/fedit {{dest}}/Fedit.PluginHost {{dest}}/Fedit.PluginApi.dll
+    rm -rf {{dest}}/runtimes
     @echo "Removed {{dest}}/fedit"
 
 # Uninstall fedit.
@@ -226,7 +233,24 @@ uninstall dest="~/.local/bin":
 [group('install')]
 uninstall dest="%LOCALAPPDATA%\\Programs\\fedit":
     if exist "{{dest}}\fedit.exe" del /Q "{{dest}}\fedit.exe"
+    if exist "{{dest}}\Fedit.PluginHost.exe" del /Q "{{dest}}\Fedit.PluginHost.exe"
+    if exist "{{dest}}\Fedit.PluginApi.dll" del /Q "{{dest}}\Fedit.PluginApi.dll"
+    if exist "{{dest}}\runtimes" rmdir /S /Q "{{dest}}\runtimes"
     @echo Removed {{dest}}\fedit.exe
+
+# Uninstall and reinstall fedit.
+[unix]
+[group('install')]
+reinstall dest="~/.local/bin":
+    just uninstall {{dest}}
+    just install {{dest}}
+
+# Uninstall and reinstall fedit.
+[windows]
+[group('install')]
+reinstall dest="%LOCALAPPDATA%\\Programs\\fedit":
+    just uninstall {{dest}}
+    just install {{dest}}
 
 # Download highlights.scm query files for all bundled languages from
 # their official tree-sitter grammar repositories.

@@ -418,49 +418,30 @@ module Layout =
                             | None -> ()
                     | _ -> ()
 
-                match selection with
-                | Some(selStart, selEnd) when selEnd > selStart ->
+                // Paint the part of a document span `[spanStart, spanEnd)`
+                // that falls on this line, clipped to the viewport.
+                let paintSpan style (spanStart: int) (spanEnd: int) =
                     let lineStart = lineStarts[lineIndex]
                     let lineEnd = lineStart + rows[lineIndex].Length
 
-                    if selStart < lineEnd && selEnd > lineStart then
-                        let colStart = max 0 (selStart - lineStart)
-                        let colEnd = min rows[lineIndex].Length (selEnd - lineStart)
+                    if spanStart < lineEnd && spanEnd > lineStart then
+                        let colStart = max 0 (spanStart - lineStart)
+                        let colEnd = min rows[lineIndex].Length (spanEnd - lineStart)
 
                         for col in colStart .. colEnd - 1 do
                             let displayCol = col - buffer.ViewportLeft
 
                             if displayCol >= 0 && displayCol < contentWidth then
-                                Screen.setCell
-                                    (x + gutterWidth + displayCol)
-                                    row
-                                    selected
-                                    (rows.[lineIndex].[col])
-                                    screen
+                                Screen.setCell (x + gutterWidth + displayCol) row style (rows.[lineIndex].[col]) screen
+
+                match selection with
+                | Some(selStart, selEnd) when selEnd > selStart -> paintSpan selected selStart selEnd
                 | _ -> ()
 
                 match searchInfo with
                 | Some(qLen, matches) ->
-                    let lineStart = lineStarts[lineIndex]
-                    let lineEnd = lineStart + rows[lineIndex].Length
-
                     for matchStart in matches do
-                        let matchEnd = matchStart + qLen
-
-                        if matchStart < lineEnd && matchEnd > lineStart then
-                            let colStart = max 0 (matchStart - lineStart)
-                            let colEnd = min rows[lineIndex].Length (matchEnd - lineStart)
-
-                            for col in colStart .. colEnd - 1 do
-                                let displayCol = col - buffer.ViewportLeft
-
-                                if displayCol >= 0 && displayCol < contentWidth then
-                                    Screen.setCell
-                                        (x + gutterWidth + displayCol)
-                                        row
-                                        highlightStyle
-                                        (rows.[lineIndex].[col])
-                                        screen
+                        paintSpan highlightStyle matchStart (matchStart + qLen)
                 | None -> ()
             else
                 Screen.writeText x row lineNumber gutterWidth (pad gutterWidth "~") screen

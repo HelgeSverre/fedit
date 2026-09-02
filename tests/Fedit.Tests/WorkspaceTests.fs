@@ -192,3 +192,48 @@ let ``clearSearch resets the buffer`` () =
     ws.SearchBuffer |> should equal ""
     // Selection is intentionally preserved on clear (cursor stays at last match).
     ws.SelectedPath |> should equal (Some "/root/a.fs")
+
+// -- Ignore rules -------------------------------------------------------------
+
+let private gitignore (text: string) = [ Ignore.parseGitignore "/root" text ]
+
+[<Theory>]
+[<InlineData("bin/", "/root/bin", true, true)>]
+[<InlineData("bin/", "/root/bin", false, false)>]
+[<InlineData("bin/", "/root/src/bin", true, true)>]
+[<InlineData("*.log", "/root/a/b/c.log", false, true)>]
+[<InlineData("*.log", "/root/a/b/c.txt", false, false)>]
+[<InlineData("/build", "/root/build", true, true)>]
+[<InlineData("/build", "/root/src/build", true, false)>]
+[<InlineData("docs/**", "/root/docs/a/b.md", false, true)>]
+[<InlineData("**/temp", "/root/x/y/temp", true, true)>]
+[<InlineData("a/*.js", "/root/a/x.js", false, true)>]
+[<InlineData("a/*.js", "/root/a/b/x.js", false, false)>]
+[<InlineData("?.txt", "/root/a.txt", false, true)>]
+[<InlineData("[ab].txt", "/root/b.txt", false, true)>]
+[<InlineData("# comment\n\n*.tmp", "/root/x.tmp", false, true)>]
+[<InlineData("*.log\n!keep.log", "/root/keep.log", false, false)>]
+let ``gitignore patterns match like git`` (pattern: string) (path: string) (isDir: bool) (expected: bool) =
+    Ignore.matchesGitignore (gitignore pattern) path isDir |> should equal expected
+
+[<Fact>]
+let ``nested gitignore overrides its ancestors`` () =
+    let files =
+        [ Ignore.parseGitignore "/root" "*.log"
+          Ignore.parseGitignore "/root/keep" "!*.log" ]
+
+    Ignore.matchesGitignore files "/root/keep/a.log" false |> should equal false
+    Ignore.matchesGitignore files "/root/other/a.log" false |> should equal true
+
+[<Fact>]
+let ``ignored names apply at any depth and gitignore can be switched off`` () =
+    let rules =
+        { Names = [ "node_modules" ]
+          UseGitignore = false }
+
+    let files = gitignore "*.log"
+    Ignore.isIgnored rules files "/root/a/node_modules" true |> should equal true
+    Ignore.isIgnored rules files "/root/a/x.log" false |> should equal false
+
+    Ignore.isIgnored { rules with UseGitignore = true } files "/root/a/x.log" false
+    |> should equal true

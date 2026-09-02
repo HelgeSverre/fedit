@@ -88,6 +88,38 @@ Adding a **bundled** language: add its id to the bundled list in
 `Highlight.detectLanguage`. A **vendored** language additionally needs:
 vendor the grammar, build a per-RID native, and use the external loader.
 
+## User-installed grammars
+
+A grammar does not have to be compiled in. Point the `languages` block in
+`~/.config/fedit/config.json` at a tree-sitter shared library built for
+your platform and a directory holding its queries:
+
+```json
+{
+    "languages": {
+        "vue": {
+            "extensions": [".vue"],
+            "library": "/Users/me/.config/fedit/grammars/libtree-sitter-vue.dylib",
+            "symbol": "tree_sitter_vue",
+            "queries": "/Users/me/.config/fedit/grammars/vue"
+        }
+    }
+}
+```
+
+- `library` is loaded by absolute path on first use, so it can live
+  anywhere. `symbol` defaults to `tree_sitter_<library stem>` (the
+  `lib` prefix and extension stripped, dashes to underscores).
+- `queries` holds `highlights.scm` and optionally `injections.scm`, using
+  the same capture names and `; inherits:` header as the bundled files.
+- An entry with only `queries` overrides the queries of a language fedit
+  already ships (`"json": { "queries": "/path/json" }`).
+- Extensions in `extensions` win over the built-in table, so a user
+  grammar can also take over an existing extension.
+
+Grammars load lazily on the first file of that language; a library that
+fails to load leaves those files unstyled rather than failing startup.
+
 ## Updating the F# grammar
 
 ```bash

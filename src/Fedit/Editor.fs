@@ -153,7 +153,7 @@ module Editor =
         | ClipboardPasted _ -> Some PasteFence
         | PluginActionsReady _ -> Some PluginFence
         | PluginsScanned _ -> Some PluginScanFence
-        | WorkspaceLoaded _ -> Some WorkspaceFence
+        | WorkspaceLoaded(true, _) -> Some WorkspaceFence
         | BufferSaved _ -> Some SaveFence
         | ClipboardCopied _ -> Some CopyFence
         | LspDefinitionResolved _ -> Some LspDefinitionFence
@@ -275,8 +275,8 @@ module Editor =
     /// Highlight language for a buffer. Pure — extension match on the path,
     /// shebang sniff on the first line. Drives `ParseHighlight` scheduling;
     /// the effect interpreter owns the actual tree-sitter work.
-    let private languageFor (buffer: BufferState) =
-        Highlight.detectLanguage buffer.FilePath (Buffer.line 0 buffer)
+    let private languageFor (model: Model) (buffer: BufferState) =
+        Highlight.detectLanguageWith (Config.languageExtensions model.Config) buffer.FilePath (Buffer.line 0 buffer)
 
     /// The enabled language server owning `path`, if any: extension match
     /// over the configured servers minus the disabled set. The subtraction
@@ -289,6 +289,21 @@ module Editor =
             |> List.filter (fun server -> not (Set.contains server.Name config.DisabledLanguageServers))
 
         LanguageServers.serverForFile enabledServers path
+
+    /// Register a freshly created buffer and make it active.
+    let private addBuffer (buffer: BufferState) model =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers = model.Editors.Buffers |> Map.add buffer.Id buffer
+                    ActiveBufferId = buffer.Id
+                    NextBufferId = buffer.Id + 1 } }
+
+    /// Sidebar navigation: every move first drops the type-ahead buffer.
+    let private overWorkspace f model =
+        { model with
+            Workspace = f (Workspace.clearSearch model.Workspace) },
+        []
 
     let private updateActiveBuffer transform model =
         let transformed = activeBufferState model |> transform
@@ -312,6 +327,14 @@ module Editor =
             Editors =
                 { model.Editors with
                     Buffers = model.Editors.Buffers |> Map.add updated.Id updated } }
+
+    /// Delete the selection if there is one, else apply `fallback`.
+    let private deleteOr fallback =
+        updateActiveBuffer (fun buffer ->
+            if Buffer.hasSelection buffer then
+                Buffer.deleteSelection buffer
+            else
+                fallback buffer)
 
     /// Cursor motion that drops any existing selection. Mirrors the
     /// `move` closure that used to live inside runEditor.
@@ -478,30 +501,47 @@ module Editor =
                             model
                         |> rearmHighNibble
 
-    /// `search-next` / `search-previous` in byte space: the last query
-    /// translated through `Hex.searchNeedle`, matched exactly.
-    let private hexRepeatSearch (delta: int) (model: Model) : Model * Effect list =
+    /// `search-next` / `search-previous`: repeat `LastSearchQuery` from the
+    /// cursor. Synchronous and pure — unlike the prompt's `RunSearch`
+    /// effect — so it stays deterministic under macro replay. Text and hex
+    /// buffers differ only in how the query, cursor and jump are expressed.
+    let private repeatSearchWith
+        (findNext: string -> int -> string -> int option)
+        (findPrevious: string -> int -> string -> int option)
+        (needleOf: string -> string)
+        (cursorIndexOf: BufferState -> int)
+        (moveTo: int -> Model -> Model * Effect list)
+        (delta: int)
+        (model: Model)
+        : Model * Effect list =
         match model.LastSearchQuery with
         | None -> notify (Some(Notification.info "No search to repeat")) model, []
         | Some query ->
             let buffer = activeBufferState model
-            let needle = Hex.searchNeedle query
+            let needle = needleOf query
             let haystack = Buffer.text buffer
-            let cursorIndex = hexCursorOffset buffer
+            let cursorIndex = cursorIndexOf buffer
 
             let target =
                 if delta > 0 then
-                    Hex.findNextExact needle (cursorIndex + 1) haystack
+                    findNext needle (cursorIndex + 1) haystack
                 else
-                    Hex.findPreviousExact needle (cursorIndex - 1) haystack
+                    findPrevious needle (cursorIndex - 1) haystack
 
             match target with
-            | Some offset -> hexMoveTo offset model
+            | Some offset -> moveTo offset model
             | None -> notify (Some(Notification.info $"No matches for '{query}'")) model, []
 
-    /// The macro-recordable accepted-search form for hex buffers — the
-    /// byte-space sibling of `runAction SearchFor`.
-    let private hexSearchFor (query: string) (model: Model) : Model * Effect list =
+    /// The macro-recordable accepted-search form (what macro capture
+    /// records): remember the query and jump to the first match — the
+    /// landing an incremental search produces when results arrive —
+    /// synchronously, so replay never waits on the async RunSearch pipeline.
+    let private searchForWith
+        (findAll: string -> BufferState -> int list)
+        (moveTo: int -> Model -> Model * Effect list)
+        (query: string)
+        (model: Model)
+        : Model * Effect list =
         if String.IsNullOrEmpty query then
             model, []
         else
@@ -509,11 +549,17 @@ module Editor =
                 { model with
                     LastSearchQuery = Some query }
 
-            let needle = Hex.searchNeedle query
-
-            match Hex.findAllExact needle (Buffer.text (activeBufferState model)) with
-            | first :: _ -> hexMoveTo first remembered
+            match findAll query (activeBufferState model) with
+            | first :: _ -> moveTo first remembered
             | [] -> remembered |> notify (Some(Notification.info $"No matches for '{query}'")), []
+
+    /// Byte-space search: the query translated through `Hex.searchNeedle`,
+    /// matched exactly.
+    let private hexRepeatSearch =
+        repeatSearchWith Hex.findNextExact Hex.findPreviousExact Hex.searchNeedle hexCursorOffset hexMoveTo
+
+    let private hexSearchFor =
+        searchForWith (fun query buffer -> Hex.findAllExact (Hex.searchNeedle query) (Buffer.text buffer)) hexMoveTo
 
     /// Build file-picker completion items from recent + workspace files
     /// matching the query. Recent items appear first.
@@ -714,20 +760,11 @@ module Editor =
         { model with
             Focus = Prompt
             Prompt =
-                { model.Prompt with
+                { emptyPrompt with
                     Active = true
                     Session = session
-                    Text = ""
-                    Cursor = 0
-                    Mode = FilePicker
-                    Parsed = Empty
-                    Completions = []
-                    SelectedCompletion = 0
                     SelectedItemId = selected
-                    HistoryIndex = None
-                    PendingConfirmation = None
-                    SearchPreview = None
-                    SearchOrigin = None } }
+                    History = model.Prompt.History } }
         |> clearTransientNotification,
         []
 
@@ -736,20 +773,8 @@ module Editor =
         { model with
             Focus = Editor
             Prompt =
-                { model.Prompt with
-                    Active = false
-                    Session = PromptSessionKind.FileOpenSession
-                    Text = ""
-                    Cursor = 0
-                    Mode = FilePicker
-                    Parsed = Empty
-                    Completions = []
-                    SelectedCompletion = 0
-                    SelectedItemId = None
-                    HistoryIndex = None
-                    PendingConfirmation = None
-                    SearchPreview = None
-                    SearchOrigin = None } }
+                { emptyPrompt with
+                    History = model.Prompt.History } }
 
     /// Resolve a user-supplied path against the workspace root, returning a
     /// canonical `/` path. Avoids Path.GetFullPath — its OS separator and
@@ -861,25 +886,17 @@ module Editor =
     /// Jump from the cursor to the next (`delta` positive) or previous
     /// occurrence of the last accepted search query, without opening the
     /// prompt. Wraps cyclically, mirroring the search prompt's Up/Down
-    /// match cycling. Synchronous and pure — unlike the prompt's
-    /// `RunSearch` effect — so it stays deterministic under macro replay.
-    let private repeatSearch (delta: int) model =
-        match model.LastSearchQuery with
-        | None -> notify (Some(Notification.info "No search to repeat")) model, []
-        | Some query ->
-            let buffer = activeBufferState model
-            let haystack = Buffer.text buffer
-            let cursorIndex = Buffer.positionToIndex buffer.Cursor buffer
+    /// match cycling.
+    let private moveToOffset offset model =
+        updateActiveBuffer (Buffer.moveToOffset offset) model, []
 
-            let target =
-                if delta > 0 then
-                    Buffer.findNextMatch query (cursorIndex + 1) haystack
-                else
-                    Buffer.findPreviousMatch query (cursorIndex - 1) haystack
-
-            match target with
-            | Some offset -> updateActiveBuffer (Buffer.moveToOffset offset) model, []
-            | None -> notify (Some(Notification.info $"No matches for '{query}'")) model, []
+    let private repeatSearch =
+        repeatSearchWith
+            Buffer.findNextMatch
+            Buffer.findPreviousMatch
+            id
+            (fun buffer -> Buffer.positionToIndex buffer.Cursor buffer)
+            moveToOffset
 
     /// Cycle to the next/previous buffer by offset.
     let private switchBuffer offset model =
@@ -1138,6 +1155,24 @@ module Editor =
                       Server = server
                       WorkspaceRoot = model.Workspace.RootPath }
 
+    /// Fire a position-keyed LSP request for the active buffer, or explain
+    /// why none can be made (no server, scratch buffer, ...).
+    let private lspNavigate (request: LspPositionRequest -> Effect) model =
+        match lspRequestForActiveBuffer model with
+        | Result.Ok positionRequest -> model, [ request positionRequest ]
+        | Result.Error reason -> notify (Some(Notification.warning reason)) model, []
+
+    /// Apply an async LSP response only if it is still relevant. Positions
+    /// were computed against the request-time revision; a moved-on buffer
+    /// (or a vanished one) invalidates them — the HighlightParsed stale
+    /// guard. The requesting buffer must also still be active (the
+    /// SearchCompleted convention): a late response must never yank the
+    /// view away from a buffer the user switched to mid-flight.
+    let private whenResponseFresh bufferId requestedEditTick (model: Model) (apply: unit -> Model * Effect list) =
+        match Map.tryFind bufferId model.Editors.Buffers with
+        | Some buffer when buffer.EditTick = requestedEditTick && model.Editors.ActiveBufferId = bufferId -> apply ()
+        | _ -> model, []
+
     let private isKnownLanguageServer (name: string) (model: Model) =
         model.Config.LanguageServers |> List.exists (fun server -> server.Name = name)
 
@@ -1370,23 +1405,9 @@ module Editor =
                 // byte-space editing
                 | InsertText text -> Some((text |> Seq.fold (fun m c -> hexTypeChar c m) model), [])
                 | DeleteBackward
-                | DeleteWordBack ->
-                    let next =
-                        if Buffer.hasSelection buffer then
-                            updateActiveBuffer Buffer.deleteSelection model
-                        else
-                            updateActiveBuffer Buffer.backspace model
-
-                    Some(rearmHighNibble next, [])
+                | DeleteWordBack -> Some(deleteOr Buffer.backspace model |> rearmHighNibble, [])
                 | DeleteForward
-                | DeleteWordForward ->
-                    let next =
-                        if Buffer.hasSelection buffer then
-                            updateActiveBuffer Buffer.deleteSelection model
-                        else
-                            updateActiveBuffer Buffer.deleteForward model
-
-                    Some(rearmHighNibble next, [])
+                | DeleteWordForward -> Some(deleteOr Buffer.deleteForward model |> rearmHighNibble, [])
                 | Undo -> Some(updateActiveBuffer Buffer.undo model |> rearmHighNibble, [])
                 | Redo -> Some(updateActiveBuffer Buffer.redo model |> rearmHighNibble, [])
                 // Line reordering has no byte-space meaning, and neither
@@ -1676,13 +1697,7 @@ module Editor =
                 // Mirrors the FileOpened OpenPermanent construction minus
                 // the path/recent bookkeeping. PreviewBufferId is untouched;
                 // the host stays silent — the plugin owns messaging.
-                current <-
-                    { current with
-                        Editors =
-                            { current.Editors with
-                                Buffers = current.Editors.Buffers |> Map.add buffer.Id buffer
-                                ActiveBufferId = buffer.Id
-                                NextBufferId = buffer.Id + 1 } }
+                current <- addBuffer buffer current
             | Fedit.PluginApi.SetBufferActivation commandName ->
                 // Register on whatever buffer is active NOW — after a
                 // NewBuffer/SwitchBuffer earlier in the same list that is
@@ -2058,7 +2073,7 @@ module Editor =
                         model.Editors.Buffers
                         |> Map.toList
                         |> List.choose (fun (id, buffer) ->
-                            languageFor buffer |> Option.map (fun lang -> id, buffer, lang))
+                            languageFor model buffer |> Option.map (fun lang -> id, buffer, lang))
                         |> List.partition (fun (_, buffer, _) ->
                             PieceTable.length buffer.Document <= Highlight.maxParseChars)
 
@@ -2300,7 +2315,7 @@ module Editor =
                 // interpreter posts `SelectionLadderReady`, which applies the
                 // first step. Oversized buffers are left alone (same cap as
                 // highlighting), so expand is a silent no-op there.
-                match languageFor buffer with
+                match languageFor model buffer with
                 | Some language when PieceTable.length buffer.Document <= Highlight.maxParseChars ->
                     let (s, e) = selectionRange buffer
                     model, [ ComputeSelectionLadder(buffer.Id, language, buffer.Document, buffer.EditTick, s, e) ]
@@ -2327,36 +2342,12 @@ module Editor =
                     Buffer.insertText text
 
             updateActiveBuffer (transform >> Buffer.clearSelection) model, []
-        | DeleteBackward ->
-            let buffer = activeBufferState model
-
-            if Buffer.hasSelection buffer then
-                updateActiveBuffer Buffer.deleteSelection model, []
-            else
-                updateActiveBuffer Buffer.backspace model, []
-        | DeleteForward ->
-            let buffer = activeBufferState model
-
-            if Buffer.hasSelection buffer then
-                updateActiveBuffer Buffer.deleteSelection model, []
-            else
-                updateActiveBuffer Buffer.deleteForward model, []
+        | DeleteBackward -> deleteOr Buffer.backspace model, []
+        | DeleteForward -> deleteOr Buffer.deleteForward model, []
         | Indent -> moveCursor (Buffer.indent model.Config.TabWidth) model
         | Unindent -> moveCursor (Buffer.unindent model.Config.TabWidth) model
-        | DeleteWordBack ->
-            let buffer = activeBufferState model
-
-            if Buffer.hasSelection buffer then
-                updateActiveBuffer Buffer.deleteSelection model, []
-            else
-                updateActiveBuffer Buffer.backspaceWord model, []
-        | DeleteWordForward ->
-            let buffer = activeBufferState model
-
-            if Buffer.hasSelection buffer then
-                updateActiveBuffer Buffer.deleteSelection model, []
-            else
-                updateActiveBuffer (Buffer.deleteForwardWord model.Config.WordMotion) model, []
+        | DeleteWordBack -> deleteOr Buffer.backspaceWord model, []
+        | DeleteWordForward -> deleteOr (Buffer.deleteForwardWord model.Config.WordMotion) model, []
         | Undo -> updateActiveBuffer Buffer.undo model, []
         | Redo -> updateActiveBuffer Buffer.redo model, []
         | Copy ->
@@ -2431,26 +2422,11 @@ module Editor =
                     Workspace = Workspace.clearSearch model.Workspace }
         | SearchNext -> repeatSearch 1 model
         | SearchPrevious -> repeatSearch -1 model
-        | SearchFor query ->
-            // The semantic form of an accepted search (what macro capture
-            // records): remember the query and jump to the first match —
-            // the landing incremental search produces when results arrive —
-            // synchronously, so replay never waits on the async RunSearch
-            // pipeline.
-            if String.IsNullOrEmpty query then
-                model, []
-            else
-                let remembered =
-                    { model with
-                        LastSearchQuery = Some query }
-
-                match Buffer.findAll query (activeBufferState model) with
-                | first :: _ -> updateActiveBuffer (Buffer.moveToOffset first) remembered, []
-                | [] -> remembered |> notify (Some(Notification.info $"No matches for '{query}'")), []
+        | SearchFor query -> searchForWith Buffer.findAll moveToOffset query model
         | NextBuffer -> switchBuffer 1 model, []
         | PrevBuffer -> switchBuffer -1 model, []
         | JumpToBuffer n -> jumpToBuffer n model, []
-        | ReloadWorkspace -> model, [ ScanWorkspace model.Workspace.RootPath ]
+        | ReloadWorkspace -> model, [ ScanWorkspace(model.Workspace.RootPath, model.Config.Ignore) ]
 
         // panel / focus primitives
         | RevealSidebar ->
@@ -2491,43 +2467,19 @@ module Editor =
                 []
 
         // sidebar navigation
-        | SidebarUp ->
-            { model with
-                Workspace = Workspace.moveSelection -1 (Workspace.clearSearch model.Workspace) },
-            []
-        | SidebarDown ->
-            { model with
-                Workspace = Workspace.moveSelection 1 (Workspace.clearSearch model.Workspace) },
-            []
-        | SidebarPageUp ->
-            { model with
-                Workspace = Workspace.moveSelection -model.Config.TreePageJump (Workspace.clearSearch model.Workspace) },
-            []
-        | SidebarPageDown ->
-            { model with
-                Workspace = Workspace.moveSelection model.Config.TreePageJump (Workspace.clearSearch model.Workspace) },
-            []
-        | SidebarTop ->
-            { model with
-                Workspace = Workspace.moveHome (Workspace.clearSearch model.Workspace) },
-            []
-        | SidebarBottom ->
-            { model with
-                Workspace = Workspace.moveEnd (Workspace.clearSearch model.Workspace) },
-            []
+        | SidebarUp -> overWorkspace (Workspace.moveSelection -1) model
+        | SidebarDown -> overWorkspace (Workspace.moveSelection 1) model
+        | SidebarPageUp -> overWorkspace (Workspace.moveSelection -model.Config.TreePageJump) model
+        | SidebarPageDown -> overWorkspace (Workspace.moveSelection model.Config.TreePageJump) model
+        | SidebarTop -> overWorkspace Workspace.moveHome model
+        | SidebarBottom -> overWorkspace Workspace.moveEnd model
         | SidebarCollapse ->
-            let cleared = Workspace.clearSearch model.Workspace
-
-            let nextWorkspace =
-                match Workspace.tryCollapseSelected cleared with
-                | Some collapsed -> collapsed
-                | None -> Workspace.selectParent cleared
-
-            { model with Workspace = nextWorkspace }, []
-        | SidebarExpand ->
-            { model with
-                Workspace = Workspace.expandSelected (Workspace.clearSearch model.Workspace) },
-            []
+            overWorkspace
+                (fun workspace ->
+                    Workspace.tryCollapseSelected workspace
+                    |> Option.defaultWith (fun () -> Workspace.selectParent workspace))
+                model
+        | SidebarExpand -> overWorkspace Workspace.expandSelected model
         | SidebarActivate ->
             let workspace, sidebarAction =
                 Workspace.activateSelected (Workspace.clearSearch model.Workspace)
@@ -2555,18 +2507,9 @@ module Editor =
         | ReloadKeybinds -> model, [ LoadKeybinds ]
 
         // ── LSP navigation ──
-        | GotoDefinition ->
-            match lspRequestForActiveBuffer model with
-            | Result.Ok request -> model, [ LspRequestDefinition request ]
-            | Result.Error reason -> notify (Some(Notification.warning reason)) model, []
-        | FindReferences ->
-            match lspRequestForActiveBuffer model with
-            | Result.Ok request -> model, [ LspRequestReferences request ]
-            | Result.Error reason -> notify (Some(Notification.warning reason)) model, []
-        | Hover ->
-            match lspRequestForActiveBuffer model with
-            | Result.Ok request -> model, [ LspRequestHover request ]
-            | Result.Error reason -> notify (Some(Notification.warning reason)) model, []
+        | GotoDefinition -> lspNavigate LspRequestDefinition model
+        | FindReferences -> lspNavigate LspRequestReferences model
+        | Hover -> lspNavigate LspRequestHover model
         | JumpBack ->
             match model.JumpStack with
             | [] -> notify (Some(Notification.info "Jump list is empty.")) model, []
@@ -2975,20 +2918,14 @@ module Editor =
           PendingConfirmation = Dock.pickerPendingOfPrompt prompt.PendingConfirmation }
 
     let private promptFromPickerState session (prompt: PromptState) (pickerState: PickerState) =
-        { prompt with
+        { emptyPrompt with
             Active = true
             Session = session
             Text = pickerState.Filter
             Cursor = pickerState.Filter.Length
-            Mode = FilePicker
-            Parsed = Empty
-            Completions = []
-            SelectedCompletion = 0
             SelectedItemId = pickerState.SelectedItemId
-            HistoryIndex = None
             PendingConfirmation = promptPendingOfPicker pickerState.PendingConfirmation
-            SearchPreview = None
-            SearchOrigin = None }
+            History = prompt.History }
 
     let private applyPromptPickerState session pickerState model =
         { model with
@@ -3223,7 +3160,7 @@ module Editor =
 
     let initWithInitialFile rootPath initialFile size config userThemes =
         let startupEffects =
-            [ ScanWorkspace rootPath
+            [ ScanWorkspace(rootPath, config.Ignore)
               ScanPlugins config.DisabledPlugins
               LoadKeybinds
               LoadMacros false ]
@@ -3387,14 +3324,19 @@ module Editor =
                             Buffer.movePageDown (abs delta)
 
                     updateActiveBuffer (Buffer.clearSelection >> moveFn) model, []
-        | WorkspaceLoaded result ->
+        | WorkspaceLoaded(complete, result) ->
             match result with
             | Result.Ok(sorted, byPath, files, skipped) ->
                 let suffix = if skipped > 0 then $" ({skipped} skipped)" else ""
 
-                { model with
-                    Workspace = Workspace.setTreeFromPrecomputed (sorted, byPath, files) model.Workspace }
-                |> notify (Some(Notification.info $"Indexed {sorted.Name}{suffix}")),
+                let loaded =
+                    { model with
+                        Workspace = Workspace.setTreeFromPrecomputed (sorted, byPath, files) model.Workspace }
+
+                (if complete then
+                     notify (Some(Notification.info $"Indexed {sorted.Name}{suffix}")) loaded
+                 else
+                     loaded),
                 []
             | Result.Error message -> notify (Some(Notification.error message)) model, []
         | FileOpened(path, intent, target, result) ->
@@ -3449,12 +3391,7 @@ module Editor =
                         // Recent is persisted at quit, not per file-open: avoids save
                         // churn under the FS watcher and rapid open sequences. Phase
                         // 14.2.
-                        { model with
-                            Editors =
-                                { model.Editors with
-                                    Buffers = model.Editors.Buffers |> Map.add buffer.Id buffer
-                                    ActiveBufferId = buffer.Id
-                                    NextBufferId = buffer.Id + 1 }
+                        { addBuffer buffer model with
                             Workspace = selectOrReveal path model model.Workspace
                             Focus = Editor
                             Config = nextConfig }
@@ -3509,13 +3446,8 @@ module Editor =
                             let buffer =
                                 Buffer.fromText model.Editors.NextBufferId (Some path) displayName normalized newline
 
-                            { model with
-                                Editors =
-                                    { model.Editors with
-                                        Buffers = model.Editors.Buffers |> Map.add buffer.Id buffer
-                                        ActiveBufferId = buffer.Id
-                                        NextBufferId = buffer.Id + 1
-                                        PreviewBufferId = Some buffer.Id }
+                            { addBuffer buffer model with
+                                Editors.PreviewBufferId = Some buffer.Id
                                 Workspace = selectOrReveal path model model.Workspace
                                 Config = nextConfig }
                             |> setHexEntry buffer.Id
@@ -3537,12 +3469,7 @@ module Editor =
                     let buffer =
                         Buffer.fromText model.Editors.NextBufferId (Some path) displayName "" "\n"
 
-                    { model with
-                        Editors =
-                            { model.Editors with
-                                Buffers = model.Editors.Buffers |> Map.add buffer.Id buffer
-                                ActiveBufferId = buffer.Id
-                                NextBufferId = buffer.Id + 1 }
+                    { addBuffer buffer model with
                         Focus = Editor }
                     |> notify (Some(Notification.info $"New file {buffer.Name}"))
                     |> applyTarget target,
@@ -3612,7 +3539,7 @@ module Editor =
             match result with
             | Result.Ok() -> model, []
             | Result.Error message -> notify (Some(Notification.warning $"Clipboard copy failed: {message}")) model, []
-        | WorkspaceChangedExternally -> model, [ ScanWorkspace model.Workspace.RootPath ]
+        | WorkspaceChangedExternally -> model, [ ScanWorkspace(model.Workspace.RootPath, model.Config.Ignore) ]
         | HighlightParsed(bufferId, editTick, spans) ->
             // Accept only results for the buffer's current revision; a stale
             // tick means a newer ParseHighlight is already in flight. Also
@@ -3691,33 +3618,22 @@ module Editor =
                             Diagnostics = nextDiagnostics } },
                 []
         | LspDefinitionResolved(outcome, requestedEditTick, bufferId) ->
-            // Positions were computed against the request-time revision; a
-            // moved-on buffer (or a vanished one) invalidates them — the
-            // HighlightParsed stale guard. The requesting buffer must also
-            // still be active (the SearchCompleted convention): a late
-            // response must never yank the view away from a buffer the
-            // user switched to mid-flight.
-            match Map.tryFind bufferId model.Editors.Buffers with
-            | Some buffer when buffer.EditTick = requestedEditTick && model.Editors.ActiveBufferId = bufferId ->
+            whenResponseFresh bufferId requestedEditTick model (fun () ->
                 match outcome with
                 | Result.Error message -> notify (Some(Notification.error $"Definition failed: {message}")) model, []
                 | Result.Ok [] -> notify (Some(Notification.info "No definition found.")) model, []
                 | Result.Ok [ location ] -> jumpToLocation location.Path location.Position (pushJump model)
                 | Result.Ok locations ->
-                    openLocationPicker "Definitions" (refreshPreviewsFromBuffers model locations) model
-            | _ -> model, []
+                    openLocationPicker "Definitions" (refreshPreviewsFromBuffers model locations) model)
         | LspReferencesResolved(outcome, requestedEditTick, bufferId) ->
-            match Map.tryFind bufferId model.Editors.Buffers with
-            | Some buffer when buffer.EditTick = requestedEditTick && model.Editors.ActiveBufferId = bufferId ->
+            whenResponseFresh bufferId requestedEditTick model (fun () ->
                 match outcome with
                 | Result.Error message -> notify (Some(Notification.error $"References failed: {message}")) model, []
                 | Result.Ok [] -> notify (Some(Notification.info "No references found.")) model, []
                 | Result.Ok locations ->
-                    openLocationPicker "References" (refreshPreviewsFromBuffers model locations) model
-            | _ -> model, []
+                    openLocationPicker "References" (refreshPreviewsFromBuffers model locations) model)
         | LspHoverResolved(outcome, requestedEditTick, bufferId) ->
-            match Map.tryFind bufferId model.Editors.Buffers with
-            | Some buffer when buffer.EditTick = requestedEditTick && model.Editors.ActiveBufferId = bufferId ->
+            whenResponseFresh bufferId requestedEditTick model (fun () ->
                 match outcome with
                 | Result.Error message -> notify (Some(Notification.error $"Hover failed: {message}")) model, []
                 | Result.Ok [] -> notify (Some(Notification.info "No hover info.")) model, []
@@ -3728,8 +3644,7 @@ module Editor =
                         Lsp =
                             { model.Lsp with
                                 Panel = Some { Title = "Hover"; Lines = lines } } },
-                    []
-            | _ -> model, []
+                    [])
         | LspLogFetched(title, lines) ->
             // Keep the tail: DockInfo paints top-down, and the newest log
             // lines are the ones worth reading. Sized against the dock rows
@@ -4271,7 +4186,7 @@ module Editor =
                                 if Map.containsKey id after.HexViews then
                                     None
                                 elif PieceTable.length buffer.Document <= Highlight.maxParseChars then
-                                    languageFor buffer
+                                    languageFor after buffer
                                 else
                                     None
 

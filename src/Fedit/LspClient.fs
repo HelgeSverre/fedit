@@ -298,65 +298,60 @@ type LspClient
 
     /// textDocument/didOpen with the buffer's full LF-normalized text.
     /// Deferred (and coalesced) while the server is still starting.
-    member _.NotifyOpened(path: string, languageId: string, version: int, text: string) : unit =
+    /// Document notifications: sent at once when Running; while the server
+    /// is still starting, `queue` records the change for the replay that
+    /// runs on initialize; dropped once stopped or failed.
+    member private _.WhenRunning(queue: unit -> unit, send: unit -> unit) =
         let sendNow =
             lock gate (fun () ->
                 match status with
                 | LspServerStatus.Running -> true
                 | LspServerStatus.NotStarted
                 | LspServerStatus.Starting ->
-                    queuedDocuments.[Paths.norm path] <-
-                        { LanguageId = languageId
-                          Version = version
-                          Text = text }
-
+                    queue ()
                     false
                 | _ -> false)
 
         if sendNow then
-            writeMessage (LspWire.didOpenNotification (LspUri.fromPath path) languageId version text)
-            |> ignore
+            send ()
+
+    member this.NotifyOpened(path: string, languageId: string, version: int, text: string) : unit =
+        this.WhenRunning(
+            (fun () ->
+                queuedDocuments.[Paths.norm path] <-
+                    { LanguageId = languageId
+                      Version = version
+                      Text = text }),
+            fun () ->
+                writeMessage (LspWire.didOpenNotification (LspUri.fromPath path) languageId version text)
+                |> ignore
+        )
 
     /// textDocument/didChange carrying the full new text. Before Running it
     /// folds into the document's queued didOpen (a change for a document
     /// never opened is dropped).
-    member _.NotifyChanged(path: string, version: int, text: string) : unit =
-        let sendNow =
-            lock gate (fun () ->
-                match status with
-                | LspServerStatus.Running -> true
-                | LspServerStatus.NotStarted
-                | LspServerStatus.Starting ->
-                    let key = Paths.norm path
+    member this.NotifyChanged(path: string, version: int, text: string) : unit =
+        this.WhenRunning(
+            (fun () ->
+                let key = Paths.norm path
 
-                    match queuedDocuments.TryGetValue key with
-                    | true, queued ->
-                        queuedDocuments.[key] <-
-                            { queued with
-                                Version = version
-                                Text = text }
-                    | _ -> ()
+                match queuedDocuments.TryGetValue key with
+                | true, queued ->
+                    queuedDocuments.[key] <-
+                        { queued with
+                            Version = version
+                            Text = text }
+                | _ -> ()),
+            fun () ->
+                writeMessage (LspWire.didChangeNotification (LspUri.fromPath path) version text)
+                |> ignore
+        )
 
-                    false
-                | _ -> false)
-
-        if sendNow then
-            writeMessage (LspWire.didChangeNotification (LspUri.fromPath path) version text)
-            |> ignore
-
-    member _.NotifyClosed(path: string) : unit =
-        let sendNow =
-            lock gate (fun () ->
-                match status with
-                | LspServerStatus.Running -> true
-                | LspServerStatus.NotStarted
-                | LspServerStatus.Starting ->
-                    queuedDocuments.Remove(Paths.norm path) |> ignore
-                    false
-                | _ -> false)
-
-        if sendNow then
-            writeMessage (LspWire.didCloseNotification (LspUri.fromPath path)) |> ignore
+    member this.NotifyClosed(path: string) : unit =
+        this.WhenRunning(
+            (fun () -> queuedDocuments.Remove(Paths.norm path) |> ignore),
+            fun () -> writeMessage (LspWire.didCloseNotification (LspUri.fromPath path)) |> ignore
+        )
 
     member _.SendDefinition
         (path: string, position: Position, callback: Result<LspLocation list, string> -> unit)

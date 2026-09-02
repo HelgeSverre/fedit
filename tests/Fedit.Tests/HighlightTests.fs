@@ -2,6 +2,7 @@ module Fedit.Tests.HighlightTests
 
 open System.IO
 open Xunit
+open FsUnit.Xunit
 open Fedit
 
 [<Theory>]
@@ -432,3 +433,149 @@ let ``selectionLadder returns None for an unknown language`` () =
         | None -> failwith "no registry"
 
     Assert.True((Highlight.selectionLadder registry "not-a-language" "x" 0 0).IsNone)
+
+[<Theory>]
+[<Trait("Category", "Smoke")>]
+[<InlineData("html", "<style>\na { color: red; }\n</style>", "color")>]
+[<InlineData("html", "<script>\nconst x = 'y';\n</script>", "const")>]
+[<InlineData("markdown", "# Title\n\n```js\nconst x = 'y';\n```\n", "const")>]
+[<InlineData("astro", "---\nconst title = 'x';\n---\n<h1>{title}</h1>", "const")>]
+[<InlineData("php", "<div class=\"a\"></div>\n<?php echo 1; ?>", "class")>]
+let ``parseSpans highlights injected languages`` (lang: string) (src: string) (token: string) =
+    // Child-language spans are offset into the host document: the token's
+    // char range must be painted, and painted by the child grammar's
+    // capture (a keyword / attribute), not the host's raw-text span.
+    use registry =
+        match HighlightRegistry.tryCreate () with
+        | Some r -> r
+        | None -> failwith "no registry"
+
+    let spans = Highlight.parseSpans registry lang src |> Option.defaultValue [||]
+    let at = src.IndexOf token
+
+    match Highlight.spanAt spans at with
+    | Some span ->
+        Assert.True(span.EndByte - span.StartByte <= token.Length + 1, $"'{token}' painted by a host span: {span}")
+    | None -> Assert.Fail $"'{token}' in {lang} is not highlighted: {spans}"
+
+
+[<Theory>]
+[<InlineData("typescript", "const x: string = 'hi'")>]
+[<InlineData("tsx", "const x: string = 'hi'")>]
+let ``typescript queries inherit the javascript captures`` (lang: string) (src: string) =
+    // The TS query files carry only the TS-specific patterns; without the
+    // `; inherits: javascript` header `const` and the string paint nothing.
+    use registry = (HighlightRegistry.tryCreate ()).Value
+    let spans = Highlight.parseSpans registry lang src |> Option.defaultValue [||]
+    Assert.Contains(spans, fun (s: HighlightSpan) -> s.Capture = Keyword)
+    Assert.Contains(spans, fun (s: HighlightSpan) -> s.Capture = String)
+
+
+// -- user languages (config.json `languages`) ------------------------------------
+
+let private nativeDir =
+    Path.Combine(System.AppContext.BaseDirectory, "runtimes", "osx-arm64", "native")
+
+let private withGrammarDir (body: string -> unit) =
+    let dir = Path.Combine(Path.GetTempPath(), "fedit-lang-" + Path.GetRandomFileName())
+
+    Directory.CreateDirectory dir |> ignore
+
+    try
+        body dir
+    finally
+        Directory.Delete(dir, true)
+
+[<Fact>]
+let ``detectLanguageWith consults user extensions first`` () =
+    let user = Map.ofList [ ".vue", "vue"; ".md", "mdx-custom" ]
+
+    Highlight.detectLanguageWith user (Some "/a/App.vue") ""
+    |> should equal (Some "vue")
+
+    Highlight.detectLanguageWith user (Some "/a/README.MD") ""
+    |> should equal (Some "mdx-custom")
+
+    Highlight.detectLanguageWith user (Some "/a/x.fs") ""
+    |> should equal (Some "fsharp")
+
+    Highlight.detectLanguageWith Map.empty (Some "/a/App.vue") ""
+    |> should equal None
+
+[<Fact>]
+let ``a user language loads its grammar from an absolute path and its own queries`` () =
+    // Stand-in for a third-party grammar: the shipped toml library copied
+    // under a new name, so nothing in the app directory can satisfy it.
+    if File.Exists(Path.Combine(nativeDir, "libtree-sitter-toml.dylib")) then
+        withGrammarDir (fun dir ->
+            let library = Path.Combine(dir, "libtree-sitter-mytoml.dylib")
+            File.Copy(Path.Combine(nativeDir, "libtree-sitter-toml.dylib"), library)
+            let queries = Path.Combine(dir, "queries")
+            Directory.CreateDirectory queries |> ignore
+            File.WriteAllText(Path.Combine(queries, "highlights.scm"), "(bare_key) @attribute\n(string) @string\n")
+
+            let spec =
+                { Name = "mytoml"
+                  Extensions = [ "mytoml" ]
+                  Library = Some library
+                  Symbol = Some "tree_sitter_toml"
+                  Queries = Some queries }
+
+            use registry = (HighlightRegistry.tryCreateWith [ spec ]).Value
+
+            let spans =
+                Highlight.parseSpans registry "mytoml" "title = \"x\""
+                |> Option.defaultValue [||]
+
+            Assert.Contains(spans, fun (s: HighlightSpan) -> s.Capture = Attribute)
+            Assert.Contains(spans, fun (s: HighlightSpan) -> s.Capture = String))
+
+[<Fact>]
+let ``a user language without a symbol derives it from the library name`` () =
+    if File.Exists(Path.Combine(nativeDir, "libtree-sitter-toml.dylib")) then
+        withGrammarDir (fun dir ->
+            // `libtree-sitter-toml.dylib` → `tree_sitter_toml`
+            let library = Path.Combine(dir, "libtree-sitter-toml.dylib")
+            File.Copy(Path.Combine(nativeDir, "libtree-sitter-toml.dylib"), library)
+
+            let spec =
+                { Name = "toml2"
+                  Extensions = []
+                  Library = Some library
+                  Symbol = None
+                  Queries = None }
+
+            use registry = (HighlightRegistry.tryCreateWith [ spec ]).Value
+            (registry.TryGetLanguage "toml2").IsSome |> should equal true)
+
+[<Fact>]
+let ``a queries-only user language overrides a shipped language's queries`` () =
+    withGrammarDir (fun dir ->
+        File.WriteAllText(Path.Combine(dir, "highlights.scm"), "(document) @comment\n")
+
+        let spec =
+            { Name = "json"
+              Extensions = []
+              Library = None
+              Symbol = None
+              Queries = Some dir }
+
+        use registry = (HighlightRegistry.tryCreateWith [ spec ]).Value
+
+        let spans =
+            Highlight.parseSpans registry "json" "{\"a\": 1}" |> Option.defaultValue [||]
+
+        spans |> Array.map _.Capture |> Array.distinct |> should equal [| Comment |])
+
+[<Fact>]
+let ``a missing user grammar library leaves the language unregistered`` () =
+    let spec =
+        { Name = "ghost"
+          Extensions = [ ".ghost" ]
+          Library = Some "/nonexistent/libtree-sitter-ghost.dylib"
+          Symbol = None
+          Queries = None }
+
+    use registry = (HighlightRegistry.tryCreateWith [ spec ]).Value
+    (registry.TryGetLanguage "ghost").IsNone |> should equal true
+    Highlight.parseSpans registry "ghost" "x" |> should equal None

@@ -2,6 +2,233 @@ namespace Fedit
 
 open System
 open System.IO
+open System.Collections.Concurrent
+open System.Text
+open System.Text.RegularExpressions
+
+/// What the workspace scan and the file watcher skip. Persisted in
+/// config.json as `ignoredNames` / `useGitignore`.
+type IgnoreRules =
+    {
+        /// Basenames skipped at any depth (`.git`, `node_modules`).
+        Names: string list
+        /// Honour every `.gitignore` under the root, nearest file winning.
+        UseGitignore: bool
+    }
+
+[<RequireQualifiedAccess>]
+module Ignore =
+    let defaults =
+        { Names = [ ".git"; "node_modules" ]
+          UseGitignore = true }
+
+    /// Patterns of one shape (anchored? dir-only?) within a run: exact
+    /// names go in a set, wildcards in one alternation regex.
+    type PatternSet =
+        { Literals: Collections.Generic.HashSet<string>
+          Wildcards: Regex option }
+
+    /// A run of consecutive patterns with the same polarity. `Basename`
+    /// sets (patterns without `/`) test the last segment; `Path` sets test
+    /// the path relative to the `.gitignore` directory.
+    type GitignoreRun =
+        { Negated: bool
+          Basename: PatternSet
+          BasenameDirOnly: PatternSet
+          Path: PatternSet
+          PathDirOnly: PatternSet }
+
+    /// One parsed `.gitignore`; `Base` is the `/`-canonical directory it
+    /// lives in. Runs are in file order — the last match wins, as in git.
+    /// `Any` merges every pattern regardless of polarity: most entries
+    /// match nothing, so that one check short-circuits the ordered walk.
+    type Gitignore =
+        { Base: string
+          Runs: GitignoreRun list
+          Any: GitignoreRun }
+
+    let private isLiteral (glob: string) =
+        glob.IndexOfAny [| '*'; '?'; '['; '\\' |] < 0
+
+    /// gitignore glob → regex fragment (no anchors).
+    let private globToRegex (glob: string) =
+        let sb = StringBuilder()
+        let mutable i = 0
+
+        while i < glob.Length do
+            match glob[i] with
+            | '*' when i + 1 < glob.Length && glob[i + 1] = '*' ->
+                if i + 2 < glob.Length && glob[i + 2] = '/' then
+                    sb.Append "(.*/)?" |> ignore
+                    i <- i + 3
+                else
+                    sb.Append ".*" |> ignore
+                    i <- i + 2
+            | '*' ->
+                sb.Append "[^/]*" |> ignore
+                i <- i + 1
+            | '?' ->
+                sb.Append "[^/]" |> ignore
+                i <- i + 1
+            | '[' ->
+                match glob.IndexOf(']', i + 1) with
+                | close when close > i ->
+                    sb.Append(glob.Substring(i, close - i + 1).Replace("[!", "[^")) |> ignore
+                    i <- close + 1
+                | _ ->
+                    sb.Append "\\[" |> ignore
+                    i <- i + 1
+            | '\\' when i + 1 < glob.Length ->
+                sb.Append(Regex.Escape(string glob[i + 1])) |> ignore
+                i <- i + 2
+            | c ->
+                sb.Append(Regex.Escape(string c)) |> ignore
+                i <- i + 1
+
+        sb.ToString()
+
+    /// A `.gitignore` line as (negated, anchored, dirOnly, glob); None for
+    /// blanks and comments.
+    let private parseLine (raw: string) =
+        let line = raw.TrimEnd('\r', ' ')
+
+        if line.Length = 0 || line.StartsWith("#", StringComparison.Ordinal) then
+            None
+        else
+            let negated = line.StartsWith("!", StringComparison.Ordinal)
+            let body = (if negated then line.Substring 1 else line)
+
+            // `\#` and `\!` are literal leading characters, not syntax.
+            let body =
+                if
+                    body.StartsWith("\\#", StringComparison.Ordinal)
+                    || body.StartsWith("\\!", StringComparison.Ordinal)
+                then
+                    body.Substring 1
+                else
+                    body
+
+            let dirOnly = body.EndsWith("/", StringComparison.Ordinal)
+            let body = body.TrimEnd '/'
+            let anchored = body.Contains '/'
+            let body = body.TrimStart '/'
+
+            if body.Length = 0 then
+                None
+            else
+                Some(negated, anchored, dirOnly, body)
+
+    /// Compiled alternations by pattern text: every scan re-parses every
+    /// `.gitignore`, and vendored trees repeat the same files many times.
+    let private compiledAlternations = ConcurrentDictionary<string, Regex>()
+
+    /// One pattern set per shape. Literal names (most of any `.gitignore`)
+    /// are a hash lookup; wildcards share one non-backtracking (DFA) regex
+    /// per shape: linear-time matching, which beats the interpreted engine
+    /// several times over across a large tree, at a one-off construction
+    /// cost the cache amortizes. The automaton size limit falls back to
+    /// interpreting rather than failing the scan.
+    let private compileRun (negated: bool) (patterns: (bool * bool * string) list) =
+        let patternSet (globs: string list) =
+            let literals, wildcards = globs |> List.partition isLiteral
+
+            let wildcards =
+                match wildcards with
+                | [] -> None
+                | _ ->
+                    let pattern = "^(?:" + String.Join("|", wildcards |> List.map globToRegex) + ")$"
+
+                    compiledAlternations.GetOrAdd(
+                        pattern,
+                        fun text ->
+                            try
+                                Regex(text, RegexOptions.NonBacktracking ||| RegexOptions.CultureInvariant)
+                            with :? NotSupportedException ->
+                                Regex(text, RegexOptions.CultureInvariant)
+                    )
+                    |> Some
+
+            { Literals = Collections.Generic.HashSet<string>(literals, StringComparer.Ordinal)
+              Wildcards = wildcards }
+
+        let pick anchored dirOnly =
+            patterns
+            |> List.choose (fun (a, d, glob) -> if a = anchored && d = dirOnly then Some glob else None)
+            |> patternSet
+
+        { Negated = negated
+          Basename = pick false false
+          BasenameDirOnly = pick false true
+          Path = pick true false
+          PathDirOnly = pick true true }
+
+    /// Parse `.gitignore` text: comments, negation (`!`), directory-only
+    /// (`dir/`), anchoring (`/x`, `a/b`), `*`, `?`, `**`, `[...]`.
+    let parseGitignore (baseDir: string) (text: string) : Gitignore =
+        let runs = ResizeArray<GitignoreRun>()
+        let mutable current: (bool * bool * string) list = []
+        let mutable currentNegated = false
+
+        let flush () =
+            if not current.IsEmpty then
+                runs.Add(compileRun currentNegated (List.rev current))
+                current <- []
+
+        for raw in text.Split '\n' do
+            match parseLine raw with
+            | Some(negated, anchored, dirOnly, fragment) ->
+                if negated <> currentNegated then
+                    flush ()
+                    currentNegated <- negated
+
+                current <- (anchored, dirOnly, fragment) :: current
+            | None -> ()
+
+        flush ()
+
+        let all =
+            [ for raw in text.Split '\n' do
+                  match parseLine raw with
+                  | Some(_, anchored, dirOnly, fragment) -> anchored, dirOnly, fragment
+                  | None -> () ]
+
+        { Base = baseDir
+          Runs = List.ofSeq runs
+          Any = compileRun false all }
+
+    let private hits (set: PatternSet) (input: string) =
+        set.Literals.Contains input
+        || (match set.Wildcards with
+            | Some regex -> regex.IsMatch input
+            | None -> false)
+
+    let private runMatches (run: GitignoreRun) (name: string) (relative: string) (isDirectory: bool) =
+        hits run.Basename name
+        || hits run.Path relative
+        || (isDirectory && (hits run.BasenameDirOnly name || hits run.PathDirOnly relative))
+
+    /// Outer files first, last matching run wins — so a nested
+    /// `.gitignore` overrides its ancestors, as in git.
+    let matchesGitignore (files: Gitignore list) (path: string) (isDirectory: bool) =
+        let name = path.Substring(path.LastIndexOf '/' + 1)
+        let mutable ignored = false
+
+        for file in files do
+            if path.StartsWith(file.Base + "/", StringComparison.Ordinal) then
+                let relative = path.Substring(file.Base.Length + 1)
+
+                if runMatches file.Any name relative isDirectory then
+                    for run in file.Runs do
+                        if runMatches run name relative isDirectory then
+                            ignored <- not run.Negated
+
+        ignored
+
+    let isIgnored (rules: IgnoreRules) (files: Gitignore list) (path: string) (isDirectory: bool) =
+        let name = path.Substring(path.LastIndexOf '/' + 1)
+
+        List.contains name rules.Names
+        || (rules.UseGitignore && matchesGitignore files path isDirectory)
 
 
 type FileNode =
@@ -43,8 +270,6 @@ type SidebarAction =
 
 [<RequireQualifiedAccess>]
 module Workspace =
-    let excludedNames = set [ ".DS_Store"; ".git"; ".dotnet"; "bin"; "obj" ]
-
     let create rootPath =
         { RootPath = rootPath
           Tree = None
@@ -133,18 +358,7 @@ module Workspace =
         |> ensureSelected
 
     let setTree (tree: FileNode) workspace =
-        let sorted = preSort tree
-
-        { workspace with
-            Tree = Some sorted
-            ByPath = collectByPath Map.empty sorted
-            Files = collectFiles workspace.RootPath [] sorted |> List.rev
-            Expanded =
-                if sorted.IsDirectory then
-                    Set.add sorted.Path workspace.Expanded
-                else
-                    workspace.Expanded }
-        |> ensureSelected
+        setTreeFromPrecomputed (preCompute workspace.RootPath tree) workspace
 
     let selectPath path workspace =
         { workspace with
@@ -228,9 +442,9 @@ module Workspace =
             |> List.tryFind (fun entry -> Some entry.Path = workspace.SelectedPath)
         with
         | Some entry ->
-            match Path.GetDirectoryName entry.Path |> Option.ofObj with
-            | Some parent when not (String.IsNullOrEmpty parent) -> selectPath parent workspace
-            | _ -> workspace
+            match Paths.parent entry.Path with
+            | Some parent -> selectPath parent workspace
+            | None -> workspace
         | None -> workspace
 
     let activateSelected workspace =

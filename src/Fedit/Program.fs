@@ -218,17 +218,10 @@ module Program =
                             | Some path ->
                                 let fullPath = Path.GetFullPath path
 
-                                if File.Exists fullPath then
-                                    let parent =
-                                        match Path.GetDirectoryName fullPath with
-                                        | null
-                                        | "" -> Directory.GetCurrentDirectory()
-                                        | directory -> directory
-
-                                    parent, Some fullPath
-                                elif Directory.Exists fullPath then
+                                if Directory.Exists fullPath then
                                     fullPath, None
                                 else
+                                    // A file (existing or to be created): open it in its parent.
                                     let parent =
                                         match Path.GetDirectoryName fullPath with
                                         | null

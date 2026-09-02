@@ -75,7 +75,12 @@ module File =
     open System.IO
     open System.Text
 
-    let writeAllTextAtomic (path: string) (contents: string) =
+    /// Write `path` via a sibling temp file + rename so readers never see a
+    /// partial file. `write` runs against the temp stream in its own scope
+    /// so the handle is closed before the move: `use` disposes at the end of
+    /// its enclosing block, and renaming a file we still hold open is fine
+    /// on POSIX but fails on Windows ("used by another process").
+    let private writeAtomic (path: string) (write: FileStream -> unit) =
         let fullPath = Path.GetFullPath path
 
         let directory =
@@ -91,18 +96,11 @@ module File =
         let tempPath = Path.Combine(directory, $".{fileName}.{Guid.NewGuid():N}.tmp")
 
         try
-            // The write gets its own scope so the handle is closed before the
-            // move. `use` disposes at the end of its enclosing block, so writing
-            // and moving in one block would rename a file we still hold open —
-            // which POSIX permits but Windows rejects with "used by another
-            // process" (doubly so at FileShare.None).
             do
                 use stream =
                     new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)
 
-                use writer = new StreamWriter(stream, UTF8Encoding false)
-                writer.Write contents
-                writer.Flush()
+                write stream
                 stream.Flush true
 
             File.Move(tempPath, fullPath, overwrite = true)
@@ -114,6 +112,12 @@ module File =
                 ()
 
             reraise ()
+
+    let writeAllTextAtomic (path: string) (contents: string) =
+        writeAtomic path (fun stream ->
+            use writer = new StreamWriter(stream, UTF8Encoding false, leaveOpen = true)
+            writer.Write contents
+            writer.Flush())
 
     /// Safety net for binary overwrites: copy `path` to `path + ".bak"`
     /// unless a backup already exists, so the first hex-view save keeps
@@ -139,39 +143,7 @@ module File =
     /// Byte-exact sibling of `writeAllTextAtomic` — hex-view buffers save
     /// through here so binary files round-trip without an encoding pass.
     let writeAllBytesAtomic (path: string) (bytes: byte[]) =
-        let fullPath = Path.GetFullPath path
-
-        let directory =
-            Path.GetDirectoryName fullPath
-            |> Text.optStr
-            |> Option.defaultValue Environment.CurrentDirectory
-
-        Directory.CreateDirectory directory |> ignore
-
-        let fileName =
-            Path.GetFileName fullPath |> Text.optStr |> Option.defaultValue "file"
-
-        let tempPath = Path.Combine(directory, $".{fileName}.{Guid.NewGuid():N}.tmp")
-
-        try
-            // Own scope so the handle closes before the move — see
-            // `writeAllTextAtomic` for why Windows requires it.
-            do
-                use stream =
-                    new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)
-
-                stream.Write(bytes, 0, bytes.Length)
-                stream.Flush true
-
-            File.Move(tempPath, fullPath, overwrite = true)
-        with _ ->
-            try
-                if File.Exists tempPath then
-                    File.Delete tempPath
-            with _ ->
-                ()
-
-            reraise ()
+        writeAtomic path (fun stream -> stream.Write(bytes, 0, bytes.Length))
 
 module Notification =
     /// Cap for the notification ring buffer (`Model.NotificationLog`):

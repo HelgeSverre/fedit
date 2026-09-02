@@ -141,6 +141,37 @@ module ConfigIO =
                         |> Seq.toList
                     | _ -> []
 
+                // Optional `languages` object: each key is a language id, each
+                // value { extensions, library, symbol, queries }. A library
+                // adds a grammar; queries alone override a shipped language's.
+                let userLanguages =
+                    match root.TryGetProperty "languages" with
+                    | true, elem when elem.ValueKind = System.Text.Json.JsonValueKind.Object ->
+                        elem.EnumerateObject()
+                        |> Seq.choose (fun property ->
+                            let value = property.Value
+                            let name = property.Name.Trim()
+
+                            if
+                                value.ValueKind = System.Text.Json.JsonValueKind.Object
+                                && not (String.IsNullOrWhiteSpace name)
+                            then
+                                let text key =
+                                    getStringProp value key
+                                    |> Option.map (fun s -> s.Trim())
+                                    |> Option.filter (String.IsNullOrWhiteSpace >> not)
+
+                                Some
+                                    { Name = name
+                                      Extensions = getStringListProp value "extensions" |> Option.defaultValue []
+                                      Library = text "library"
+                                      Symbol = text "symbol"
+                                      Queries = text "queries" }
+                            else
+                                None)
+                        |> Seq.toList
+                    | _ -> []
+
                 let disabledLanguageServers =
                     getStringListProp root "disabledLanguageServers"
                     |> Option.map Set.ofList
@@ -299,6 +330,16 @@ module ConfigIO =
                     | true, e when e.ValueKind = System.Text.Json.JsonValueKind.True -> true
                     | _ -> defaults.AutoReveal
 
+                let ignore =
+                    { Names =
+                        getStringListProp root "ignoredNames"
+                        |> Option.defaultValue defaults.Ignore.Names
+                      UseGitignore =
+                        match root.TryGetProperty "useGitignore" with
+                        | true, e when e.ValueKind = System.Text.Json.JsonValueKind.False -> false
+                        | true, e when e.ValueKind = System.Text.Json.JsonValueKind.True -> true
+                        | _ -> defaults.Ignore.UseGitignore }
+
                 let config =
                     { Theme = theme
                       Recent = recent
@@ -320,7 +361,9 @@ module ConfigIO =
                       ScrollMode = scrollMode
                       ScrollOff = scrollOff
                       MouseScrollLines = mouseScrollLines
-                      AutoReveal = autoReveal }
+                      AutoReveal = autoReveal
+                      Ignore = ignore
+                      Languages = userLanguages }
 
                 config, resourceLimitWarning
             else
@@ -524,6 +567,14 @@ module ConfigIO =
         root["statusFormat"] <- System.Text.Json.Nodes.JsonValue.Create config.StatusFormat
         root["syntaxHighlighting"] <- System.Text.Json.Nodes.JsonValue.Create config.SyntaxHighlightingEnabled
         root["autoReveal"] <- System.Text.Json.Nodes.JsonValue.Create config.AutoReveal
+
+        let ignoredNamesArray = System.Text.Json.Nodes.JsonArray()
+
+        for item in config.Ignore.Names do
+            ignoredNamesArray.Add(System.Text.Json.Nodes.JsonValue.Create item)
+
+        root["ignoredNames"] <- ignoredNamesArray
+        root["useGitignore"] <- System.Text.Json.Nodes.JsonValue.Create config.Ignore.UseGitignore
         root["scrollMode"] <- System.Text.Json.Nodes.JsonValue.Create scrollModeStr
         root["scrollOff"] <- System.Text.Json.Nodes.JsonValue.Create config.ScrollOff
         root["mouseScrollLines"] <- System.Text.Json.Nodes.JsonValue.Create config.MouseScrollLines

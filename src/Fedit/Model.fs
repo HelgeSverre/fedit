@@ -155,6 +155,11 @@ type Config =
         /// opened. Persisted as `autoReveal`. Manual `:reveal` /
         /// reveal-in-sidebar always works regardless.
         AutoReveal: bool
+        /// What the file tree and watcher skip. Persisted as `ignoredNames`
+        /// and `useGitignore`.
+        Ignore: IgnoreRules
+        /// User grammars and query overrides from the `languages` block.
+        Languages: LanguageSpec list
     }
 
 [<RequireQualifiedAccess>]
@@ -181,7 +186,22 @@ module Config =
           ScrollMode = ScrollViewport
           ScrollOff = 5
           MouseScrollLines = 3
-          AutoReveal = true }
+          AutoReveal = true
+          Ignore = Ignore.defaults
+          Languages = [] }
+
+    /// Extension → language id for `Highlight.detectLanguageWith`.
+    let languageExtensions (config: Config) : Map<string, string> =
+        [ for spec in config.Languages do
+              for ext in spec.Extensions do
+                  let ext = ext.Trim().ToLowerInvariant()
+
+                  (if ext.StartsWith(".", System.StringComparison.Ordinal) then
+                       ext
+                   else
+                       "." + ext),
+                  spec.Name ]
+        |> Map.ofList
 
 /// Tracks an in-progress mouse drag for click-to-select.
 type MouseDragState =
@@ -559,7 +579,9 @@ type Msg =
     | MouseDragged of MouseEvent
     | FocusGained
     | FocusLost
-    | WorkspaceLoaded of Result<FileNode * Map<string, FileNode> * string list * int, string>
+    /// `complete = false` is the shallow first pass (root children only) that
+    /// paints the sidebar before the full walk finishes.
+    | WorkspaceLoaded of complete: bool * Result<FileNode * Map<string, FileNode> * string list * int, string>
     /// `target` is an optional 0-based cursor position applied once the
     /// buffer exists (plugin `OpenFileAt`): it travels with the LoadFile
     /// effect and returns here so the jump survives the async load.
@@ -649,7 +671,7 @@ type Msg =
     | LspLogFetched of title: string * lines: string list
 
 type Effect =
-    | ScanWorkspace of string
+    | ScanWorkspace of root: string * ignore: IgnoreRules
     | LoadFile of path: string * intent: OpenIntent * target: Position option
     /// `binary` routes the write through `writeAllBytesAtomic` with the
     /// latin1 projection decoded back to raw bytes — a hex-view save is

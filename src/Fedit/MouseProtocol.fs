@@ -36,6 +36,15 @@ module MouseProtocol =
     //         CSI < Cb ; Cx ; Cy m   (release)
     // -----------------------------------------------------------------------
 
+    /// `code;x;y` as three ints, or None.
+    let private parseTriple (body: string) =
+        match body.Split ';' with
+        | [| a; b; c |] ->
+            match Int32.TryParse a, Int32.TryParse b, Int32.TryParse c with
+            | (true, code), (true, x), (true, y) -> Some(code, x, y)
+            | _ -> None
+        | _ -> None
+
     let private tryParseSgrParts (sequence: string) : (int * int * int * bool) option =
         // sequence comes in WITHOUT the leading ESC; it starts with "[<"
         if sequence.Length < 4 then
@@ -49,17 +58,9 @@ module MouseProtocol =
             if not isPress && not isRelease then
                 None
             else
-                let body = sequence.Substring(2, sequence.Length - 3)
-                let parts = body.Split(';')
-
-                if parts.Length <> 3 then
-                    None
-                else
-                    match Int32.TryParse parts[0], Int32.TryParse parts[1], Int32.TryParse parts[2] with
-                    | (true, code), (true, x), (true, y) ->
-                        // SGR coordinates are 1-based.
-                        Some(code, x - 1, y - 1, isRelease)
-                    | _ -> None
+                parseTriple (sequence.Substring(2, sequence.Length - 3))
+                // SGR coordinates are 1-based.
+                |> Option.map (fun (code, x, y) -> code, x - 1, y - 1, isRelease)
 
     let private decodeModifiers (code: int) : Set<Modifier> =
         [ if code &&& 4 <> 0 then
@@ -145,28 +146,22 @@ module MouseProtocol =
             if final <> 'M' && final <> 'm' then
                 None
             else
-                let body = sequence.Substring(1, sequence.Length - 2)
-                let parts = body.Split(';')
+                match parseTriple (sequence.Substring(1, sequence.Length - 2)) with
+                | None -> None
+                | Some(code, x, y) ->
+                    // urxvt codes are button + 32
+                    let realCode = code - 32
+                    let isRelease = final = 'm'
 
-                if parts.Length <> 3 then
-                    None
-                else
-                    match Int32.TryParse parts[0], Int32.TryParse parts[1], Int32.TryParse parts[2] with
-                    | (true, code), (true, x), (true, y) ->
-                        // urxvt codes are button + 32
-                        let realCode = code - 32
-                        let isRelease = final = 'm'
+                    decodeSgrButton realCode
+                    |> Option.bind (fun (button, action) ->
+                        let action = if isRelease then Release else action
 
-                        decodeSgrButton realCode
-                        |> Option.bind (fun (button, action) ->
-                            let action = if isRelease then Release else action
-
-                            Some
-                                { Button = button
-                                  Action = action
-                                  Position = { Line = y - 1; Column = x - 1 }
-                                  Modifiers = decodeModifiers realCode })
-                    | _ -> None
+                        Some
+                            { Button = button
+                              Action = action
+                              Position = { Line = y - 1; Column = x - 1 }
+                              Modifiers = decodeModifiers realCode })
 
     // -----------------------------------------------------------------------
     // X10 encoding — the original, limited to 223x223 coordinates.

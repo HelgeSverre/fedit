@@ -159,8 +159,8 @@ module Runtime =
         | MouseDragged e -> $"MouseDragged({e.Position.Line}:{e.Position.Column})"
         | FocusGained -> "FocusGained"
         | FocusLost -> "FocusLost"
-        | WorkspaceLoaded(Result.Ok _) -> "WorkspaceLoaded(Ok)"
-        | WorkspaceLoaded(Result.Error error) -> $"WorkspaceLoaded(Error({error}))"
+        | WorkspaceLoaded(complete, Result.Ok _) -> $"WorkspaceLoaded(Ok, complete={complete})"
+        | WorkspaceLoaded(_, Result.Error error) -> $"WorkspaceLoaded(Error({error}))"
         | FileOpened(path, intent, target, result) ->
             $"FileOpened({path}, {renderIntent intent}, target={renderTarget target}, {renderFileOpenResult result})"
         | BufferSaved(bufferId, path, revision, result) ->
@@ -214,7 +214,7 @@ module Runtime =
 
     let private renderEffect effect =
         match effect with
-        | ScanWorkspace path -> $"ScanWorkspace({path})"
+        | ScanWorkspace(path, _) -> $"ScanWorkspace({path})"
         | LoadFile(path, intent, target) -> $"LoadFile({path}, {renderIntent intent}, target={renderTarget target})"
         | SaveBuffer(bufferId, path, revision, contents, binary) ->
             $"SaveBuffer(buffer={bufferId}, path={path}, revision={revision}, contentsLen={contents.Length}, binary={binary})"
@@ -271,30 +271,54 @@ module Runtime =
           IsDirectory = isDirectory
           Children = children }
 
-    /// True if the path's last segment is in the workspace exclusion set.
-    let private shouldSkip (path: string) =
-        Path.GetFileName path
-        |> Text.optStr
-        |> Option.map Workspace.excludedNames.Contains
-        |> Option.defaultValue false
+    /// The `.gitignore` in `directory`, if the rules say to honour it and
+    /// one exists. Unreadable files are treated as absent.
+    let private gitignoreIn (rules: IgnoreRules) (directory: string) : Ignore.Gitignore option =
+        if not rules.UseGitignore then
+            None
+        else
+            let file = Path.Combine(directory, ".gitignore")
+
+            try
+                if File.Exists file then
+                    Some(Ignore.parseGitignore (Paths.norm directory) (File.ReadAllText file))
+                else
+                    None
+            with _ ->
+                None
 
     /// Recursively build a FileNode tree, counting skipped/unreadable entries.
-    let rec private scanNode (path: string) : FileNode * int =
+    /// `depth` bounds the walk: directories at depth 0 come back childless.
+    /// `gitignores` is the ancestor chain, outermost first.
+    let rec private scanNode
+        (rules: IgnoreRules)
+        (gitignores: Ignore.Gitignore list)
+        (depth: int)
+        (path: string)
+        : FileNode * int =
         let attributes = File.GetAttributes path
         let isDirectory = attributes.HasFlag FileAttributes.Directory
 
         if isDirectory then
-            if attributes.HasFlag FileAttributes.ReparsePoint then
+            if attributes.HasFlag FileAttributes.ReparsePoint || depth = 0 then
                 makeNode path true [], 0
             else
                 let mutable skipped = 0
                 let children = ResizeArray<FileNode>()
 
+                let gitignores =
+                    match gitignoreIn rules path with
+                    | Some own -> gitignores @ [ own ]
+                    | None -> gitignores
+
+                let keep child isDirectory =
+                    not (Ignore.isIgnored rules gitignores (Paths.norm child) isDirectory)
+
                 try
                     for childDir in Directory.EnumerateDirectories path do
-                        if not (shouldSkip childDir) then
+                        if keep childDir true then
                             try
-                                let node, childSkipped = scanNode childDir
+                                let node, childSkipped = scanNode rules gitignores (depth - 1) childDir
                                 skipped <- skipped + childSkipped
                                 children.Add node
                             with _ ->
@@ -304,7 +328,7 @@ module Runtime =
 
                 try
                     for childFile in Directory.EnumerateFiles path do
-                        if not (shouldSkip childFile) then
+                        if keep childFile false then
                             try
                                 children.Add(makeNode childFile false [])
                             with _ ->
@@ -315,6 +339,11 @@ module Runtime =
                 makeNode path true (List.ofSeq children), skipped
         else
             makeNode path false [], 0
+
+    /// Full workspace walk under `rules` (what `ScanWorkspace` runs). Public
+    /// so the ignore pipeline is testable end to end against a real tree.
+    let scanWorkspace (rules: IgnoreRules) (rootPath: string) : FileNode * int =
+        scanNode rules [] Int32.MaxValue rootPath
 
     /// Current terminal dimensions, clamped to a minimum of 1×1.
     let private consoleSize () =
@@ -409,7 +438,29 @@ module Runtime =
         // LoadFile each carry a single in-flight CancellationTokenSource: a
         // second instance cancels the first by dropping its result Msg.
         let queue = ConcurrentQueue<Msg>()
+
+        /// Run `work` on the pool and post its Msg to the queue.
+        let post (work: unit -> Msg) =
+            Task.Run(fun () -> queue.Enqueue(work ())) |> ignore
+
+        /// Exceptions become `Error message` so effect results stay data.
+        let attempt (work: unit -> 'a) : Result<'a, string> =
+            try
+                Result.Ok(work ())
+            with ex ->
+                Result.Error ex.Message
+
+        /// Chain `work` after `previous` so writes land in dispatch order
+        /// regardless of pool scheduling; posts the Msg to the queue.
+        let continueOn (previous: Task) (work: unit -> Msg) : Task =
+            previous.ContinueWith((fun (_: Task) -> queue.Enqueue(work ())), TaskContinuationOptions.None)
+
         let mutable scanCts: CancellationTokenSource option = None
+        let mutable workspaceScanned = false
+        // Latest scan's rules, reused by the FS watcher filter. The root
+        // `.gitignore` alone is enough there: a miss only costs a rescan.
+        let mutable ignoreRules = Ignore.defaults
+        let mutable rootGitignore: Ignore.Gitignore list = []
         let mutable loadCts: CancellationTokenSource option = None
         // Serialize config writes so two quick saves can't land
         // out of order on disk. Each new SaveConfig chains onto the previous
@@ -431,9 +482,13 @@ module Runtime =
         // cancels the stale one; `update` also drops stale results by tick.
         let highlightCts =
             System.Collections.Generic.Dictionary<int, CancellationTokenSource>()
+        // Config first: user grammars/query overrides feed the registry.
+        let userThemes, themeErrors = ConfigIO.loadUserThemes ()
+        let config, configError = ConfigIO.load userThemes
+
         // The interpreter owns all native tree-sitter objects; the Model only
         // ever sees span arrays posted back as `HighlightParsed`.
-        let highlightRegistry = HighlightRegistry.tryCreate ()
+        let highlightRegistry = HighlightRegistry.tryCreateWith config.Languages
 
         // Plugins load in a separate JIT process so the editor can ship as
         // NativeAOT. Scans and invocations go through this client; the Model
@@ -457,7 +512,7 @@ module Runtime =
         let lspSyncedDocuments = System.Collections.Generic.HashSet<string>()
         let lspSkippedDocuments = System.Collections.Generic.HashSet<string>()
         let mutable lspDocumentDrainScheduled = false
-        let mutable resourceLimits = ResourceLimits.defaults
+        let mutable resourceLimits = config.ResourceLimits
 
         let lspMarkerExists (path: string) =
             File.Exists path || Directory.Exists path
@@ -575,6 +630,19 @@ module Runtime =
             lspRegisterPathAlias request.Path
             lspClientFor request.Server (lspRootFor request.Server request.Path request.WorkspaceRoot)
 
+        /// Position-keyed LSP request, chained after any pending document
+        /// sync so the server sees the request-time text. The reply callback
+        /// runs on the client's reader thread; `toMsg` may do disk reads
+        /// (URI->path + preview-line enrichment), so it hops to the pool.
+        let lspPositionRequest
+            (request: LspPositionRequest)
+            (send: LspClient -> string * Position * ('a -> unit) -> unit)
+            (toMsg: 'a -> Msg)
+            =
+            lspContinueWith (fun () ->
+                let client = lspClientForRequest request
+                send client (request.Path, request.Position, fun outcome -> post (fun () -> toMsg outcome)))
+
         /// One preview line off disk for the location picker. The update
         /// layer swaps in the open buffer's line where the document is open;
         /// this covers everything else (unopened files, indexed workspace).
@@ -667,16 +735,16 @@ module Runtime =
 
                 List.ofArray resolved
 
+        let cancelDispose (cts: CancellationTokenSource) =
+            try
+                cts.Cancel()
+            with _ ->
+                ()
+
+            cts.Dispose()
+
         let cancelAndReplace (existing: CancellationTokenSource option) =
-            existing
-            |> Option.iter (fun cts ->
-                try
-                    cts.Cancel()
-                with _ ->
-                    ()
-
-                cts.Dispose())
-
+            existing |> Option.iter cancelDispose
             new CancellationTokenSource()
 
         let enqueueUnlessCancelled (token: CancellationToken) (msg: Msg) =
@@ -685,21 +753,32 @@ module Runtime =
 
         let startEffect effect =
             match effect with
-            | ScanWorkspace rootPath ->
+            | ScanWorkspace(rootPath, rules) ->
                 let cts = cancelAndReplace scanCts
                 scanCts <- Some cts
                 let token = cts.Token
+                ignoreRules <- rules
+                rootGitignore <- gitignoreIn rules rootPath |> Option.toList
+
+                let scan depth =
+                    try
+                        let tree, skipped = scanNode rules [] depth rootPath
+                        let sorted, byPath, files = Workspace.preCompute rootPath tree
+                        Result.Ok(sorted, byPath, files, skipped)
+                    with ex ->
+                        Result.Error ex.Message
+
+                // Shallow pass first so the sidebar paints at once; the full
+                // walk (seconds on a cold, large tree) lands after. Only for
+                // the first scan: a rescan already has a full tree to show.
+                let shallowFirst = not workspaceScanned
+                workspaceScanned <- true
 
                 Task.Run(fun () ->
-                    let msg =
-                        try
-                            let tree, skipped = scanNode rootPath
-                            let sorted, byPath, files = Workspace.preCompute rootPath tree
-                            WorkspaceLoaded(Result.Ok(sorted, byPath, files, skipped))
-                        with ex ->
-                            WorkspaceLoaded(Result.Error ex.Message)
+                    if shallowFirst then
+                        enqueueUnlessCancelled token (WorkspaceLoaded(false, scan 1))
 
-                    enqueueUnlessCancelled token msg)
+                    enqueueUnlessCancelled token (WorkspaceLoaded(true, scan Int32.MaxValue)))
                 |> ignore
             | LoadFile(path, intent, target) ->
                 let cts = cancelAndReplace loadCts
@@ -722,79 +801,46 @@ module Runtime =
                         | true, task -> task
                         | false, _ -> Task.CompletedTask
 
-                    let next =
-                        previous.ContinueWith(
-                            (fun (_: Task) ->
-                                let msg =
-                                    try
-                                        if binary then
-                                            // Hex edits are easy to get wrong; keep the
-                                            // original bytes recoverable before the first
-                                            // overwrite. A failed copy fails the save.
-                                            let sourceIsLink = (FileInfo(Path.GetFullPath path)).LinkTarget <> null
-                                            let backedUp = File.backupOnce path
-                                            File.writeAllBytesAtomic path (Hex.textToBytes contents)
+                    bufferSaveChains[key] <-
+                        continueOn previous (fun () ->
+                            BufferSaved(
+                                bufferId,
+                                path,
+                                revision,
+                                attempt (fun () ->
+                                    if binary then
+                                        // Hex edits are easy to get wrong; keep the
+                                        // original bytes recoverable before the first
+                                        // overwrite. A failed copy fails the save.
+                                        let sourceIsLink = (FileInfo(Path.GetFullPath path)).LinkTarget <> null
+                                        let backedUp = File.backupOnce path
+                                        File.writeAllBytesAtomic path (Hex.textToBytes contents)
 
-                                            let backupStatus =
-                                                if backedUp then BackupCreated
-                                                elif sourceIsLink then BackupSkippedSymlink
-                                                else BackupNotNeeded
-
-                                            BufferSaved(bufferId, path, revision, Result.Ok backupStatus)
-                                        else
-                                            File.writeAllTextAtomic path contents
-                                            BufferSaved(bufferId, path, revision, Result.Ok BackupNotNeeded)
-                                    with ex ->
-                                        BufferSaved(bufferId, path, revision, Result.Error ex.Message)
-
-                                queue.Enqueue msg),
-                            TaskContinuationOptions.None
-                        )
-
-                    bufferSaveChains[key] <- next)
+                                        if backedUp then BackupCreated
+                                        elif sourceIsLink then BackupSkippedSymlink
+                                        else BackupNotNeeded
+                                    else
+                                        File.writeAllTextAtomic path contents
+                                        BackupNotNeeded)
+                            )))
             | SaveConfig config ->
                 // Chain onto the previous config-save task so writes land in
                 // dispatch order regardless of pool scheduling.
                 lock configSaveLock (fun () ->
                     configSaveChain <-
-                        configSaveChain.ContinueWith(
-                            (fun (_: Task) ->
-                                let msg =
-                                    try
-                                        ConfigIO.save config
-                                        ConfigSaved(Result.Ok())
-                                    with ex ->
-                                        ConfigSaved(Result.Error ex.Message)
-
-                                queue.Enqueue msg),
-                            TaskContinuationOptions.None
-                        ))
+                        continueOn configSaveChain (fun () -> ConfigSaved(attempt (fun () -> ConfigIO.save config))))
             | EnsureConfigFile config ->
-                Task.Run(fun () ->
-                    let msg =
-                        try
+                post (fun () ->
+                    ConfigFileReady(
+                        attempt (fun () ->
                             let configPath = ConfigIO.path ()
 
                             if not (File.Exists configPath) then
                                 ConfigIO.save config
 
-                            ConfigFileReady(Result.Ok configPath)
-                        with ex ->
-                            ConfigFileReady(Result.Error ex.Message)
-
-                    queue.Enqueue msg)
-                |> ignore
-            | ClipboardCopy text ->
-                Task.Run(fun () ->
-                    let msg =
-                        try
-                            clipboardCopy text
-                            ClipboardCopied(Result.Ok())
-                        with ex ->
-                            ClipboardCopied(Result.Error ex.Message)
-
-                    queue.Enqueue msg)
-                |> ignore
+                            configPath)
+                    ))
+            | ClipboardCopy text -> post (fun () -> ClipboardCopied(attempt (fun () -> clipboardCopy text)))
             | RunSearch(bufferId, query, document, hex) ->
                 // Cancel any in-flight search; the latest query wins.
                 let cts = cancelAndReplace searchCts
@@ -820,16 +866,7 @@ module Runtime =
 
                     enqueueUnlessCancelled token (SearchCompleted(bufferId, query, matches)))
                 |> ignore
-            | ClipboardPaste ->
-                Task.Run(fun () ->
-                    let msg =
-                        try
-                            ClipboardPasted(Result.Ok(clipboardPaste ()))
-                        with ex ->
-                            ClipboardPasted(Result.Error ex.Message)
-
-                    queue.Enqueue msg)
-                |> ignore
+            | ClipboardPaste -> post (fun () -> ClipboardPasted(attempt clipboardPaste))
             | ParseHighlight(bufferId, language, document, editTick) ->
                 // Cancel any in-flight parse (or its debounce nap) first so
                 // a stale-language result can never outrun this request.
@@ -907,131 +944,78 @@ module Runtime =
                     queue.Enqueue(PluginsScanned(pluginHost.Scan(pluginsRoot, disabledPlugins))))
                 |> ignore
             | RunPluginCommand(source, command, context) ->
-                Task.Run(fun () -> queue.Enqueue(PluginActionsReady(source, pluginHost.Invoke(command, context))))
-                |> ignore
+                post (fun () -> PluginActionsReady(source, pluginHost.Invoke(command, context)))
             | InstallPluginFromSource source ->
-                Task.Run(fun () ->
+                post (fun () ->
                     let pluginsRoot = Path.Combine(ConfigIO.directory (), "plugins")
 
-                    let msg =
-                        try
-                            let name = Plugins.install pluginsRoot source
-                            PluginInstalled(name, Result.Ok())
-                        with ex ->
-                            PluginInstalled("?", Result.Error ex.Message)
-
-                    queue.Enqueue msg)
-                |> ignore
+                    match attempt (fun () -> Plugins.install pluginsRoot source) with
+                    | Result.Ok name -> PluginInstalled(name, Result.Ok())
+                    | Result.Error message -> PluginInstalled("?", Result.Error message))
             | RemovePluginDir name ->
-                Task.Run(fun () ->
+                post (fun () ->
                     let pluginsRoot = Path.Combine(ConfigIO.directory (), "plugins")
-
-                    let msg =
-                        try
-                            Plugins.uninstall pluginsRoot name
-                            PluginRemoved(name, Result.Ok())
-                        with ex ->
-                            PluginRemoved(name, Result.Error ex.Message)
-
-                    queue.Enqueue msg)
-                |> ignore
+                    PluginRemoved(name, attempt (fun () -> Plugins.uninstall pluginsRoot name)))
             | BuildPlugin pluginPath ->
-                Task.Run(fun () ->
+                post (fun () ->
                     let apiDll = Path.Combine(AppContext.BaseDirectory, "Fedit.PluginApi.dll")
                     let name = Path.GetFileName pluginPath
 
-                    let msg =
-                        try
-                            let manifestPath = Path.Combine(pluginPath, "plugin.json")
-
-                            match Plugins.tryParseManifest manifestPath with
-                            | Result.Error e -> PluginBuildFinished(name, Result.Error e)
-                            | Result.Ok manifest ->
-                                let loaded =
+                    let outcome =
+                        attempt (fun () ->
+                            Plugins.tryParseManifest (Path.Combine(pluginPath, "plugin.json"))
+                            |> Result.bind (fun manifest ->
+                                Plugins.build
+                                    apiDll
                                     { Manifest = manifest
                                       Path = pluginPath
                                       Status = Disabled
                                       Commands = []
                                       Keybindings = []
-                                      Conflicts = [] }
+                                      Conflicts = [] })
+                            |> Result.map ignore)
 
-                                match Plugins.build apiDll loaded with
-                                | Result.Ok _ -> PluginBuildFinished(name, Result.Ok())
-                                | Result.Error e -> PluginBuildFinished(name, Result.Error e)
-                        with ex ->
-                            PluginBuildFinished(name, Result.Error ex.Message)
-
-                    queue.Enqueue msg)
-                |> ignore
+                    PluginBuildFinished(name, Result.bind id outcome))
             | ValidatePlugin path ->
-                Task.Run(fun () ->
-                    let msg =
-                        try
-                            let manifestPath = Path.Combine(path, "plugin.json")
+                post (fun () ->
+                    let manifestPath = Path.Combine(path, "plugin.json")
 
+                    let outcome =
+                        attempt (fun () ->
                             if not (File.Exists manifestPath) then
-                                PluginValidated(Result.Error $"No plugin.json found in {path}.")
+                                Result.Error $"No plugin.json found in {path}."
                             else
-                                match Plugins.tryParseManifest manifestPath with
-                                | Result.Ok manifest ->
-                                    PluginValidated(
-                                        Result.Ok
-                                            $"OK: {manifest.Name} {manifest.Version} (apiVersion {manifest.ApiVersion}); entryType={manifest.EntryType}"
-                                    )
-                                | Result.Error reason -> PluginValidated(Result.Error reason)
-                        with ex ->
-                            PluginValidated(Result.Error ex.Message)
+                                Plugins.tryParseManifest manifestPath
+                                |> Result.map (fun manifest ->
+                                    $"OK: {manifest.Name} {manifest.Version} (apiVersion {manifest.ApiVersion}); entryType={manifest.EntryType}"))
 
-                    queue.Enqueue msg)
-                |> ignore
-            | LoadKeybinds ->
-                Task.Run(fun () ->
-                    let keymap, errors = KeymapIO.load ()
-                    queue.Enqueue(KeybindsLoaded(keymap, errors)))
-                |> ignore
+                    PluginValidated(Result.bind id outcome))
+            | LoadKeybinds -> post (fun () -> KeybindsLoaded(KeymapIO.load ()))
             | LoadMacros announce ->
-                Task.Run(fun () ->
+                post (fun () ->
                     let registers, errors = MacroIO.load ()
-                    queue.Enqueue(MacrosLoaded(registers, errors, announce)))
-                |> ignore
+                    MacrosLoaded(registers, errors, announce))
             | SaveMacros registers ->
                 // Chain onto the previous macros-file write so write-through
                 // saves land in dispatch order (config-save pattern).
                 lock macroSaveLock (fun () ->
                     macroSaveChain <-
-                        macroSaveChain.ContinueWith(
-                            (fun (_: Task) ->
-                                let msg =
-                                    try
-                                        MacroIO.save registers
-                                        MacrosSaved(Result.Ok())
-                                    with ex ->
-                                        MacrosSaved(Result.Error ex.Message)
-
-                                queue.Enqueue msg),
-                            TaskContinuationOptions.None
-                        ))
+                        continueOn macroSaveChain (fun () -> MacrosSaved(attempt (fun () -> MacroIO.save registers))))
             | EnsureMacrosFile registers ->
                 // Joins the macros-file write chain: a create for the edit
                 // flow must not interleave with an in-flight write-through
                 // save of the same file.
                 lock macroSaveLock (fun () ->
                     macroSaveChain <-
-                        macroSaveChain.ContinueWith(
-                            (fun (_: Task) ->
-                                let msg =
-                                    try
-                                        MacroIO.ensureFile registers
-                                        // Normalized here — the OS boundary —
-                                        // so the buffer opened on it compares
-                                        // canonically on every platform.
-                                        MacrosFileReady(Result.Ok(Paths.norm (MacroIO.path ())))
-                                    with ex ->
-                                        MacrosFileReady(Result.Error ex.Message)
-
-                                queue.Enqueue msg),
-                            TaskContinuationOptions.None
-                        ))
+                        continueOn macroSaveChain (fun () ->
+                            MacrosFileReady(
+                                attempt (fun () ->
+                                    MacroIO.ensureFile registers
+                                    // Normalized here — the OS boundary —
+                                    // so the buffer opened on it compares
+                                    // canonically on every platform.
+                                    Paths.norm (MacroIO.path ()))
+                            )))
             | ReplayPump ->
                 // Pure queue manipulation — runs synchronously on the
                 // dispatch thread. Round-tripping the step trigger through
@@ -1183,54 +1167,14 @@ module Runtime =
                         with ex ->
                             log $"lsp: shutdown failed for {client.Config.Name}: {ex.Message}")
             | LspRequestDefinition request ->
-                // Chained after any pending document sync so the server sees
-                // the request-time text. The reply callback runs on the
-                // client's reader thread; the URI->path + preview-line
-                // enrichment does disk reads, so it hops to the pool first.
-                lspContinueWith (fun () ->
-                    let client = lspClientForRequest request
-
-                    client.SendDefinition(
-                        request.Path,
-                        request.Position,
-                        fun outcome ->
-                            Task.Run(fun () ->
-                                queue.Enqueue(
-                                    LspDefinitionResolved(
-                                        Result.map lspResolveLocations outcome,
-                                        request.EditTick,
-                                        request.BufferId
-                                    )
-                                ))
-                            |> ignore
-                    ))
+                lspPositionRequest request (fun client -> client.SendDefinition) (fun outcome ->
+                    LspDefinitionResolved(Result.map lspResolveLocations outcome, request.EditTick, request.BufferId))
             | LspRequestReferences request ->
-                lspContinueWith (fun () ->
-                    let client = lspClientForRequest request
-
-                    client.SendReferences(
-                        request.Path,
-                        request.Position,
-                        fun outcome ->
-                            Task.Run(fun () ->
-                                queue.Enqueue(
-                                    LspReferencesResolved(
-                                        Result.map lspResolveLocations outcome,
-                                        request.EditTick,
-                                        request.BufferId
-                                    )
-                                ))
-                            |> ignore
-                    ))
+                lspPositionRequest request (fun client -> client.SendReferences) (fun outcome ->
+                    LspReferencesResolved(Result.map lspResolveLocations outcome, request.EditTick, request.BufferId))
             | LspRequestHover request ->
-                lspContinueWith (fun () ->
-                    let client = lspClientForRequest request
-
-                    client.SendHover(
-                        request.Path,
-                        request.Position,
-                        fun outcome -> queue.Enqueue(LspHoverResolved(outcome, request.EditTick, request.BufferId))
-                    ))
+                lspPositionRequest request (fun client -> client.SendHover) (fun outcome ->
+                    LspHoverResolved(outcome, request.EditTick, request.BufferId))
             | LspFetchLog name ->
                 Task.Run(fun () ->
                     let clients =
@@ -1350,10 +1294,6 @@ module Runtime =
 
             nextModel
 
-        let userThemes, themeErrors = ConfigIO.loadUserThemes ()
-        let config, configError = ConfigIO.load userThemes
-        resourceLimits <- config.ResourceLimits
-
         match highlightRegistry with
         | None -> log "highlight: failed to load tree-sitter — F# files will render plain"
         | Some _ -> log "highlight: loaded tree-sitter F# grammar"
@@ -1384,14 +1324,16 @@ module Runtime =
         let terminal = Terminal.create ()
         Terminal.logCapabilities terminal log
 
-        /// True if any path segment matches the workspace exclusion set
-        /// (used by the FS watcher to filter noise).
+        /// True if the path or any ancestor segment is ignored by the latest
+        /// scan's rules (used by the FS watcher to filter noise).
         let isExcludedFsPath (path: string) =
             try
-                let rel = Path.GetRelativePath(rootPath, path)
+                let normalized = Paths.norm path
 
-                rel.Split([| Path.DirectorySeparatorChar; Path.AltDirectorySeparatorChar |])
-                |> Array.exists (fun part -> Workspace.excludedNames.Contains part)
+                Path.GetRelativePath(rootPath, path).Split([| '/'; '\\' |])
+                |> Array.exists (fun part -> List.contains part ignoreRules.Names)
+                || (ignoreRules.UseGitignore
+                    && Ignore.matchesGitignore rootGitignore normalized (Directory.Exists path))
             with _ ->
                 false
 
@@ -1415,12 +1357,10 @@ module Runtime =
                 let w = new FileSystemWatcher(rootPath)
                 w.IncludeSubdirectories <- true
 
-                w.NotifyFilter <-
-                    NotifyFilters.FileName
-                    ||| NotifyFilters.DirectoryName
-                    ||| NotifyFilters.LastWrite
+                // Structure only: the tree never shows mtimes, and LastWrite
+                // would trigger a full rescan on every save.
+                w.NotifyFilter <- NotifyFilters.FileName ||| NotifyFilters.DirectoryName
 
-                w.Changed.Add onFsEvent
                 w.Created.Add onFsEvent
                 w.Deleted.Add onFsEvent
 
@@ -1547,23 +1487,8 @@ module Runtime =
             with _ ->
                 ()
 
-            scanCts
-            |> Option.iter (fun cts ->
-                try
-                    cts.Cancel()
-                with _ ->
-                    ()
-
-                cts.Dispose())
-
-            loadCts
-            |> Option.iter (fun cts ->
-                try
-                    cts.Cancel()
-                with _ ->
-                    ()
-
-                cts.Dispose())
+            scanCts |> Option.iter cancelDispose
+            loadCts |> Option.iter cancelDispose
 
             watcher |> Option.iter (fun w -> w.Dispose())
 

@@ -36,6 +36,18 @@ type HighlightSpan =
       StartByte: int
       EndByte: int }
 
+/// A user-supplied language from config.json's `languages` block. With a
+/// `Library` it adds a grammar (a tree-sitter shared library loaded by
+/// absolute path); without one it only overrides the queries of a language
+/// the editor already ships. `Queries` is a directory holding
+/// `highlights.scm` and optionally `injections.scm`.
+type LanguageSpec =
+    { Name: string
+      Extensions: string list
+      Library: string option
+      Symbol: string option
+      Queries: string option }
+
 /// Process-wide singleton: one `Language` + one compiled `Query` per
 /// supported language name. Parsers are per-buffer, not in here.
 type HighlightRegistry
@@ -43,7 +55,8 @@ type HighlightRegistry
     (
         loaders: Map<string, unit -> unit>,
         languages: ConcurrentDictionary<string, TreeSitter.Language>,
-        queries: ConcurrentDictionary<string, TreeSitter.Query>
+        queries: ConcurrentDictionary<string, TreeSitter.Query>,
+        injections: ConcurrentDictionary<string, TreeSitter.Query>
     ) =
 
     // Grammars load on first lookup, not at construction: eager-loading all
@@ -75,52 +88,110 @@ type HighlightRegistry
         | true, value -> Some value
         | _ -> None
 
+    /// Injection query (`injections.scm`): which child-language ranges
+    /// to re-parse. Absent for languages that embed nothing.
+    member _.TryGetInjections(name: string) : TreeSitter.Query option =
+        ensureLoaded name
+
+        match injections.TryGetValue name with
+        | true, value -> Some value
+        | _ -> None
+
     interface IDisposable with
         member _.Dispose() =
-            for q in queries.Values do
+            for q in Seq.append queries.Values injections.Values do
                 try
                     (q :> IDisposable).Dispose()
                 with _ ->
                     ()
 
             queries.Clear()
+            injections.Clear()
             // Language wrappers don't own the loaded dylib; OS reclaims on exit.
             languages.Clear()
 
-    static member tryCreate() : HighlightRegistry option =
+    static member tryCreate() : HighlightRegistry option = HighlightRegistry.tryCreateWith []
+
+    /// `userLanguages` add grammars and/or override queries — see `LanguageSpec`.
+    static member tryCreateWith(userLanguages: LanguageSpec list) : HighlightRegistry option =
         let languages = ConcurrentDictionary<string, TreeSitter.Language>()
         let queries = ConcurrentDictionary<string, TreeSitter.Query>()
+        let injections = ConcurrentDictionary<string, TreeSitter.Query>()
         let asm = Assembly.GetExecutingAssembly()
 
-        let readQuery (resourceName: string) =
-            match asm.GetManifestResourceStream(resourceName) with
-            | null -> None
-            | stream ->
-                use reader = new StreamReader(stream)
-                Some(reader.ReadToEnd())
+        let userSpecs =
+            userLanguages |> List.map (fun spec -> spec.Name, spec) |> Map.ofList
+
+        /// `<id>/<file>.scm`: the user's queries directory wins over the
+        /// embedded resource, so a bundled language's queries can be
+        /// replaced without a rebuild. Unreadable files fall through.
+        let readQuery (id: string) (file: string) =
+            let fromUserDir =
+                match Map.tryFind id userSpecs with
+                | Some { Queries = Some dir } ->
+                    try
+                        let path = Path.Combine(dir, file + ".scm")
+
+                        if File.Exists path then
+                            Some(File.ReadAllText path)
+                        else
+                            None
+                    with _ ->
+                        None
+                | _ -> None
+
+            match fromUserDir with
+            | Some text -> Some text
+            | None ->
+                match asm.GetManifestResourceStream $"fedit.queries.{id}.{file}.scm" with
+                | null -> None
+                | stream ->
+                    use reader = new StreamReader(stream)
+                    Some(reader.ReadToEnd())
+
+        // `; inherits: a,b` on the first line (nvim-treesitter convention)
+        // prepends those languages' queries — typescript/tsx build on
+        // javascript rather than repeating it.
+        let rec highlightQueryText (id: string) : string option =
+            readQuery id "highlights"
+            |> Option.map (fun scm ->
+                let firstLine =
+                    match scm.IndexOf '\n' with
+                    | -1 -> scm
+                    | i -> scm.Substring(0, i)
+
+                if firstLine.StartsWith("; inherits:", StringComparison.Ordinal) then
+                    let parents =
+                        firstLine.Substring("; inherits:".Length).Split(',')
+                        |> Array.choose (fun parent -> highlightQueryText (parent.Trim()))
+
+                    String.Join("\n", Array.append parents [| scm |])
+                else
+                    scm)
+
+        let register (id: string) (lang: TreeSitter.Language) =
+            languages.[id] <- lang
+
+            highlightQueryText id
+            |> Option.iter (fun scm -> queries.[id] <- new TreeSitter.Query(lang, scm))
+
+            readQuery id "injections"
+            |> Option.iter (fun scm -> injections.[id] <- new TreeSitter.Query(lang, scm))
 
         // Build a grammar with the simple string-id constructor (grammars
         // bundled inside TreeSitter.DotNet).
-        let loadBundled (id: string) (resourceName: string) () =
+        let loadBundled (id: string) () =
             try
-                let lang = new TreeSitter.Language(id)
-                languages.[id] <- lang
-
-                readQuery resourceName
-                |> Option.iter (fun scm -> queries.[id] <- new TreeSitter.Query(lang, scm))
+                register id (new TreeSitter.Language(id))
             with _ ->
                 ()
 
         // Build a grammar with the explicit (library, function) constructor —
         // F# and the other external grammars ship their own cross-built native
         // under runtimes/<rid>/native/, not inside TreeSitter.DotNet.
-        let loadExternal (id: string) (libName: string) (funcName: string) (resourceName: string) () =
+        let loadExternal (id: string) (libName: string) (funcName: string) () =
             try
-                let lang = new TreeSitter.Language(libName, funcName)
-                languages.[id] <- lang
-
-                readQuery resourceName
-                |> Option.iter (fun scm -> queries.[id] <- new TreeSitter.Query(lang, scm))
+                register id (new TreeSitter.Language(libName, funcName))
             with _ ->
                 ()
 
@@ -155,12 +226,34 @@ type HighlightRegistry
 
         // Loaders are cheap closures — no native dylib or query compile runs
         // until a grammar is first requested. See the `loaded` cache above.
+        // User grammars (absolute library path + entry symbol) are added
+        // last so a user spec can also replace a shipped grammar outright.
         let loaders =
-            [ for id in bundled -> id, loadBundled id $"fedit.queries.{id}.highlights.scm"
-              for id, lib, func in externalGrammars -> id, loadExternal id lib func $"fedit.queries.{id}.highlights.scm" ]
+            [ for id in bundled -> id, loadBundled id
+              for id, lib, func in externalGrammars -> id, loadExternal id lib func
+              for spec in userLanguages do
+                  match spec.Library with
+                  | Some library ->
+                      // Default symbol follows the grammar convention:
+                      // `libtree-sitter-vue.dylib` → `tree_sitter_vue`.
+                      let symbol =
+                          spec.Symbol
+                          |> Option.defaultWith (fun () ->
+                              let stem = Path.GetFileNameWithoutExtension library |> string
+
+                              let stem =
+                                  (if stem.StartsWith("lib", StringComparison.Ordinal) then
+                                       stem.Substring 3
+                                   else
+                                       stem)
+
+                              stem.Replace('-', '_'))
+
+                      yield spec.Name, loadExternal spec.Name library symbol
+                  | None -> () ]
             |> Map.ofList
 
-        Some(new HighlightRegistry(loaders, languages, queries))
+        Some(new HighlightRegistry(loaders, languages, queries, injections))
 
 [<RequireQualifiedAccess>]
 module Highlight =
@@ -335,95 +428,163 @@ module Highlight =
 
                 interp |> Option.bind languageForInterpreter
 
-    let detectLanguage (path: string option) (source: string) : string option =
+    /// `detectLanguage` with user extension mappings (config.json
+    /// `languages`) consulted first: keys are lowercased extensions with
+    /// the dot, values are registry ids.
+    let detectLanguageWith
+        (userExtensions: Map<string, string>)
+        (path: string option)
+        (source: string)
+        : string option =
         let byPath =
             path
             |> Option.bind (fun p ->
                 let basename = Path.GetFileName p
 
-                match basename with
-                | "Justfile"
-                | "justfile" -> Some "just"
-                | "Makefile"
-                | "makefile"
-                | "GNUmakefile" -> Some "make"
-                // Shell dotfiles / config files with no extension.
-                | ".bashrc"
-                | ".bash_profile"
-                | ".bash_aliases"
-                | ".bash_login"
-                | ".bash_logout"
-                | ".profile"
-                | ".zshrc"
-                | ".zshenv"
-                | ".zprofile"
-                | ".zlogin"
-                | ".zlogout"
-                | ".kshrc"
-                | "PKGBUILD"
-                | "APKBUILD" -> Some "bash"
-                | _ ->
-                    let ext =
-                        match Path.GetExtension p with
-                        | null -> ""
-                        | s -> s.ToLowerInvariant()
+                let ext =
+                    match Path.GetExtension p with
+                    | null -> ""
+                    | s -> s.ToLowerInvariant()
 
-                    match ext with
-                    | ".fs"
-                    | ".fsi"
-                    | ".fsx" -> Some "fsharp"
-                    | ".js"
-                    | ".mjs"
-                    | ".cjs" -> Some "javascript"
-                    | ".ts" -> Some "typescript"
-                    | ".tsx" -> Some "tsx"
-                    | ".py"
-                    | ".pyi"
-                    | ".pyw" -> Some "python"
-                    | ".json" -> Some "json"
-                    | ".cs" -> Some "c-sharp"
-                    | ".go" -> Some "go"
-                    | ".rs" -> Some "rust"
-                    | ".html"
-                    | ".htm" -> Some "html"
-                    | ".css" -> Some "css"
-                    | ".c"
-                    | ".h" -> Some "c"
-                    | ".php"
-                    | ".phtml" -> Some "php"
-                    | ".sh"
-                    | ".bash"
-                    | ".zsh"
-                    | ".ksh"
-                    | ".command" -> Some "bash"
-                    | ".md"
-                    | ".mdx"
-                    | ".markdown" -> Some "markdown"
-                    | ".xml"
-                    | ".svg"
-                    | ".xsl"
-                    | ".xslt" -> Some "xml"
-                    | ".dart" -> Some "dart"
-                    | ".just" -> Some "just"
-                    | ".mk" -> Some "make"
-                    | ".astro" -> Some "astro"
-                    | ".toml" -> Some "toml"
-                    | ".sema" -> Some "sema"
-                    | ".applescript" -> Some "applescript"
-                    | ".res"
-                    | ".resi" -> Some "rescript"
-                    | ".zig" -> Some "zig"
-                    | _ -> None)
+                match Map.tryFind ext userExtensions with
+                | Some language when ext <> "" -> Some language
+                | _ ->
+
+                    match basename with
+                    | "Justfile"
+                    | "justfile" -> Some "just"
+                    | "Makefile"
+                    | "makefile"
+                    | "GNUmakefile" -> Some "make"
+                    // Shell dotfiles / config files with no extension.
+                    | ".bashrc"
+                    | ".bash_profile"
+                    | ".bash_aliases"
+                    | ".bash_login"
+                    | ".bash_logout"
+                    | ".profile"
+                    | ".zshrc"
+                    | ".zshenv"
+                    | ".zprofile"
+                    | ".zlogin"
+                    | ".zlogout"
+                    | ".kshrc"
+                    | "PKGBUILD"
+                    | "APKBUILD" -> Some "bash"
+                    | _ ->
+                        let ext =
+                            match Path.GetExtension p with
+                            | null -> ""
+                            | s -> s.ToLowerInvariant()
+
+                        match ext with
+                        | ".fs"
+                        | ".fsi"
+                        | ".fsx" -> Some "fsharp"
+                        | ".js"
+                        | ".mjs"
+                        | ".cjs" -> Some "javascript"
+                        | ".ts" -> Some "typescript"
+                        | ".tsx" -> Some "tsx"
+                        | ".py"
+                        | ".pyi"
+                        | ".pyw" -> Some "python"
+                        | ".json" -> Some "json"
+                        | ".cs" -> Some "c-sharp"
+                        | ".go" -> Some "go"
+                        | ".rs" -> Some "rust"
+                        | ".html"
+                        | ".htm" -> Some "html"
+                        | ".css" -> Some "css"
+                        | ".c"
+                        | ".h" -> Some "c"
+                        | ".php"
+                        | ".phtml" -> Some "php"
+                        | ".sh"
+                        | ".bash"
+                        | ".zsh"
+                        | ".ksh"
+                        | ".command" -> Some "bash"
+                        | ".md"
+                        | ".mdx"
+                        | ".markdown" -> Some "markdown"
+                        | ".xml"
+                        | ".svg"
+                        | ".xsl"
+                        | ".xslt" -> Some "xml"
+                        | ".dart" -> Some "dart"
+                        | ".just" -> Some "just"
+                        | ".mk" -> Some "make"
+                        | ".astro" -> Some "astro"
+                        | ".toml" -> Some "toml"
+                        | ".sema" -> Some "sema"
+                        | ".applescript" -> Some "applescript"
+                        | ".res"
+                        | ".resi" -> Some "rescript"
+                        | ".zig" -> Some "zig"
+                        | _ -> None)
 
         match byPath with
         | Some _ -> byPath
         | None -> detectShebang source
 
-    /// One-shot parse for the effect interpreter: parse `source`, project
-    /// the spans, and dispose the parser and tree before returning. No
-    /// native state escapes — the Model carries only the span array.
-    /// `None` when the language isn't in the registry or parsing failed.
-    let parseSpans (registry: HighlightRegistry) (language: string) (source: string) : HighlightSpan array option =
+    let detectLanguage (path: string option) (source: string) : string option =
+        detectLanguageWith Map.empty path source
+
+    /// Short names used in markdown fences and `#set!` properties that map
+    /// onto registry ids.
+    let private injectionAliases =
+        Map.ofList
+            [ "js", "javascript"
+              "jsx", "javascript"
+              "ts", "typescript"
+              "sh", "bash"
+              "shell", "bash"
+              "zsh", "bash"
+              "py", "python"
+              "cs", "c-sharp"
+              "csharp", "c-sharp"
+              "fs", "fsharp"
+              "rs", "rust"
+              "md", "markdown"
+              "htm", "html" ]
+
+    let private normalizeInjectionLanguage (name: string) =
+        let lower = name.Trim().ToLowerInvariant()
+        Map.tryFind lower injectionAliases |> Option.defaultValue lower
+
+    /// Child-language ranges from the host's `injections.scm`: the
+    /// `@injection.content` node, with the language from `#set!
+    /// injection.language`, else an `@injection.language` capture's text
+    /// (markdown fence info strings).
+    let private injectionRanges (query: TreeSitter.Query) (tree: TreeSitter.Tree) (source: string) =
+        use cursor = query.Execute(tree.RootNode)
+
+        [ for m in cursor.Matches do
+              let captures = List.ofSeq m.Captures
+
+              let language =
+                  match m.SetProperties with
+                  | null -> None
+                  | properties ->
+                      match properties.TryGetValue "injection.language" with
+                      | true, value -> Option.ofObj value
+                      | _ -> None
+                  |> Option.orElseWith (fun () ->
+                      captures
+                      |> List.tryFind (fun c -> c.Name = "injection.language")
+                      |> Option.map (fun c -> source.Substring(c.Node.StartIndex, c.Node.EndIndex - c.Node.StartIndex)))
+
+              match language, captures |> List.tryFind (fun c -> c.Name = "injection.content") with
+              | Some language, Some content when content.Node.EndIndex > content.Node.StartIndex ->
+                  yield normalizeInjectionLanguage language, content.Node.StartIndex, content.Node.EndIndex
+              | _ -> () ]
+
+    /// Parse `source` as `language` and project the spans, recursing into
+    /// injected ranges (CSS/JS in HTML, fenced code in markdown) up to
+    /// `depth` levels. Host spans overlapping an injected range are dropped
+    /// so the child language paints it.
+    let rec private spansFor (registry: HighlightRegistry) (language: string) (source: string) (depth: int) =
         match registry.TryGetLanguage language, registry.TryGetQuery language with
         | Some lang, Some query ->
             try
@@ -433,10 +594,47 @@ module Highlight =
                 | null -> Some Array.empty
                 | tree ->
                     use tree = tree
-                    Some(computeSpans query tree)
+                    let host = computeSpans query tree
+
+                    match registry.TryGetInjections language with
+                    | Some injections when depth > 0 ->
+                        let ranges = injectionRanges injections tree source
+
+                        let injected =
+                            [| for childLanguage, start, finish in ranges do
+                                   if childLanguage <> language then
+                                       match
+                                           spansFor
+                                               registry
+                                               childLanguage
+                                               (source.Substring(start, finish - start))
+                                               (depth - 1)
+                                       with
+                                       | Some spans ->
+                                           for span in spans do
+                                               { span with
+                                                   StartByte = span.StartByte + start
+                                                   EndByte = span.EndByte + start }
+                                       | None -> () |]
+
+                        let overlapsInjection (span: HighlightSpan) =
+                            ranges
+                            |> List.exists (fun (_, start, finish) -> span.StartByte < finish && span.EndByte > start)
+
+                        let merged = Array.append (host |> Array.filter (overlapsInjection >> not)) injected
+                        Array.sortInPlaceBy _.StartByte merged
+                        Some merged
+                    | _ -> Some host
             with _ ->
                 None
         | _ -> None
+
+    /// One-shot parse for the effect interpreter: parse `source`, project
+    /// the spans, and dispose the parser and tree before returning. No
+    /// native state escapes — the Model carries only the span array.
+    /// `None` when the language isn't in the registry or parsing failed.
+    let parseSpans (registry: HighlightRegistry) (language: string) (source: string) : HighlightSpan array option =
+        spansFor registry language source 2
 
     /// Char-index ranges of the tree-sitter nodes spanning `[selStart, selEnd)`,
     /// innermost first and each strictly larger than the previous (a node that

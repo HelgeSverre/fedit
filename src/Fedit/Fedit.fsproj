@@ -60,6 +60,18 @@
     <EmbeddedResource Include="Resources/queries/fsharp/highlights.scm">
       <LogicalName>fedit.queries.fsharp.highlights.scm</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/html/injections.scm">
+      <LogicalName>fedit.queries.html.injections.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/astro/injections.scm">
+      <LogicalName>fedit.queries.astro.injections.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/markdown/injections.scm">
+      <LogicalName>fedit.queries.markdown.injections.scm</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Resources/queries/php/injections.scm">
+      <LogicalName>fedit.queries.php.injections.scm</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="Resources/queries/javascript/highlights.scm">
       <LogicalName>fedit.queries.javascript.highlights.scm</LogicalName>
     </EmbeddedResource>

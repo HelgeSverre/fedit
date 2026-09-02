@@ -21,13 +21,7 @@ type TerminalState =
 /// Private ANSI sequence helpers.
 [<RequireQualifiedAccess>]
 module private Ansi =
-    let esc = "\u001b"
-    let resetStyle = $"{esc}[0m"
-    let clearScreen = $"{esc}[2J"
-    let homeCursor = $"{esc}[H"
-    let cursorPosition row col = $"{esc}[{row + 1};{col + 1}H"
-    let showCursor = $"{esc}[?25h"
-    let hideCursor = $"{esc}[?25l"
+    open Renderer.Ansi
 
     // -----------------------------------------------------------------------
     // Capability-driven enable / disable sequences.

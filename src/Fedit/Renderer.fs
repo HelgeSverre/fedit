@@ -8,13 +8,17 @@ open System.Text
 /// to turn a `Screen` into bytes.
 [<RequireQualifiedAccess>]
 module Renderer =
-    let private esc = "\u001b"
-    let private clearScreen = $"{esc}[2J"
-    let private homeCursor = $"{esc}[H"
-    let private showCursor = $"{esc}[?25h"
-    let private hideCursor = $"{esc}[?25l"
+    /// ANSI sequences shared with `Terminal`.
+    module Ansi =
+        let esc = "\u001b"
+        let resetStyle = $"{esc}[0m"
+        let clearScreen = $"{esc}[2J"
+        let homeCursor = $"{esc}[H"
+        let showCursor = $"{esc}[?25h"
+        let hideCursor = $"{esc}[?25l"
+        let cursorPosition row col = $"{esc}[{row + 1};{col + 1}H"
 
-    let private cursorPosition row col = $"{esc}[{row + 1};{col + 1}H"
+    open Ansi
 
     /// Map a 256-cube index to the nearest standard ANSI 16 color.
     /// The cube is 6×6×6; we re-quantize to 4 coarse levels and map to

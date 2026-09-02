@@ -3755,3 +3755,35 @@ let ``a failed macro save surfaces as a warning`` () =
     let next, _ = Editor.update (MacrosSaved(Result.Error "disk full")) (initModel ())
 
     notificationText next |> should equal "Macro file save failed: disk full"
+
+[<Fact>]
+let ``a shallow workspace load paints the tree silently; the full load announces it`` () =
+    // The first scan arrives in two passes: root children only (so the sidebar
+    // paints at once), then the full walk. Only the complete pass notifies.
+    let tree: FileNode =
+        { Path = "/root"
+          Name = "root"
+          IsDirectory = true
+          Children =
+            [ { Path = "/root/a.fs"
+                Name = "a.fs"
+                IsDirectory = false
+                Children = [] } ] }
+
+    let model =
+        { initModel () with
+            Notification = None }
+
+    let payload = Workspace.preCompute "/root" tree
+    let sorted, byPath, files = payload
+
+    let shallow, _ =
+        Editor.update (WorkspaceLoaded(false, Result.Ok(sorted, byPath, files, 0))) model
+
+    shallow.Workspace.Tree.IsSome |> should equal true
+    shallow.Notification |> should equal None
+
+    let full, _ =
+        Editor.update (WorkspaceLoaded(true, Result.Ok(sorted, byPath, files, 0))) shallow
+
+    full.Notification.IsSome |> should equal true

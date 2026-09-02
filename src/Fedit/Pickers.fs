@@ -124,9 +124,27 @@ module Pickers =
     // Action helpers
     // ========================================================================
 
-    let private pluginActions (model: Model) (plugin: LoadedPlugin) : PickerAction list =
-        let pluginName = plugin.Manifest.Name
+    /// An enabled, unconfirmed action that closes the picker; override
+    /// `State`, `Confirmation`, `Dismissal` with `with`.
+    let private action id key label role : PickerAction =
+        { Id = id
+          Key = key
+          Label = label
+          Role = role
+          State = PickerActionState.Enabled
+          Confirmation = None
+          Dismissal = PickerDismissal.Close }
 
+    let private enabledWhen condition reason =
+        if condition then
+            PickerActionState.Enabled
+        else
+            PickerActionState.Disabled reason
+
+    let private closeAction key =
+        action PickerActionId.PickerClose key "Close" PickerActionRole.Primary
+
+    let private pluginActions (model: Model) (plugin: LoadedPlugin) : PickerAction list =
         let isFailed =
             match plugin.Status with
             | PluginLoadStatus.Failed _ -> true
@@ -135,174 +153,65 @@ module Pickers =
         let isDisabled = plugin.Status = PluginLoadStatus.Disabled
         let isLoaded = plugin.Status = PluginLoadStatus.Loaded
 
-        [ { Id = PickerActionId.PluginEnable
-            Key = Chord.ofChar 'e'
-            Label = "Enable"
-            Role = PickerActionRole.Primary
-            State =
-              if isDisabled then
-                  PickerActionState.Enabled
-              else
-                  PickerActionState.Disabled "Plugin is already enabled"
-            Confirmation = None
-            Dismissal = PickerDismissal.Refresh }
-          { Id = PickerActionId.PluginDisable
-            Key = Chord.ofChar 'd'
-            Label = "Disable"
-            Role = PickerActionRole.Primary
-            State =
-              if isLoaded then
-                  PickerActionState.Enabled
-              else
-                  PickerActionState.Disabled "Plugin is not loaded"
-            Confirmation = None
-            Dismissal = PickerDismissal.Refresh }
-          { Id = PickerActionId.PluginReloadAll
-            Key = Chord.ofChar 'r'
-            Label = "Reload all"
-            Role = PickerActionRole.Secondary
-            State =
-              if isFailed then
-                  PickerActionState.Enabled
-              else
-                  PickerActionState.Disabled "Reload is only available when plugins have failed"
-            Confirmation = None
-            Dismissal = PickerDismissal.Refresh }
-          { Id = PickerActionId.PluginUninstall
-            Key = Chord.ofChar 'u'
-            Label = "Uninstall"
-            Role = PickerActionRole.Destructive
-            State = Enabled
-            Confirmation = Some { Label = "uninstall" }
-            Dismissal = PickerDismissal.KeepOpen } ]
+        [ { action PickerActionId.PluginEnable (Chord.ofChar 'e') "Enable" PickerActionRole.Primary with
+              State = enabledWhen isDisabled "Plugin is already enabled"
+              Dismissal = PickerDismissal.Refresh }
+          { action PickerActionId.PluginDisable (Chord.ofChar 'd') "Disable" PickerActionRole.Primary with
+              State = enabledWhen isLoaded "Plugin is not loaded"
+              Dismissal = PickerDismissal.Refresh }
+          { action PickerActionId.PluginReloadAll (Chord.ofChar 'r') "Reload all" PickerActionRole.Secondary with
+              State = enabledWhen isFailed "Reload is only available when plugins have failed"
+              Dismissal = PickerDismissal.Refresh }
+          { action PickerActionId.PluginUninstall (Chord.ofChar 'u') "Uninstall" PickerActionRole.Destructive with
+              Confirmation = Some { Label = "uninstall" }
+              Dismissal = PickerDismissal.KeepOpen } ]
 
     let private macroActions (model: Model) (register: char) (steps: MacroStep list) : PickerAction list =
         let isRecording = model.Recording = Some register
         let isEmpty = List.isEmpty steps
-        let isLast = model.LastMacro = Some register
 
-        [ { Id = PickerActionId.MacroReplay
-            Key = Chord.bareNamed Enter
-            Label = "Replay"
-            Role = PickerActionRole.Primary
-            State =
-              if not isEmpty then
-                  PickerActionState.Enabled
-              else
-                  PickerActionState.Disabled "No steps recorded"
-            Confirmation = None
-            Dismissal = PickerDismissal.Close }
-          { Id = PickerActionId.MacroRecord
-            Key = Chord.ofChar 'r'
-            Label = if isRecording then "Stop recording" else "Record"
-            Role = PickerActionRole.Primary
-            State = PickerActionState.Enabled
-            Confirmation = None
-            Dismissal = PickerDismissal.Close }
-          { Id = PickerActionId.MacroEdit
-            Key = Chord.ofChar 'e'
-            Label = "Edit file"
-            Role = PickerActionRole.Secondary
-            State = PickerActionState.Enabled
-            Confirmation = None
-            Dismissal = PickerDismissal.Close }
-          { Id = PickerActionId.MacroMarkLast
-            Key = Chord.ofChar 'm'
-            Label = "Mark last"
-            Role = PickerActionRole.Secondary
-            State =
-              if not isEmpty then
-                  PickerActionState.Enabled
-              else
-                  PickerActionState.Disabled "No steps recorded"
-            Confirmation = None
-            Dismissal = PickerDismissal.KeepOpen }
-          { Id = PickerActionId.MacroClear
-            Key = Chord.ofChar 'c'
-            Label = "Clear"
-            Role = PickerActionRole.Destructive
-            State =
-              if not isEmpty || isRecording then
-                  PickerActionState.Enabled
-              else
-                  PickerActionState.Disabled "Nothing to clear"
-            Confirmation = Some { Label = "clear" }
-            Dismissal = PickerDismissal.KeepOpen } ]
+        [ { action PickerActionId.MacroReplay (Chord.bareNamed Enter) "Replay" PickerActionRole.Primary with
+              State = enabledWhen (not isEmpty) "No steps recorded" }
+          action
+              PickerActionId.MacroRecord
+              (Chord.ofChar 'r')
+              (if isRecording then "Stop recording" else "Record")
+              PickerActionRole.Primary
+          action PickerActionId.MacroEdit (Chord.ofChar 'e') "Edit file" PickerActionRole.Secondary
+          { action PickerActionId.MacroMarkLast (Chord.ofChar 'm') "Mark last" PickerActionRole.Secondary with
+              State = enabledWhen (not isEmpty) "No steps recorded"
+              Dismissal = PickerDismissal.KeepOpen }
+          { action PickerActionId.MacroClear (Chord.ofChar 'c') "Clear" PickerActionRole.Destructive with
+              State = enabledWhen (not isEmpty || isRecording) "Nothing to clear"
+              Confirmation = Some { Label = "clear" }
+              Dismissal = PickerDismissal.KeepOpen } ]
 
     let private locationActions: PickerAction list =
-        [ { Id = PickerActionId.LocationJump
-            Key = Chord.bareNamed Enter
-            Label = "Jump"
-            Role = PickerActionRole.Primary
-            State = PickerActionState.Enabled
-            Confirmation = None
-            Dismissal = PickerDismissal.Close } ]
+        [ action PickerActionId.LocationJump (Chord.bareNamed Enter) "Jump" PickerActionRole.Primary ]
 
     let private languageServerActions (model: Model) (server: LanguageServerConfig) : PickerAction list =
         let disabled = Set.contains server.Name model.Config.DisabledLanguageServers
 
-        [ { Id = PickerActionId.LanguageServerRestart
-            Key = Chord.ofChar 'r'
-            Label = "Restart"
-            Role = PickerActionRole.Primary
-            State =
-              if disabled then
-                  PickerActionState.Disabled "Server is disabled"
-              else
-                  PickerActionState.Enabled
-            Confirmation = None
-            Dismissal = PickerDismissal.Refresh }
-          { Id = PickerActionId.LanguageServerToggle
-            Key = Chord.ofChar 'e'
-            Label = (if disabled then "Enable" else "Disable")
-            Role = PickerActionRole.Primary
-            State = PickerActionState.Enabled
-            Confirmation = None
-            Dismissal = PickerDismissal.Refresh }
-          { Id = PickerActionId.LanguageServerLog
-            Key = Chord.ofChar 'l'
-            Label = "Log"
-            Role = PickerActionRole.Secondary
-            State = PickerActionState.Enabled
-            Confirmation = None
-            Dismissal = PickerDismissal.Close } ]
+        [ { action PickerActionId.LanguageServerRestart (Chord.ofChar 'r') "Restart" PickerActionRole.Primary with
+              State = enabledWhen (not disabled) "Server is disabled"
+              Dismissal = PickerDismissal.Refresh }
+          { action
+                PickerActionId.LanguageServerToggle
+                (Chord.ofChar 'e')
+                (if disabled then "Enable" else "Disable")
+                PickerActionRole.Primary with
+              Dismissal = PickerDismissal.Refresh }
+          action PickerActionId.LanguageServerLog (Chord.ofChar 'l') "Log" PickerActionRole.Secondary ]
 
     let private keybindingActions: PickerAction list =
-        [ { Id = PickerActionId.PickerClose
-            Key = Chord.bareNamed Enter
-            Label = "Close"
-            Role = PickerActionRole.Primary
-            State = PickerActionState.Enabled
-            Confirmation = None
-            Dismissal = PickerDismissal.Close }
-          { Id = PickerActionId.PickerClose
-            Key = Chord.bareNamed Escape
-            Label = "Close"
-            Role = PickerActionRole.Primary
-            State = PickerActionState.Enabled
-            Confirmation = None
-            Dismissal = PickerDismissal.Close } ]
+        [ closeAction (Chord.bareNamed Enter); closeAction (Chord.bareNamed Escape) ]
 
     /// Read-only log review: Enter/Esc close; `c` empties the ring.
     let private messageActions (model: Model) : PickerAction list =
-        [ { Id = PickerActionId.PickerClose
-            Key = Chord.bareNamed Enter
-            Label = "Close"
-            Role = PickerActionRole.Primary
-            State = PickerActionState.Enabled
-            Confirmation = None
-            Dismissal = PickerDismissal.Close }
-          { Id = PickerActionId.MessagesClear
-            Key = Chord.ofChar 'c'
-            Label = "Clear log"
-            Role = PickerActionRole.Destructive
-            State =
-              if List.isEmpty model.NotificationLog then
-                  PickerActionState.Disabled "Log is empty"
-              else
-                  PickerActionState.Enabled
-            Confirmation = None
-            Dismissal = PickerDismissal.Refresh } ]
+        [ closeAction (Chord.bareNamed Enter)
+          { action PickerActionId.MessagesClear (Chord.ofChar 'c') "Clear log" PickerActionRole.Destructive with
+              State = enabledWhen (not (List.isEmpty model.NotificationLog)) "Log is empty"
+              Dismissal = PickerDismissal.Refresh } ]
 
     // ========================================================================
     // Plugin picker items

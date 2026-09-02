@@ -328,3 +328,66 @@ let ``a persisted pre-LSP default statusFormat migrates to the current default``
 let ``a customized statusFormat is preserved verbatim on load`` () =
     let config = loadJson """{ "statusFormat": "[MODE] <EXPAND> [LINE]" }"""
     config.StatusFormat |> should equal "[MODE] <EXPAND> [LINE]"
+
+[<Fact>]
+let ``ignore rules round-trip through save and default sensibly`` () =
+    let configPath = tempConfigPath ()
+    Directory.CreateDirectory(Path.GetDirectoryName configPath) |> ignore
+
+    try
+        File.WriteAllText(configPath, "{}")
+        let defaults, _ = ConfigIO.loadFrom configPath []
+        defaults.Ignore |> should equal Ignore.defaults
+
+        let custom =
+            { defaults with
+                Ignore =
+                    { Names = [ ".git"; "target" ]
+                      UseGitignore = false } }
+
+        ConfigIO.saveTo configPath custom
+        let reloaded, error = ConfigIO.loadFrom configPath []
+        error |> should equal None
+        reloaded.Ignore |> should equal custom.Ignore
+    finally
+        File.Delete configPath
+
+[<Fact>]
+let ``languages block parses grammars and query overrides`` () =
+    let config =
+        loadJson
+            """{ "languages": {
+                   "vue": { "extensions": [".vue"], "library": "/g/libtree-sitter-vue.dylib", "queries": "/g/vue" },
+                   "json": { "queries": "/g/json" },
+                   "bad": "not an object",
+                   " ": { "library": "/x" } } }"""
+
+    config.Languages
+    |> should
+        equal
+        [ { Name = "vue"
+            Extensions = [ ".vue" ]
+            Library = Some "/g/libtree-sitter-vue.dylib"
+            Symbol = None
+            Queries = Some "/g/vue" }
+          { Name = "json"
+            Extensions = []
+            Library = None
+            Symbol = None
+            Queries = Some "/g/json" } ]
+
+    Config.languageExtensions config |> should equal (Map.ofList [ ".vue", "vue" ])
+
+[<Fact>]
+let ``languageExtensions normalizes case and the leading dot`` () =
+    let config =
+        { Config.defaults Themes.defaultTheme with
+            Languages =
+                [ { Name = "vue"
+                    Extensions = [ "VUE"; ".Vuex" ]
+                    Library = None
+                    Symbol = None
+                    Queries = None } ] }
+
+    Config.languageExtensions config
+    |> should equal (Map.ofList [ ".vue", "vue"; ".vuex", "vue" ])
