@@ -103,6 +103,8 @@ type Action =
     | GotoDefinition
     | FindReferences
     | Hover
+    /// Open the completion popup for the word under the cursor.
+    | TriggerCompletion
     /// Pop the jump stack: return to where the last LSP jump left from.
     | JumpBack
     // panel / focus primitives — each a COMPLETE, valid transition
@@ -218,6 +220,7 @@ module Action =
         | GotoDefinition -> "goto-definition"
         | FindReferences -> "find-references"
         | Hover -> "hover"
+        | TriggerCompletion -> "trigger-completion"
         | JumpBack -> "jump-back"
         | RevealSidebar -> "reveal-sidebar"
         | HideSidebar -> "hide-sidebar"

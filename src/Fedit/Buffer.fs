@@ -386,6 +386,41 @@ module Buffer =
         let target = wordIndexRight landing txt (positionToIndex buffer.Cursor buffer)
         moveToIndex target buffer
 
+    /// The word-character prefix ending at the cursor: its text and the
+    /// `[start, cursor)` char range it occupies. Empty text when the cursor
+    /// is not preceded by a word character. Drives completion.
+    let completionPrefix buffer : string * int * int =
+        let txt = text buffer
+        let cursor = positionToIndex buffer.Cursor buffer
+        let mutable start = cursor
+
+        while start > 0 && classify txt[start - 1] = WordChar do
+            start <- start - 1
+
+        txt.Substring(start, cursor - start), start, cursor
+
+    /// Every word-character run in the buffer as (word, startIndex), in
+    /// document order. The completion merge dedupes and ranks these; a
+    /// buffer past the highlight cap returns none (the scan is the cost).
+    let words buffer : (string * int) list =
+        let txt = text buffer
+
+        if txt.Length > 2_000_000 then
+            []
+        else
+            [ let mutable i = 0
+
+              while i < txt.Length do
+                  if classify txt[i] = WordChar then
+                      let start = i
+
+                      while i < txt.Length && classify txt[i] = WordChar do
+                          i <- i + 1
+
+                      yield txt.Substring(start, i - start), start
+                  else
+                      i <- i + 1 ]
+
     let backspaceWord buffer =
         let startIdx = positionToIndex buffer.Cursor buffer
 

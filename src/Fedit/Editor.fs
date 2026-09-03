@@ -1377,6 +1377,121 @@ module Editor =
     /// macro capture skips them for the same reason — a live no-op has no
     /// outcome to replay. One list, two consumers, so the guard and the
     /// capture exclusion can never drift apart.
+    /// Build the completion popup for the active buffer, or `None` when
+    /// nothing under the cursor completes. Phase 1: buffer words only —
+    /// distinct word-runs sharing the prefix, nearest the cursor first,
+    /// excluding the word being typed. Pure and synchronous, so a macro
+    /// replays deterministically with no async source.
+    let private buildCompletion (model: Model) : CompletionState option =
+        let buffer = activeBufferState model
+        let prefix, start, cursor = Buffer.completionPrefix buffer
+
+        if prefix.Length = 0 then
+            None
+        else
+            let matches (word: string) =
+                word.Length > prefix.Length
+                && word.StartsWith(prefix, System.StringComparison.OrdinalIgnoreCase)
+
+            let candidates =
+                Buffer.words buffer
+                // Drop the occurrence the cursor is inside (its own prefix).
+                |> List.filter (fun (word, wordStart) -> matches word && wordStart <> start)
+                |> List.groupBy (fun (word, _) -> word)
+                |> List.map (fun (word, occurrences) ->
+                    let nearest = occurrences |> List.map (fun (_, at) -> abs (at - cursor)) |> List.min
+                    word, nearest)
+                // Nearest first, then shortest, then alphabetical.
+                |> List.sortBy (fun (word, nearest) -> nearest, word.Length, word)
+                |> List.truncate model.Config.CompletionLimit
+                |> List.map (fun (word, _) ->
+                    { Label = word
+                      Insert = word
+                      Replace = (start, cursor)
+                      Detail = ""
+                      Kind = "text"
+                      Source = FromBuffer
+                      SortKey = "" })
+
+            match candidates with
+            | [] -> None
+            | _ ->
+                Some
+                    { BufferId = buffer.Id
+                      Prefix = prefix
+                      PrefixRange = (start, cursor)
+                      Candidates = candidates
+                      Selected = 0 }
+
+    /// Keep an open popup in step with edits: rebuild it while the cursor
+    /// still sits at the end of a word in the same buffer; close it when
+    /// the prefix empties, the cursor leaves, or the buffer switched.
+    let private refreshCompletion (model: Model) : Model =
+        match model.Completion with
+        | None -> model
+        | Some state ->
+            if state.BufferId <> model.Editors.ActiveBufferId then
+                { model with Completion = None }
+            else
+                match buildCompletion model with
+                | Some rebuilt ->
+                    // Keep the selection on the same label where possible.
+                    let selected =
+                        model.Completion
+                        |> Option.bind (fun s -> List.tryItem s.Selected s.Candidates)
+                        |> Option.bind (fun current ->
+                            rebuilt.Candidates |> List.tryFindIndex (fun c -> c.Label = current.Label))
+                        |> Option.defaultValue 0
+
+                    { model with
+                        Completion = Some { rebuilt with Selected = selected } }
+                | None -> { model with Completion = None }
+
+    /// Accept the selected candidate: replace its range with the insert
+    /// text as one undo entry, place the caret after it, close the popup.
+    /// When the range is exactly the typed prefix, record the remaining
+    /// characters as an `InsertText` macro step so replay reinserts the
+    /// same text with no completion source (mirrors search-accept).
+    let private acceptCompletion (model: Model) : Model * Effect list =
+        match model.Completion with
+        | None -> model, []
+        | Some state ->
+            match List.tryItem state.Selected state.Candidates with
+            | None -> { model with Completion = None }, []
+            | Some candidate ->
+                let start, finish = candidate.Replace
+
+                let edited =
+                    updateActiveBuffer
+                        (fun b ->
+                            Buffer.replaceRange start (finish - start) candidate.Insert b
+                            |> Buffer.clearSelection)
+                        { model with Completion = None }
+
+                // Record only when the accept replaced the typed prefix with
+                // a longer string extending it — the deterministic delta.
+                let recordable =
+                    (start, finish) = state.PrefixRange
+                    && candidate.Insert.StartsWith(state.Prefix, System.StringComparison.Ordinal)
+                    && candidate.Insert.Length > state.Prefix.Length
+
+                (if recordable then
+                     recordStep (RunAction(InsertText(candidate.Insert.Substring state.Prefix.Length))) edited
+                 else
+                     edited),
+                []
+
+    /// Move the popup selection, wrapping.
+    let private moveCompletion delta (model: Model) : Model =
+        match model.Completion with
+        | Some state when not state.Candidates.IsEmpty ->
+            let count = state.Candidates.Length
+            let next = ((state.Selected + delta) % count + count) % count
+
+            { model with
+                Completion = Some { state with Selected = next } }
+        | _ -> model
+
     let private isPromptInert (action: Fedit.Action) : bool =
         match action with
         | Undo
@@ -2639,6 +2754,10 @@ module Editor =
         | GotoDefinition -> lspNavigate LspRequestDefinition model
         | FindReferences -> lspNavigate LspRequestReferences model
         | Hover -> lspNavigate LspRequestHover model
+        | TriggerCompletion ->
+            match buildCompletion model with
+            | Some state -> { model with Completion = Some state }, []
+            | None -> { model with Completion = None }, []
         | JumpBack ->
             match model.JumpStack with
             | [] -> notify (Some(Notification.info "Jump list is empty.")) model, []
@@ -2910,6 +3029,26 @@ module Editor =
     let private kPageUp = nk PageUp
     let private kPageDown = nk PageDown
     let private kCtrlQ = cc 'q'
+
+    /// The keys an open completion popup consumes: navigate, accept, dismiss.
+    let private completionOwnsChord (chord: Chord) =
+        chord = kUp
+        || chord = kDown
+        || chord = kTab
+        || chord = kEnter
+        || chord = kEscape
+        || chord = cc 'n'
+        || chord = cc 'p'
+
+    let private completionKey (chord: Chord) model : Model * Effect list =
+        if chord = kUp || chord = cc 'p' then
+            moveCompletion -1 model, []
+        elif chord = kDown || chord = cc 'n' then
+            moveCompletion 1 model, []
+        elif chord = kTab || chord = kEnter then
+            acceptCompletion model
+        else
+            { model with Completion = None }, [] // kEscape
 
     /// Sidebar fallthrough core: the incremental filter. All navigation is
     /// keymap-driven (Context.Sidebar) and resolves before this is reached.
@@ -3344,7 +3483,8 @@ module Editor =
           MouseDrag = None
           LastSearchQuery = None
           Lsp = LspState.empty
-          JumpStack = [] },
+          JumpStack = []
+          Completion = None },
         startupEffects
 
     let init rootPath size config userThemes =
@@ -4294,6 +4434,8 @@ module Editor =
                     |> notify (Some(Notification.info $"Macro @{state.Register} cancelled")),
                     []
                 | None -> model, []
+            | None when model.Completion.IsSome && model.Focus = Editor && completionOwnsChord chord ->
+                completionKey chord model
             | None when model.Focus = Prompt && isPromptListSession model.Prompt.Session -> runPrompt chord model
             | None ->
                 // Armed quit/close confirmations are disarmed by the
@@ -4692,6 +4834,29 @@ module Editor =
               | Some previous when buffer.EditTick > previous.EditTick -> CancelPluginRuns(id, buffer.EditTick)
               | _ -> () ]
 
+    /// Keep the completion popup in step after a dispatch: close it when
+    /// focus leaves the editor or the buffer switches; refresh it after an
+    /// edit; auto-open a fresh one when typing extends a word to two-plus
+    /// characters and nothing is open (never re-open one just accepted or
+    /// dismissed this dispatch).
+    let private syncCompletion (before: Model) (after: Model) : Model =
+        let activeEditTick (model: Model) =
+            model.Editors.Buffers.TryFind model.Editors.ActiveBufferId
+            |> Option.map (fun b -> b.EditTick)
+
+        let edited = before.Focus = Editor && activeEditTick before <> activeEditTick after
+
+        match after.Completion with
+        | Some state when after.Focus <> Editor || state.BufferId <> after.Editors.ActiveBufferId ->
+            { after with Completion = None }
+        | Some _ -> refreshCompletion after
+        | None when before.Completion.IsSome -> after // just accepted or dismissed
+        | None when edited && after.Focus = Editor ->
+            match buildCompletion after with
+            | Some state when state.Prefix.Length >= 2 -> { after with Completion = Some state }
+            | _ -> after
+        | None -> after
+
     let update msg model =
         let next, effects = updateCore msg model
         let next, effects = settleReplayFences msg next effects
@@ -4701,6 +4866,7 @@ module Editor =
         let next = recordBufferActivation model next
         let next = promoteDirtyPreview next
         let next = ensureHexViewport next
+        let next = syncCompletion model next
         let next, highlightFx = highlightEffects model next
         let lspFx = lspSyncEffects model next
         next, effects @ highlightFx @ lspFx

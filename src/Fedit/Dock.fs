@@ -112,14 +112,42 @@ module Dock =
 
                 DockInfo("Find", [ line ])
         else
-            // The transient LSP info panel (hover, `:lsp log`) uses the dock
-            // whenever the prompt doesn't. Dismissed on the next keypress
-            // (Editor's KeyPressed chokepoint); View truncates the lines to
-            // the dock height.
-            match model.Lsp.Panel, model.PluginPanel with
-            | Some panel, _ -> DockInfo(panel.Title, panel.Lines)
-            | None, Some panel -> DockStyled(panel.Title, panel.Lines)
-            | None, None -> NoDock
+            // The completion popup, when open, owns the dock ahead of the
+            // transient panels (it is the active interaction). A source
+            // badge rides in the item Detail: buf, lsp, or the plugin name.
+            match model.Completion with
+            | Some completion when not completion.Candidates.IsEmpty ->
+                let items =
+                    completion.Candidates
+                    |> List.map (fun candidate ->
+                        let badge =
+                            match candidate.Source with
+                            | FromServer name -> name
+                            | FromBuffer -> "buf"
+                            | FromPlugin source -> source
+
+                        let detail =
+                            if System.String.IsNullOrEmpty candidate.Detail then
+                                badge
+                            else
+                                $"{candidate.Detail}  {badge}"
+
+                        { Label = candidate.Label
+                          ApplyText = candidate.Insert
+                          Detail = detail
+                          Kind = PathItem })
+
+                DockCompletions("Complete", items, completion.Selected)
+            | _ ->
+
+                // The transient LSP info panel (hover, `:lsp log`) uses the dock
+                // whenever the prompt doesn't. Dismissed on the next keypress
+                // (Editor's KeyPressed chokepoint); View truncates the lines to
+                // the dock height.
+                match model.Lsp.Panel, model.PluginPanel with
+                | Some panel, _ -> DockInfo(panel.Title, panel.Lines)
+                | None, Some panel -> DockStyled(panel.Title, panel.Lines)
+                | None, None -> NoDock
 
     /// Effective dock height cap: the configured height limited to a third
     /// of the terminal (minimum 3 rows). The prose info dock (`DockInfo`)

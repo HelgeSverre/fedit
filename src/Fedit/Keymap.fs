@@ -151,6 +151,9 @@ module Keymap =
           single (chord [ Ctrl ] (Key.Char 'b')) GotoDefinition
           single (chord [ Ctrl; Shift ] (Key.Char 'b')) FindReferences
           single (chord [ Ctrl ] (Key.Char 'k')) Hover
+          // Ctrl+Space opens the completion popup (VS Code / IntelliJ).
+          // Some terminals swallow it; auto-open covers the common case.
+          single (chord [ Ctrl ] (Named Space)) TriggerCompletion |> inCtx Context.Editor
           // ── tree-sitter structural selection ──
           // Shift+Alt+Up/Down (Fleet, Eclipse, JetBrains-macOS, Helix's
           // arrow aliases): "up" climbs out to the parent node. Modified
@@ -523,6 +526,7 @@ module Keymap =
         | "goto-definition" -> Ok GotoDefinition
         | "find-references" -> Ok FindReferences
         | "hover" -> Ok Hover
+        | "trigger-completion" -> Ok TriggerCompletion
         | "jump-back" -> Ok JumpBack
         | "reload-workspace" -> Ok ReloadWorkspace
         | "reload-keybinds" -> Ok ReloadKeybinds

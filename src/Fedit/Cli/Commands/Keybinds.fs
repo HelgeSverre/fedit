@@ -85,6 +85,7 @@ let actionMeta (action: Action) : string * string =
     | GotoDefinition -> "lsp", "Jump to the symbol's definition"
     | FindReferences -> "lsp", "List references to the symbol"
     | Hover -> "lsp", "Show hover info for the symbol"
+    | TriggerCompletion -> "editing", "Open the completion popup"
     | JumpBack -> "lsp", "Return to where the last jump left from"
     | RevealSidebar -> "panel", "Reveal the sidebar"
     | HideSidebar -> "panel", "Hide the sidebar"
@@ -172,6 +173,7 @@ let allActions: Action list =
       GotoDefinition
       FindReferences
       Hover
+      TriggerCompletion
       JumpBack
       RevealSidebar
       HideSidebar

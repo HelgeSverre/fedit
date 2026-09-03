@@ -428,6 +428,42 @@ type SelectionLadder =
       Ranges: (int * int)[]
       Index: int }
 
+/// Where a completion candidate came from, for the source badge and the
+/// merge's priority tie-break.
+type CompletionSource =
+    | FromServer of serverName: string
+    | FromBuffer
+    | FromPlugin of source: string
+
+/// One entry in the completion popup.
+type CompletionCandidate =
+    {
+        Label: string
+        /// Text that replaces `Replace`. Snippets are flattened to text.
+        Insert: string
+        /// Char range replaced on accept, 0-based; the prefix range by default.
+        Replace: int * int
+        Detail: string
+        /// LSP-ish kind string (`function`, `variable`, `keyword`, `text`, …).
+        Kind: string
+        Source: CompletionSource
+        /// Server ordering hint (`sortText`); "" otherwise.
+        SortKey: string
+    }
+
+/// An open completion popup over the active buffer.
+type CompletionState =
+    {
+        BufferId: int
+        /// The prefix under the cursor; the popup filters to it live.
+        Prefix: string
+        /// Char range the prefix occupies (start, cursor).
+        PrefixRange: int * int
+        /// Candidates from every source, already merged and ranked.
+        Candidates: CompletionCandidate list
+        Selected: int
+    }
+
 type Model =
     {
         Workspace: WorkspaceState
@@ -521,6 +557,8 @@ type Model =
         /// Where each LSP jump (goto-definition, picker Enter) left from,
         /// newest first, capped at 50. `jump-back` pops.
         JumpStack: (string * Position) list
+        /// The open completion popup, if any (editor focus only).
+        Completion: CompletionState option
     }
 
 /// Why a file is being loaded: a normal open, or a preview into the

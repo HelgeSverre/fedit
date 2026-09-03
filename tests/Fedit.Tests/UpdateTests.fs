@@ -4446,3 +4446,129 @@ let ``a cancelled plugin run is silent`` () =
     loud.Notification
     |> Option.map (fun n -> n.Severity)
     |> should equal (Some Severity.Error)
+
+// ── completion popup (phase 1: buffer words) ───────────────────────────────
+
+/// Type `text` into a fresh editor buffer, char by char, from the update loop.
+let private typeInto (text: string) model =
+    text
+    |> Seq.fold (fun m c -> fst (Editor.update (KeyPressed(if c = ' ' then nk Space else chr c)) m)) model
+
+[<Fact>]
+let ``typing an identifier prefix auto-opens a popup of matching buffer words`` () =
+    // A buffer with `printline` and `printer`; typing `pri` should offer both.
+    let model = typeInto "printline printer pr" (initModel ())
+
+    match model.Completion with
+    | Some state ->
+        state.Prefix |> should equal "pr"
+
+        state.Candidates
+        |> List.map (fun c -> c.Label)
+        |> List.sort
+        |> should equal [ "printer"; "printline" ]
+
+        state.Candidates
+        |> List.forall (fun c -> c.Source = FromBuffer)
+        |> should equal true
+    | None -> failwith "expected an open completion popup"
+
+[<Fact>]
+let ``a one-character prefix does not auto-open, but the trigger action does`` () =
+    let typed = typeInto "printer p" (initModel ())
+    typed.Completion |> should equal None
+
+    let triggered, _ = Editor.runAction TriggerCompletion typed
+
+    triggered.Completion
+    |> Option.map (fun s -> s.Prefix)
+    |> should equal (Some "p")
+
+[<Fact>]
+let ``Down and Up move the selection and are consumed, not cursor motion`` () =
+    let model = typeInto "alpha alps al" (initModel ())
+    let cursorBefore = (Editor.activeBufferState model).Cursor
+
+    let down, downEffects = Editor.update (KeyPressed(nk Down)) model
+    down.Completion |> Option.map (fun s -> s.Selected) |> should equal (Some 1)
+    (Editor.activeBufferState down).Cursor |> should equal cursorBefore // no cursor motion
+    downEffects |> should be Empty
+
+    let up, _ = Editor.update (KeyPressed(nk Up)) down
+    up.Completion |> Option.map (fun s -> s.Selected) |> should equal (Some 0)
+
+[<Fact>]
+let ``Escape dismisses the popup without editing`` () =
+    let model = typeInto "hello he" (initModel ())
+    model.Completion.IsSome |> should equal true
+
+    let dismissed, _ = Editor.update (KeyPressed(nk Escape)) model
+    dismissed.Completion |> should equal None
+    Buffer.text (Editor.activeBufferState dismissed) |> should equal "hello he"
+
+[<Fact>]
+let ``Tab accepts the selection and replaces the typed prefix`` () =
+    let model = typeInto "greeting gr" (initModel ())
+    let accepted, _ = Editor.update (KeyPressed(nk Tab)) model
+    accepted.Completion |> should equal None
+
+    Buffer.text (Editor.activeBufferState accepted)
+    |> should equal "greeting greeting"
+
+[<Fact>]
+let ``a completion accepted while recording replays the same text with no popup`` () =
+    // Record through the record-macro action directly for determinism.
+    let rec0 = fst (Editor.runAction (RecordMacro 'q') (initModel ()))
+    let typed = typeInto "value va" rec0
+    let accepted, _ = Editor.update (KeyPressed(nk Tab)) typed
+    let recorded = fst (Editor.runAction (RecordMacro 'q') accepted) // toggles recording off
+    Buffer.text (Editor.activeBufferState recorded) |> should equal "value value"
+
+    // Replay into a buffer that has no such word to complete from.
+    let fresh = initModel ()
+
+    let replayed, effects =
+        Editor.runAction
+            (ReplayMacro('q', 1))
+            { fresh with
+                Registers = recorded.Registers }
+    // Drain any replay pump steps synchronously.
+    let rec drain (m, fx) =
+        if
+            fx
+            |> List.exists (function
+                | ReplayPump -> true
+                | _ -> false)
+        then
+            drain (Editor.update ReplayStepReady m)
+        else
+            m
+
+    let settled = drain (replayed, effects)
+    // The macro baked the accepted word in as an edit, so replay reproduces
+    // the full outcome with no completion source.
+    Buffer.text (Editor.activeBufferState settled) |> should equal "value value"
+
+[<Fact>]
+let ``switching focus or buffer closes the popup`` () =
+    let model = typeInto "sidebar si" (initModel ())
+    model.Completion.IsSome |> should equal true
+    let focused, _ = Editor.update (KeyPressed(ck 't')) model // reveal+focus sidebar
+    focused.Completion |> should equal None
+
+[<Fact>]
+let ``the popup paints its candidates in the dock`` () =
+    let model =
+        { typeInto
+              "banana ba"
+              { (initModel ()) with
+                  Terminal = { Width = 40; Height = 12 } } with
+            Panels = (initModel ()).Panels }
+
+    let screen = Layout.render model
+
+    let rows =
+        [ for r in 0 .. screen.Height - 1 -> String.init screen.Width (fun c -> string screen.Cells[r, c].Glyph) ]
+
+    rows |> List.exists (fun row -> row.Contains "banana") |> should equal true
+    rows |> List.exists (fun row -> row.Contains "buf") |> should equal true
