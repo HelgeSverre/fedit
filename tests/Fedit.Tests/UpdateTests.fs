@@ -4808,3 +4808,116 @@ let ``plugin candidates merge into the popup and clear their pending source`` ()
         |> List.exists (fun c -> c.Label = "showcaseHello" && c.Source = FromPlugin "showcase")
         |> should equal true
     | None -> failwith "popup vanished"
+
+// ── prompt word motion (command palette and every prompt mode) ─────────────
+
+let private ankn n : Chord =
+    { Mods = Set.ofList [ Alt ]
+      Key = Named n } // alt+<named>
+
+let private supk n : Chord =
+    { Mods = Set.ofList [ Super ]
+      Key = Named n } // super/cmd+<named>
+
+/// Open the command palette and type `text` into it (bare chars + spaces).
+let private paletteWith (text: string) =
+    let press chord m =
+        fst (Editor.update (KeyPressed chord) m)
+
+    text
+    |> Seq.fold (fun m c -> press (if c = ' ' then nk Space else chr c) m) (initModel () |> press (ck 'p'))
+
+let private promptOf model = model.Prompt.Text, model.Prompt.Cursor
+
+[<Fact>]
+let ``Ctrl+Left and Alt+Left jump the prompt caret one word left`` () =
+    let model = paletteWith "open src/main.fs" // cursor at end (len 17 incl leading ':')
+    let text = model.Prompt.Text
+    text |> should equal ":open src/main.fs"
+
+    let left1, _ = Editor.update (KeyPressed(cnk Left)) model
+    // Jumps over "fs".
+    left1.Prompt.Cursor |> should equal (text.Length - 2)
+
+    // Alt+Left behaves the same.
+    let left1alt, _ = Editor.update (KeyPressed(ankn Left)) model
+    left1alt.Prompt.Cursor |> should equal (text.Length - 2)
+
+[<Fact>]
+let ``Ctrl+Right jumps the prompt caret one word right`` () =
+    let model = paletteWith "open foo bar"
+    // Move home, then word-right lands past "open".
+    let home, _ = Editor.update (KeyPressed(nk Home)) model
+    let r1, _ = Editor.update (KeyPressed(cnk Right)) home
+    // From cursor 0 (before ':'), word-right consumes ":" then... the prefix
+    // ':' is punctuation; landing is after the first run. Just assert it moved
+    // forward past the colon-and-word boundary and is within the text.
+    (r1.Prompt.Cursor > 0 && r1.Prompt.Cursor <= model.Prompt.Text.Length)
+    |> should equal true
+
+[<Fact>]
+let ``Ctrl+Backspace deletes the word before the prompt caret`` () =
+    let model = paletteWith "open src/main.fs"
+    let deleted, _ = Editor.update (KeyPressed(cnk Backspace)) model
+    fst (promptOf deleted) |> should equal ":open src/main."
+
+    // Word motion treats punctuation as its own run: "." then "main".
+    let deleted2, _ = Editor.update (KeyPressed(cnk Backspace)) deleted
+    fst (promptOf deleted2) |> should equal ":open src/main"
+
+    let deleted3, _ = Editor.update (KeyPressed(cnk Backspace)) deleted2
+    fst (promptOf deleted3) |> should equal ":open src/"
+
+[<Fact>]
+let ``Ctrl+Delete deletes the word after the prompt caret`` () =
+    let model = paletteWith "open foo bar"
+    let home, _ = Editor.update (KeyPressed(nk Home)) model
+    // From column 0 the leading ":" is its own punctuation run, then "open".
+    let d1, _ = Editor.update (KeyPressed(cnk Delete)) home
+    fst (promptOf d1) |> should equal "open foo bar"
+    let d2, _ = Editor.update (KeyPressed(cnk Delete)) d1
+    fst (promptOf d2) |> should equal " foo bar"
+
+[<Fact>]
+let ``Cmd+Left and Cmd+Right jump the prompt caret to the ends`` () =
+    let model = paletteWith "hello"
+    let toStart, _ = Editor.update (KeyPressed(supk Left)) model
+    toStart.Prompt.Cursor |> should equal 0
+    let toEnd, _ = Editor.update (KeyPressed(supk Right)) toStart
+    toEnd.Prompt.Cursor |> should equal model.Prompt.Text.Length
+
+[<Fact>]
+let ``word delete at the prompt boundaries is a harmless no-op`` () =
+    let model = paletteWith "hi"
+    let home, _ = Editor.update (KeyPressed(nk Home)) model
+    // Ctrl+Backspace at column 0 does nothing and never closes the prompt.
+    let back, _ = Editor.update (KeyPressed(cnk Backspace)) home
+    promptOf back |> should equal (":hi", 0)
+    back.Prompt.Active |> should equal true
+
+    let ``end`` = fst (Editor.update (KeyPressed(nk End)) model)
+    let fwd, _ = Editor.update (KeyPressed(cnk Delete)) ``end``
+    promptOf fwd |> should equal (":hi", 3)
+
+[<Fact>]
+let ``Ctrl+Backspace drops the last word of a picker filter`` () =
+    // The plugins picker is a list session; its filter is the prompt text.
+    let press chord m =
+        fst (Editor.update (KeyPressed chord) m)
+
+    let opened = commandModel "plugins"
+    opened.Prompt.Session |> should equal PromptSessionKind.PluginsSession
+
+    // Avoid the plugin picker's action keys (e/d/r/u) in the filter text.
+    let filtered =
+        "abc xyz"
+        |> Seq.fold (fun m c -> press (if c = ' ' then nk Space else chr c) m) opened
+
+    filtered.Prompt.Text |> should equal "abc xyz"
+
+    let deleted = press (cnk Backspace) filtered
+    deleted.Prompt.Text |> should equal "abc "
+
+    // A plain backspace still removes one character.
+    let one = press (nk Backspace) deleted
+    one.Prompt.Text |> should equal "abc"

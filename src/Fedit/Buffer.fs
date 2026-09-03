@@ -335,9 +335,10 @@ module Buffer =
         elif Set.contains c punctuationChars then Punctuation
         else Other
 
-    // Backward motion: scan past whitespace, then collapse one homogeneous
-    // class run. Symmetric for all landing modes.
-    let private wordIndexLeft (txt: string) startIdx =
+    /// The index one word-motion to the LEFT of `startIdx` in `txt`: scan
+    /// past whitespace, then collapse one homogeneous class run. Pure over a
+    /// plain string, so the editor buffer and the prompt line share it.
+    let wordIndexLeft (txt: string) startIdx =
         let mutable i = startIdx
 
         while i > 0 && classify txt[i - 1] = Whitespace do
@@ -351,11 +352,11 @@ module Buffer =
 
         i
 
-    // Forward motion:
-    //   Phase 1 — skip leading whitespace (puts us at the start of a run).
-    //   Phase 2 — consume the run we're sitting on.
-    //   Phase 3 — if NextWordStart, eat trailing whitespace too (vim 'w').
-    let private wordIndexRight (landing: WordMotionLanding) (txt: string) startIdx =
+    /// The index one word-motion to the RIGHT of `startIdx` in `txt`:
+    ///   Phase 1 — skip leading whitespace (puts us at the start of a run).
+    ///   Phase 2 — consume the run we're sitting on.
+    ///   Phase 3 — if NextWordStart, eat trailing whitespace too (vim 'w').
+    let wordIndexRight (landing: WordMotionLanding) (txt: string) startIdx =
         let len = txt.Length
         let mutable i = startIdx
 

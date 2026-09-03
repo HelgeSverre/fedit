@@ -654,18 +654,29 @@ module Pickers =
         nextState
 
     /// Backspace filter
+    /// Truncate the filter to `length` characters (clamped) and re-clamp the
+    /// selection. Backs both single-char and word-wise backspace.
+    let private truncateFilter length (model: Model) (pickerState: PickerState) : PickerState =
+        { pickerState with
+            Filter = pickerState.Filter.Substring(0, max 0 (min pickerState.Filter.Length length))
+            PendingConfirmation = None }
+        |> clampSelection model
+
     let backspaceFilter (model: Model) (pickerState: PickerState) : PickerState =
         if String.IsNullOrEmpty pickerState.Filter then
             { pickerState with
                 PendingConfirmation = None }
         else
-            let nextState =
-                { pickerState with
-                    Filter = pickerState.Filter.Remove(pickerState.Filter.Length - 1)
-                    PendingConfirmation = None }
-                |> clampSelection model
+            truncateFilter (pickerState.Filter.Length - 1) model pickerState
 
-            nextState
+    /// Ctrl+Backspace in a picker: drop the last word of the filter,
+    /// sharing the editor's word boundary.
+    let backspaceWordFilter (model: Model) (pickerState: PickerState) : PickerState =
+        if String.IsNullOrEmpty pickerState.Filter then
+            { pickerState with
+                PendingConfirmation = None }
+        else
+            truncateFilter (Buffer.wordIndexLeft pickerState.Filter pickerState.Filter.Length) model pickerState
 
     /// Get the first item ID for a picker kind
     let firstItemId (model: Model) (kind: PickerKind) : string option =

@@ -829,33 +829,32 @@ module Editor =
     let private applyCompletion (item: CompletionItem) model =
         replacePromptText (prefixOf model.Prompt.Mode + item.ApplyText) model
 
-    let private deletePromptBackward model =
-        let prompt = model.Prompt
+    /// Move the prompt caret to `index`, clamped to the text. The single
+    /// mutation point for every prompt cursor motion — char, home/end, word.
+    let private movePromptCursor index model =
+        { model with
+            Prompt =
+                { model.Prompt with
+                    Cursor = max 0 (min model.Prompt.Text.Length index) } },
+        []
 
-        if prompt.Cursor = 0 then
-            // Backspace at the start is a no-op; closing the prompt is
-            // Esc's job alone so users can't accidentally dismiss their
-            // session by holding backspace past the mode prefix.
+    /// Delete the prompt text in `[start, finish)` (clamped, order-agnostic)
+    /// and leave the caret at the span's start. An empty span is a no-op —
+    /// so Backspace at column 0 never closes the prompt (Esc's job alone).
+    /// Backs every prompt deletion: char, word-back, word-forward.
+    let private deletePromptSpan start finish model =
+        let text = model.Prompt.Text
+        let lo = max 0 (min start finish)
+        let hi = min text.Length (max start finish)
+
+        if hi <= lo then
             model, []
         else
             { model with
                 Prompt =
-                    { prompt with
-                        Text = prompt.Text.Remove(prompt.Cursor - 1, 1)
-                        Cursor = prompt.Cursor - 1
-                        SelectedCompletion = 0 } }
-            |> refreshPrompt
-
-    let private deletePromptForward model =
-        let prompt = model.Prompt
-
-        if prompt.Cursor >= prompt.Text.Length then
-            model, []
-        else
-            { model with
-                Prompt =
-                    { prompt with
-                        Text = prompt.Text.Remove(prompt.Cursor, 1)
+                    { model.Prompt with
+                        Text = text.Remove(lo, hi - lo)
+                        Cursor = lo
                         SelectedCompletion = 0 } }
             |> refreshPrompt
 
@@ -3185,6 +3184,12 @@ module Editor =
     let private kPageDown = nk PageDown
     let private kCtrlQ = cc 'q'
 
+    /// Ctrl or Alt alone — the two modifiers that make an arrow a word jump
+    /// (the editor keymap binds both). Excludes Shift, which would be a
+    /// selection the prompt has no model for.
+    let private isWordMod (mods: Set<Modifier>) =
+        mods = Set.singleton Ctrl || mods = Set.singleton Alt
+
     /// The keys an open completion popup consumes: navigate, accept, dismiss.
     let private completionOwnsChord (chord: Chord) =
         chord = kUp
@@ -3415,6 +3420,8 @@ module Editor =
                     closePrompt model, []
             | { Mods = m; Key = Named Backspace } when m.IsEmpty ->
                 applyPromptPickerState prompt.Session (pickerState |> Pickers.backspaceFilter model) model
+            | { Mods = m; Key = Named Backspace } when m = Set.singleton Ctrl ->
+                applyPromptPickerState prompt.Session (pickerState |> Pickers.backspaceWordFilter model) model
             | { Mods = m; Key = Named Space } when m.IsEmpty ->
                 applyPromptPickerState prompt.Session (pickerState |> Pickers.appendFilter " " model) model
             | { Mods = m; Key = Char value } when m.IsEmpty && actionKeys.Contains(Char.ToLowerInvariant value) ->
@@ -3457,30 +3464,32 @@ module Editor =
                     | _ -> model
 
                 closePrompt restored, []
-            | c when c = kLeft ->
-                { model with
-                    Prompt =
-                        { prompt with
-                            Cursor = max 0 (prompt.Cursor - 1) } },
-                []
-            | c when c = kRight ->
-                { model with
-                    Prompt =
-                        { prompt with
-                            Cursor = min prompt.Text.Length (prompt.Cursor + 1) } },
-                []
-            | c when c = kHome ->
-                { model with
-                    Prompt = { prompt with Cursor = 0 } },
-                []
-            | c when c = kEnd ->
-                { model with
-                    Prompt =
-                        { prompt with
-                            Cursor = prompt.Text.Length } },
-                []
-            | { Mods = m; Key = Named Backspace } when m.IsEmpty -> deletePromptBackward model
-            | { Mods = m; Key = Named Delete } when m.IsEmpty -> deletePromptForward model
+            | c when c = kLeft -> movePromptCursor (prompt.Cursor - 1) model
+            | c when c = kRight -> movePromptCursor (prompt.Cursor + 1) model
+            | c when c = kHome -> movePromptCursor 0 model
+            | c when c = kEnd -> movePromptCursor prompt.Text.Length model
+            // Word jump: Alt/Ctrl+Left/Right, sharing the editor's word
+            // boundaries (`Buffer.wordIndex*`) and the `wordMotion` landing.
+            | { Mods = m; Key = Named Left } when isWordMod m ->
+                movePromptCursor (Buffer.wordIndexLeft prompt.Text prompt.Cursor) model
+            | { Mods = m; Key = Named Right } when isWordMod m ->
+                movePromptCursor (Buffer.wordIndexRight model.Config.WordMotion prompt.Text prompt.Cursor) model
+            // Cmd+Left/Right (reported as Super) jump to line ends, mirroring
+            // the editor keymap; the prompt is one line, so end of text.
+            | { Mods = m; Key = Named Left } when m = Set.singleton Super -> movePromptCursor 0 model
+            | { Mods = m; Key = Named Right } when m = Set.singleton Super -> movePromptCursor prompt.Text.Length model
+            | { Mods = m; Key = Named Backspace } when m.IsEmpty ->
+                deletePromptSpan (prompt.Cursor - 1) prompt.Cursor model
+            | { Mods = m; Key = Named Delete } when m.IsEmpty ->
+                deletePromptSpan prompt.Cursor (prompt.Cursor + 1) model
+            // Word delete: Ctrl+Backspace / Ctrl+Delete.
+            | { Mods = m; Key = Named Backspace } when m = Set.singleton Ctrl ->
+                deletePromptSpan (Buffer.wordIndexLeft prompt.Text prompt.Cursor) prompt.Cursor model
+            | { Mods = m; Key = Named Delete } when m = Set.singleton Ctrl ->
+                deletePromptSpan
+                    prompt.Cursor
+                    (Buffer.wordIndexRight model.Config.WordMotion prompt.Text prompt.Cursor)
+                    model
             | { Mods = m; Key = Char value } when m.IsEmpty -> insertPromptText (string value) model
             // Spacebar maps to `Named Space`, not `Char ' '`; insert it as text so
             // command arguments (`:theme green`) can be typed.
