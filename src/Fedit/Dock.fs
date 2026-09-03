@@ -199,7 +199,14 @@ module Dock =
             | None, None, DockStyled(_, lines) -> min configuredMax (1 + max 1 lines.Length)
             | None, None, NoDock -> 0
 
-        let statusY = max 0 (height - dockHeight - 2)
+        // Bottom-anchored chrome: the status bar is always the last row;
+        // an input row sits just above it only while a prompt is open
+        // (pickers are prompt sessions, so they carry it; the completion
+        // popup and info/which-key panels do not). The dock grows upward
+        // from just above that.
+        let promptActive = model.Prompt.Active
+        let bottomChrome = if promptActive then 2 else 1
+        let mainHeight = max 1 (height - bottomChrome - dockHeight)
 
         let sidebarWidth =
             if model.Panels.SidebarVisible && width >= 40 then
@@ -212,10 +219,10 @@ module Dock =
         { PickerView = pickerView
           Panel = activePanel
           DockHeight = dockHeight
-          StatusY = statusY
-          DockY = max 0 (height - dockHeight - 1)
-          CommandY = height - 1
-          MainHeight = max 1 statusY
+          StatusY = height - 1
+          DockY = mainHeight
+          CommandY = height - 2
+          MainHeight = mainHeight
           SidebarWidth = sidebarWidth
           EditorX = editorX
           EditorWidth = max 1 (width - editorX) }

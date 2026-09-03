@@ -26,6 +26,9 @@ let ``every theme carries name, accent and a syntax object`` () =
 
         row.GetProperty("accent").ValueKind |> should equal JsonValueKind.String
         row.GetProperty("syntax").ValueKind |> should equal JsonValueKind.Object
+        // The dock context header slots ship on every emitted theme.
+        row.GetProperty("headerFg").ValueKind |> should equal JsonValueKind.String
+        row.GetProperty("headerBg").ValueKind |> should equal JsonValueKind.String
 
 [<Fact>]
 let ``github-light is a light theme with an opaque white editor surface`` () =

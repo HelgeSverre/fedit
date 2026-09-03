@@ -43,8 +43,9 @@ let private assertSnapshot (expected: string) (actual: string) =
 
 // ── Full-frame goldens ──────────────────────────────────────────────────
 // At 30x6 the sidebar is hidden (width < 40) and the dock is empty, so the
-// frame is: editor rows (gutter + content, active line styled), status bar
-// (truncated at the inner width), and the empty command bar.
+// frame is: editor rows (gutter + content, active line styled) and the
+// status bar as the last row. Idle has no command bar (it appears only
+// while a prompt is open), so the editor keeps that row.
 
 [<Fact>]
 let ``golden frame: empty scratch buffer at 30x6`` () =
@@ -55,8 +56,8 @@ let ``golden frame: empty scratch buffer at 30x6`` () =
 [241/_ ..]~    [252/_ ..]
 [241/_ ..]~    [252/_ ..]
 [241/_ ..]~    [252/_ ..]
+[241/_ ..]~    [252/_ ..]
 [15/22 ..] EDIT  [scratch]  Ctrl+P prom
-[230/237 ..]
 """
 
     assertSnapshot expected (renderOf (baseModel (size 30 6)))
@@ -79,8 +80,8 @@ let ``golden frame: two-line buffer at 30x6`` () =
 [241/_ ..]  2 [252/_ ..] cd
 [241/_ ..]~    [252/_ ..]
 [241/_ ..]~    [252/_ ..]
+[241/_ ..]~    [252/_ ..]
 [15/22 ..] EDIT  [scratch]  Ctrl+P prom
-[230/237 ..]
 """
 
     assertSnapshot expected (renderOf withLines)

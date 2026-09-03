@@ -69,6 +69,8 @@ let private themeJson (t: Theme) : string =
           field "surfaceBg" (colorVal t.SurfaceBg)
           field "chromeFg" (colorVal t.ChromeFg)
           field "chromeBg" (colorVal t.ChromeBg)
+          field "headerFg" (colorVal t.HeaderFg)
+          field "headerBg" (colorVal t.HeaderBg)
           field "promptFg" (colorVal t.PromptFg)
           field "promptBg" (colorVal t.PromptBg)
           field "lineNumberFg" (colorVal t.LineNumberFg)

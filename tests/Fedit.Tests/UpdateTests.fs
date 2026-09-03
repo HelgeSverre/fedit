@@ -4921,3 +4921,66 @@ let ``Ctrl+Backspace drops the last word of a picker filter`` () =
     // A plain backspace still removes one character.
     let one = press (nk Backspace) deleted
     one.Prompt.Text |> should equal "abc"
+
+// ── dock/status geometry: status pinned bottom, input above it ─────────────
+
+[<Fact>]
+let ``idle: the status bar is the last row and there is no input row`` () =
+    let model =
+        { initModel () with
+            Terminal = { Width = 80; Height = 24 } }
+
+    let m = Dock.metrics model
+    m.StatusY |> should equal 23 // height - 1
+    m.DockHeight |> should equal 0
+    m.DockY |> should equal m.MainHeight
+    m.MainHeight |> should equal 23 // editor fills every row above the status bar
+
+[<Fact>]
+let ``an open prompt reserves an input row just above the status bar`` () =
+    let model =
+        { initModel () with
+            Terminal = { Width = 80; Height = 24 } }
+
+    let opened = fst (Editor.update (KeyPressed(ck 'p')) model) // command palette
+    opened.Prompt.Active |> should equal true
+
+    let m = Dock.metrics opened
+    m.StatusY |> should equal 23 // status still last
+    m.CommandY |> should equal 22 // input directly above it
+    // The dock (command help) sits above the input; editor above the dock.
+    m.DockY |> should equal m.MainHeight
+    (m.MainHeight + m.DockHeight) |> should equal 22 // dock ends just above the input row
+
+[<Fact>]
+let ``the completion popup has no input row: dock sits directly above the status bar`` () =
+    let model =
+        { initModel () with
+            Terminal = { Width = 80; Height = 24 } }
+
+    let typed =
+        "printline pr"
+        |> Seq.fold (fun m c -> fst (Editor.update (KeyPressed(if c = ' ' then nk Space else chr c)) m)) model
+
+    typed.Completion.IsSome |> should equal true
+    typed.Prompt.Active |> should equal false
+
+    let m = Dock.metrics typed
+    m.StatusY |> should equal 23
+    // No prompt, so only the status row is reserved below the dock.
+    (m.MainHeight + m.DockHeight) |> should equal 23
+
+[<Fact>]
+let ``the dock title paints in the header style, not the accent`` () =
+    let model =
+        { initModel () with
+            Terminal = { Width = 60; Height = 16 } }
+
+    let opened = fst (Editor.update (KeyPressed(ck 'p')) model)
+    let m = Dock.metrics opened
+    let screen = Layout.render opened
+    let theme = Themes.defaultTheme
+    // The header row's first cell carries the theme header background.
+    let cell = screen.Cells[m.DockY, 0]
+    cell.Style.Background |> should equal theme.HeaderBg
+    cell.Style.Background |> should not' (equal theme.Accent)

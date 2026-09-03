@@ -13,6 +13,8 @@
   "surfaceBg": "#FFFFFF",
   "chromeFg": "#6E7781",
   "chromeBg": "#F6F8FA",
+  "headerFg": "#57606A",
+  "headerBg": "#D0D7DE",
   "promptFg": "#1F2328",
   "promptBg": "#EAEEF2",
   "lineNumberFg": "#8C959F",

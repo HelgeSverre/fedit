@@ -29,6 +29,11 @@ module Layout =
     let private accentOf (theme: Theme) =
         Style.withColors theme.Accent theme.ChromeBg
 
+    // Dock context header — a dimmed gray band carrying the panel title
+    // (Commands, Plugins, Complete, Hover, Keys). Its own fg/bg theme slot.
+    let private headerOf (theme: Theme) =
+        Style.withColors theme.HeaderFg theme.HeaderBg
+
     let private statusOf (theme: Theme) =
         Style.withColors theme.StatusFg theme.StatusBg
 
@@ -652,7 +657,6 @@ module Layout =
         |> List.iteri (fun i (style, text) -> Screen.writeText x (bodyTop + i) style width (pad width text) screen)
 
     let private renderPicker (theme: Theme) dockY width dockHeight (view: PickerView) screen =
-        let accent = accentOf theme
         let chrome = chromeOf theme
         let selected = selectedOf theme
 
@@ -662,7 +666,13 @@ module Layout =
             else
                 $"  filter: {view.Filter}"
 
-        Screen.writeText 0 dockY accent width (pad width $" {view.Title} ({view.Items.Length}){filterSuffix} ") screen
+        Screen.writeText
+            0
+            dockY
+            (headerOf theme)
+            width
+            (pad width $" {view.Title} ({view.Items.Length}){filterSuffix} ")
+            screen
 
         let bodyTop = dockY + 1
         let footerY = dockY + dockHeight - 1
@@ -746,6 +756,7 @@ module Layout =
     let render model =
         let theme = effectiveTheme model
         let accent = accentOf theme
+        let header = headerOf theme
         let status = statusOf theme
         let selected = selectedOf theme
         let chrome = chromeOf theme
@@ -802,7 +813,7 @@ module Layout =
         match panel with
         | NoDock -> ()
         | DockInfo(title, lines) ->
-            Screen.writeText 0 dockY accent width (pad width $" {title} ") current
+            Screen.writeText 0 dockY header width (pad width $" {title} ") current
 
             lines
             |> List.truncate (max 0 (dockHeight - 1))
@@ -815,7 +826,7 @@ module Layout =
                     (pad (max 0 (width - 2)) lineText)
                     current)
         | DockStyled(title, lines) ->
-            Screen.writeText 0 dockY accent width (pad width $" {title} ") current
+            Screen.writeText 0 dockY header width (pad width $" {title} ") current
 
             let styleFor (style: Fedit.PluginApi.TextStyle) =
                 match style with
@@ -840,7 +851,7 @@ module Layout =
             let visibleHeight = max 0 (dockHeight - 1)
             let totalCount = items.Length
             let titleWithCount = $" {title} ({selectedIndex + 1}/{totalCount}) "
-            Screen.writeText 0 dockY accent width (pad width titleWithCount) current
+            Screen.writeText 0 dockY header width (pad width titleWithCount) current
 
             if visibleHeight > 0 then
                 let viewOffset =
@@ -878,28 +889,23 @@ module Layout =
         | Some view -> renderPicker theme dockY width dockHeight view current
         | None -> ()
 
-        Screen.fillRect 0 commandY width 1 commandBar ' ' current
-
         let prompt = model.Prompt
 
-        let lineText =
-            if prompt.Active then
-                let displayPrefix = promptDisplayPrefix model prompt.Session
-
-                let suffix =
-                    match prompt.Mode, prompt.SearchPreview with
-                    | Search, Some preview when not preview.Matches.IsEmpty ->
-                        $"  ({preview.Current + 1}/{preview.Matches.Length})"
-                    | _ -> ""
-
-                displayPrefix + prompt.Text + suffix
-            else
-                ""
-
-        Screen.writeText 0 commandY commandBar width (pad width lineText) current
-
+        // The input row exists only while a prompt is open — it sits just
+        // above the bottom status bar (Dock.metrics.CommandY). Idle, the
+        // editor keeps that row.
         if prompt.Active then
             let displayPrefix = promptDisplayPrefix model prompt.Session
+
+            let suffix =
+                match prompt.Mode, prompt.SearchPreview with
+                | Search, Some preview when not preview.Matches.IsEmpty ->
+                    $"  ({preview.Current + 1}/{preview.Matches.Length})"
+                | _ -> ""
+
+            let lineText = displayPrefix + prompt.Text + suffix
+            Screen.fillRect 0 commandY width 1 commandBar ' ' current
+            Screen.writeText 0 commandY commandBar width (pad width lineText) current
 
             current <-
                 Screen.withCursor

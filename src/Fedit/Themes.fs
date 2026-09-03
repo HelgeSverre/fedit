@@ -33,6 +33,11 @@ type Theme =
       SurfaceBg: Color
       ChromeFg: Color
       ChromeBg: Color
+      // Dock context header — the dimmed gray band that carries the panel
+      // title (Commands, Plugins, Complete, Hover, Keys) at the top of the
+      // dock. Its own fg/bg so a theme owns the whole surface.
+      HeaderFg: Color
+      HeaderBg: Color
       PromptFg: Color
       PromptBg: Color
       LineNumberFg: Color
@@ -149,6 +154,9 @@ module Themes =
           SurfaceBg = Color.Default
           ChromeFg = Color.indexed 244
           ChromeBg = Color.Default
+          // Dimmed dark-gray band with light-gray text.
+          HeaderFg = Color.indexed 250
+          HeaderBg = Color.indexed 238
           PromptFg = Color.indexed 230
           PromptBg = Color.indexed 237
           LineNumberFg = Color.indexed 241
@@ -279,6 +287,8 @@ module Themes =
             SurfaceBg = Color.ofHex "#FFFFFF"
             ChromeFg = Color.ofHex "#6E7781"
             ChromeBg = Color.ofHex "#F6F8FA"
+            HeaderFg = Color.ofHex "#57606A"
+            HeaderBg = Color.ofHex "#D0D7DE"
             PromptFg = Color.ofHex "#1F2328"
             PromptBg = Color.ofHex "#EAEEF2"
             LineNumberFg = Color.ofHex "#8C959F"
@@ -325,6 +335,8 @@ module Themes =
             SurfaceBg = Color.ofHex "#0D1117"
             ChromeFg = Color.ofHex "#8B949E"
             ChromeBg = Color.ofHex "#161B22"
+            HeaderFg = Color.ofHex "#C9D1D9"
+            HeaderBg = Color.ofHex "#30363D"
             PromptFg = Color.ofHex "#E6EDF3"
             PromptBg = Color.ofHex "#161B22"
             LineNumberFg = Color.ofHex "#6E7681"
@@ -388,6 +400,8 @@ module Themes =
             SurfaceBg = Color.ofHex "#0D1017"
             ChromeFg = Color.ofHex "#5A6378"
             ChromeBg = Color.ofHex "#10141C"
+            HeaderFg = Color.ofHex "#BFBDB6"
+            HeaderBg = Color.ofHex "#2D3441"
             PromptFg = Color.ofHex "#BFBDB6"
             PromptBg = Color.ofHex "#10141C"
             LineNumberFg = Color.ofHex "#5A6378"

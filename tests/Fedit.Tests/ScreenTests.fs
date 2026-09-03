@@ -169,8 +169,8 @@ let ``an error notification paints its status segment in the theme error color``
                     StatusFormat = "[NOTIFICATION]" } }
 
     let screen = Layout.render model
-    // No dock is open, so the status row sits two rows above the bottom.
-    let statusRow = screen.Height - 2
+    // The status bar is always the last row now.
+    let statusRow = screen.Height - 1
     let cell = screen.Cells[statusRow, 1]
 
     cell.Glyph |> should equal 'b'
@@ -190,7 +190,7 @@ let ``an info notification keeps the plain status style`` () =
                     StatusFormat = "[NOTIFICATION]" } }
 
     let screen = Layout.render model
-    let statusRow = screen.Height - 2
+    let statusRow = screen.Height - 1
     let cell = screen.Cells[statusRow, 1]
 
     cell.Glyph |> should equal 's'
