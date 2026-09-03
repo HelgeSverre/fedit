@@ -1,6 +1,6 @@
 # Completions and the completion provider interface
 
-Status: plan, 2026-09-03. Nothing here is built. Follows the extension
+Status: in progress, 2026-09-03. Phase 1 shipped (buffer-word popup, accept-as-edit); phases 2-4 pending. Follows the extension
 surface shipped in `docs/superpowers/2026-09-02-extension-surface.md`; the
 provider interface is the last item that document deferred.
 
@@ -223,11 +223,17 @@ false`.
 Each phase is a commit with tests green; the buffer-word source lands
 first so the UI has data with no LSP dependency.
 
-1. **Popup state + buffer words + accept.** `CompletionState`, the merge
-   function, `Buffer.wordAt`, the buffer-word effect, `runEditor` key
-   handling, accept-as-edit with macro recording, `DockCompletions` badge.
-   Gate: typing shows buffer words, Tab replaces the prefix, a macro
-   replays the inserted text. No LSP, no plugins.
+1. **Popup state + buffer words + accept.** SHIPPED. `CompletionState`,
+   `Buffer.completionPrefix`/`Buffer.words`, `buildCompletion`,
+   key handling in the `KeyPressed` intercept, accept-as-edit with macro
+   recording, the `DockCompletions` source badge. Deviation from the plan:
+   the buffer-word source is synchronous and in-model (no
+   `RequestCompletions` effect, no `CompletionsArrived` msg yet) — a buffer
+   scan is pure and cheap, and staying synchronous keeps macro replay
+   deterministic with no fences. The async effect/msg path lands in phase 2
+   for the LSP source, merging into the already-open synchronous popup.
+   Gate met: typing shows buffer words, Tab replaces the prefix, a macro
+   replays the inserted text; proven by the suite and a pty run.
 2. **LSP completion.** Capability advertise + read, `completionRequest`,
    `readCompletionResult`, `SendCompletion`, the server source in the
    fan-out, `LspCompletionCount`. Gate: server candidates appear for a
