@@ -136,8 +136,10 @@ module Editor =
         | LoadKeybinds
         | LoadMacros _
         | SaveMacros _
-        // Fire-and-forget: document sync, restarts, and log fetches have
-        // no result the next replay step could depend on.
+        // Fire-and-forget: document sync, restarts, log fetches, and the
+        // completion fan-out have no result a replay step depends on (the
+        // popup never opens during replay).
+        | RequestCompletions _
         | LspSyncDocuments _
         | LspRestart _
         | LspFetchLog _
@@ -1377,55 +1379,136 @@ module Editor =
     /// macro capture skips them for the same reason — a live no-op has no
     /// outcome to replay. One list, two consumers, so the guard and the
     /// capture exclusion can never drift apart.
-    /// Build the completion popup for the active buffer, or `None` when
-    /// nothing under the cursor completes. Phase 1: buffer words only —
-    /// distinct word-runs sharing the prefix, nearest the cursor first,
-    /// excluding the word being typed. Pure and synchronous, so a macro
-    /// replays deterministically with no async source.
-    let private buildCompletion (model: Model) : CompletionState option =
+    /// Source priority for the merge tie-break: server, then plugin, then buffer.
+    let private sourcePriority =
+        function
+        | FromServer _ -> 0
+        | FromPlugin _ -> 1
+        | FromBuffer -> 2
+
+    /// Filter to candidates matching `prefix`, rank, dedupe by label, cap.
+    /// Tier 0 is a case-insensitive prefix match, tier 1 a subsequence
+    /// fallback; within a tier, higher-priority sources first, then the
+    /// input order (buffer words by proximity, server items by sortText).
+    let private rankCandidates
+        (prefix: string)
+        (limit: int)
+        (all: CompletionCandidate list)
+        : CompletionCandidate list =
+        let lower = prefix.ToLowerInvariant()
+
+        let isSubsequence (label: string) =
+            let l = label.ToLowerInvariant()
+            let mutable i = 0
+
+            for c in l do
+                if i < lower.Length && c = lower[i] then
+                    i <- i + 1
+
+            i = lower.Length
+
+        let tier (candidate: CompletionCandidate) =
+            if candidate.Label.StartsWith(prefix, System.StringComparison.OrdinalIgnoreCase) then
+                0
+            elif isSubsequence candidate.Label then
+                1
+            else
+                2
+
+        all
+        // Never offer the prefix verbatim as its own completion.
+        |> List.filter (fun c -> c.Label <> prefix && tier c < 2)
+        |> List.mapi (fun index c -> tier c, sourcePriority c.Source, index, c)
+        |> List.sortBy (fun (t, prio, index, _) -> t, prio, index)
+        |> List.map (fun (_, _, _, c) -> c)
+        |> List.distinctBy (fun c -> c.Label)
+        |> List.truncate limit
+
+    /// Distinct buffer words matching the prefix as completion candidates,
+    /// nearest the cursor first — the always-available synchronous source.
+    let private bufferCandidates (model: Model) (prefix: string) (start: int) (cursor: int) : CompletionCandidate list =
+        let buffer = activeBufferState model
+
+        Buffer.words buffer
+        |> List.filter (fun (word, wordStart) ->
+            wordStart <> start
+            && word.Length > prefix.Length
+            && word.StartsWith(prefix, System.StringComparison.OrdinalIgnoreCase))
+        |> List.groupBy fst
+        |> List.map (fun (word, occ) -> word, occ |> List.map (fun (_, at) -> abs (at - cursor)) |> List.min)
+        |> List.sortBy (fun (word, nearest) -> nearest, word.Length, word)
+        |> List.map (fun (word, _) ->
+            { Label = word
+              Insert = word
+              Detail = ""
+              Kind = "text"
+              Source = FromBuffer
+              SortKey = "" })
+
+    /// The merged display list: buffer words (recomputed fresh) plus the
+    /// accumulated external candidates, ranked to the current prefix.
+    let private mergeCompletion (model: Model) (state: CompletionState) : CompletionCandidate list =
+        let start, cursor = state.PrefixRange
+        let buffer = bufferCandidates model state.Prefix start cursor
+        rankCandidates state.Prefix model.Config.CompletionLimit (state.External @ buffer)
+
+    /// Open (or re-open) the popup for the word under the cursor, and fan
+    /// out an LSP completion request when the file has a server. `None`
+    /// prefix (cursor not after a word char) closes nothing here — the
+    /// caller decides. Returns the model and any request effects.
+    let private openCompletion (model: Model) : Model * Effect list =
         let buffer = activeBufferState model
         let prefix, start, cursor = Buffer.completionPrefix buffer
 
         if prefix.Length = 0 then
-            None
+            { model with Completion = None }, []
         else
-            let matches (word: string) =
-                word.Length > prefix.Length
-                && word.StartsWith(prefix, System.StringComparison.OrdinalIgnoreCase)
+            let server =
+                match buffer.FilePath with
+                | Some path -> enabledLanguageServerFor model.Config path
+                | None -> None
 
-            let candidates =
-                Buffer.words buffer
-                // Drop the occurrence the cursor is inside (its own prefix).
-                |> List.filter (fun (word, wordStart) -> matches word && wordStart <> start)
-                |> List.groupBy (fun (word, _) -> word)
-                |> List.map (fun (word, occurrences) ->
-                    let nearest = occurrences |> List.map (fun (_, at) -> abs (at - cursor)) |> List.min
-                    word, nearest)
-                // Nearest first, then shortest, then alphabetical.
-                |> List.sortBy (fun (word, nearest) -> nearest, word.Length, word)
-                |> List.truncate model.Config.CompletionLimit
-                |> List.map (fun (word, _) ->
-                    { Label = word
-                      Insert = word
-                      Replace = (start, cursor)
-                      Detail = ""
-                      Kind = "text"
-                      Source = FromBuffer
-                      SortKey = "" })
+            let pending, effects =
+                match server, buffer.FilePath with
+                | Some server, Some path ->
+                    let request: LspPositionRequest =
+                        { Path = path
+                          Position = buffer.Cursor
+                          EditTick = buffer.EditTick
+                          BufferId = buffer.Id
+                          Server = server
+                          WorkspaceRoot = model.Workspace.RootPath }
 
-            match candidates with
-            | [] -> None
+                    let limit =
+                        model.Config.ResourceLimits.LspCompletionCount |> Option.defaultValue 200
+
+                    Set.singleton (FromServer server.Name), [ RequestCompletions(request, limit) ]
+                | _ -> Set.empty, []
+
+            let state =
+                { BufferId = buffer.Id
+                  EditTick = buffer.EditTick
+                  Prefix = prefix
+                  PrefixRange = (start, cursor)
+                  External = []
+                  Pending = pending
+                  Candidates = []
+                  Selected = 0 }
+
+            let candidates = mergeCompletion model state
+
+            match candidates, pending.IsEmpty with
+            // Nothing to show and nothing pending: don't open an empty popup.
+            | [], true -> { model with Completion = None }, []
             | _ ->
-                Some
-                    { BufferId = buffer.Id
-                      Prefix = prefix
-                      PrefixRange = (start, cursor)
-                      Candidates = candidates
-                      Selected = 0 }
+                { model with
+                    Completion = Some { state with Candidates = candidates } },
+                effects
 
-    /// Keep an open popup in step with edits: rebuild it while the cursor
-    /// still sits at the end of a word in the same buffer; close it when
-    /// the prefix empties, the cursor leaves, or the buffer switched.
+    /// Keep an open popup in step with an edit: rebuild the display from the
+    /// live buffer and prefix, without re-querying (the async sources keep
+    /// their generation). Close it when the prefix empties, the cursor
+    /// leaves the word, or the buffer switched.
     let private refreshCompletion (model: Model) : Model =
         match model.Completion with
         | None -> model
@@ -1433,25 +1516,78 @@ module Editor =
             if state.BufferId <> model.Editors.ActiveBufferId then
                 { model with Completion = None }
             else
-                match buildCompletion model with
-                | Some rebuilt ->
-                    // Keep the selection on the same label where possible.
-                    let selected =
-                        model.Completion
-                        |> Option.bind (fun s -> List.tryItem s.Selected s.Candidates)
-                        |> Option.bind (fun current ->
-                            rebuilt.Candidates |> List.tryFindIndex (fun c -> c.Label = current.Label))
-                        |> Option.defaultValue 0
+                let buffer = activeBufferState model
+                let prefix, start, cursor = Buffer.completionPrefix buffer
 
-                    { model with
-                        Completion = Some { rebuilt with Selected = selected } }
-                | None -> { model with Completion = None }
+                if prefix.Length = 0 then
+                    { model with Completion = None }
+                else
+                    let prior =
+                        List.tryItem state.Selected state.Candidates |> Option.map (fun c -> c.Label)
 
-    /// Accept the selected candidate: replace its range with the insert
-    /// text as one undo entry, place the caret after it, close the popup.
-    /// When the range is exactly the typed prefix, record the remaining
-    /// characters as an `InsertText` macro step so replay reinserts the
-    /// same text with no completion source (mirrors search-accept).
+                    let next =
+                        { state with
+                            Prefix = prefix
+                            PrefixRange = (start, cursor) }
+
+                    let candidates = mergeCompletion model next
+
+                    match candidates, next.Pending.IsEmpty with
+                    | [], true -> { model with Completion = None }
+                    | _ ->
+                        let selected =
+                            prior
+                            |> Option.bind (fun label -> candidates |> List.tryFindIndex (fun c -> c.Label = label))
+                            |> Option.defaultValue 0
+
+                        { model with
+                            Completion =
+                                Some
+                                    { next with
+                                        Candidates = candidates
+                                        Selected = selected } }
+
+    /// Merge one async source's candidates into the open popup, if it is
+    /// still the popup those candidates were requested for.
+    let private applyCompletions
+        source
+        editTick
+        bufferId
+        (candidates: CompletionCandidate list)
+        (model: Model)
+        : Model =
+        match model.Completion with
+        | Some state when state.BufferId = bufferId && state.EditTick = editTick ->
+            let external =
+                (state.External |> List.filter (fun c -> c.Source <> source)) @ candidates
+
+            let prior =
+                List.tryItem state.Selected state.Candidates |> Option.map (fun c -> c.Label)
+
+            let next =
+                { state with
+                    External = external
+                    Pending = Set.remove source state.Pending }
+
+            let ranked = mergeCompletion model next
+
+            let selected =
+                prior
+                |> Option.bind (fun label -> ranked |> List.tryFindIndex (fun c -> c.Label = label))
+                |> Option.defaultValue 0
+
+            { model with
+                Completion =
+                    Some
+                        { next with
+                            Candidates = ranked
+                            Selected = selected } }
+        | _ -> model
+
+    /// Accept the selected candidate: replace the typed prefix with the
+    /// insert text as one undo entry, place the caret after it, close the
+    /// popup. Records the inserted delta as a macro step so replay
+    /// reinserts the same text with no source (mirrors search-accept).
     let private acceptCompletion (model: Model) : Model * Effect list =
         match model.Completion with
         | None -> model, []
@@ -1459,7 +1595,7 @@ module Editor =
             match List.tryItem state.Selected state.Candidates with
             | None -> { model with Completion = None }, []
             | Some candidate ->
-                let start, finish = candidate.Replace
+                let start, finish = state.PrefixRange
 
                 let edited =
                     updateActiveBuffer
@@ -1468,11 +1604,8 @@ module Editor =
                             |> Buffer.clearSelection)
                         { model with Completion = None }
 
-                // Record only when the accept replaced the typed prefix with
-                // a longer string extending it — the deterministic delta.
                 let recordable =
-                    (start, finish) = state.PrefixRange
-                    && candidate.Insert.StartsWith(state.Prefix, System.StringComparison.Ordinal)
+                    candidate.Insert.StartsWith(state.Prefix, System.StringComparison.Ordinal)
                     && candidate.Insert.Length > state.Prefix.Length
 
                 (if recordable then
@@ -2754,10 +2887,7 @@ module Editor =
         | GotoDefinition -> lspNavigate LspRequestDefinition model
         | FindReferences -> lspNavigate LspRequestReferences model
         | Hover -> lspNavigate LspRequestHover model
-        | TriggerCompletion ->
-            match buildCompletion model with
-            | Some state -> { model with Completion = Some state }, []
-            | None -> { model with Completion = None }, []
+        | TriggerCompletion -> openCompletion model
         | JumpBack ->
             match model.JumpStack with
             | [] -> notify (Some(Notification.info "Jump list is empty.")) model, []
@@ -3931,6 +4061,11 @@ module Editor =
                             { model.Lsp with
                                 Panel = Some { Title = "Hover"; Lines = lines } } },
                     [])
+        | CompletionsArrived(source, editTick, bufferId, Result.Ok candidates) ->
+            applyCompletions source editTick bufferId candidates model, []
+        | CompletionsArrived(source, editTick, bufferId, Result.Error _) ->
+            // Drop the source from Pending; no candidates from it.
+            applyCompletions source editTick bufferId [] model, []
         | LspLogFetched(title, lines) ->
             // Keep the tail: DockInfo paints top-down, and the newest log
             // lines are the ones worth reading. Sized against the dock rows
@@ -4839,7 +4974,7 @@ module Editor =
     /// edit; auto-open a fresh one when typing extends a word to two-plus
     /// characters and nothing is open (never re-open one just accepted or
     /// dismissed this dispatch).
-    let private syncCompletion (before: Model) (after: Model) : Model =
+    let private syncCompletion (before: Model) (after: Model) : Model * Effect list =
         let activeEditTick (model: Model) =
             model.Editors.Buffers.TryFind model.Editors.ActiveBufferId
             |> Option.map (fun b -> b.EditTick)
@@ -4848,14 +4983,18 @@ module Editor =
 
         match after.Completion with
         | Some state when after.Focus <> Editor || state.BufferId <> after.Editors.ActiveBufferId ->
-            { after with Completion = None }
-        | Some _ -> refreshCompletion after
-        | None when before.Completion.IsSome -> after // just accepted or dismissed
+            { after with Completion = None }, []
+        | Some _ -> refreshCompletion after, []
+        | None when before.Completion.IsSome -> after, [] // just accepted or dismissed
         | None when edited && after.Focus = Editor ->
-            match buildCompletion after with
-            | Some state when state.Prefix.Length >= 2 -> { after with Completion = Some state }
-            | _ -> after
-        | None -> after
+            // Auto-open only once the typed word is two-plus characters.
+            let prefix, _, _ = Buffer.completionPrefix (activeBufferState after)
+
+            if prefix.Length >= 2 then
+                openCompletion after
+            else
+                after, []
+        | None -> after, []
 
     let update msg model =
         let next, effects = updateCore msg model
@@ -4866,7 +5005,7 @@ module Editor =
         let next = recordBufferActivation model next
         let next = promoteDirtyPreview next
         let next = ensureHexViewport next
-        let next = syncCompletion model next
+        let next, completionFx = syncCompletion model next
         let next, highlightFx = highlightEffects model next
         let lspFx = lspSyncEffects model next
-        next, effects @ highlightFx @ lspFx
+        next, effects @ completionFx @ highlightFx @ lspFx

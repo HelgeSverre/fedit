@@ -210,6 +210,13 @@ module Runtime =
             $"LspReferencesResolved(buffer={bufferId}, tick={requestedEditTick}, {renderLocationsResult outcome})"
         | LspHoverResolved(outcome, requestedEditTick, bufferId) ->
             $"LspHoverResolved(buffer={bufferId}, tick={requestedEditTick}, {renderHoverResult outcome})"
+        | CompletionsArrived(_, editTick, bufferId, outcome) ->
+            let count =
+                match outcome with
+                | Result.Ok items -> string items.Length
+                | Result.Error e -> $"Error({e})"
+
+            $"CompletionsArrived(buffer={bufferId}, tick={editTick}, {count})"
         | LspLogFetched(title, lines) -> $"LspLogFetched({title}, lines={lines.Length})"
 
     let private renderEffect effect =
@@ -252,6 +259,7 @@ module Runtime =
             $"LspRestart({target})"
         | LspRequestDefinition request -> $"LspRequestDefinition({renderLspPositionRequest request})"
         | LspRequestHover request -> $"LspRequestHover({renderLspPositionRequest request})"
+        | RequestCompletions(request, _) -> $"RequestCompletions({renderLspPositionRequest request})"
         | LspRequestReferences request -> $"LspRequestReferences({renderLspPositionRequest request})"
         | LspFetchLog name ->
             let target =
@@ -1239,6 +1247,35 @@ module Runtime =
             | LspRequestHover request ->
                 lspPositionRequest request (fun client -> client.SendHover) (fun outcome ->
                     LspHoverResolved(outcome, request.EditTick, request.BufferId))
+            | RequestCompletions(request, limit) ->
+                lspContinueWith (fun () ->
+                    let client = lspClientForRequest request
+
+                    client.SendCompletion(
+                        request.Path,
+                        request.Position,
+                        limit,
+                        fun outcome ->
+                            let candidates =
+                                outcome
+                                |> Result.map (
+                                    List.map (fun (item: LspCompletionItem) ->
+                                        { Label = item.Label
+                                          Insert = item.Insert
+                                          Detail = item.Detail
+                                          Kind = item.Kind
+                                          Source = FromServer request.Server.Name
+                                          SortKey = item.SortText })
+                                )
+
+                            post (fun () ->
+                                CompletionsArrived(
+                                    FromServer request.Server.Name,
+                                    request.EditTick,
+                                    request.BufferId,
+                                    candidates
+                                ))
+                    ))
             | LspFetchLog name ->
                 Task.Run(fun () ->
                     let clients =

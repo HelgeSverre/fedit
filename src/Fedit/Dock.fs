@@ -116,7 +116,7 @@ module Dock =
             // transient panels (it is the active interaction). A source
             // badge rides in the item Detail: buf, lsp, or the plugin name.
             match model.Completion with
-            | Some completion when not completion.Candidates.IsEmpty ->
+            | Some completion when not completion.Candidates.IsEmpty || not (Set.isEmpty completion.Pending) ->
                 let items =
                     completion.Candidates
                     |> List.map (fun candidate ->
@@ -137,7 +137,13 @@ module Dock =
                           Detail = detail
                           Kind = PathItem })
 
-                DockCompletions("Complete", items, completion.Selected)
+                let title =
+                    if Set.isEmpty completion.Pending then
+                        "Complete"
+                    else
+                        "Complete …"
+
+                DockCompletions(title, items, completion.Selected)
             | _ ->
 
                 // The transient LSP info panel (hover, `:lsp log`) uses the dock

@@ -365,6 +365,13 @@ type LspClient
             (fun id -> LspWire.hoverRequest id (LspUri.fromPath path) (LspPosition.ofPosition position))
             (fun outcome -> callback (Result.map LspWire.readHoverResult outcome))
 
+    member _.SendCompletion
+        (path: string, position: Position, limit: int, callback: Result<LspCompletionItem list, string> -> unit)
+        : unit =
+        sendRequest
+            (fun id -> LspWire.completionRequest id (LspUri.fromPath path) (LspPosition.ofPosition position))
+            (fun outcome -> callback (Result.map (LspWire.readCompletionResult limit) outcome))
+
     member _.SendReferences
         (path: string, position: Position, callback: Result<LspLocation list, string> -> unit)
         : unit =

@@ -236,7 +236,12 @@ module ConfigIO =
                             getOptionalPositiveIntProp
                                 limits
                                 "lspPreviewTimeoutMs"
-                                defaults.ResourceLimits.LspPreviewTimeoutMs }
+                                defaults.ResourceLimits.LspPreviewTimeoutMs
+                          LspCompletionCount =
+                            getOptionalPositiveIntProp
+                                limits
+                                "lspCompletionCount"
+                                defaults.ResourceLimits.LspCompletionCount }
                     | _ -> defaults.ResourceLimits
 
                 let resourceLimitWarning =

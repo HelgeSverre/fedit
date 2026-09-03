@@ -4572,3 +4572,170 @@ let ``the popup paints its candidates in the dock`` () =
 
     rows |> List.exists (fun row -> row.Contains "banana") |> should equal true
     rows |> List.exists (fun row -> row.Contains "buf") |> should equal true
+
+// ── completion phase 2: LSP source merged asynchronously ───────────────────
+
+let private serverCandidate label sortText : CompletionCandidate =
+    { Label = label
+      Insert = label
+      Detail = "server"
+      Kind = "function"
+      Source = FromServer "sema"
+      SortKey = sortText }
+
+/// A model whose active buffer is a `.sema` file with a configured server.
+let private modelWithServer text =
+    let model = initModel ()
+    let buffer = Buffer.fromText 1 (Some "/root/a.sema") "a.sema" text "\n"
+
+    { model with
+        Editors =
+            { model.Editors with
+                Buffers = Map.ofList [ 1, buffer ] }
+        Config =
+            { model.Config with
+                LanguageServers =
+                    [ { Name = "sema"
+                        Command = "sema-lsp"
+                        Args = []
+                        FileTypes = [ "sema" ]
+                        RootMarkers = [] } ] } }
+
+[<Fact>]
+let ``opening a popup on a served file emits a completion request and marks the source pending`` () =
+    // Place the cursor after "pr" by moving to end, then open.
+    let model = modelWithServer "printline\npr"
+
+    let atEnd =
+        fst (Editor.update (KeyPressed(nk Down)) model)
+        |> fun m -> fst (Editor.update (KeyPressed(nk End)) m)
+
+    let opened, effects = Editor.runAction TriggerCompletion atEnd
+
+    effects
+    |> List.exists (function
+        | RequestCompletions(req, _) -> req.BufferId = 1 && req.Server.Name = "sema"
+        | _ -> false)
+    |> should equal true
+
+    opened.Completion
+    |> Option.map (fun s -> Set.contains (FromServer "sema") s.Pending)
+    |> should equal (Some true)
+    // The buffer word "printline" is already there while the server is pending.
+    opened.Completion
+    |> Option.map (fun s -> s.Candidates |> List.exists (fun c -> c.Label = "printline"))
+    |> should equal (Some true)
+
+[<Fact>]
+let ``server candidates merge above buffer words and clear pending`` () =
+    let model = modelWithServer "printline\npr"
+
+    let atEnd =
+        fst (Editor.update (KeyPressed(nk Down)) model)
+        |> fun m -> fst (Editor.update (KeyPressed(nk End)) m)
+
+    let opened, _ = Editor.runAction TriggerCompletion atEnd
+    let tick = (Editor.activeBufferState opened).EditTick
+
+    let arrived, _ =
+        Editor.update
+            (CompletionsArrived(
+                FromServer "sema",
+                tick,
+                1,
+                Result.Ok [ serverCandidate "printf" "0001"; serverCandidate "printline" "0002" ]
+            ))
+            opened
+
+    match arrived.Completion with
+    | Some state ->
+        Set.isEmpty state.Pending |> should equal true
+        // Server "printf" outranks the buffer word; "printline" dedupes to the server entry.
+        state.Candidates
+        |> List.head
+        |> fun c -> (c.Label, c.Source) |> should equal ("printf", FromServer "sema")
+
+        state.Candidates
+        |> List.filter (fun c -> c.Label = "printline")
+        |> List.length
+        |> should equal 1
+
+        (state.Candidates |> List.find (fun c -> c.Label = "printline")).Source
+        |> should equal (FromServer "sema")
+    | None -> failwith "popup vanished"
+
+[<Fact>]
+let ``a completion response for a closed or moved-on popup is dropped`` () =
+    let model = modelWithServer "printline\npr"
+
+    let atEnd =
+        fst (Editor.update (KeyPressed(nk Down)) model)
+        |> fun m -> fst (Editor.update (KeyPressed(nk End)) m)
+
+    let opened, _ = Editor.runAction TriggerCompletion atEnd
+    let tick = (Editor.activeBufferState opened).EditTick
+
+    // Stale tick: ignored.
+    let stale, _ =
+        Editor.update
+            (CompletionsArrived(FromServer "sema", tick - 1, 1, Result.Ok [ serverCandidate "zzz" "0001" ]))
+            opened
+
+    stale.Completion
+    |> Option.map (fun s -> s.Candidates |> List.exists (fun c -> c.Label = "zzz"))
+    |> should equal (Some false)
+
+    // Popup closed: ignored, stays closed.
+    let closed, _ = Editor.update (KeyPressed(nk Escape)) opened
+
+    let afterClosed, _ =
+        Editor.update
+            (CompletionsArrived(FromServer "sema", tick, 1, Result.Ok [ serverCandidate "zzz" "0001" ]))
+            closed
+
+    afterClosed.Completion |> should equal None
+
+[<Fact>]
+let ``a server error just clears pending, leaving buffer words`` () =
+    let model = modelWithServer "printline\npr"
+
+    let atEnd =
+        fst (Editor.update (KeyPressed(nk Down)) model)
+        |> fun m -> fst (Editor.update (KeyPressed(nk End)) m)
+
+    let opened, _ = Editor.runAction TriggerCompletion atEnd
+    let tick = (Editor.activeBufferState opened).EditTick
+
+    let failed, _ =
+        Editor.update (CompletionsArrived(FromServer "sema", tick, 1, Result.Error "boom")) opened
+
+    match failed.Completion with
+    | Some state ->
+        Set.isEmpty state.Pending |> should equal true
+        state.Candidates |> List.map (fun c -> c.Label) |> should equal [ "printline" ]
+    | None -> failwith "popup vanished"
+
+[<Fact>]
+let ``typing after opening keeps the popup generation so a slow server response still merges`` () =
+    let model = modelWithServer "printer\npr"
+
+    let atEnd =
+        fst (Editor.update (KeyPressed(nk Down)) model)
+        |> fun m -> fst (Editor.update (KeyPressed(nk End)) m)
+
+    let opened, _ = Editor.runAction TriggerCompletion atEnd
+    let tick = (Editor.activeBufferState opened).EditTick
+
+    // User types "i" -> prefix "pri"; the popup stays open at the same generation.
+    let typed = fst (Editor.update (KeyPressed(chr 'i')) opened)
+    typed.Completion |> Option.map (fun s -> s.EditTick) |> should equal (Some tick)
+
+    // The server response tagged with the original tick still merges.
+    let arrived, _ =
+        Editor.update
+            (CompletionsArrived(FromServer "sema", tick, 1, Result.Ok [ serverCandidate "printItem" "0001" ]))
+            typed
+
+    arrived.Completion
+    |> Option.map (fun s -> s.Candidates |> List.exists (fun c -> c.Label = "printItem"))
+    |> should equal (Some true)

@@ -32,6 +32,16 @@ type LspRange =
 
 type LspLocation = { Uri: string; Range: LspRange }
 
+/// A completion candidate from a server: `Label` shown, `Insert` applied
+/// (snippets flattened to text), `Kind` a short string, `SortText` the
+/// ordering hint (empty when absent).
+type LspCompletionItem =
+    { Label: string
+      Insert: string
+      Detail: string
+      Kind: string
+      SortText: string }
+
 [<RequireQualifiedAccess>]
 type LspDiagnosticSeverity =
     | Error
@@ -60,7 +70,8 @@ type LspServerCapabilities =
     { TextDocumentSync: LspTextDocumentSyncKind
       DefinitionProvider: bool
       ReferencesProvider: bool
-      HoverProvider: bool }
+      HoverProvider: bool
+      CompletionProvider: bool }
 
 [<RequireQualifiedAccess>]
 module LspServerCapabilities =
@@ -69,7 +80,8 @@ module LspServerCapabilities =
         { TextDocumentSync = LspTextDocumentSyncKind.None
           DefinitionProvider = false
           ReferencesProvider = false
-          HoverProvider = false }
+          HoverProvider = false
+          CompletionProvider = false }
 
 /// One configured language server: which binary to spawn and which files it
 /// owns. Lives here (not Config.fs, which compiles later) so Model can hold

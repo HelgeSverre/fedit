@@ -1,6 +1,6 @@
 # Completions and the completion provider interface
 
-Status: in progress, 2026-09-03. Phase 1 shipped (buffer-word popup, accept-as-edit); phases 2-4 pending. Follows the extension
+Status: in progress, 2026-09-03. Phases 1-2 shipped (buffer words, then LSP completion merged async); phases 3-4 pending. Follows the extension
 surface shipped in `docs/superpowers/2026-09-02-extension-surface.md`; the
 provider interface is the last item that document deferred.
 

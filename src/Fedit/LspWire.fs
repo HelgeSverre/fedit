@@ -97,6 +97,14 @@ module LspWire =
             w.WriteStringValue "markdown"
             w.WriteEndArray()
             w.WriteEndObject()
+            w.WritePropertyName "completion"
+            w.WriteStartObject()
+            w.WritePropertyName "completionItem"
+            w.WriteStartObject()
+            // Snippets are flattened to text; do not advertise snippet support.
+            w.WriteBoolean("snippetSupport", false)
+            w.WriteEndObject()
+            w.WriteEndObject()
             writeEmptyObject w "definition"
             writeEmptyObject w "references"
             writeEmptyObject w "publishDiagnostics"
@@ -193,6 +201,9 @@ module LspWire =
     let hoverRequest (id: int) (uri: string) (position: LspPosition) : string =
         textDocumentPositionRequest id "textDocument/hover" uri position
 
+    let completionRequest (id: int) (uri: string) (position: LspPosition) : string =
+        textDocumentPositionRequest id "textDocument/completion" uri position
+
     /// textDocument/references — always asks for the declaration too.
     let referencesRequest (id: int) (uri: string) (position: LspPosition) : string =
         envelope (fun w ->
@@ -286,7 +297,8 @@ module LspWire =
                 { TextDocumentSync = sync
                   DefinitionProvider = providerEnabled capabilities "definitionProvider"
                   ReferencesProvider = providerEnabled capabilities "referencesProvider"
-                  HoverProvider = providerEnabled capabilities "hoverProvider" }
+                  HoverProvider = providerEnabled capabilities "hoverProvider"
+                  CompletionProvider = providerEnabled capabilities "completionProvider" }
             | _ -> LspServerCapabilities.none
 
     let private readPosition (e: JsonElement) : LspPosition =
@@ -367,6 +379,77 @@ module LspWire =
         |> List.rev
         |> List.skipWhile isBlank
         |> List.rev
+
+    /// LSP CompletionItemKind number -> our short string.
+    let private completionKindString =
+        function
+        | 2
+        | 3
+        | 4 -> "function" // Method, Function, Constructor
+        | 5 -> "field"
+        | 6
+        | 7 -> "variable" // Variable, Class
+        | 8 -> "interface"
+        | 9 -> "module"
+        | 10 -> "property"
+        | 14 -> "keyword"
+        | 15 -> "snippet"
+        | 21 -> "constant"
+        | _ -> "text"
+
+    /// Parse a completion response: `CompletionItem[]` or `{ items }`.
+    /// `insertText`/`textEdit.newText` fall back to `label`. `limit` caps
+    /// the count. Snippet placeholders in the insert are flattened.
+    let readCompletionResult (limit: int) (result: JsonElement) : LspCompletionItem list =
+        let items =
+            match result.ValueKind with
+            | JsonValueKind.Array -> result.EnumerateArray() |> List.ofSeq
+            | JsonValueKind.Object ->
+                match result.TryGetProperty "items" with
+                | true, items when items.ValueKind = JsonValueKind.Array -> items.EnumerateArray() |> List.ofSeq
+                | _ -> []
+            | _ -> []
+
+        let str (e: JsonElement) (name: string) =
+            match e.TryGetProperty name with
+            | true, v when v.ValueKind = JsonValueKind.String -> v.GetString()
+            | _ -> ""
+
+        // `${1:name}` -> `name`, `$0`/`$1` -> "".
+        let flatten (text: string) =
+            System.Text.RegularExpressions.Regex.Replace(
+                text,
+                @"\$\{\d+:([^}]*)\}|\$\{?\d+\}?",
+                (fun m -> if m.Groups[1].Success then m.Groups[1].Value else "")
+            )
+
+        items
+        |> List.truncate (max 0 limit)
+        |> List.map (fun item ->
+            let label = (str item "label").Trim()
+
+            let insert =
+                let fromEdit =
+                    match item.TryGetProperty "textEdit" with
+                    | true, edit when edit.ValueKind = JsonValueKind.Object -> str edit "newText"
+                    | _ -> ""
+
+                let raw =
+                    if fromEdit <> "" then fromEdit
+                    elif str item "insertText" <> "" then str item "insertText"
+                    else label
+
+                flatten raw
+
+            { Label = label
+              Insert = insert
+              Detail = str item "detail"
+              Kind =
+                match item.TryGetProperty "kind" with
+                | true, k when k.ValueKind = JsonValueKind.Number -> completionKindString (k.GetInt32())
+                | _ -> "text"
+              SortText = str item "sortText" })
+        |> List.filter (fun item -> item.Label <> "")
 
     let private readSeverity (e: JsonElement) : LspDiagnosticSeverity =
         match e.TryGetProperty "severity" with

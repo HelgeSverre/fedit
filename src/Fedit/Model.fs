@@ -86,7 +86,8 @@ type ResourceLimits =
       LspPreviewScanBytes: int option
       LspPreviewChars: int
       LspPreviewConcurrency: int
-      LspPreviewTimeoutMs: int option }
+      LspPreviewTimeoutMs: int option
+      LspCompletionCount: int option }
 
 [<RequireQualifiedAccess>]
 module ResourceLimits =
@@ -97,7 +98,8 @@ module ResourceLimits =
           LspPreviewScanBytes = Some(4 * 1024 * 1024)
           LspPreviewChars = 512
           LspPreviewConcurrency = 2
-          LspPreviewTimeoutMs = Some 250 }
+          LspPreviewTimeoutMs = Some 250
+          LspCompletionCount = Some 200 }
 
 type Config =
     {
@@ -439,10 +441,8 @@ type CompletionSource =
 type CompletionCandidate =
     {
         Label: string
-        /// Text that replaces `Replace`. Snippets are flattened to text.
+        /// Text that replaces the typed prefix. Snippets are flattened to text.
         Insert: string
-        /// Char range replaced on accept, 0-based; the prefix range by default.
-        Replace: int * int
         Detail: string
         /// LSP-ish kind string (`function`, `variable`, `keyword`, `text`, …).
         Kind: string
@@ -455,11 +455,21 @@ type CompletionCandidate =
 type CompletionState =
     {
         BufferId: int
+        /// The buffer edit tick this popup's async requests were fired at;
+        /// a `CompletionsArrived` tagged with a different tick is dropped.
+        /// Plain typing filters in place without bumping it, so a slow
+        /// server response still merges.
+        EditTick: int
         /// The prefix under the cursor; the popup filters to it live.
         Prefix: string
         /// Char range the prefix occupies (start, cursor).
         PrefixRange: int * int
-        /// Candidates from every source, already merged and ranked.
+        /// Server and plugin candidates from async sources, kept so a
+        /// keystroke can re-merge without re-querying.
+        External: CompletionCandidate list
+        /// Sources still expected to answer, for the "…" hint.
+        Pending: Set<CompletionSource>
+        /// Merged, filtered, ranked display list (buffer words + external).
         Candidates: CompletionCandidate list
         Selected: int
     }
@@ -739,6 +749,13 @@ type Msg =
         bufferId: int
     /// A hover request resolved to plain-text lines (same stale guard).
     | LspHoverResolved of outcome: Result<string list, string> * requestedEditTick: int * bufferId: int
+    /// Async completion candidates from one source for the popup tagged with
+    /// `editTick` on `bufferId`; dropped if the popup moved on.
+    | CompletionsArrived of
+        source: CompletionSource *
+        editTick: int *
+        bufferId: int *
+        outcome: Result<CompletionCandidate list, string>
     /// The recent stderr/log ring fetched from the Runtime's client
     /// registry for `:lsp log` — shown as a transient dock panel.
     | LspLogFetched of title: string * lines: string list
@@ -827,6 +844,9 @@ type Effect =
     | LspRequestDefinition of LspPositionRequest
     /// textDocument/hover at a position. Resolves to `LspHoverResolved`.
     | LspRequestHover of LspPositionRequest
+    /// Fan out completion requests for the popup: a textDocument/completion
+    /// to the file's server.
+    | RequestCompletions of LspPositionRequest * limit: int
     /// textDocument/references at a position. Resolves to
     /// `LspReferencesResolved` (same shape as definition).
     | LspRequestReferences of LspPositionRequest

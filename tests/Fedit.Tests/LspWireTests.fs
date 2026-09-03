@@ -196,7 +196,8 @@ let ``sema-shaped InitializeResult decodes full sync and all providers`` () =
         { TextDocumentSync = LspTextDocumentSyncKind.Full
           DefinitionProvider = true
           ReferencesProvider = true
-          HoverProvider = true }
+          HoverProvider = true
+          CompletionProvider = true }
 
 [<Fact>]
 let ``object-form sync and object-form providers decode`` () =
@@ -210,7 +211,8 @@ let ``object-form sync and object-form providers decode`` () =
         { TextDocumentSync = LspTextDocumentSyncKind.Incremental
           DefinitionProvider = false
           ReferencesProvider = false
-          HoverProvider = true }
+          HoverProvider = true
+          CompletionProvider = false }
 
 [<Fact>]
 let ``missing or null capabilities decode to none`` () =
@@ -400,3 +402,39 @@ let ``LspPosition maps to and from fedit Position as the identity`` () =
     let lspPosition = LspPosition.ofPosition position
     lspPosition |> should equal { Line = 12; Character = 34 }
     LspPosition.toPosition lspPosition |> should equal position
+
+[<Fact>]
+let ``readCompletionResult parses items, textEdit, kinds, and flattens snippets`` () =
+    use doc =
+        JsonDocument.Parse
+            """{"isIncomplete":false,"items":[
+                 {"label":"printLine","kind":3,"detail":"unit","sortText":"0001","insertText":"printLine"},
+                 {"label":"printfn","kind":3,"textEdit":{"newText":"printfn \"${1:msg}\"$0"}},
+                 {"label":"println","kind":14},
+                 {"label":"","kind":1}
+               ]}"""
+
+    let items = LspWire.readCompletionResult 100 doc.RootElement
+
+    items
+    |> List.map (fun i -> i.Label)
+    |> should equal [ "printLine"; "printfn"; "println" ] // empty label dropped
+
+    (items |> List.head).Kind |> should equal "function"
+    (items |> List.head).SortText |> should equal "0001"
+    (items |> List.item 1).Insert |> should equal "printfn \"msg\"" // snippet flattened
+    (items |> List.item 2).Kind |> should equal "keyword"
+
+[<Fact>]
+let ``readCompletionResult accepts a bare CompletionItem array and caps the count`` () =
+    use doc = JsonDocument.Parse """[{"label":"a"},{"label":"b"},{"label":"c"}]"""
+
+    LspWire.readCompletionResult 2 doc.RootElement
+    |> List.map (fun i -> i.Label)
+    |> should equal [ "a"; "b" ]
+
+[<Fact>]
+let ``the initialize request advertises completion capability`` () =
+    let json = LspWire.initializeRequest 1 42 "file:///root"
+    json.Contains "completion" |> should equal true
+    json.Contains "snippetSupport" |> should equal true
