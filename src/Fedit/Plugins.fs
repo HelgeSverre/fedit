@@ -40,6 +40,9 @@ type PluginLoadStatus =
 /// plugin's own `RunAsync`. Editor-side registries carry a stub.
 type PluginRunner = PluginContext -> CancellationToken -> Task<PluginAction list>
 
+/// A completion provider's runner: context + token -> candidate specs.
+type CompletionRunner = PluginContext -> CancellationToken -> Task<CompletionItemSpec list>
+
 /// Resolved command registration owned by a single plugin.
 type PluginCommandBinding =
     { Source: string
@@ -67,6 +70,9 @@ type LoadedPlugin =
         LanguageServers: LanguageServerSpec list
         /// Grammars with paths already resolved against the plugin folder.
         Languages: GrammarSpec list
+        /// Completion providers: (fileTypes, runner). Host-only — only the
+        /// file types cross the wire (in the registry's CompletionProviders).
+        CompletionProviders: (string list * CompletionRunner) list
         Conflicts: string list
     }
 
@@ -81,6 +87,11 @@ type PluginRegistry =
         Hooks: PluginHook list
         LanguageServers: LanguageServerSpec list
         Languages: GrammarSpec list
+        /// (plugin source, file types) per provider — what the editor needs
+        /// to decide which providers to query. Runners stay in the host.
+        CompletionProviders: (string * string list) list
+        /// Host-only: providers by plugin source, for the host to run.
+        CompletionRunners: Map<string, CompletionRunner list>
         Conflicts: string list
     }
 
@@ -163,6 +174,8 @@ module PluginRegistry =
           Hooks = []
           LanguageServers = []
           Languages = []
+          CompletionProviders = []
+          CompletionRunners = Map.empty
           Conflicts = [] }
 
 // ---------------------------------------------------------------------------
@@ -352,6 +365,7 @@ module private HostCollectorImpl =
         let hooks = ResizeArray<PluginEvent * string>()
         let servers = ResizeArray<LanguageServerSpec>()
         let grammars = ResizeArray<GrammarSpec>()
+        let providers = ResizeArray<string list * CompletionRunner>()
         let conflicts = ResizeArray<string>()
 
         let addSpec (spec: PluginCommand) =
@@ -371,6 +385,7 @@ module private HostCollectorImpl =
         member _.Hooks = List.ofSeq hooks
         member _.LanguageServers = List.ofSeq servers
         member _.Languages = List.ofSeq grammars
+        member _.CompletionProviders = List.ofSeq providers
         member _.Conflicts = List.ofSeq conflicts
 
         interface IPluginHost with
@@ -417,6 +432,17 @@ module private HostCollectorImpl =
                     conflicts.Add $"{pluginName}: language needs a name and a library"
                 else
                     grammars.Add grammar
+
+            member _.RegisterCompletionProvider(fileTypes, provide) =
+                let normalized =
+                    fileTypes
+                    |> List.map (fun t -> t.Trim().TrimStart('.').ToLowerInvariant())
+                    |> List.filter (fun t -> t <> "")
+
+                if normalized.IsEmpty then
+                    conflicts.Add $"{pluginName}: completion provider needs at least one file type"
+                else
+                    providers.Add(normalized, provide)
 
 // ---------------------------------------------------------------------------
 // Assembly loading
@@ -521,6 +547,7 @@ module Plugins =
                               Hooks = []
                               LanguageServers = []
                               Languages = []
+                              CompletionProviders = []
                               Conflicts = [] }
                     | Result.Error reason ->
                         Some
@@ -533,6 +560,7 @@ module Plugins =
                               Hooks = []
                               LanguageServers = []
                               Languages = []
+                              CompletionProviders = []
                               Conflicts = [] })
             |> List.ofSeq
 
@@ -587,6 +615,7 @@ module Plugins =
                         Keybindings = collector.Keybindings
                         Hooks = collector.Hooks
                         LanguageServers = collector.LanguageServers
+                        CompletionProviders = collector.CompletionProviders
                         Languages =
                             // Relative library/queries paths are the plugin folder's.
                             collector.Languages
@@ -683,6 +712,16 @@ module Plugins =
             [ for plugin in processed do
                   if plugin.Status = Loaded then
                       yield! plugin.Languages ]
+          CompletionProviders =
+            [ for plugin in processed do
+                  if plugin.Status = Loaded then
+                      for fileTypes, _ in plugin.CompletionProviders do
+                          plugin.Manifest.Name, fileTypes ]
+          CompletionRunners =
+            [ for plugin in processed do
+                  if plugin.Status = Loaded && not plugin.CompletionProviders.IsEmpty then
+                      plugin.Manifest.Name, plugin.CompletionProviders |> List.map snd ]
+            |> Map.ofList
           Conflicts = List.ofSeq conflicts }
 
     let load (log: string -> unit) (loaded: LoadedPlugin) (dllPath: string) : LoadedPlugin =

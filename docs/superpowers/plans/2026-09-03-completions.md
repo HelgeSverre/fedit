@@ -1,6 +1,6 @@
 # Completions and the completion provider interface
 
-Status: in progress, 2026-09-03. Phases 1-2 shipped (buffer words, then LSP completion merged async); phases 3-4 pending. Follows the extension
+Status: in progress, 2026-09-03. Phases 1-3 shipped (buffer words, LSP, plugin providers); phase 4 (polish) pending. Follows the extension
 surface shipped in `docs/superpowers/2026-09-02-extension-surface.md`; the
 provider interface is the last item that document deferred.
 
@@ -238,10 +238,15 @@ first so the UI has data with no LSP dependency.
    `readCompletionResult`, `SendCompletion`, the server source in the
    fan-out, `LspCompletionCount`. Gate: server candidates appear for a
    configured language, merged above buffer words.
-3. **Plugin providers.** `RegisterCompletionProvider`, registry array +
-   wire, host runner, the provider source in the fan-out with edit-tick
-   cancellation, a `showcase` provider for `.showcase`. Gate: the provider
-   contributes candidates end to end through the real host.
+3. **Plugin providers.** SHIPPED. `IPluginHost.RegisterCompletionProvider`
+   (file types + async runner), the registry `completionProviders` array
+   across the wire (runners host-only, like async commands), a host
+   `completions` method, `PluginHostClient.Completions`, the
+   `RequestPluginCompletions` effect, and the provider source in the popup
+   fan-out (queried only for a matching file extension). `examples/showcase`
+   provides for `.showcase`. Gate met: unit tests for the fan-out and merge,
+   a real-host round trip, and a pty run where the provider's candidates
+   appear in the live popup.
 4. **Polish.** Trigger characters forcing a re-query, debounce tuning,
    the `completions` config bool, docs (`docs/completions.md`, the plugins
    guide row, the README config table).

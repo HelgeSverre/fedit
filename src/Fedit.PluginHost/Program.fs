@@ -94,6 +94,29 @@ let main _argv =
                     finally
                         inFlight.TryRemove id |> ignore
                 | None -> return PluginProtocol.errorJson id ("unknown command: " + command)
+            | "completions" ->
+                let source, ctx = PluginProtocol.parseCompletionsRequest root
+
+                match registry.CompletionRunners.TryFind source with
+                | Some runners ->
+                    use cts = CancellationTokenSource.CreateLinkedTokenSource shutdown.Token
+                    inFlight[id] <- cts
+
+                    try
+                        try
+                            let mutable items = []
+
+                            for run in runners do
+                                let! got = run ctx cts.Token
+                                items <- items @ got
+
+                            return PluginProtocol.completionsResultJson id items
+                        with
+                        | :? OperationCanceledException -> return PluginProtocol.errorJson id "cancelled"
+                        | ex -> return PluginProtocol.errorJson id ("provider '" + source + "' threw: " + ex.Message)
+                    finally
+                        inFlight.TryRemove id |> ignore
+                | None -> return PluginProtocol.completionsResultJson id []
             | "cancel" ->
                 match inFlight.TryGetValue(PluginProtocol.parseCancelRequest root) with
                 | true, cts -> cts.Cancel()

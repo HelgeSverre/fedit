@@ -260,6 +260,8 @@ module Runtime =
         | LspRequestDefinition request -> $"LspRequestDefinition({renderLspPositionRequest request})"
         | LspRequestHover request -> $"LspRequestHover({renderLspPositionRequest request})"
         | RequestCompletions(request, _) -> $"RequestCompletions({renderLspPositionRequest request})"
+        | RequestPluginCompletions(source, _, editTick, bufferId) ->
+            $"RequestPluginCompletions(source={source}, buffer={bufferId}, tick={editTick})"
         | LspRequestReferences request -> $"LspRequestReferences({renderLspPositionRequest request})"
         | LspFetchLog name ->
             let target =
@@ -1043,6 +1045,7 @@ module Runtime =
                                       Hooks = []
                                       LanguageServers = []
                                       Languages = []
+                                      CompletionProviders = []
                                       Conflicts = [] })
                             |> Result.map ignore)
 
@@ -1276,6 +1279,22 @@ module Runtime =
                                     candidates
                                 ))
                     ))
+            | RequestPluginCompletions(source, context, editTick, bufferId) ->
+                post (fun () ->
+                    let candidates =
+                        attempt (fun () -> pluginHost.Completions(source, context))
+                        |> Result.bind id
+                        |> Result.map (
+                            List.map (fun (item: Fedit.PluginApi.CompletionItemSpec) ->
+                                { Label = item.Label
+                                  Insert = item.Insert
+                                  Detail = item.Detail
+                                  Kind = item.Kind
+                                  Source = FromPlugin source
+                                  SortKey = item.SortKey })
+                        )
+
+                    CompletionsArrived(FromPlugin source, editTick, bufferId, candidates))
             | LspFetchLog name ->
                 Task.Run(fun () ->
                     let clients =

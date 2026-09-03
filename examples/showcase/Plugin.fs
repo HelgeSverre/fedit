@@ -162,6 +162,29 @@ module Plugin =
                     let clipboard = host.ReadClipboard()
                     [ Notify(Info, $"clipboard: {clipboard}") ] }
 
+        // A completion provider for `.showcase` files: offers a couple of
+        // candidates that merge into the popup beside buffer words.
+        host.RegisterCompletionProvider(
+            [ "showcase" ],
+            fun ctx _ ->
+                task {
+                    let prefix = ctx.ActiveBuffer.Text
+                    ignore prefix
+
+                    return
+                        [ { Label = "showcaseHello"
+                            Insert = "showcaseHello"
+                            Detail = "from showcase"
+                            Kind = "function"
+                            SortKey = "0001" }
+                          { Label = "showcaseWorld"
+                            Insert = "showcaseWorld"
+                            Detail = "from showcase"
+                            Kind = "variable"
+                            SortKey = "0002" } ]
+                }
+        )
+
         // The enriched snapshot: language, dirty flag, diagnostics, and the
         // plugin's own `plugins.showcase` settings from config.json.
         host.RegisterCommand

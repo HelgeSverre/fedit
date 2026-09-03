@@ -36,6 +36,15 @@ type IPluginHost =
     /// name wins.
     abstract member RegisterLanguage: grammar: GrammarSpec -> unit
 
+    /// Provide completion candidates for files of `fileTypes` (extensions
+    /// without the dot). Runs async in the host, cancellation-aware, and
+    /// merges into the popup alongside the language server and buffer words.
+    abstract member RegisterCompletionProvider:
+        fileTypes: string list *
+        provide:
+            (PluginContext -> System.Threading.CancellationToken -> System.Threading.Tasks.Task<CompletionItemSpec list>) ->
+            unit
+
     /// Read the system clipboard. Usable from inside a command's `Run`
     /// (it asks the editor and waits); throws when the editor cannot
     /// answer, e.g. outside a running editor.

@@ -180,7 +180,9 @@ module PluginProtocol =
               eventOf (h.GetProperty("event").GetString()), h.GetProperty("command").GetString() ]
 
     let private writeStringArray (w: Utf8JsonWriter) (name: string) (xs: string list) =
-        w.WritePropertyName name
+        if not (isNull name) then
+            w.WritePropertyName name
+
         w.WriteStartArray()
         xs |> List.iter w.WriteStringValue
         w.WriteEndArray()
@@ -276,6 +278,12 @@ module PluginProtocol =
                 writeHooks w "hooks" p.Hooks
                 writeServers w "languageServers" p.LanguageServers
                 writeGrammars w "languages" p.Languages
+                w.WriteStartArray "completionProviders"
+
+                for fileTypes, _ in p.CompletionProviders do
+                    writeStringArray w null fileTypes // array of arrays
+
+                w.WriteEndArray()
                 writeStrings w "conflicts" p.Conflicts
                 w.WriteEndObject()
 
@@ -306,6 +314,15 @@ module PluginProtocol =
             w.WriteEndArray()
             writeServers w "languageServers" r.LanguageServers
             writeGrammars w "languages" r.Languages
+            w.WriteStartArray "completionProviders"
+
+            for source, fileTypes in r.CompletionProviders do
+                w.WriteStartObject()
+                w.WriteString("source", source)
+                writeStringArray w "fileTypes" fileTypes
+                w.WriteEndObject()
+
+            w.WriteEndArray()
             writeStrings w "conflicts" r.Conflicts
             w.WriteEndObject())
 
@@ -324,6 +341,7 @@ module PluginProtocol =
                         Hooks = readHooks (p.GetProperty "hooks")
                         LanguageServers = readServers (p.GetProperty "languageServers")
                         Languages = readGrammars (p.GetProperty "languages")
+                        CompletionProviders = []
                         Conflicts = readStrings (p.GetProperty "conflicts") }
 
                   manifest.Name, lp ]
@@ -349,6 +367,11 @@ module PluginProtocol =
                     Source = h.GetProperty("source").GetString() } ]
           LanguageServers = readServers (root.GetProperty "languageServers")
           Languages = readGrammars (root.GetProperty "languages")
+          CompletionProviders =
+            [ for provider in (root.GetProperty "completionProviders").EnumerateArray() ->
+                  provider.GetProperty("source").GetString(),
+                  [ for t in (provider.GetProperty "fileTypes").EnumerateArray() -> t.GetString() ] ]
+          CompletionRunners = Map.empty
           Conflicts = readStrings (root.GetProperty "conflicts") }
 
     // ---- requests (editor -> host) ----------------------------------------
@@ -458,6 +481,53 @@ module PluginProtocol =
             w.WritePropertyName "registry"
             w.WriteRawValue(registryToJson registry)
             w.WriteEndObject())
+
+    let completionsRequest (id: int) (source: string) (ctx: PluginContext) : string =
+        build (fun w ->
+            w.WriteStartObject()
+            w.WriteNumber("id", id)
+            w.WriteString("method", "completions")
+            w.WriteString("source", source)
+            w.WritePropertyName "context"
+            w.WriteRawValue(PluginWire.contextToJson ctx)
+            w.WriteEndObject())
+
+    let parseCompletionsRequest (root: JsonElement) : string * PluginContext =
+        root.GetProperty("source").GetString(), PluginWire.readContext (root.GetProperty "context")
+
+    let completionsResultJson (id: int) (items: CompletionItemSpec list) : string =
+        build (fun w ->
+            w.WriteStartObject()
+            w.WriteNumber("id", id)
+            w.WriteBoolean("ok", true)
+            w.WriteStartArray "items"
+
+            for item in items do
+                w.WriteStartObject()
+                w.WriteString("label", item.Label)
+                w.WriteString("insert", item.Insert)
+                w.WriteString("detail", item.Detail)
+                w.WriteString("kind", item.Kind)
+                w.WriteString("sortKey", item.SortKey)
+                w.WriteEndObject()
+
+            w.WriteEndArray()
+            w.WriteEndObject())
+
+    let parseCompletionsResult (json: string) : Result<CompletionItemSpec list, string> =
+        use doc = JsonDocument.Parse json
+        let root = doc.RootElement
+
+        if root.GetProperty("ok").GetBoolean() then
+            Ok
+                [ for item in (root.GetProperty "items").EnumerateArray() ->
+                      { Label = strp item "label"
+                        Insert = strp item "insert"
+                        Detail = strp item "detail"
+                        Kind = strp item "kind"
+                        SortKey = strp item "sortKey" } ]
+        else
+            Result.Error(strp root "error")
 
     let invokeResultJson (id: int) (actions: PluginAction list) : string =
         build (fun w ->

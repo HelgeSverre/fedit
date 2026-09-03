@@ -194,6 +194,18 @@ type PluginHostClient(hostPath: string) =
     member this.Invoke(command: string, ctx: PluginContext) : Result<PluginAction list, string> =
         this.Invoke(command, ctx, CancellationToken.None)
 
+    /// Run a plugin's completion providers against `ctx`; cancelling `token`
+    /// asks the host to cancel them.
+    member _.Completions
+        (source: string, ctx: PluginContext, token: CancellationToken)
+        : Result<CompletionItemSpec list, string> =
+        match roundtrip token (fun id -> PluginProtocol.completionsRequest id source ctx) with
+        | Result.Ok line -> PluginProtocol.parseCompletionsResult line
+        | Result.Error e -> Result.Error e
+
+    member this.Completions(source: string, ctx: PluginContext) : Result<CompletionItemSpec list, string> =
+        this.Completions(source, ctx, CancellationToken.None)
+
     interface IDisposable with
         member _.Dispose() =
             lock gate (fun () ->

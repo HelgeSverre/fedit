@@ -356,3 +356,25 @@ let ``a read-back the editor refuses fails the plugin run, not the host`` () =
     match client.Invoke("showcase-fast", wordcountContext "") with
     | Result.Ok [ Notify(Info, "fast") ] -> ()
     | other -> Assert.Fail $"host did not recover: %A{other}"
+
+[<Fact>]
+let ``a plugin completion provider answers through the real host`` () =
+    use client = showcaseClient ()
+
+    match client.Completions("showcase", wordcountContext "sho") with
+    | Result.Ok items ->
+        Assert.Equal<string list>([ "showcaseHello"; "showcaseWorld" ], items |> List.map (fun i -> i.Label))
+        Assert.Equal("from showcase", (items |> List.head).Detail)
+    | Result.Error e -> Assert.Fail("completions failed: " + e)
+
+[<Fact>]
+let ``the scanned registry reports the provider's file types`` () =
+    let pluginsRoot = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())
+    Directory.CreateDirectory pluginsRoot |> ignore
+    copyDir (Path.Combine(repoRoot, "examples", "showcase")) (Path.Combine(pluginsRoot, "showcase"))
+    use client = new PluginHostClient(hostDll)
+
+    match client.Scan(pluginsRoot, Set.empty) with
+    | Result.Ok registry ->
+        Assert.Equal<(string * string list) list>([ "showcase", [ "showcase" ] ], registry.CompletionProviders)
+    | Result.Error e -> Assert.Fail("scan failed: " + e)

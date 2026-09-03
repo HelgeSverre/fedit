@@ -100,6 +100,7 @@ let ``plugin prompt session renders the selected item title, badge, version, pat
           Hooks = []
           LanguageServers = []
           Languages = []
+          CompletionProviders = []
           Conflicts = [] }
 
     let model =

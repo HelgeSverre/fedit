@@ -140,6 +140,7 @@ module Editor =
         // completion fan-out have no result a replay step depends on (the
         // popup never opens during replay).
         | RequestCompletions _
+        | RequestPluginCompletions _
         | LspSyncDocuments _
         | LspRestart _
         | LspFetchLog _
@@ -1484,6 +1485,30 @@ module Editor =
 
                     Set.singleton (FromServer server.Name), [ RequestCompletions(request, limit) ]
                 | _ -> Set.empty, []
+
+            // Plugin providers whose file types include this file's extension.
+            let providerSources =
+                match buffer.FilePath with
+                | Some path ->
+                    let ext =
+                        match Path.GetExtension path with
+                        | null -> ""
+                        | s -> s.TrimStart('.').ToLowerInvariant()
+
+                    model.Plugins.CompletionProviders
+                    |> List.filter (fun (_, fileTypes) -> List.contains ext fileTypes)
+                    |> List.map fst
+                    |> List.distinct
+                | None -> []
+
+            let pending, effects =
+                providerSources
+                |> List.fold
+                    (fun (pending, effects) source ->
+                        Set.add (FromPlugin source) pending,
+                        effects
+                        @ [ RequestPluginCompletions(source, toPluginContext source model, buffer.EditTick, buffer.Id) ])
+                    (pending, effects)
 
             let state =
                 { BufferId = buffer.Id

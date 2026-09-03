@@ -558,6 +558,7 @@ let private testPlugin name status =
       Hooks = []
       LanguageServers = []
       Languages = []
+      CompletionProviders = []
       Conflicts = [] }
 
 [<Fact>]
@@ -4739,3 +4740,71 @@ let ``typing after opening keeps the popup generation so a slow server response 
     arrived.Completion
     |> Option.map (fun s -> s.Candidates |> List.exists (fun c -> c.Label = "printItem"))
     |> should equal (Some true)
+
+// ── completion phase 3: plugin providers ───────────────────────────────────
+
+/// A model whose active buffer is a `.showcase` file with a provider registered.
+let private modelWithProvider text =
+    let model = initModel ()
+    let buffer = Buffer.fromText 1 (Some "/root/a.showcase") "a.showcase" text "\n"
+
+    { model with
+        Editors =
+            { model.Editors with
+                Buffers = Map.ofList [ 1, buffer ] }
+        Plugins =
+            { model.Plugins with
+                CompletionProviders = [ "showcase", [ "showcase" ]; "other", [ "py" ] ] } }
+
+[<Fact>]
+let ``opening a popup queries only the plugin providers matching the file type`` () =
+    let model = modelWithProvider "showcaseHello\nsho"
+
+    let atEnd =
+        fst (Editor.update (KeyPressed(nk Down)) model)
+        |> fun m -> fst (Editor.update (KeyPressed(nk End)) m)
+
+    let opened, effects = Editor.runAction TriggerCompletion atEnd
+
+    let requested =
+        effects
+        |> List.choose (function
+            | RequestPluginCompletions(source, _, _, _) -> Some source
+            | _ -> None)
+
+    requested |> should equal [ "showcase" ] // "other" (py) is not queried
+
+    opened.Completion
+    |> Option.map (fun s -> Set.contains (FromPlugin "showcase") s.Pending)
+    |> should equal (Some true)
+
+[<Fact>]
+let ``plugin candidates merge into the popup and clear their pending source`` () =
+    let model = modelWithProvider "sho"
+
+    let opened, _ =
+        Editor.runAction TriggerCompletion (fst (Editor.update (KeyPressed(nk End)) model))
+
+    let tick = (Editor.activeBufferState opened).EditTick
+
+    let candidate label : CompletionCandidate =
+        { Label = label
+          Insert = label
+          Detail = "from showcase"
+          Kind = "function"
+          Source = FromPlugin "showcase"
+          SortKey = "0001" }
+
+    let arrived, _ =
+        Editor.update
+            (CompletionsArrived(FromPlugin "showcase", tick, 1, Result.Ok [ candidate "showcaseHello" ]))
+            opened
+
+    match arrived.Completion with
+    | Some state ->
+        Set.contains (FromPlugin "showcase") state.Pending |> should equal false
+
+        state.Candidates
+        |> List.exists (fun c -> c.Label = "showcaseHello" && c.Source = FromPlugin "showcase")
+        |> should equal true
+    | None -> failwith "popup vanished"

@@ -40,6 +40,7 @@ let private loadedPlugin name path status =
       Hooks = []
       LanguageServers = []
       Languages = []
+      CompletionProviders = []
       Conflicts = [] }
 
 let private withPlugins plugins model =

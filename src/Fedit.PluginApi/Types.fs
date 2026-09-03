@@ -239,6 +239,15 @@ type LanguageServerSpec =
         RootMarkers: string list
     }
 
+/// A completion candidate a plugin provider returns. `Insert` replaces the
+/// typed prefix (the editor fills the range); the rest mirror the LSP fields.
+type CompletionItemSpec =
+    { Label: string
+      Insert: string
+      Detail: string
+      Kind: string
+      SortKey: string }
+
 /// A tree-sitter grammar a plugin ships, exactly the shape of a
 /// `languages` entry in config.json. Relative paths resolve against the
 /// plugin's folder.

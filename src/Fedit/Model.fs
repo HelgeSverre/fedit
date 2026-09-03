@@ -847,6 +847,13 @@ type Effect =
     /// Fan out completion requests for the popup: a textDocument/completion
     /// to the file's server.
     | RequestCompletions of LspPositionRequest * limit: int
+    /// Run a plugin completion provider for the popup on `bufferId` tagged
+    /// with `editTick`; posts `CompletionsArrived(FromPlugin source, …)`.
+    | RequestPluginCompletions of
+        source: string *
+        context: Fedit.PluginApi.PluginContext *
+        editTick: int *
+        bufferId: int
     /// textDocument/references at a position. Resolves to
     /// `LspReferencesResolved` (same shape as definition).
     | LspRequestReferences of LspPositionRequest
