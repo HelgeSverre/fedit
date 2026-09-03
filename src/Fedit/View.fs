@@ -778,19 +778,22 @@ module Layout =
                 | FromBuffer -> "buf"
                 | FromPlugin source -> source
 
-            // Longest "label  detail  badge" line, capped.
-            let lineOf (c: CompletionCandidate) =
-                let detail =
-                    if System.String.IsNullOrEmpty c.Detail then
-                        ""
-                    else
-                        "  " + c.Detail
+            let detailOf (c: CompletionCandidate) =
+                if System.String.IsNullOrEmpty c.Detail then
+                    ""
+                else
+                    c.Detail
 
-                c.Label, detail, badge c
+            // Truncate to fit, marking the cut with an ellipsis.
+            let ellipsize w (s: string) =
+                if w <= 0 then ""
+                elif s.Length <= w then s
+                elif w = 1 then "…"
+                else s[.. w - 2] + "…"
 
-            let cap = 48
             let count = completion.Candidates.Length
-            let rowsShown = min count (min 10 (max 1 (mainHeight - 1)))
+            // Rows plus the top/bottom border; leave a row of slack.
+            let rowsShown = min count (min 10 (max 1 (mainHeight - 3)))
 
             // Scroll so the selection stays visible.
             let top =
@@ -799,14 +802,20 @@ module Layout =
                 else
                     min (max 0 (count - rowsShown)) (completion.Selected - rowsShown + 1)
 
-            let contentWidth =
-                completion.Candidates
-                |> List.map (fun c ->
-                    let label, detail, b = lineOf c
-                    label.Length + detail.Length + 2 + b.Length)
-                |> List.max
-                |> min cap
-                |> max 8
+            let widthOf f =
+                completion.Candidates |> List.map (f >> String.length) |> List.max
+
+            // Align details into a shared column: pad labels to the widest.
+            let labelWidth = widthOf (fun c -> c.Label) |> min 32
+            let detailWidth = widthOf detailOf
+            let badgeWidth = widthOf badge
+
+            // Inner text width: pad + label col + gap + detail + gap + badge + pad.
+            let innerWidth =
+                (1 + labelWidth + 2 + detailWidth + 2 + badgeWidth + 1) |> min 60 |> max 12
+
+            let boxWidth = innerWidth + 2
+            let boxHeight = rowsShown + 2
 
             // Anchor: left edge aligned with the typed prefix start; drop
             // below the caret, or flip above near the bottom edge.
@@ -817,31 +826,53 @@ module Layout =
 
             let caretX = editorX + gutter + max 0 (prefixCol - buffer.ViewportLeft)
             let caretY = buffer.Cursor.Line - buffer.ViewportTop
-            let boxX = max 0 (min caretX (width - contentWidth))
+            let boxX = max 0 (min caretX (width - boxWidth))
 
             let boxY =
-                if caretY + 1 + rowsShown <= mainHeight then
+                if caretY + 1 + boxHeight <= mainHeight then
                     caretY + 1
                 else
-                    max 0 (caretY - rowsShown)
+                    max 0 (caretY - boxHeight)
 
+            let border = muted
+            let horizontal = String.replicate innerWidth "─"
             let mutable current = screen
+
+            let writeRow y (text: string) =
+                if y >= 0 && y < mainHeight then
+                    Screen.writeText boxX y border boxWidth text current
+
+            // Top and bottom border.
+            writeRow boxY ("┌" + horizontal + "┐")
+            writeRow (boxY + boxHeight - 1) ("└" + horizontal + "┘")
 
             for row in 0 .. rowsShown - 1 do
                 let index = top + row
-                let y = boxY + row
+                let y = boxY + 1 + row
 
                 if index < count && y >= 0 && y < mainHeight then
                     let candidate = completion.Candidates[index]
-                    let label, detail, b = lineOf candidate
                     let isSelected = index = completion.Selected
                     let rowStyle = if isSelected then selected else chrome
-                    Screen.fillRect boxX y contentWidth 1 rowStyle ' ' current
-                    Screen.writeText boxX y rowStyle contentWidth (pad contentWidth (" " + label + detail)) current
-                    // Right-aligned source badge.
-                    let bx = boxX + contentWidth - b.Length - 1
+                    let b = badge candidate
 
-                    if bx > boxX + label.Length + 1 then
+                    // Fill the inner cells and draw the side borders.
+                    Screen.fillRect (boxX + 1) y innerWidth 1 rowStyle ' ' current
+                    Screen.writeText boxX y border 1 "│" current
+                    Screen.writeText (boxX + innerWidth + 1) y border 1 "│" current
+
+                    // label column (padded) + detail, ellipsized to leave the
+                    // badge its right-aligned slot.
+                    let detail = detailOf candidate
+
+                    let body =
+                        pad labelWidth candidate.Label + (if detail <> "" then "  " + detail else "")
+
+                    let bodyRoom = innerWidth - 2 - (if b.Length > 0 then b.Length + 1 else 0)
+                    Screen.writeText (boxX + 2) y rowStyle (max 0 bodyRoom) (ellipsize bodyRoom body) current
+
+                    if b.Length > 0 then
+                        let bx = boxX + innerWidth - b.Length
                         Screen.writeText bx y (if isSelected then rowStyle else muted) b.Length b current
 
             current
