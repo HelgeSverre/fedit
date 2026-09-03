@@ -401,3 +401,24 @@ let ``plugins block gives each plugin its own stringified settings`` () =
 
     config.PluginSettings
     |> should equal (Map.ofList [ "showcase", Map.ofList [ "greeting", "hi"; "limit", "3"; "strict", "true" ] ])
+
+[<Fact>]
+let ``completionStyle round-trips through save and defaults to dock`` () =
+    let configPath = tempConfigPath ()
+    Directory.CreateDirectory(Path.GetDirectoryName configPath) |> ignore
+
+    try
+        File.WriteAllText(configPath, "{}")
+        let defaults, _ = ConfigIO.loadFrom configPath []
+        defaults.CompletionStyle |> should equal CompletionDock
+
+        ConfigIO.saveTo
+            configPath
+            { defaults with
+                CompletionStyle = CompletionOverlay }
+
+        let reloaded, error = ConfigIO.loadFrom configPath []
+        error |> should equal None
+        reloaded.CompletionStyle |> should equal CompletionOverlay
+    finally
+        File.Delete configPath

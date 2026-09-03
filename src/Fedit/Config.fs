@@ -343,6 +343,12 @@ module ConfigIO =
                     | Some "viewport" -> ScrollViewport
                     | _ -> defaults.ScrollMode
 
+                let completionStyle =
+                    match getStringProp root "completionStyle" with
+                    | Some "overlay" -> CompletionOverlay
+                    | Some "dock" -> CompletionDock
+                    | _ -> defaults.CompletionStyle
+
                 let scrollOff =
                     getIntProp root "scrollOff"
                     |> Option.defaultValue defaults.ScrollOff
@@ -388,6 +394,7 @@ module ConfigIO =
                       StatusFormat = statusFormat
                       SyntaxHighlightingEnabled = syntaxHighlightingEnabled
                       ScrollMode = scrollMode
+                      CompletionStyle = completionStyle
                       ScrollOff = scrollOff
                       MouseScrollLines = mouseScrollLines
                       AutoReveal = autoReveal
@@ -582,6 +589,11 @@ module ConfigIO =
             | ScrollLine -> "line"
             | ScrollViewport -> "viewport"
 
+        let completionStyleStr =
+            match config.CompletionStyle with
+            | CompletionDock -> "dock"
+            | CompletionOverlay -> "overlay"
+
         root["theme"] <- System.Text.Json.Nodes.JsonValue.Create config.Theme.Name
         root["recent"] <- recentArray
         root["disabledPlugins"] <- disabledPluginsArray
@@ -608,6 +620,7 @@ module ConfigIO =
         root["ignoredNames"] <- ignoredNamesArray
         root["useGitignore"] <- System.Text.Json.Nodes.JsonValue.Create config.Ignore.UseGitignore
         root["scrollMode"] <- System.Text.Json.Nodes.JsonValue.Create scrollModeStr
+        root["completionStyle"] <- System.Text.Json.Nodes.JsonValue.Create completionStyleStr
         root["scrollOff"] <- System.Text.Json.Nodes.JsonValue.Create config.ScrollOff
         root["mouseScrollLines"] <- System.Text.Json.Nodes.JsonValue.Create config.MouseScrollLines
 

@@ -753,6 +753,100 @@ module Layout =
         if dockHeight > 1 then
             renderPickerFooter theme footerY width view.Footer screen
 
+    /// The cursor-anchored completion popover (config `completionStyle:
+    /// overlay`). A floating menu painted over the editor just below the
+    /// caret (or above it near the bottom edge), left-aligned with the
+    /// typed prefix. Keyboard handling is unchanged — only the surface
+    /// differs from the dock list.
+    let private renderCompletionOverlay (editorX: int) (mainHeight: int) (width: int) model screen =
+        match model.Completion with
+        | Some completion when not completion.Candidates.IsEmpty ->
+            let theme = effectiveTheme model
+            let chrome = chromeOf theme
+            let selected = selectedOf theme
+
+            let muted =
+                { chrome with
+                    Foreground = theme.SyntaxComment }
+
+            let buffer = Editor.activeBufferState model
+            let gutter = Buffer.gutterWidth buffer
+
+            let badge (candidate: CompletionCandidate) =
+                match candidate.Source with
+                | FromServer name -> name
+                | FromBuffer -> "buf"
+                | FromPlugin source -> source
+
+            // Longest "label  detail  badge" line, capped.
+            let lineOf (c: CompletionCandidate) =
+                let detail =
+                    if System.String.IsNullOrEmpty c.Detail then
+                        ""
+                    else
+                        "  " + c.Detail
+
+                c.Label, detail, badge c
+
+            let cap = 48
+            let count = completion.Candidates.Length
+            let rowsShown = min count (min 10 (max 1 (mainHeight - 1)))
+
+            // Scroll so the selection stays visible.
+            let top =
+                if completion.Selected < rowsShown then
+                    0
+                else
+                    min (max 0 (count - rowsShown)) (completion.Selected - rowsShown + 1)
+
+            let contentWidth =
+                completion.Candidates
+                |> List.map (fun c ->
+                    let label, detail, b = lineOf c
+                    label.Length + detail.Length + 2 + b.Length)
+                |> List.max
+                |> min cap
+                |> max 8
+
+            // Anchor: left edge aligned with the typed prefix start; drop
+            // below the caret, or flip above near the bottom edge.
+            let start, _ = completion.PrefixRange
+
+            let prefixCol =
+                start - Buffer.positionToIndex { buffer.Cursor with Column = 0 } buffer
+
+            let caretX = editorX + gutter + max 0 (prefixCol - buffer.ViewportLeft)
+            let caretY = buffer.Cursor.Line - buffer.ViewportTop
+            let boxX = max 0 (min caretX (width - contentWidth))
+
+            let boxY =
+                if caretY + 1 + rowsShown <= mainHeight then
+                    caretY + 1
+                else
+                    max 0 (caretY - rowsShown)
+
+            let mutable current = screen
+
+            for row in 0 .. rowsShown - 1 do
+                let index = top + row
+                let y = boxY + row
+
+                if index < count && y >= 0 && y < mainHeight then
+                    let candidate = completion.Candidates[index]
+                    let label, detail, b = lineOf candidate
+                    let isSelected = index = completion.Selected
+                    let rowStyle = if isSelected then selected else chrome
+                    Screen.fillRect boxX y contentWidth 1 rowStyle ' ' current
+                    Screen.writeText boxX y rowStyle contentWidth (pad contentWidth (" " + label + detail)) current
+                    // Right-aligned source badge.
+                    let bx = boxX + contentWidth - b.Length - 1
+
+                    if bx > boxX + label.Length + 1 then
+                        Screen.writeText bx y (if isSelected then rowStyle else muted) b.Length b current
+
+            current
+        | _ -> screen
+
     let render model =
         let theme = effectiveTheme model
         let accent = accentOf theme
@@ -913,5 +1007,13 @@ module Layout =
                       Top = commandY
                       Visible = true }
                     current
+
+        // Cursor-anchored completion popover, painted last so it floats over
+        // the editor. The dock style renders in the dock instead (above).
+        let current =
+            if model.Config.CompletionStyle = CompletionOverlay then
+                renderCompletionOverlay editorX mainHeight width model current
+            else
+                current
 
         current

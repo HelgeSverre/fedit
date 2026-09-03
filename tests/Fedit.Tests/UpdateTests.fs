@@ -5015,3 +5015,62 @@ let ``Enter with no completion highlighted on an empty command prompt still dism
 
     let entered, _ = Editor.update (KeyPressed(nk Enter)) empty
     entered.Prompt.Active |> should equal false
+
+// ── completion overlay style ────────────────────────────────────────────────
+
+/// Editor model with two buffer words and a two-char prefix typed, so a
+/// popup is open; `style` chooses dock vs overlay.
+let private completionModel style =
+    let model =
+        { initModel () with
+            Terminal = { Width = 80; Height = 24 }
+            Config =
+                { (initModel ()).Config with
+                    CompletionStyle = style } }
+
+    "printline pr"
+    |> Seq.fold (fun m c -> fst (Editor.update (KeyPressed(if c = ' ' then nk Space else chr c)) m)) model
+
+[<Fact>]
+let ``dock style puts the completion in the dock; overlay style leaves the dock free`` () =
+    let dock = completionModel CompletionDock
+    dock.Completion.IsSome |> should equal true
+
+    match Dock.panel dock with
+    | DockCompletions("Complete", _, _) -> ()
+    | other -> failwith $"dock style should show DockCompletions, got %A{other}"
+
+    let overlay = completionModel CompletionOverlay
+    overlay.Completion.IsSome |> should equal true
+    // The popup does not claim the dock in overlay style.
+    match Dock.panel overlay with
+    | DockCompletions _ -> failwith "overlay style must not use the dock"
+    | _ -> ()
+
+    (Dock.metrics overlay).DockHeight |> should equal 0
+
+[<Fact>]
+let ``overlay style paints the candidates over the editor near the cursor`` () =
+    let overlay = completionModel CompletionOverlay
+    let screen = Layout.render overlay
+
+    let rows =
+        [ for r in 0 .. screen.Height - 1 -> String.init screen.Width (fun c -> string screen.Cells[r, c].Glyph) ]
+
+    // The buffer word "printline" appears as a floating candidate row, and it
+    // is in the editor region (above the status bar), not in a dock title row.
+    let hit = rows |> List.tryFindIndex (fun row -> row.Contains "printline")
+    hit.IsSome |> should equal true
+    hit.Value < (Dock.metrics overlay).StatusY |> should equal true
+    // No "Complete" dock title in overlay mode.
+    rows |> List.exists (fun row -> row.Contains "Complete") |> should equal false
+
+[<Fact>]
+let ``dock style still shows the Complete title row`` () =
+    let dock = completionModel CompletionDock
+    let screen = Layout.render dock
+
+    let rows =
+        [ for r in 0 .. screen.Height - 1 -> String.init screen.Width (fun c -> string screen.Cells[r, c].Glyph) ]
+
+    rows |> List.exists (fun row -> row.Contains "Complete") |> should equal true

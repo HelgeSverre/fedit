@@ -116,7 +116,12 @@ module Dock =
             // transient panels (it is the active interaction). A source
             // badge rides in the item Detail: buf, lsp, or the plugin name.
             match model.Completion with
-            | Some completion when not completion.Candidates.IsEmpty || not (Set.isEmpty completion.Pending) ->
+            // Only the dock style claims the dock; the overlay style paints
+            // over the editor in View and leaves the dock free.
+            | Some completion when
+                model.Config.CompletionStyle = CompletionDock
+                && (not completion.Candidates.IsEmpty || not (Set.isEmpty completion.Pending))
+                ->
                 let items =
                     completion.Candidates
                     |> List.map (fun candidate ->
