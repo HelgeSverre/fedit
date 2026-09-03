@@ -3592,13 +3592,23 @@ module Editor =
 
                         let closed = closePrompt remembered
                         executeCommand command closed
-                    | Pending message ->
+                    | parsed ->
+                        // Not a complete command line. If a completion is
+                        // highlighted and isn't already the whole text, fill
+                        // it — Enter mirrors Tab, so arrow-selecting an entry
+                        // works even when the query is empty (`:` from
+                        // Ctrl+P) and the parse is `Empty`. Only when nothing
+                        // is highlighted does the parse decide: warn/error, or
+                        // dismiss on a genuinely empty prompt.
                         match prompt.Completions |> List.tryItem prompt.SelectedCompletion with
                         | Some item when (prefixOf prompt.Mode + item.ApplyText) <> prompt.Text ->
                             applyCompletion item model
-                        | _ -> notify (Some(Notification.warning message)) model, []
-                    | Invalid message -> notify (Some(Notification.error message)) model, []
-                    | Empty -> closePrompt model, []
+                        | _ ->
+                            match parsed with
+                            | Pending message -> notify (Some(Notification.warning message)) model, []
+                            | Invalid message -> notify (Some(Notification.error message)) model, []
+                            | Empty -> closePrompt model, []
+                            | Ready _ -> model, [] // unreachable: handled above
             | _ -> model, []
 
     let initWithInitialFile rootPath initialFile size config userThemes =

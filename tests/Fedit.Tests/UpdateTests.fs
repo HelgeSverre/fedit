@@ -4984,3 +4984,34 @@ let ``the dock title paints in the header style, not the accent`` () =
     let cell = screen.Cells[m.DockY, 0]
     cell.Style.Background |> should equal theme.HeaderBg
     cell.Style.Background |> should not' (equal theme.Accent)
+
+// ── command palette: Enter honors an arrow-selected completion (empty query)
+
+[<Fact>]
+let ``Enter on an arrow-selected command fills it even when the query is empty`` () =
+    // Ctrl+P opens the palette in Command mode with just ":"; Parsed is Empty.
+    let opened = fst (Editor.update (KeyPressed(ck 'p')) (initModel ()))
+    opened.Prompt.Text |> should equal ":"
+    opened.Prompt.Completions |> List.isEmpty |> should equal false
+
+    // Arrow down to the second completion, then Enter.
+    let moved = fst (Editor.update (KeyPressed(nk Down)) opened)
+    let target = moved.Prompt.Completions[moved.Prompt.SelectedCompletion]
+    let entered, _ = Editor.update (KeyPressed(nk Enter)) moved
+
+    // The palette stays open with the selection filled in (Tab parity),
+    // not dismissed.
+    entered.Prompt.Active |> should equal true
+    entered.Prompt.Text |> should equal (":" + target.ApplyText)
+
+[<Fact>]
+let ``Enter with no completion highlighted on an empty command prompt still dismisses`` () =
+    // Force an empty completion list so nothing is selectable.
+    let opened = fst (Editor.update (KeyPressed(ck 'p')) (initModel ()))
+
+    let empty =
+        { opened with
+            Prompt = { opened.Prompt with Completions = [] } }
+
+    let entered, _ = Editor.update (KeyPressed(nk Enter)) empty
+    entered.Prompt.Active |> should equal false
