@@ -500,6 +500,7 @@ module ConfigIO =
                                   ChromeBg = pickColor "chromeBg" d.ChromeBg
                                   HeaderFg = pickColor "headerFg" d.HeaderFg
                                   HeaderBg = pickColor "headerBg" d.HeaderBg
+                                  OverlayBorderFg = pickColor "overlayBorderFg" d.OverlayBorderFg
                                   PromptFg = pickColor "promptFg" d.PromptFg
                                   PromptBg = pickColor "promptBg" d.PromptBg
                                   LineNumberFg = pickColor "lineNumberFg" d.LineNumberFg

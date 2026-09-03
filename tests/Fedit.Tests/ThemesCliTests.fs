@@ -30,6 +30,9 @@ let ``every theme carries name, accent and a syntax object`` () =
         row.GetProperty("headerFg").ValueKind |> should equal JsonValueKind.String
         row.GetProperty("headerBg").ValueKind |> should equal JsonValueKind.String
 
+        row.GetProperty("overlayBorderFg").ValueKind
+        |> should equal JsonValueKind.String
+
 [<Fact>]
 let ``github-light is a light theme with an opaque white editor surface`` () =
     let gh = byName "github-light"

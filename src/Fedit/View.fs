@@ -834,10 +834,9 @@ module Layout =
                 else
                     max 0 (caretY - boxHeight)
 
-            // Dimmer than the comment gray so the frame recedes.
             let border =
                 { chrome with
-                    Foreground = theme.LineNumberFg }
+                    Foreground = theme.OverlayBorderFg }
 
             let horizontal = String.replicate innerWidth "─"
             let mutable current = screen

@@ -38,6 +38,9 @@ type Theme =
       // dock. Its own fg/bg so a theme owns the whole surface.
       HeaderFg: Color
       HeaderBg: Color
+      // Frame color of the cursor-anchored completion overlay (its glyphs
+      // sit on the row background, so only a fg is needed).
+      OverlayBorderFg: Color
       PromptFg: Color
       PromptBg: Color
       LineNumberFg: Color
@@ -157,6 +160,7 @@ module Themes =
           // Dimmed dark-gray band with light-gray text.
           HeaderFg = Color.indexed 250
           HeaderBg = Color.indexed 238
+          OverlayBorderFg = Color.indexed 240
           PromptFg = Color.indexed 230
           PromptBg = Color.indexed 237
           LineNumberFg = Color.indexed 241
@@ -289,6 +293,7 @@ module Themes =
             ChromeBg = Color.ofHex "#F6F8FA"
             HeaderFg = Color.ofHex "#57606A"
             HeaderBg = Color.ofHex "#D0D7DE"
+            OverlayBorderFg = Color.ofHex "#AFB8C1"
             PromptFg = Color.ofHex "#1F2328"
             PromptBg = Color.ofHex "#EAEEF2"
             LineNumberFg = Color.ofHex "#8C959F"
@@ -337,6 +342,7 @@ module Themes =
             ChromeBg = Color.ofHex "#161B22"
             HeaderFg = Color.ofHex "#C9D1D9"
             HeaderBg = Color.ofHex "#30363D"
+            OverlayBorderFg = Color.ofHex "#484F58"
             PromptFg = Color.ofHex "#E6EDF3"
             PromptBg = Color.ofHex "#161B22"
             LineNumberFg = Color.ofHex "#6E7681"
@@ -402,6 +408,7 @@ module Themes =
             ChromeBg = Color.ofHex "#10141C"
             HeaderFg = Color.ofHex "#BFBDB6"
             HeaderBg = Color.ofHex "#2D3441"
+            OverlayBorderFg = Color.ofHex "#3E4A5B"
             PromptFg = Color.ofHex "#BFBDB6"
             PromptBg = Color.ofHex "#10141C"
             LineNumberFg = Color.ofHex "#5A6378"

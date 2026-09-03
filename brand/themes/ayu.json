@@ -15,6 +15,7 @@
   "chromeBg": "#10141C",
   "headerFg": "#BFBDB6",
   "headerBg": "#2D3441",
+  "overlayBorderFg": "#3E4A5B",
   "promptFg": "#BFBDB6",
   "promptBg": "#10141C",
   "lineNumberFg": "#5A6378",
