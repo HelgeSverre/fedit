@@ -100,6 +100,31 @@ module Layout =
             | None, Ready(Theme name) -> Themes.tryFindIn model.UserThemes name
             | _ -> None
 
+    /// A plugin `TextStyle` theme slot on top of `base` (its background).
+    let private pluginStyleOf (theme: Theme) (ground: Style) (style: Fedit.PluginApi.TextStyle) =
+        match style with
+        | Fedit.PluginApi.TextStyle.Plain -> ground
+        | Fedit.PluginApi.TextStyle.Accent ->
+            { ground with
+                Foreground = theme.Accent }
+        | Fedit.PluginApi.TextStyle.Muted ->
+            { ground with
+                Foreground = theme.SyntaxComment }
+        | Fedit.PluginApi.TextStyle.Error ->
+            { ground with
+                Foreground = theme.ErrorFg
+                Bold = true }
+        | Fedit.PluginApi.TextStyle.Warning ->
+            { ground with
+                Foreground = theme.WarningFg
+                Bold = true }
+        | Fedit.PluginApi.TextStyle.Keyword ->
+            { ground with
+                Foreground = theme.SyntaxKeyword }
+        | Fedit.PluginApi.TextStyle.String ->
+            { ground with
+                Foreground = theme.SyntaxString }
+
     let private effectiveTheme model =
         previewTheme model |> Option.defaultValue model.Config.Theme
 
@@ -394,6 +419,34 @@ module Layout =
                     contentWidth
                     (pad contentWidth (crop buffer.ViewportLeft contentWidth rows[lineIndex]))
                     screen
+
+                // Plugin decorations: a one-glyph gutter mark in the spare
+                // gutter column, and virtual text after the line's end.
+                // Painted before the syntax overlay so a plugin cannot
+                // recolor document text, only annotate around it.
+                match model.Decorations.TryFind buffer.Id with
+                | Some bySource ->
+                    let mutable virtualX =
+                        x + gutterWidth + max 0 (rows[lineIndex].Length - buffer.ViewportLeft)
+
+                    for KeyValue(_, decorations) in bySource do
+                        for decoration in decorations do
+                            if decoration.Line = lineIndex + 1 then
+                                let style = pluginStyleOf theme textStyle decoration.Style
+
+                                match decoration.Gutter with
+                                | Some mark when mark.Length > 0 ->
+                                    Screen.setCell (x + gutterWidth - 1) row style mark[0] screen
+                                | _ -> ()
+
+                                match decoration.Text with
+                                | Some text when text.Length > 0 && virtualX < x + gutterWidth + contentWidth ->
+                                    let room = x + gutterWidth + contentWidth - virtualX
+                                    let shown = " " + text.Replace('\n', ' ')
+                                    Screen.writeText virtualX row style room (pad room shown) screen
+                                    virtualX <- virtualX + min room shown.Length
+                                | _ -> ()
+                | None -> ()
 
                 // Syntax overlay — replace each cell's foreground with the
                 // span's themed color where one exists. Runs before
@@ -766,25 +819,8 @@ module Layout =
 
             let styleFor (style: Fedit.PluginApi.TextStyle) =
                 match style with
-                | Fedit.PluginApi.TextStyle.Plain -> chrome
                 | Fedit.PluginApi.TextStyle.Accent -> accent
-                | Fedit.PluginApi.TextStyle.Muted ->
-                    { chrome with
-                        Foreground = theme.SyntaxComment }
-                | Fedit.PluginApi.TextStyle.Error ->
-                    { chrome with
-                        Foreground = theme.ErrorFg
-                        Bold = true }
-                | Fedit.PluginApi.TextStyle.Warning ->
-                    { chrome with
-                        Foreground = theme.WarningFg
-                        Bold = true }
-                | Fedit.PluginApi.TextStyle.Keyword ->
-                    { chrome with
-                        Foreground = theme.SyntaxKeyword }
-                | Fedit.PluginApi.TextStyle.String ->
-                    { chrome with
-                        Foreground = theme.SyntaxString }
+                | other -> pluginStyleOf theme chrome other
 
             lines
             |> List.truncate (max 0 (dockHeight - 1))

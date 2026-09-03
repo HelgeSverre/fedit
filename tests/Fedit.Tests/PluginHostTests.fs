@@ -298,3 +298,35 @@ let ``a plugin's language server and grammar reach the editor and the grammar hi
                 Highlight.parseSpans highlight "showcase" "key = 1" |> Option.defaultValue [||]
 
             Assert.Contains(spans, fun (s: HighlightSpan) -> s.Capture = Attribute)
+
+[<Fact>]
+let ``cancelling the token aborts a slow plugin run promptly`` () =
+    use client = showcaseClient ()
+    use cts = new System.Threading.CancellationTokenSource()
+    let clock = System.Diagnostics.Stopwatch.StartNew()
+
+    let run =
+        System.Threading.Tasks.Task.Run(fun () -> client.Invoke("showcase-slow", wordcountContext "3000", cts.Token))
+
+    System.Threading.Thread.Sleep 150
+    cts.Cancel()
+    let result = run.Result
+    let elapsed = clock.ElapsedMilliseconds
+
+    match result with
+    | Result.Error "cancelled" -> ()
+    | other -> Assert.Fail $"expected a cancelled run, got %A{other}"
+
+    Assert.True(elapsed < 2000L, $"cancel took {elapsed}ms")
+
+    match client.Invoke("showcase-fast", wordcountContext "") with
+    | Result.Ok [ Notify(Info, "fast") ] -> ()
+    | other -> Assert.Fail $"host did not recover: %A{other}"
+
+[<Fact>]
+let ``decorations cross the wire from a real plugin`` () =
+    use client = showcaseClient ()
+
+    match client.Invoke("showcase-decorate", wordcountContext "one\nTODO two\nthree\nTODO four") with
+    | Result.Ok [ SetDecorations(1, marks) ] -> Assert.Equal<int list>([ 2; 4 ], marks |> List.map (fun m -> m.Line))
+    | other -> Assert.Fail $"unexpected: %A{other}"

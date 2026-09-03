@@ -132,6 +132,26 @@ module Plugin =
               Symbol = Some "tree_sitter_toml"
               Queries = Some "grammars/showcase" }
 
+        // Decorations: mark every line containing TODO with a gutter glyph
+        // and virtual text; run again on a change to keep them in step.
+        host.RegisterCommand
+            { Name = "showcase-decorate"
+              Usage = "showcase-decorate"
+              Summary = "Mark TODO lines in the active buffer."
+              Run =
+                fun ctx ->
+                    let lines = ctx.ActiveBuffer.Text.Split('\n')
+
+                    let decorations =
+                        [ for index in 0 .. lines.Length - 1 do
+                              if lines[index].Contains "TODO" then
+                                  { Line = index + 1
+                                    Gutter = Some "!"
+                                    Text = Some "todo here"
+                                    Style = TextStyle.Warning } ]
+
+                    [ SetDecorations(ctx.ActiveBuffer.Id, decorations) ] }
+
         // The enriched snapshot: language, dirty flag, diagnostics, and the
         // plugin's own `plugins.showcase` settings from config.json.
         host.RegisterCommand

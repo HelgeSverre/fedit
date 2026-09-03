@@ -235,6 +235,7 @@ module Runtime =
         | BuildPlugin pluginPath -> $"BuildPlugin({pluginPath})"
         | ValidatePlugin path -> $"ValidatePlugin({path})"
         | RegisterLanguages specs -> $"RegisterLanguages({specs.Length})"
+        | CancelPluginRuns(bufferId, editTick) -> $"CancelPluginRuns(buffer={bufferId}, tick={editTick})"
         | LoadKeybinds -> "LoadKeybinds"
         | LoadMacros announce -> $"LoadMacros(announce={announce})"
         | SaveMacros registers -> $"SaveMacros(registers={registers.Count})"
@@ -481,6 +482,13 @@ module Runtime =
         let mutable searchCts: CancellationTokenSource option = None
         // Latest-wins highlight parse per buffer: a keystroke during a parse
         // cancels the stale one; `update` also drops stale results by tick.
+        // In-flight plugin runs by the buffer they snapshotted, with the
+        // snapshot's edit tick: `CancelPluginRuns` fires the older ones.
+        let pluginRunLock = obj ()
+
+        let pluginRuns =
+            System.Collections.Generic.Dictionary<int, ResizeArray<int * CancellationTokenSource>>()
+
         let highlightCts =
             System.Collections.Generic.Dictionary<int, CancellationTokenSource>()
         // Config first: user grammars/query overrides feed the registry.
@@ -952,12 +960,45 @@ module Runtime =
                         )
                     ))
                 |> ignore
+            | CancelPluginRuns(bufferId, editTick) ->
+                lock pluginRunLock (fun () ->
+                    match pluginRuns.TryGetValue bufferId with
+                    | true, runs ->
+                        for tick, cts in runs do
+                            if tick < editTick then
+                                try
+                                    cts.Cancel()
+                                with _ ->
+                                    ()
+                    | _ -> ())
             | RunPluginCommand(source, command, context) ->
+                let bufferId = context.ActiveBuffer.Id
+                let cts = new CancellationTokenSource()
+                let entry = context.ActiveBuffer.EditTick, cts
+
+                lock pluginRunLock (fun () ->
+                    match pluginRuns.TryGetValue bufferId with
+                    | true, runs -> runs.Add entry
+                    | _ -> pluginRuns[bufferId] <- ResizeArray [ entry ])
+
                 post (fun () ->
-                    PluginActionsReady(
-                        source,
-                        attempt (fun () -> pluginHost.Invoke(command, context)) |> Result.bind id
-                    ))
+                    let result =
+                        try
+                            attempt (fun () -> pluginHost.Invoke(command, context, cts.Token))
+                            |> Result.bind id
+                        finally
+                            lock pluginRunLock (fun () ->
+                                match pluginRuns.TryGetValue bufferId with
+                                | true, runs ->
+                                    runs.Remove entry |> ignore
+
+                                    if runs.Count = 0 then
+                                        pluginRuns.Remove bufferId |> ignore
+                                | _ -> ())
+
+                            cts.Dispose()
+
+                    PluginActionsReady(source, result))
             | InstallPluginFromSource source ->
                 post (fun () ->
                     let pluginsRoot = Path.Combine(ConfigIO.directory (), "plugins")

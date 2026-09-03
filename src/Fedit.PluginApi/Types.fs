@@ -106,6 +106,14 @@ type TextStyle =
 /// A run of text in one style. A panel line is a list of segments.
 type Segment = { Text: string; Style: TextStyle }
 
+/// A per-line annotation: a one-character gutter mark, text appended
+/// after the line (virtual text), or both. `Line` is 1-based.
+type Decoration =
+    { Line: int
+      Gutter: string option
+      Text: string option
+      Style: TextStyle }
+
 /// Side effects a plugin can request. The host translates these into
 /// core editor effects and model changes. Closed, append-only DU — new
 /// cases append at the end so compiled plugins keep their union tags;
@@ -193,6 +201,11 @@ type PluginAction =
     /// Ask the user for a line of text. Enter runs `onSubmit` with the text
     /// as `PluginContext.Argument`; Escape cancels.
     | PromptInput of label: string * initial: string * onSubmit: string
+    /// Replace this plugin's decorations on buffer `bufferId` (a
+    /// `BufferView.Id`); an empty list clears them. Decorations follow line
+    /// numbers, not text, so refresh them from a `BufferChanged` hook when
+    /// they must track edits. Unknown buffers are ignored.
+    | SetDecorations of bufferId: int * decorations: Decoration list
 
 /// A command definition a plugin registers with the host. `Run` is invoked
 /// synchronously when the command fires; it should be fast (< 50ms).

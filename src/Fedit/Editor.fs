@@ -132,6 +132,7 @@ module Editor =
         | BuildPlugin _
         | ValidatePlugin _
         | RegisterLanguages _
+        | CancelPluginRuns _
         | LoadKeybinds
         | LoadMacros _
         | SaveMacros _
@@ -1014,6 +1015,7 @@ module Editor =
                 Editors = nextEditors
                 CloseArmed = None
                 HighlightStates = model.HighlightStates |> Map.remove bufferId
+                Decorations = model.Decorations |> Map.remove bufferId
                 HexViews = model.HexViews |> Map.remove bufferId
                 MouseDrag = model.MouseDrag |> Option.filter (fun drag -> drag.AnchorBufferId <> bufferId) }
             |> notify (Some(Notification.info $"Closed {buffer.Name}")),
@@ -1806,6 +1808,23 @@ module Editor =
                 let opened, fx = openPromptSession PromptSessionKind.PluginItemsSession withRows
                 current <- opened
                 effects.AddRange fx
+            | Fedit.PluginApi.SetDecorations(bufferId, decorations) ->
+                if Map.containsKey bufferId current.Editors.Buffers then
+                    let forBuffer =
+                        current.Decorations |> Map.tryFind bufferId |> Option.defaultValue Map.empty
+
+                    let updated =
+                        match decorations with
+                        | [] -> Map.remove source forBuffer
+                        | _ -> Map.add source decorations forBuffer
+
+                    current <-
+                        { current with
+                            Decorations =
+                                (if Map.isEmpty updated then
+                                     Map.remove bufferId current.Decorations
+                                 else
+                                     Map.add bufferId updated current.Decorations) }
             | Fedit.PluginApi.PromptInput(label, initial, onSubmit) ->
                 current <-
                     { current with
@@ -3308,6 +3327,7 @@ module Editor =
           PluginStatus = Map.empty
           PluginPicker = None
           PluginPrompt = None
+          Decorations = Map.empty
           HighlightStates = Map.empty
           HexViews = Map.empty
           SelectionLadder = None
@@ -3561,6 +3581,7 @@ module Editor =
                                         ActiveBufferId = buffer.Id
                                         BufferActivations = Map.remove old.Id model.Editors.BufferActivations }
                                 HighlightStates = Map.remove old.Id model.HighlightStates
+                                Decorations = Map.remove old.Id model.Decorations
                                 Workspace = selectOrReveal path model model.Workspace
                                 Config = nextConfig }
                             |> setHexEntry buffer.Id
@@ -3941,6 +3962,9 @@ module Editor =
         | PluginsScanned(Result.Error message) ->
             notify (Some(Notification.error $"Plugin scan failed: {message}")) model, []
         | PluginActionsReady(source, Result.Ok actions) -> applyPluginActions source actions model
+        | PluginActionsReady(_, Result.Error "cancelled") ->
+            // The buffer moved on and the run was cancelled on purpose.
+            model, []
         | PluginActionsReady(source, Result.Error message) ->
             notify (Some(Notification.error $"Plugin '{source}': {message}")) model, []
         | PluginInstalled(name, Result.Ok()) ->
@@ -4660,10 +4684,19 @@ module Editor =
             (effects |> List.filter ((<>) ReplayPump)) @ hookRuns
         | _ -> model, effects @ hookRuns
 
+    /// Buffers whose text moved on: in-flight plugin runs holding an older
+    /// snapshot get their cancellation token fired (`CancelPluginRuns`).
+    let private staleRunEffects (before: Model) (after: Model) : Effect list =
+        [ for KeyValue(id, buffer) in after.Editors.Buffers do
+              match before.Editors.Buffers.TryFind id with
+              | Some previous when buffer.EditTick > previous.EditTick -> CancelPluginRuns(id, buffer.EditTick)
+              | _ -> () ]
+
     let update msg model =
         let next, effects = updateCore msg model
         let next, effects = settleReplayFences msg next effects
         let next, effects = fenceHookRuns next effects (hookEffects msg model next)
+        let effects = effects @ staleRunEffects model next
         let next = disarmStaleConfirmations msg model next
         let next = recordBufferActivation model next
         let next = promoteDirtyPreview next

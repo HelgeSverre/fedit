@@ -4337,3 +4337,112 @@ let ``a rescan without the plugin drops its language server and grammar but keep
     gone.Config.LanguageServers |> should equal [ user ]
     gone.Config.Languages |> should be Empty
     effects |> should be Empty
+
+// ── decorations and edit-tick cancellation ─────────────────────────────────
+
+let private mark line : Fedit.PluginApi.Decoration =
+    { Line = line
+      Gutter = Some "!"
+      Text = Some "todo here"
+      Style = Fedit.PluginApi.TextStyle.Warning }
+
+[<Fact>]
+let ``SetDecorations stores per plugin, clears with an empty list, and ignores unknown buffers`` () =
+    let model = initModel ()
+    let a = pluginActions "a" [ Fedit.PluginApi.SetDecorations(1, [ mark 1 ]) ] model
+    let ab = pluginActions "b" [ Fedit.PluginApi.SetDecorations(1, [ mark 2 ]) ] a
+
+    ab.Decorations
+    |> Map.find 1
+    |> Map.keys
+    |> List.ofSeq
+    |> should equal [ "a"; "b" ]
+
+    let onlyB = pluginActions "a" [ Fedit.PluginApi.SetDecorations(1, []) ] ab
+
+    onlyB.Decorations
+    |> Map.find 1
+    |> Map.keys
+    |> List.ofSeq
+    |> should equal [ "b" ]
+
+    let none = pluginActions "b" [ Fedit.PluginApi.SetDecorations(1, []) ] onlyB
+    Map.isEmpty none.Decorations |> should equal true
+
+    let ghost =
+        pluginActions "a" [ Fedit.PluginApi.SetDecorations(99, [ mark 1 ]) ] model
+
+    Map.isEmpty ghost.Decorations |> should equal true
+
+[<Fact>]
+let ``closing a buffer drops its decorations`` () =
+    let model = initModel ()
+    let extra = Buffer.fromText 2 (Some "/root/b.txt") "b.txt" "x" "\n"
+
+    let model =
+        { model with
+            Editors =
+                { model.Editors with
+                    Buffers = Map.add 2 extra model.Editors.Buffers
+                    ActiveBufferId = 2 } }
+
+    let decorated =
+        pluginActions "a" [ Fedit.PluginApi.SetDecorations(2, [ mark 1 ]) ] model
+
+    let closed, _ = Editor.runAction CloseBuffer decorated
+    closed.Decorations.ContainsKey 2 |> should equal false
+
+[<Fact>]
+let ``decorations paint a gutter mark and virtual text`` () =
+    let model =
+        { initModel () with
+            Terminal = { Width = 60; Height = 8 } }
+
+    let typed =
+        "a TODO"
+        |> Seq.fold (fun m c -> fst (Editor.update (KeyPressed(if c = ' ' then nk Space else chr c)) m)) model
+
+    let decorated =
+        pluginActions "a" [ Fedit.PluginApi.SetDecorations(1, [ mark 1 ]) ] typed
+
+    let screen = Layout.render decorated
+    let row0 = String.init screen.Width (fun col -> string screen.Cells[0, col].Glyph)
+    row0.Contains "!" |> should equal true
+    row0.Contains "a TODO todo here" |> should equal true
+    (row0.IndexOf "!" < row0.IndexOf "a TODO") |> should equal true
+
+[<Fact>]
+let ``an edit cancels plugin runs holding an older snapshot; cursor motion does not`` () =
+    let model = initModel ()
+    let after, typed = Editor.update (KeyPressed(chr 'a')) model
+    let tick = (Editor.activeBufferState after).EditTick
+
+    typed
+    |> List.exists (function
+        | CancelPluginRuns(1, t) -> t = tick
+        | _ -> false)
+    |> should equal true
+
+    let _, moved = Editor.update (KeyPressed(nk Left)) model
+
+    moved
+    |> List.exists (function
+        | CancelPluginRuns _ -> true
+        | _ -> false)
+    |> should equal false
+
+[<Fact>]
+let ``a cancelled plugin run is silent`` () =
+    let model = initModel ()
+
+    let quiet, effects =
+        Editor.update (PluginActionsReady("a", Result.Error "cancelled")) model
+
+    quiet.Notification |> should equal model.Notification
+    effects |> should be Empty
+
+    let loud, _ = Editor.update (PluginActionsReady("a", Result.Error "boom")) model
+
+    loud.Notification
+    |> Option.map (fun n -> n.Severity)
+    |> should equal (Some Severity.Error)

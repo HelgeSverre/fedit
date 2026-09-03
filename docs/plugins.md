@@ -275,6 +275,7 @@ action in order. Pick the right action for the effect you want:
 | `SetStatusItem(Some "text")`            | Put text in the status bar via the `[PLUGINS]` status token (one item per plugin, latest wins); `None` clears it                                                                                                        | Live counters, mode indicators                   |
 | `ShowPicker(title, items, onSelect)`    | Open a filterable picker of `PickerEntry` rows; Enter runs `onSelect` with the row `Id` as `PluginContext.Argument`; Escape closes                                                                                      | Choose a file, branch, task, snippet             |
 | `PromptInput(label, initial, onSubmit)` | Ask for a line of text; Enter runs `onSubmit` with the text as `PluginContext.Argument`; Escape cancels                                                                                                                 | Names, search terms, commit messages             |
+| `SetDecorations(bufferId, marks)`       | Replace this plugin's per-line annotations on a buffer: a one-glyph gutter mark and/or virtual text after the line, in a `TextStyle`; `[]` clears. Tied to line numbers, so refresh from a `BufferChanged` hook         | Lint markers, blame, test results, TODO flags    |
 
 Three coordination notes:
 
@@ -332,7 +333,10 @@ host.RegisterAsyncCommand
 
 Synchronous `RegisterCommand` handlers also run on the host's pool now, so
 they too overlap; the difference is the token and the natural `task {}`
-shape.
+shape. The token also fires when the buffer the command was given moves
+on (the user keeps typing): a run that honours it answers "cancelled",
+which the editor drops silently; a run that ignores it still applies its
+actions against the newer buffer.
 
 ## Language servers and grammars
 

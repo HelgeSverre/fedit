@@ -453,6 +453,8 @@ type Model =
         PluginPicker: PluginPickerState option
         /// The open plugin text prompt, if a `PluginInputSession` is up.
         PluginPrompt: PluginPromptState option
+        /// Plugin decorations by buffer id, then by plugin source.
+        Decorations: Map<int, Map<string, Fedit.PluginApi.Decoration list>>
         /// Per-buffer syntax spans, keyed by `BufferState.Id`. Pure data —
         /// produced by the `ParseHighlight` effect interpreter (which owns
         /// the native tree-sitter objects); stale completions are dropped
@@ -750,6 +752,9 @@ type Effect =
     | ValidatePlugin of path: string
     /// Add plugin-shipped grammars to the highlight registry (idempotent).
     | RegisterLanguages of LanguageSpec list
+    /// The buffer's text moved past `editTick`: cancel in-flight plugin
+    /// runs that were given an older snapshot of it (their token fires).
+    | CancelPluginRuns of bufferId: int * editTick: int
     | LoadKeybinds
     /// Read + parse the macros file, posting `MacrosLoaded` (with the
     /// same `announce` flag). Mirrors `LoadKeybinds`.

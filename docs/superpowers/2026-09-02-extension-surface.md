@@ -8,8 +8,9 @@ host, plus a pty run of the editor itself. Deviations from the plan below:
 in the update wrapper rather than from a message list; `PluginContext`
 also gained `Argument`, which fixed a pre-existing bug where the text typed
 after a plugin command in the prompt was dropped; read-back requests were
-not built (no plugin needed them yet); the cancel request exists on the
-wire but the editor does not send it yet.
+not built (no plugin needed them yet). A follow-up slice added
+`SetDecorations` (gutter marks and virtual text) and wired the cancel
+request to the buffer's edit tick.
 
 This folds the deferred Tier 2 list in
 [`docs/plans/2026-06-04-plugin-action-expansion.md`](../plans/2026-06-04-plugin-action-expansion.md)

@@ -58,7 +58,18 @@ let private sampleActions =
               Subtitle = Some "second" } ],
           "picked"
       )
-      PromptInput("Name", "draft", "answer") ]
+      PromptInput("Name", "draft", "answer")
+      SetDecorations(
+          1,
+          [ { Line = 3
+              Gutter = Some "!"
+              Text = Some "todo"
+              Style = TextStyle.Warning }
+            { Line = 5
+              Gutter = None
+              Text = None
+              Style = TextStyle.Plain } ]
+      ) ]
 
 [<Fact>]
 let ``every PluginAction case round-trips through the wire unchanged`` () =

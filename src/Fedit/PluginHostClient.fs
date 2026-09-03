@@ -94,7 +94,9 @@ type PluginHostClient(hostPath: string) =
     /// Send one request and wait for its response. Requests interleave —
     /// the host serves them concurrently — so a slow plugin command never
     /// blocks another; only the write is serialized.
-    let roundtrip (request: int -> string) : Result<string, string> =
+    /// Cancelling `token` sends a cancel request; the host still answers
+    /// (with "cancelled" unless the command finished first).
+    let roundtrip (token: CancellationToken) (request: int -> string) : Result<string, string> =
         let id = Interlocked.Increment &nextId
 
         let tcs =
@@ -116,6 +118,17 @@ type PluginHostClient(hostPath: string) =
             pending.TryRemove id |> ignore
             Result.Error e
         | Ok() ->
+            use _registration =
+                token.Register(fun () ->
+                    lock gate (fun () ->
+                        match proc with
+                        | Some p when not p.HasExited ->
+                            try
+                                PluginProtocol.writeFrame p.StandardInput (PluginProtocol.cancelRequest 0 id)
+                            with _ ->
+                                ()
+                        | _ -> ()))
+
             let line = tcs.Task.GetAwaiter().GetResult()
 
             if line.Contains "\"plugin host closed the connection\"" then
@@ -127,15 +140,19 @@ type PluginHostClient(hostPath: string) =
     /// (command Run closures are stubbed editor-side; invocation goes back to
     /// the host via Invoke).
     member _.Scan(pluginsRoot: string, disabled: Set<string>) : Result<PluginRegistry, string> =
-        match roundtrip (fun id -> PluginProtocol.scanRequest id pluginsRoot disabled) with
+        match roundtrip CancellationToken.None (fun id -> PluginProtocol.scanRequest id pluginsRoot disabled) with
         | Result.Ok line -> PluginProtocol.parseScanResult line
         | Result.Error e -> Result.Error e
 
-    /// Run a registered command against `ctx`, returning its PluginAction list.
-    member _.Invoke(command: string, ctx: PluginContext) : Result<PluginAction list, string> =
-        match roundtrip (fun id -> PluginProtocol.invokeRequest id command ctx) with
+    /// Run a registered command against `ctx`, returning its PluginAction
+    /// list. Cancelling `token` asks the host to cancel the run.
+    member _.Invoke(command: string, ctx: PluginContext, token: CancellationToken) : Result<PluginAction list, string> =
+        match roundtrip token (fun id -> PluginProtocol.invokeRequest id command ctx) with
         | Result.Ok line -> PluginProtocol.parseInvokeResult line
         | Result.Error e -> Result.Error e
+
+    member this.Invoke(command: string, ctx: PluginContext) : Result<PluginAction list, string> =
+        this.Invoke(command, ctx, CancellationToken.None)
 
     interface IDisposable with
         member _.Dispose() =

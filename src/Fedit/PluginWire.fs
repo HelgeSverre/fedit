@@ -170,6 +170,20 @@ module PluginWire =
             w.WriteString("label", label)
             w.WriteString("initial", initial)
             w.WriteString("onSubmit", onSubmit)
+        | SetDecorations(bufferId, decorations) ->
+            w.WriteString("tag", "setDecorations")
+            w.WriteNumber("bufferId", bufferId)
+            w.WriteStartArray "decorations"
+
+            for d in decorations do
+                w.WriteStartObject()
+                w.WriteNumber("line", d.Line)
+                writeOptString w "gutter" d.Gutter
+                writeOptString w "text" d.Text
+                w.WriteString("style", textStyleStr d.Style)
+                w.WriteEndObject()
+
+            w.WriteEndArray()
 
         w.WriteEndObject()
 
@@ -330,6 +344,15 @@ module PluginWire =
                 str e "onSelect"
             )
         | "promptInput" -> PromptInput(str e "label", str e "initial", str e "onSubmit")
+        | "setDecorations" ->
+            SetDecorations(
+                e.GetProperty("bufferId").GetInt32(),
+                [ for d in e.GetProperty("decorations").EnumerateArray() ->
+                      { Line = d.GetProperty("line").GetInt32()
+                        Gutter = optString d "gutter"
+                        Text = optString d "text"
+                        Style = textStyleOf (str d "style") } ]
+            )
         | other -> failwith ("unknown PluginAction tag: " + other)
 
     let actionsFromJson (json: string) : PluginAction list =
@@ -451,7 +474,18 @@ module PluginWire =
                       Subtitle = Some "second" } ],
                   "picked"
               )
-              PromptInput("Name", "draft", "answer") ]
+              PromptInput("Name", "draft", "answer")
+              SetDecorations(
+                  1,
+                  [ { Line = 3
+                      Gutter = Some "!"
+                      Text = Some "todo"
+                      Style = TextStyle.Warning }
+                    { Line = 5
+                      Gutter = None
+                      Text = None
+                      Style = TextStyle.Plain } ]
+              ) ]
 
         let json1 = actionsToJson sample
         let round = actionsFromJson json1
