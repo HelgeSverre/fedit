@@ -366,6 +366,15 @@ reparse when the plugin scan lands. Build the shared library for each
 platform you ship (`runtimes/<rid>/native` in this repo shows the naming),
 or point `Library` at an absolute path.
 
+## Read-backs
+
+`IPluginHost.ReadClipboard()` asks the editor for the clipboard and
+returns it, usable from inside a command's `Run`. Read-backs are host to
+editor requests on the same wire; the run blocks on its own pool thread
+until the editor answers, so other plugin calls keep flowing. Keep the
+`host` from `register` to call it later. When the editor cannot answer,
+the call throws and the run reports an error.
+
 ## Line-activated buffers
 
 Turn a scratch buffer into a clickable listing with `SetBufferActivation`. It records the named command against the buffer that is active when the action runs, so emit it after the `NewBuffer` that produced the listing. When the user presses Enter or left-clicks a line, the host runs that command with a fresh `PluginContext` whose `ActiveBuffer.Cursor` sits on the activated line. The command name is not validated at registration time — an unknown command surfaces through the normal "command missing" error path when the line is activated. Pair it with `OpenFileAt` inside the handler to jump to a precise 1-based coordinate in another file; the `todo-list` example does exactly this (`todolist` builds the listing and registers `todo-jump`, which parses the clicked line and calls `OpenFileAt`).

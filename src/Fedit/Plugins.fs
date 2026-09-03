@@ -324,6 +324,16 @@ module private PluginBuild =
 // Host-side IPluginHost implementation that collects registrations
 // ---------------------------------------------------------------------------
 
+/// What the host process can ask the editor for on a plugin's behalf.
+/// The plugin host wires these to editor requests over the wire; tests
+/// and the editor-side stub use `HostServices.none`.
+type HostServices = { ReadClipboard: unit -> string }
+
+[<RequireQualifiedAccess>]
+module HostServices =
+    let none: HostServices =
+        { ReadClipboard = fun () -> failwith "clipboard is not available outside a running editor" }
+
 /// IPluginHost implementation that collects commands/keybindings
 /// during register().
 module private HostCollectorImpl =
@@ -335,7 +345,7 @@ module private HostCollectorImpl =
         | KeyChord.Char _ -> true
         | _ -> false
 
-    type Collector(pluginName: string, log: string -> unit) =
+    type Collector(pluginName: string, log: string -> unit, services: HostServices) =
         let commands = ResizeArray<PluginCommand>()
         let asyncRunners = System.Collections.Generic.Dictionary<string, PluginRunner>()
         let keys = ResizeArray<KeyChord * string>()
@@ -387,6 +397,8 @@ module private HostCollectorImpl =
             member _.Log(message) = log $"[plugin:{pluginName}] {message}"
 
             member _.RegisterHook(event, commandName) = hooks.Add(event, commandName)
+
+            member _.ReadClipboard() = services.ReadClipboard()
 
             member _.RegisterLanguageServer(server) =
                 if
@@ -548,7 +560,12 @@ module Plugins =
     /// Load the plugin DLL into an isolated AssemblyLoadContext, locate
     /// the `register` entry, and call it with a fresh collector. Returns
     /// the loaded plugin enriched with whatever it registered.
-    let load (log: string -> unit) (loaded: LoadedPlugin) (dllPath: string) : LoadedPlugin =
+    let loadWith
+        (services: HostServices)
+        (log: string -> unit)
+        (loaded: LoadedPlugin)
+        (dllPath: string)
+        : LoadedPlugin =
         try
             let alc =
                 PluginLoadContext($"fedit-plugin:{loaded.Manifest.Name}") :> AssemblyLoadContext
@@ -558,7 +575,7 @@ module Plugins =
             match PluginLoad.resolveRegister asm loaded.Manifest.EntryType with
             | Result.Error e -> { loaded with Status = Failed e }
             | Ok register ->
-                let collector = HostCollectorImpl.Collector(loaded.Manifest.Name, log)
+                let collector = HostCollectorImpl.Collector(loaded.Manifest.Name, log, services)
 
                 try
                     register (collector :> IPluginHost)
@@ -594,7 +611,8 @@ module Plugins =
     /// Full pipeline: discover, build, load. Conflicts (duplicate
     /// command names across plugins) surface in the returned registry's
     /// `Conflicts` field for the UI to flag.
-    let scanAndLoad
+    let scanAndLoadWith
+        (services: HostServices)
         (pluginsRoot: string)
         (pluginApiDllPath: string)
         (disabledPlugins: Set<string>)
@@ -612,7 +630,7 @@ module Plugins =
                 | _ ->
                     match build pluginApiDllPath loaded with
                     | Result.Error e -> { loaded with Status = Failed e }
-                    | Ok dll -> load log loaded dll)
+                    | Ok dll -> loadWith services log loaded dll)
 
         let commands = System.Collections.Generic.Dictionary<string, PluginCommandBinding>()
 
@@ -666,6 +684,17 @@ module Plugins =
                   if plugin.Status = Loaded then
                       yield! plugin.Languages ]
           Conflicts = List.ofSeq conflicts }
+
+    let load (log: string -> unit) (loaded: LoadedPlugin) (dllPath: string) : LoadedPlugin =
+        loadWith HostServices.none log loaded dllPath
+
+    let scanAndLoad
+        (pluginsRoot: string)
+        (pluginApiDllPath: string)
+        (disabledPlugins: Set<string>)
+        (log: string -> unit)
+        =
+        scanAndLoadWith HostServices.none pluginsRoot pluginApiDllPath disabledPlugins log
 
     // -----------------------------------------------------------------------
     // Install / uninstall

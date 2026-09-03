@@ -35,3 +35,8 @@ type IPluginHost =
     /// first file of that language; a user `languages` entry of the same
     /// name wins.
     abstract member RegisterLanguage: grammar: GrammarSpec -> unit
+
+    /// Read the system clipboard. Usable from inside a command's `Run`
+    /// (it asks the editor and waits); throws when the editor cannot
+    /// answer, e.g. outside a running editor.
+    abstract member ReadClipboard: unit -> string

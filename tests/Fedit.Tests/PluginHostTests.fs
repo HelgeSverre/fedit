@@ -330,3 +330,29 @@ let ``decorations cross the wire from a real plugin`` () =
     match client.Invoke("showcase-decorate", wordcountContext "one\nTODO two\nthree\nTODO four") with
     | Result.Ok [ SetDecorations(1, marks) ] -> Assert.Equal<int list>([ 2; 4 ], marks |> List.map (fun m -> m.Line))
     | other -> Assert.Fail $"unexpected: %A{other}"
+
+[<Fact>]
+let ``a plugin can read the clipboard through the editor mid-run`` () =
+    use client = showcaseClient ()
+
+    client.OnRequest <-
+        function
+        | "readClipboard" -> Ok "from the test"
+        | other -> Result.Error $"nope: {other}"
+
+    match client.Invoke("showcase-clipboard", wordcountContext "") with
+    | Result.Ok [ Notify(Info, "clipboard: from the test") ] -> ()
+    | other -> Assert.Fail $"unexpected: %A{other}"
+
+[<Fact>]
+let ``a read-back the editor refuses fails the plugin run, not the host`` () =
+    use client = showcaseClient ()
+    client.OnRequest <- fun _ -> Result.Error "clipboard unavailable"
+
+    match client.Invoke("showcase-clipboard", wordcountContext "") with
+    | Result.Error message -> Assert.Contains("clipboard unavailable", message)
+    | other -> Assert.Fail $"expected an error: %A{other}"
+
+    match client.Invoke("showcase-fast", wordcountContext "") with
+    | Result.Ok [ Notify(Info, "fast") ] -> ()
+    | other -> Assert.Fail $"host did not recover: %A{other}"

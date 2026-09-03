@@ -45,7 +45,20 @@ type PluginHostClient(hostPath: string) =
 
         pending.Clear()
 
-    /// Reader thread: match each response line to its request by id.
+    /// Editor-side handler for host read-backs (`readClipboard`, ...):
+    /// method name in, value or error out. Runs off the reader thread.
+    let mutable onRequest: string -> Result<string, string> =
+        fun method -> Result.Error $"unsupported request: {method}"
+
+    let answer (p: Process) (json: string) =
+        lock gate (fun () ->
+            try
+                PluginProtocol.writeFrame p.StandardInput json
+            with _ ->
+                ())
+
+    /// Reader thread: match each response line to its request by id, and
+    /// serve the host's own requests on the pool so reading never stalls.
     let pump (p: Process) =
         let thread =
             Thread(
@@ -61,16 +74,38 @@ type PluginHostClient(hostPath: string) =
                         with
                         | None -> alive <- false
                         | Some line ->
-                            let id =
+                            let id, request =
                                 try
                                     use doc = JsonDocument.Parse line
-                                    PluginProtocol.idOf doc.RootElement
-                                with _ ->
-                                    0
+                                    let root = doc.RootElement
 
-                            match pending.TryRemove id with
-                            | true, tcs -> tcs.TrySetResult line |> ignore
-                            | _ -> ()
+                                    PluginProtocol.idOf root,
+                                    (if PluginProtocol.isRequest root then
+                                         Some(PluginProtocol.methodOf root)
+                                     else
+                                         None)
+                                with _ ->
+                                    0, None
+
+                            match request with
+                            | Some method ->
+                                Task.Run(fun () ->
+                                    let reply =
+                                        match
+                                            (try
+                                                onRequest method
+                                             with ex ->
+                                                 Result.Error ex.Message)
+                                        with
+                                        | Ok value -> PluginProtocol.valueResultJson id value
+                                        | Result.Error message -> PluginProtocol.errorJson id message
+
+                                    answer p reply)
+                                |> ignore
+                            | None ->
+                                match pending.TryRemove id with
+                                | true, tcs -> tcs.TrySetResult line |> ignore
+                                | _ -> ()
 
                     failAll "plugin host closed the connection"),
                 IsBackground = true,
@@ -135,6 +170,11 @@ type PluginHostClient(hostPath: string) =
                 Result.Error "plugin host closed the connection"
             else
                 Ok line
+
+    /// Set the handler for the host's read-back requests.
+    member _.OnRequest
+        with get () = onRequest
+        and set (handler: string -> Result<string, string>) = onRequest <- handler
 
     /// Discover/build/load plugins under `pluginsRoot`, returning the registry
     /// (command Run closures are stubbed editor-side; invocation goes back to

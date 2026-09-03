@@ -152,6 +152,16 @@ module Plugin =
 
                     [ SetDecorations(ctx.ActiveBuffer.Id, decorations) ] }
 
+        // A read-back: ask the editor for the clipboard mid-run.
+        host.RegisterCommand
+            { Name = "showcase-clipboard"
+              Usage = "showcase-clipboard"
+              Summary = "Report the clipboard contents."
+              Run =
+                fun _ ->
+                    let clipboard = host.ReadClipboard()
+                    [ Notify(Info, $"clipboard: {clipboard}") ] }
+
         // The enriched snapshot: language, dirty flag, diagnostics, and the
         // plugin's own `plugins.showcase` settings from config.json.
         host.RegisterCommand

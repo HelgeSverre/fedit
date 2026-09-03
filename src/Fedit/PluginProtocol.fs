@@ -396,6 +396,41 @@ module PluginProtocol =
 
     let methodOf (root: JsonElement) : string = root.GetProperty("method").GetString()
 
+    /// A line with a `method` is a request; without one it is a response.
+    /// Both peers send both: the editor asks the host to scan/invoke, the
+    /// host asks the editor for read-backs (`readClipboard`).
+    let isRequest (root: JsonElement) : bool =
+        match root.TryGetProperty "method" with
+        | true, m -> m.ValueKind = JsonValueKind.String
+        | _ -> false
+
+    // ---- read-backs (host -> editor) ----------------------------------------
+
+    let editorRequest (id: int) (method: string) : string =
+        build (fun w ->
+            w.WriteStartObject()
+            w.WriteNumber("id", id)
+            w.WriteString("method", method)
+            w.WriteEndObject())
+
+    let valueResultJson (id: int) (value: string) : string =
+        build (fun w ->
+            w.WriteStartObject()
+            w.WriteNumber("id", id)
+            w.WriteBoolean("ok", true)
+            w.WriteString("value", value)
+            w.WriteEndObject())
+
+    /// The `value` of an ok response, or the error message.
+    let parseValueResult (json: string) : Result<string, string> =
+        use doc = JsonDocument.Parse json
+        let root = doc.RootElement
+
+        if root.GetProperty("ok").GetBoolean() then
+            Ok(root.GetProperty("value").GetString())
+        else
+            Result.Error(root.GetProperty("error").GetString())
+
     /// Request/response id; 0 when absent (pre-id peers).
     let idOf (root: JsonElement) : int =
         match root.TryGetProperty "id" with

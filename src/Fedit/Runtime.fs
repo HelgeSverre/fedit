@@ -504,6 +504,11 @@ module Runtime =
         // only ever sees the registry (stub Run closures) and PluginActions.
         let pluginHost = new PluginHostClient(PluginHostClient.defaultHostPath ())
 
+        pluginHost.OnRequest <-
+            function
+            | "readClipboard" -> attempt clipboardPaste
+            | other -> Result.Error $"unsupported request: {other}"
+
         // Language servers: one out-of-process client per server name +
         // resolved workspace root, spawned lazily by the LspSyncDocuments
         // interpreter. All document notifications (and restarts) chain onto

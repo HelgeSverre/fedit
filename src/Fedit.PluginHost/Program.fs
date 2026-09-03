@@ -47,13 +47,33 @@ let main _argv =
     let respond (json: string) =
         lock writeLock (fun () -> PluginProtocol.writeFrame stdout json)
 
+    // Read-backs: the host asks the editor and a plugin's Run blocks (on its
+    // pool thread) until the editor's response arrives on stdin.
+    let mutable nextEditorRequestId = 0
+    let editorReplies = ConcurrentDictionary<int, TaskCompletionSource<string>>()
+
+    let askEditor (method: string) : string =
+        let id = Interlocked.Increment &nextEditorRequestId
+
+        let tcs =
+            TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously)
+
+        editorReplies[id] <- tcs
+        respond (PluginProtocol.editorRequest id method)
+
+        match PluginProtocol.parseValueResult (tcs.Task.GetAwaiter().GetResult()) with
+        | Ok value -> value
+        | Result.Error message -> failwith message
+
+    let services: HostServices = { ReadClipboard = fun () -> askEditor "readClipboard" }
+
     /// Serve one request to completion (may await plugin work).
     let serve (id: int) (root: JsonElement) : Task<string> =
         task {
             match PluginProtocol.methodOf root with
             | "scan" ->
                 let pluginsRoot, disabled = PluginProtocol.parseScanRequest root
-                registry <- Plugins.scanAndLoad pluginsRoot apiDll disabled log
+                registry <- Plugins.scanAndLoadWith services pluginsRoot apiDll disabled log
                 return PluginProtocol.scanResultJson id registry
             | "invoke" ->
                 let command, ctx = PluginProtocol.parseInvokeRequest root
@@ -98,6 +118,15 @@ let main _argv =
                      Result.Error ex.Message)
             with
             | Result.Error message -> respond (PluginProtocol.errorJson 0 ("host error: " + message))
+            | Ok doc when not (PluginProtocol.isRequest doc.RootElement) ->
+                // The editor answering one of our read-backs.
+                let id = PluginProtocol.idOf doc.RootElement
+
+                match editorReplies.TryRemove id with
+                | true, tcs -> tcs.TrySetResult line |> ignore
+                | _ -> ()
+
+                doc.Dispose()
             | Ok doc ->
                 let root = doc.RootElement
                 let id = PluginProtocol.idOf root
@@ -105,6 +134,10 @@ let main _argv =
                 if PluginProtocol.methodOf root = "shutdown" then
                     running <- false
                     shutdown.Cancel()
+
+                    for KeyValue(_, tcs) in editorReplies do
+                        tcs.TrySetResult(PluginProtocol.errorJson 0 "shutting down") |> ignore
+
                     respond (PluginProtocol.errorJson id "shutting down")
                 else
                     Task.Run(fun () ->
