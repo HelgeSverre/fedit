@@ -416,6 +416,14 @@
     "bound": true
   },
   {
+    "stroke": "ctrl+space",
+    "action": "trigger-completion",
+    "context": "editor",
+    "category": "editing",
+    "description": "Open the completion popup",
+    "bound": true
+  },
+  {
     "stroke": "alt+shift+up",
     "action": "expand-selection",
     "context": "editor",

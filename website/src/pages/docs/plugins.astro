@@ -203,6 +203,36 @@ const actions = [
     use: "Move the current line or every line containing selected text down by count. Clamps at the bottom, creates one undo entry, and ignores non-positive counts.",
     sample: `[ MoveLinesDown 2 ]`,
   },
+  {
+    name: "ShowPanel",
+    arg: "string * Segment list list",
+    use: "Show a titled panel in the dock with styled lines. Stays until Escape, a prompt takes the dock, or a later ShowPanel replaces it; an empty lines list closes it.",
+    sample: `[ ShowPanel("Showcase", lines) ]`,
+  },
+  {
+    name: "SetStatusItem",
+    arg: "string option",
+    use: "Set (or clear with None) this plugin's status-bar text, rendered by the [PLUGINS] status token. One item per plugin; the latest wins.",
+    sample: `[ SetStatusItem(Some $"{ctx.AllBuffers.Length} buffers") ]`,
+  },
+  {
+    name: "ShowPicker",
+    arg: "string * PickerEntry list * string",
+    use: "Open a filterable picker of items. Choosing one runs the named onSelect command with the entry's Id as the argument; Escape closes without running anything.",
+    sample: `[ ShowPicker("Buffers", rows, "showcase-picked") ]`,
+  },
+  {
+    name: "PromptInput",
+    arg: "string * string * string",
+    use: "Ask the user for a line of text. Enter runs the named onSubmit command with the typed text as the argument; Escape cancels.",
+    sample: `[ PromptInput("Name", "", "showcase-answer") ]`,
+  },
+  {
+    name: "SetDecorations",
+    arg: "int * Decoration list",
+    use: "Replace this plugin's decorations on a buffer (by BufferView.Id); an empty list clears them. Decorations follow line numbers, not text — refresh them from a BufferChanged hook when they must track edits.",
+    sample: `[ SetDecorations(ctx.ActiveBuffer.Id, decorations) ]`,
+  },
 ];
 
 const lifecycle = [
