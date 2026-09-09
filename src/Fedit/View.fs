@@ -753,6 +753,134 @@ module Layout =
         if dockHeight > 1 then
             renderPickerFooter theme footerY width view.Footer screen
 
+    /// The cursor-anchored completion popover (config `completionStyle:
+    /// overlay`). A floating menu painted over the editor just below the
+    /// caret (or above it near the bottom edge), left-aligned with the
+    /// typed prefix. Keyboard handling is unchanged — only the surface
+    /// differs from the dock list.
+    let private renderCompletionOverlay (editorX: int) (mainHeight: int) (width: int) model screen =
+        match model.Completion with
+        | Some completion when not completion.Candidates.IsEmpty ->
+            let theme = effectiveTheme model
+            let chrome = chromeOf theme
+            let selected = selectedOf theme
+
+            let muted =
+                { chrome with
+                    Foreground = theme.SyntaxComment }
+
+            let buffer = Editor.activeBufferState model
+            let gutter = Buffer.gutterWidth buffer
+
+            let badge (candidate: CompletionCandidate) =
+                match candidate.Source with
+                | FromServer name -> name
+                | FromBuffer -> "buf"
+                | FromPlugin source -> source
+
+            let detailOf (c: CompletionCandidate) =
+                if System.String.IsNullOrEmpty c.Detail then
+                    ""
+                else
+                    c.Detail
+
+            // Truncate to fit, marking the cut with an ellipsis.
+            let ellipsize w (s: string) =
+                if w <= 0 then ""
+                elif s.Length <= w then s
+                elif w = 1 then "…"
+                else s[.. w - 2] + "…"
+
+            let count = completion.Candidates.Length
+            // Rows plus the top/bottom border; leave a row of slack.
+            let rowsShown = min count (min 10 (max 1 (mainHeight - 3)))
+
+            // Scroll so the selection stays visible.
+            let top =
+                if completion.Selected < rowsShown then
+                    0
+                else
+                    min (max 0 (count - rowsShown)) (completion.Selected - rowsShown + 1)
+
+            let widthOf f =
+                completion.Candidates |> List.map (f >> String.length) |> List.max
+
+            // Align details into a shared column: pad labels to the widest.
+            let labelWidth = widthOf (fun c -> c.Label) |> min 32
+            let detailWidth = widthOf detailOf
+            let badgeWidth = widthOf badge
+
+            // Inner text width: pad + label col + gap + detail + gap + badge + pad.
+            let innerWidth =
+                (1 + labelWidth + 2 + detailWidth + 2 + badgeWidth + 1) |> min 60 |> max 12
+
+            let boxWidth = innerWidth + 2
+            let boxHeight = rowsShown + 2
+
+            // Anchor: left edge aligned with the typed prefix start; drop
+            // below the caret, or flip above near the bottom edge.
+            let start, _ = completion.PrefixRange
+
+            let prefixCol =
+                start - Buffer.positionToIndex { buffer.Cursor with Column = 0 } buffer
+
+            let caretX = editorX + gutter + max 0 (prefixCol - buffer.ViewportLeft)
+            let caretY = buffer.Cursor.Line - buffer.ViewportTop
+            let boxX = max 0 (min caretX (width - boxWidth))
+
+            let boxY =
+                if caretY + 1 + boxHeight <= mainHeight then
+                    caretY + 1
+                else
+                    max 0 (caretY - boxHeight)
+
+            let border =
+                { chrome with
+                    Foreground = theme.OverlayBorderFg }
+
+            let horizontal = String.replicate innerWidth "─"
+            let current = screen
+
+            let writeRow y (text: string) =
+                if y >= 0 && y < mainHeight then
+                    Screen.writeText boxX y border boxWidth text current
+
+            // Top and bottom border.
+            writeRow boxY ("┌" + horizontal + "┐")
+            writeRow (boxY + boxHeight - 1) ("└" + horizontal + "┘")
+
+            for row in 0 .. rowsShown - 1 do
+                let index = top + row
+                let y = boxY + 1 + row
+
+                if index < count && y >= 0 && y < mainHeight then
+                    let candidate = completion.Candidates[index]
+                    let isSelected = index = completion.Selected
+                    let rowStyle = if isSelected then selected else chrome
+                    let b = badge candidate
+
+                    // Fill the inner cells and draw the side borders.
+                    Screen.fillRect (boxX + 1) y innerWidth 1 rowStyle ' ' current
+                    Screen.writeText boxX y border 1 "│" current
+                    Screen.writeText (boxX + innerWidth + 1) y border 1 "│" current
+
+                    // label column (padded) + detail, ellipsized to leave the
+                    // badge its right-aligned slot.
+                    let detail = detailOf candidate
+
+                    let body =
+                        pad labelWidth candidate.Label + (if detail <> "" then "  " + detail else "")
+
+                    let bodyRoom = innerWidth - 2 - (if b.Length > 0 then b.Length + 1 else 0)
+                    Screen.writeText (boxX + 2) y rowStyle (max 0 bodyRoom) (ellipsize bodyRoom body) current
+
+                    if b.Length > 0 then
+                        let bx = boxX + innerWidth - b.Length
+                        Screen.writeText bx y (if isSelected then rowStyle else muted) b.Length b current
+
+            current
+        | _ -> screen
+
     let render model =
         let theme = effectiveTheme model
         let accent = accentOf theme
@@ -913,5 +1041,13 @@ module Layout =
                       Top = commandY
                       Visible = true }
                     current
+
+        // Cursor-anchored completion popover, painted last so it floats over
+        // the editor. The dock style renders in the dock instead (above).
+        let current =
+            if model.Config.CompletionStyle = CompletionOverlay then
+                renderCompletionOverlay editorX mainHeight width model current
+            else
+                current
 
         current

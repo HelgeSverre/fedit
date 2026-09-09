@@ -99,6 +99,11 @@ These limits affect only LSP synchronization and optional location previews;
 they never prevent opening, editing, or saving a file. Protocol headers retain
 non-configurable framing limits because legitimate LSP headers are tiny.
 
+Plugins can offer servers too, through `IPluginHost.RegisterLanguageServer`
+(see [`plugins.md`](plugins.md)). They merge after your own entries, so a
+`languageServers` entry with the same name wins, and `:lsp disable` works
+on them like any other server.
+
 ## Navigation
 
 | Chord           | Secondary   | Action            | What it does                                                 |

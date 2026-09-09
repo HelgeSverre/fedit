@@ -70,6 +70,13 @@ type PanelsState =
       SidebarWidth: int
       DockHeight: int }
 
+/// How the completion popup is displayed. See `Config.CompletionStyle`.
+type CompletionStyle =
+    /// A list in the dock, above the status bar (the pickers' home).
+    | CompletionDock
+    /// A floating popover anchored just below the cursor, over the editor.
+    | CompletionOverlay
+
 /// What the mouse wheel scrolls. See `Config.ScrollMode`.
 type ScrollMode =
     /// Wheel moves the cursor line; the viewport follows (legacy behaviour).
@@ -147,6 +154,8 @@ type Config =
         /// view and drags the cursor only to honour `ScrollOff`; `ScrollLine`
         /// keeps the legacy behaviour where the wheel moves the cursor line.
         ScrollMode: ScrollMode
+        /// Where the completion popup renders: dock list or cursor overlay.
+        CompletionStyle: CompletionStyle
         /// Lines kept between the cursor and the top/bottom edge (vim/helix
         /// `scrolloff`). Applies to all cursor movement. Default 5 (helix).
         ScrollOff: int
@@ -190,6 +199,7 @@ module Config =
             "[MODE]  [CURRENT_FILE:short][DIRTY] <EXPAND> [NOTIFICATION][DIAGNOSTICS][PLUGINS]  [LINE]:[COLUMN]  [LINE_ENDING]  [BUFFER]"
           SyntaxHighlightingEnabled = true
           ScrollMode = ScrollViewport
+          CompletionStyle = CompletionDock
           ScrollOff = 5
           MouseScrollLines = 3
           AutoReveal = true

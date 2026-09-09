@@ -10,8 +10,6 @@ open System.Text
 /// (which carries the type + defaults).
 [<RequireQualifiedAccess>]
 module ConfigIO =
-    let private utf8WithoutBom = UTF8Encoding false
-
     let directory () =
         Path.Combine(Environment.GetFolderPath Environment.SpecialFolder.UserProfile, ".config", "fedit")
 
@@ -343,6 +341,12 @@ module ConfigIO =
                     | Some "viewport" -> ScrollViewport
                     | _ -> defaults.ScrollMode
 
+                let completionStyle =
+                    match getStringProp root "completionStyle" with
+                    | Some "overlay" -> CompletionOverlay
+                    | Some "dock" -> CompletionDock
+                    | _ -> defaults.CompletionStyle
+
                 let scrollOff =
                     getIntProp root "scrollOff"
                     |> Option.defaultValue defaults.ScrollOff
@@ -388,6 +392,7 @@ module ConfigIO =
                       StatusFormat = statusFormat
                       SyntaxHighlightingEnabled = syntaxHighlightingEnabled
                       ScrollMode = scrollMode
+                      CompletionStyle = completionStyle
                       ScrollOff = scrollOff
                       MouseScrollLines = mouseScrollLines
                       AutoReveal = autoReveal
@@ -493,6 +498,7 @@ module ConfigIO =
                                   ChromeBg = pickColor "chromeBg" d.ChromeBg
                                   HeaderFg = pickColor "headerFg" d.HeaderFg
                                   HeaderBg = pickColor "headerBg" d.HeaderBg
+                                  OverlayBorderFg = pickColor "overlayBorderFg" d.OverlayBorderFg
                                   PromptFg = pickColor "promptFg" d.PromptFg
                                   PromptBg = pickColor "promptBg" d.PromptBg
                                   LineNumberFg = pickColor "lineNumberFg" d.LineNumberFg
@@ -582,6 +588,11 @@ module ConfigIO =
             | ScrollLine -> "line"
             | ScrollViewport -> "viewport"
 
+        let completionStyleStr =
+            match config.CompletionStyle with
+            | CompletionDock -> "dock"
+            | CompletionOverlay -> "overlay"
+
         root["theme"] <- System.Text.Json.Nodes.JsonValue.Create config.Theme.Name
         root["recent"] <- recentArray
         root["disabledPlugins"] <- disabledPluginsArray
@@ -608,6 +619,7 @@ module ConfigIO =
         root["ignoredNames"] <- ignoredNamesArray
         root["useGitignore"] <- System.Text.Json.Nodes.JsonValue.Create config.Ignore.UseGitignore
         root["scrollMode"] <- System.Text.Json.Nodes.JsonValue.Create scrollModeStr
+        root["completionStyle"] <- System.Text.Json.Nodes.JsonValue.Create completionStyleStr
         root["scrollOff"] <- System.Text.Json.Nodes.JsonValue.Create config.ScrollOff
         root["mouseScrollLines"] <- System.Text.Json.Nodes.JsonValue.Create config.MouseScrollLines
 
