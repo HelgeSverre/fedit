@@ -10,8 +10,6 @@ open System.Text
 /// (which carries the type + defaults).
 [<RequireQualifiedAccess>]
 module ConfigIO =
-    let private utf8WithoutBom = UTF8Encoding false
-
     let directory () =
         Path.Combine(Environment.GetFolderPath Environment.SpecialFolder.UserProfile, ".config", "fedit")
 

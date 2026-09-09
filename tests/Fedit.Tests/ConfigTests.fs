@@ -422,3 +422,21 @@ let ``completionStyle round-trips through save and defaults to dock`` () =
         reloaded.CompletionStyle |> should equal CompletionOverlay
     finally
         File.Delete configPath
+
+[<Fact>]
+let ``autoReveal round-trips through save and defaults to true`` () =
+    let configPath = tempConfigPath ()
+    Directory.CreateDirectory(Path.GetDirectoryName configPath) |> ignore
+
+    try
+        File.WriteAllText(configPath, "{}")
+        let defaults, _ = ConfigIO.loadFrom configPath []
+        defaults.AutoReveal |> should equal true
+
+        ConfigIO.saveTo configPath { defaults with AutoReveal = false }
+
+        let reloaded, error = ConfigIO.loadFrom configPath []
+        error |> should equal None
+        reloaded.AutoReveal |> should equal false
+    finally
+        File.Delete configPath

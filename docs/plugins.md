@@ -338,6 +338,62 @@ on (the user keeps typing): a run that honours it answers "cancelled",
 which the editor drops silently; a run that ignores it still applies its
 actions against the newer buffer.
 
+### Hooks
+
+`RegisterHook` runs a command this plugin already registered whenever an
+editor event happens, with `PluginContext.Event` set to that event:
+
+```fsharp
+type PluginEvent =
+    | BufferSaved     // the active buffer was written to disk
+    | BufferOpened    // a file was opened into a new buffer
+    | BufferChanged   // the active buffer's text changed — fires per edit, keep it cheap
+    | FocusChanged    // keyboard focus moved between editor, sidebar and prompt
+```
+
+```fsharp
+host.RegisterCommand
+    { Name = "on-save"
+      Usage = "on-save"
+      Summary = "Note the last saved file in the status bar."
+      Run =
+        fun ctx ->
+            match ctx.Event with
+            | Some BufferSaved -> [ SetStatusItem(Some $"saved {ctx.ActiveBuffer.Name}") ]
+            | _ -> [] }
+
+host.RegisterHook(BufferSaved, "on-save")
+```
+
+The command runs after the editor has applied the change; actions it
+returns never re-fire hooks. `BufferChanged` fires on every edit, so keep
+its handler fast — it runs inline with typing.
+
+### Completion providers
+
+`RegisterCompletionProvider` offers candidates for files of the given
+extensions (without the dot). It runs async and cancellation-aware, like
+`RegisterAsyncCommand`, and its results merge into the popup alongside the
+language server and buffer-word completions:
+
+```fsharp
+host.RegisterCompletionProvider(
+    [ "zig" ],
+    fun ctx token ->
+        task {
+            return
+                [ { Label = "std"
+                    Insert = "std"
+                    Detail = "standard library"
+                    Kind = "module"
+                    SortKey = "0001" } ]
+        }
+)
+```
+
+`SortKey` orders candidates within the popup (lower sorts first); `Kind`
+is a free-form label the popup may use as a badge.
+
 ## Language servers and grammars
 
 A plugin can offer a language server and ship a grammar; both use the

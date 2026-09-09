@@ -110,9 +110,6 @@ module TerminalCapabilities =
         | Some "iTerm.app" -> true
         | _ -> false
 
-    let private isTmux () = (env "TMUX").IsSome
-    let private isScreen () = (env "STY").IsSome
-
     /// Infer capabilities from environment variables only.
     /// Fast (~0ms) but fragile; used as the default path and as a
     /// fallback when OSC/DA queries time out or are disabled.
