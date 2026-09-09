@@ -20,13 +20,23 @@ let private matches (text: string) (path: string) (isDirectory: bool) =
 
 /// A throwaway directory populated from `entries`: `a/b.txt` is a file,
 /// `a/b/` a directory. `.gitignore` contents go in as ordinary files.
+/// Entries with characters illegal in a filename on this filesystem (e.g.
+/// `*` on Windows) are skipped rather than materialized — the differential
+/// check against git compares only what's actually on disk, so a skip keeps
+/// both sides in sync instead of desyncing expected vs. actual.
 let private tempTree (entries: (string * string) list) =
     let root =
         Path.Combine(Path.GetTempPath(), "fedit-ignore-" + Path.GetRandomFileName())
 
     Directory.CreateDirectory root |> ignore
 
-    for relative, contents in entries do
+    let invalidChars = Path.GetInvalidFileNameChars()
+
+    let representable (relative: string) =
+        relative.TrimEnd('/').Split('/')
+        |> Array.forall (fun s -> s.IndexOfAny(invalidChars) < 0)
+
+    for relative, contents in entries |> List.filter (fst >> representable) do
         let full = Path.Combine(root, relative)
 
         if relative.EndsWith "/" then

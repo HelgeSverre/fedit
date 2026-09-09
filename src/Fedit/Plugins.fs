@@ -620,11 +620,13 @@ module Plugins =
                             // Relative library/queries paths are the plugin folder's.
                             collector.Languages
                             |> List.map (fun grammar ->
+                                // Fedit.PluginHost links this file standalone (no Fedit.Primitives),
+                                // so normalize inline rather than via Paths.norm.
                                 let resolve (p: string) =
                                     if Path.IsPathRooted p then
-                                        p
+                                        p.Replace('\\', '/')
                                     else
-                                        Path.Combine(loaded.Path, p)
+                                        Path.Combine(loaded.Path, p).Replace('\\', '/')
 
                                 { grammar with
                                     Library = resolve grammar.Library

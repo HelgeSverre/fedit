@@ -281,7 +281,7 @@ let ``a plugin's language server and grammar reach the editor and the grammar hi
 
         let grammar = registry.Languages |> List.find (fun g -> g.Name = "showcase")
         Assert.True(Path.IsPathRooted grammar.Library, "library path resolved against the plugin folder")
-        Assert.Equal(Path.Combine(grammars, "libtree-sitter-showcase.dylib"), grammar.Library)
+        Assert.Equal(Paths.norm (Path.Combine(grammars, "libtree-sitter-showcase.dylib")), grammar.Library)
 
         if File.Exists native then
             // The editor side: the spec lands in the highlight registry.
