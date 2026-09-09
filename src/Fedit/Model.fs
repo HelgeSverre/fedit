@@ -70,7 +70,6 @@ type PanelsState =
       SidebarWidth: int
       DockHeight: int }
 
-/// What the mouse wheel scrolls. See `Config.ScrollMode`.
 /// How the completion popup is displayed. See `Config.CompletionStyle`.
 type CompletionStyle =
     /// A list in the dock, above the status bar (the pickers' home).
@@ -78,6 +77,7 @@ type CompletionStyle =
     /// A floating popover anchored just below the cursor, over the editor.
     | CompletionOverlay
 
+/// What the mouse wheel scrolls. See `Config.ScrollMode`.
 type ScrollMode =
     /// Wheel moves the cursor line; the viewport follows (legacy behaviour).
     | ScrollLine

@@ -839,7 +839,7 @@ module Layout =
                     Foreground = theme.OverlayBorderFg }
 
             let horizontal = String.replicate innerWidth "─"
-            let mutable current = screen
+            let current = screen
 
             let writeRow y (text: string) =
                 if y >= 0 && y < mainHeight then
