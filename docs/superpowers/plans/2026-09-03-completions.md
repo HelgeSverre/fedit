@@ -1,7 +1,7 @@
 # Completions and the completion provider interface
 
 Status: in progress, 2026-09-03. Phases 1-3 shipped (buffer words, LSP, plugin providers); phase 4 (polish) pending. Follows the extension
-surface shipped in `docs/superpowers/2026-09-02-extension-surface.md`; the
+surface shipped in `docs/archived/2026-09-02-extension-surface.md`; the
 provider interface is the last item that document deferred.
 
 ## Goal

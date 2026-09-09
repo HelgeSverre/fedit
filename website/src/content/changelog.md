@@ -1,3 +1,12 @@
+## v1.10.0 — 2026-09-09
+
+- Added a completion popup with three merged sources: words already in the buffer, the language server, and plugin-supplied providers.
+- Added a `completionStyle` option to render completions as a floating popover anchored to the cursor instead of the dock list.
+- Plugins can now paint per-line gutter marks and virtual text (`SetDecorations`) and read the system clipboard mid-run.
+- Added word-jump and word-delete to the command palette and pickers; fixed `Enter` dismissing the palette instead of picking an arrow-selected completion.
+- Restacked the bottom UI so the status bar always occupies the last row; dock titles now use a dedicated header color.
+- Fixed two Windows-only bugs: a test fixture using a filename illegal on NTFS, and plugin grammar paths carrying backslashes instead of the canonical forward slash.
+
 ## v1.9.0 — 2026-07-29
 
 - Added language-server configuration, diagnostics, hover, definition and reference navigation, jump-back, and the `lsp` manager.
