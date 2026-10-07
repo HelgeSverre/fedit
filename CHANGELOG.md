@@ -102,6 +102,7 @@ live in [`TODO.md`](TODO.md).
 | Completion overlay | New `completionStyle` config (`dock` default, `overlay`): completion candidates can render as a floating popover anchored just below the cursor, over the editor, instead of the dock list — freeing the dock while it's open. New `OverlayBorderFg` theme slot for the popover's frame, on all 13 bundled themes. |
 | Cross-platform | Fixed two Windows-only bugs surfaced by CI: a test fixture materialized a file literally named `foo*` (legal on Unix, illegal on NTFS); and `Plugins.fs` resolved a plugin's grammar/query paths with `Path.Combine`, which emits `\` on Windows, violating fedit's canonical forward-slash path convention. |
 | 1.10.0 — completions & extension surface | Minor release: the three-phase completion popup (buffer words, LSP, plugin providers) with a cursor-anchored overlay option, the plugin extension surface's remaining pieces (decorations, clipboard read-backs, hook/rescan/error hardening), and a command-palette UX pass (word motion, status bar restack, arrow-select `Enter` fix). Editor + plugin host bumped to 1.10.0; plugin API unchanged at 1.3.0. |
+| 1.10.1 — dependency maintenance | Updated Microsoft.NET.Test.Sdk to 18.10.1, coverlet.collector to 10.1.0, Fantomas to 8.0.7, and BenchmarkDotNet to 0.15.8; applied Fantomas 8 formatting and refreshed compatible website dependencies. Editor + plugin host bumped to 1.10.1; plugin API unchanged at 1.3.0. |
 
 ## Architecture review findings (all resolved)
 

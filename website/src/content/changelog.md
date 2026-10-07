@@ -1,3 +1,9 @@
+## v1.10.1 — 2026-10-07
+
+- Updated the test SDK, coverage collector, formatter, and benchmark tooling.
+- Applied the formatting change required by Fantomas 8.
+- Refreshed compatible website dependencies and upgraded its formatter.
+
 ## v1.10.0 — 2026-09-09
 
 - Added a completion popup with three merged sources: words already in the buffer, the language server, and plugin-supplied providers.

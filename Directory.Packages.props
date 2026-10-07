@@ -15,7 +15,7 @@
          Check.QuickThrowOnFailure inside plain facts instead. -->
     <PackageVersion Include="FsCheck"                     Version="3.4.0" />
     <PackageVersion Include="coverlet.collector"          Version="10.1.0" />
-    <PackageVersion Include="BenchmarkDotNet"             Version="0.15.2" />
+    <PackageVersion Include="BenchmarkDotNet"             Version="0.15.8" />
     <PackageVersion Include="TreeSitter.DotNet"           Version="1.3.0" />
   </ItemGroup>
 </Project>
