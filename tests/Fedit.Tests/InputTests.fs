@@ -278,7 +278,7 @@ let private terminalWithKeys (text: string) =
             match ch with
             | '\u001b' -> ConsoleKey.Escape
             | '\r' -> ConsoleKey.Enter
-            | c when c >= 'a' && c <= 'z' -> enum<ConsoleKey> (int ConsoleKey.A + int c - int 'a')
+            | c when c >= 'a' && c <= 'z' -> enum<ConsoleKey>(int ConsoleKey.A + int c - int 'a')
             | _ -> enum<ConsoleKey> 0
 
         term.PendingKeys.Enqueue(ConsoleKeyInfo(ch, key, false, false, false))
