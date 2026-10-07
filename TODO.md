@@ -1193,7 +1193,7 @@ don't.
       | Delete of pos: int * removed: string  // keep removed text so undo can re-insert
   ```
 - `BufferRevision` becomes `{ Delta: Delta; Cursor: Position;
-PreferredColumn: int option; Dirty: bool }`.
+  PreferredColumn: int option; Dirty: bool }`.
 - `pushUndo` accepts a `Delta` arg from the edit primitive that
   produced it. `replaceRange` knows the deleted range + inserted
   text — emit `Delete` of removed content followed by `Insert`, or
@@ -1561,7 +1561,7 @@ them block work; pick up alongside the next docs pass.
   OS + terminal, reproduction. No 12-field template; the project is
   small and a heavy template suppresses real reports.
 - **`.github/PULL_REQUEST_TEMPLATE.md`** — three checkboxes: `just
-check` passes, screenshot for UI changes, `CHANGELOG.md` entry.
+  check` passes, screenshot for UI changes, `CHANGELOG.md` entry.
 - **`FUNDING.yml`** — skip unless Helge wants Sponsors visible; an
   empty Sponsor button is worse than no button.
 - **`CODEOWNERS`** — skip while the repo is single-maintainer. Add when

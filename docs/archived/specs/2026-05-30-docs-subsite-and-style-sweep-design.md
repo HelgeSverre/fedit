@@ -116,7 +116,7 @@ Props mirror `Site.astro` (`title`, `description`, `image`) and pass through.
     - Non-JSON `fedit keybinds` (no flag) prints a human-readable table (nice to
       have; keep minimal).
 2. `just website::gen-keybinds` recipe runs `./fedit keybinds --json >
-website/src/data/keybindings.json`. The JSON is **committed** so web builds
+   website/src/data/keybindings.json`. The JSON is **committed** so web builds
    never require the binary. Recipe documented as the regen step when bindings
    change.
 

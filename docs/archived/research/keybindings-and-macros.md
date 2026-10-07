@@ -26,13 +26,13 @@ Recommended design, in five pillars:
 1. **One recursive `Action` DU** naming every bindable operation, with a
    `Chain of Action list` case (macros and multi-action bindings come for
    free), dispatched by a single `runAction : Action -> Model -> Model *
-Effect list`. Collapses today's three scattered dispatch sites.
+   Effect list`. Collapses today's three scattered dispatch sites.
 2. **A richer key model**: a `Chord` (modifiers + key) over an expanded key
    universe (Ctrl+Shift, F-keys, any Ctrl+letter), and a `KeyStroke = Chord
-list` for sequences (`ctrl-k ctrl-c`). Pending-prefix state in the Model
+   list` for sequences (`ctrl-k ctrl-c`). Pending-prefix state in the Model
    with a configurable timeout, shown in the status bar.
 3. **Per-context keymaps** keyed by a _closed enum_ (`Editor | Sidebar |
-Prompt | Global`), resolved with Zed's two-tier rule (context
+   Prompt | Global`), resolved with Zed's two-tier rule (context
    specificity, then load order so user config overrides defaults), with
    `null`/`unbind` to drop a default.
 4. **Config format**: a type-safe **internal F# DSL for the compiled-in
@@ -91,7 +91,7 @@ unify these into one `Action` type and one dispatcher.**
 The plugin API already has half of this:
 
 - `KeyChord` (`Fedit.PluginApi/Types.fs:56-61`): `Char | Ctrl | Alt |
-CtrlShift | F of int`.
+  CtrlShift | F of int`.
 - Plugins register `(KeyChord * string)` pairs
   (`Host.fs:15`, collected in `Plugins.fs:46,243-247`).
 - `toKeyChord` (`Editor.fs:834-837`) maps a `KeyInput` to a `KeyChord` —
@@ -299,7 +299,7 @@ Sources: [IntelliJ keymap](https://www.jetbrains.com/help/idea/settings-keymap.h
   first error). Registers are shared with yank/delete, so you can yank text
   into a register and execute it, or paste a macro out, edit it, and yank it
   back. Append with an uppercase register; set without recording via `:let
-@a = '…'`. Recursive macros call themselves at the end.
+  @a = '…'`. Recursive macros call themselves at the end.
 - **Emacs keyboard macros** — same record/replay philosophy, richer tooling:
   `F3`/`F4` to record, `C-x e` to run, a macro _ring_, an **incrementing
   counter** (`C-x C-k C-i`), `name-last-kbd-macro` + `insert-kbd-macro` to
@@ -328,7 +328,7 @@ Record/replay is therefore additive, not a new engine:
   `Model` deltas. Re-feeding `KeyInput` means the _current_ keymap
   re-interprets the keys at replay (matching Vim/Emacs semantics).
 - **Register table is just more pure `Model` data**: `Map<char, KeyInput
-list>`, alongside buffers/cursors — mirroring Vim's "registers are shared
+  list>`, alongside buffers/cursors — mirroring Vim's "registers are shared
   data."
 - **Replay = re-enqueue** the recorded list into the existing queue, with a
   `replaying` guard so injected events aren't re-captured. Stop on first
@@ -379,9 +379,9 @@ and the [Betfair article](https://dev.to/bfexplorer/f-dsls-what-they-are-why-the
 1. **DUs as the AST / command vocabulary** — invalid bindings become
    unrepresentable. fedit already has the chord half (`KeyChord`).
 2. **Records + a list = declarative config** — exactly today's `(KeyChord *
-string) list`, promoted to a typed `Binding list`.
+   string) list`, promoted to a typed `Binding list`.
 3. **Custom operators** — `let (==>) chord cmd = …` gives `ctrl 's' ==>
-Save`, reading almost like Ghostty's `ctrl+s=save` but fully typed.
+   Save`, reading almost like Ghostty's `ctrl+s=save` but fully typed.
 4. **Computation expressions / builders** — `keymap { bind … }`. Over-
    engineering here; the record-list is clearer. CEs earn their keep only
    for short-circuit _sequencing_ (macro that bails on failure).
@@ -416,7 +416,7 @@ Key findings:
   minimalist editor likely wants. A bad script can also `StackOverflow` the
   host uncatchably.
 - **B3 already exists** (`Plugins.fs`: auto-generated fsproj → `dotnet build
--c Release` → `AssemblyLoadContext`, and a plugin already returns
+  -c Release` → `AssemblyLoadContext`, and a plugin already returns
   `Keybindings: (KeyChord * string) list`). Right home for power-user
   bindings/macros-as-functions; **wrong for casual rebinding** (needs the
   SDK + a multi-second build to change `ctrl+s`, and hot-reload would mean
@@ -538,7 +538,7 @@ type Keymap  = Binding list                          // defaults ++ user delta
 - **Resolution = Zed's two tiers**: context specificity first (a
   context-scoped binding beats a `Global` one for the same stroke), then
   load order (user delta appended after defaults → user wins). `Action =
-None` unbinds and suppresses fallback to the `Global` binding.
+  None` unbinds and suppresses fallback to the `Global` binding.
 - Build a `keystroke ↔ action/label` **index** at load so the command prompt
   can show bound keys and a future which-key popup can render continuations.
 
@@ -633,7 +633,7 @@ model is in the right state, else do the other thing."
 `When` tree in the flat line file — it would be unreadable. Instead:
 
 - **The line file binds strokes → _named_ actions** (`editor ctrl+b =
-reveal-or-focus-sidebar`). Always one line, never a conditional.
+  reveal-or-focus-sidebar`). Always one line, never a conditional.
 - **Composite/conditional logic is authored in the F# DSL defaults (or a
   plugin)** with `When`/`Chain`, type-checked, and _surfaced as a named
   action_.
