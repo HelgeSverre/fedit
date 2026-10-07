@@ -199,7 +199,7 @@ server request.
   `Ctrl+Space`) always opens. Automatic: opening after an identifier
   character or a server trigger character, debounced, gated by a
   `completions` config bool (default on). Auto-open sets `Interacted =
-false`.
+  false`.
 - **Keys while open** (handled in `runEditor` before the text-insert
   arm): Up/Down and Ctrl+P/Ctrl+N move the selection; Tab and Enter
   accept the selection (Enter inserts a newline instead when

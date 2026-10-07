@@ -87,7 +87,7 @@ type Line = Segment list
 Model changes, each one field:
 
 - `Model.Lsp.Panel : LspInfoPanel option` becomes `Model.InfoPanel :
-InfoPanel option` with an `Owner = Lsp | Plugin of source` and styled
+  InfoPanel option` with an `Owner = Lsp | Plugin of source` and styled
   lines. `Dock.panel` already falls through to it; hover and `:lsp log` keep
   working. The LSP owner keeps its dismiss-on-keypress rule.
 - `PickerKind` gains `PluginItems of source * commandName`. `Pickers.itemsForKind`

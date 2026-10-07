@@ -195,7 +195,7 @@ berry = "#2A2A4D"
   `{ green with Name = …; Accent = … }` records — Helix proves it scales to
   user themes. Our user-theme loader should support it.
 - **Value-as-string-or-record:** `key = "#fff"` or `key = { fg, bg,
-underline = { color, style }, modifiers = [...] }`.
+  underline = { color, style }, modifiers = [...] }`.
 - 17 built-in terminal color names usable without defining them
   (`red`, `light-blue`, …) — relevant to our NO_COLOR / 256-color paths.
 

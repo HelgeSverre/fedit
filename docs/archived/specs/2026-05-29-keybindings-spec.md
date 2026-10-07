@@ -253,7 +253,7 @@ target; `Action.ofCommand` lives in `Actions.fs`, which compiles after it.)
   Delete → `Named`; `F1..F24` → `Fn`; otherwise use `keyInfo.KeyChar` →
   `Char` when it is a printable character.
 - **Normalization (two cases):** - _Bare printable key_ (no `Ctrl`/`Alt`/`Super`): `Chord {Mods=∅; Key=Char
-c}` where `c` is the actual produced character — Shift lives in the
+  c}` where `c` is the actual produced character — Shift lives in the
   character itself (`A` vs `a`), not the modifier set. This is the text
   fast-path; the real char is what gets inserted. - _`Ctrl`/`Alt`/`Super` + letter_: `Chord {Mods=…; Key=Char (lowercased)}`;
   a held `Shift` stays in `Mods`, so `Ctrl+Shift+P` is distinct from
@@ -636,7 +636,7 @@ Designed so it drops into the above without rework (research §3.3):
   `Chord` to register `r` (pure — just a new Model) unless `Replaying`.
   `RecordMacro r` toggles the flag.
 - **Replay:** `ReplayMacro (r, n)` emits one new `Effect.ReplayKeys (chords,
-n)`; the runtime re-enqueues those `KeyPressed` msgs into the existing
+  n)`; the runtime re-enqueues those `KeyPressed` msgs into the existing
   `ConcurrentQueue` (the loop already drains it each tick), with `Replaying`
   set so the recorder ignores injected keys. Stop on first no-op so
   "replay 9999×" terminates.
