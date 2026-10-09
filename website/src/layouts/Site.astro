@@ -69,6 +69,13 @@ const ogImage = new URL(image, Astro.site).toString();
     <!-- robots -->
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="generator" content={Astro.generator} />
+
+    <!-- analytics -->
+    <script
+      is:inline
+      src="https://analytics.ahrefs.com/analytics.js"
+      data-key="LZBZ8vDXLImswAkkHX8+Bw"
+      async></script>
   </head>
   <body>
     <Header />
