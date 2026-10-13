@@ -1,3 +1,9 @@
+## v1.10.2 — 2026-10-13
+
+- Fixed the scheduled shell-completion checks failing when Murex raised its Go requirement.
+- Updated the completion test harness to Go 1.27.2, Nushell 0.116.1, Oils 0.38.0, and PowerShell 7.6.6.
+- Pinned Murex 7.3.1232 and Xonsh 0.24.2 so upstream releases no longer silently change the test environment.
+
 ## v1.10.1 — 2026-10-07
 
 - Updated the test SDK, coverage collector, formatter, and benchmark tooling.

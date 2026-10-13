@@ -1,17 +1,21 @@
 # Verifies generated shell-completion scripts load and complete correctly in
 # the shells we can't easily run in `dotnet test`. Generated scripts are
 # mounted read-only at /completions (see `just test-completions`).
-ARG NU_VER=0.113.0
+ARG NU_VER=0.116.1
 ARG ELV_VER=0.21.0
-ARG OILS_VER=0.37.0
-ARG PWSH_VER=7.4.6
+ARG OILS_VER=0.38.0
+ARG PWSH_VER=7.6.6
+# Murex v7.3.1232; its v7 tag cannot be used with its unversioned Go module path.
+ARG MUREX_VER=v0.0.0-20261012234507-6332fa1e89d3
+ARG XONSH_VER=0.24.2
 # Host arch by default; override for amd64 CI: --build-arg ARCH=x86_64 --build-arg ELVARCH=amd64
 ARG ARCH=aarch64
 ARG ELVARCH=arm64
 
 # --- murex (Go build) ---
-FROM golang:1.24-bookworm AS murexbuild
-RUN go install github.com/lmorg/murex@latest
+FROM golang:1.27.2-bookworm AS murexbuild
+ARG MUREX_VER
+RUN go install github.com/lmorg/murex@${MUREX_VER}
 
 # --- oils / osh (build from release tarball; verifies the bash emitter under OSH) ---
 FROM debian:bookworm-slim AS oilsbuild
@@ -28,6 +32,7 @@ FROM debian:bookworm-slim
 ARG NU_VER
 ARG ELV_VER
 ARG PWSH_VER
+ARG XONSH_VER
 ARG ARCH
 ARG ELVARCH
 # libicu72 is a pwsh runtime dependency.
@@ -43,7 +48,7 @@ RUN curl -fsSL "https://dl.elv.sh/linux-${ELVARCH}/elvish-v${ELV_VER}.tar.gz" -o
     && mkdir -p /tmp/elv && tar -xzf /tmp/elv.tgz -C /tmp/elv \
     && mv "$(find /tmp/elv -type f -name 'elvish*' | head -1)" /usr/local/bin/elvish \
     && chmod +x /usr/local/bin/elvish
-RUN pip install --break-system-packages --no-cache-dir xonsh
+RUN pip install --break-system-packages --no-cache-dir "xonsh==${XONSH_VER}"
 
 # PowerShell (official tar.gz; arch token derives from ARCH: aarch64→arm64, x86_64→x64)
 RUN case "$ARCH" in x86_64) pwsharch=x64 ;; *) pwsharch=arm64 ;; esac \

@@ -103,6 +103,7 @@ live in [`TODO.md`](TODO.md).
 | Cross-platform | Fixed two Windows-only bugs surfaced by CI: a test fixture materialized a file literally named `foo*` (legal on Unix, illegal on NTFS); and `Plugins.fs` resolved a plugin's grammar/query paths with `Path.Combine`, which emits `\` on Windows, violating fedit's canonical forward-slash path convention. |
 | 1.10.0 — completions & extension surface | Minor release: the three-phase completion popup (buffer words, LSP, plugin providers) with a cursor-anchored overlay option, the plugin extension surface's remaining pieces (decorations, clipboard read-backs, hook/rescan/error hardening), and a command-palette UX pass (word motion, status bar restack, arrow-select `Enter` fix). Editor + plugin host bumped to 1.10.0; plugin API unchanged at 1.3.0. |
 | 1.10.1 — dependency maintenance | Updated Microsoft.NET.Test.Sdk to 18.10.1, coverlet.collector to 10.1.0, Fantomas to 8.0.7, and BenchmarkDotNet to 0.15.8; applied Fantomas 8 formatting and refreshed compatible website dependencies. Editor + plugin host bumped to 1.10.1; plugin API unchanged at 1.3.0. |
+| 1.10.2 — completion harness maintenance | Fixed the scheduled completion harness build by upgrading Go to 1.27.2; updated Nushell to 0.116.1, Oils to 0.38.0, and PowerShell to 7.6.6. Pinned Murex 7.3.1232 by its Go pseudo-version and Xonsh 0.24.2 to prevent upstream dependency drift. Editor + plugin host bumped to 1.10.2; plugin API unchanged at 1.3.0. |
 
 ## Architecture review findings (all resolved)
 
