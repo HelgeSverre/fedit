@@ -5,10 +5,10 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="FSharp.Core"                 Version="10.1.401" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk"      Version="18.10.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk"      Version="18.11.0" />
     <PackageVersion Include="xunit"                       Version="2.9.3" />
-    <PackageVersion Include="xunit.runner.visualstudio"   Version="4.0.0" />
-    <PackageVersion Include="FsUnit.xUnit"                Version="7.1.1" />
+    <PackageVersion Include="xunit.runner.visualstudio"   Version="4.0.1" />
+    <PackageVersion Include="FsUnit.xUnit"                Version="8.0.0" />
     <!-- FsCheck core only: the FsCheck.Xunit adapter's [<Property>]
          discoverer is silently skipped under xunit 2.9.3 +
          xunit.runner.visualstudio 3.x, so properties run via
